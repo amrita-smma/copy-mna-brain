@@ -101,4 +101,21 @@ describe('readPageContext', () => {
     )) as string;
     expect(result).toContain('full-screen chat');
   });
+
+  it('surfaces the open insight_id when an insight is open', async () => {
+    const result = (await readPageContext.invoke(
+      {},
+      {
+        configurable: {
+          pageContext: {
+            tabSlug: 'insight',
+            path: '/insight/22222222-3333-4444-5555-666666666666',
+            insightId: '22222222-3333-4444-5555-666666666666',
+          },
+        },
+      },
+    )) as string;
+
+    expect(result).toContain('insight_id 22222222-3333-4444-5555-666666666666');
+  });
 });

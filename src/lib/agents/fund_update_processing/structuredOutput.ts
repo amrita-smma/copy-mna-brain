@@ -31,6 +31,7 @@ export interface StructuredOutputOptions<T> {
   systemPrompt?: string;
   prompt: string | BaseMessage[];
   model?: string;
+  effort?: 'low' | 'medium' | 'high' | 'max';
   maxTokens?: number;
   maxRetries?: number;
   toolName?: string;
@@ -54,6 +55,7 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
     systemPrompt,
     prompt,
     model = 'claude-sonnet-5',
+    effort = 'low',
     maxTokens = 32000,
     maxRetries = 2,
     toolName = 'extract_structured_data',
@@ -67,6 +69,8 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
       throw new Error('ANTHROPIC_API_KEY is not configured');
     }
 
+    const supportsEffort = !model.toLowerCase().includes('haiku');
+
     llm = new ChatAnthropic({
       model,
       anthropicApiKey: apiKey,
@@ -74,6 +78,9 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
       maxTokens,
       streaming: true,
       callbacks: getLangfuseCallbacks(),
+      // Anthropic defaults to high effort when output_config is omitted; low effort is sufficient for schema-constrained output.
+      // Haiku models reject output_config.effort, so omit outputConfig when unsupported.
+      ...(supportsEffort ? { outputConfig: { effort } } : {}),
     });
   }
 

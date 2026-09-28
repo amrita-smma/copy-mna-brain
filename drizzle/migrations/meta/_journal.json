@@ -1002,6 +1002,20 @@
       "when": 1789603200000,
       "tag": "20260917000000_add_deal_documents_is_featured",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1790553601000,
+      "tag": "20260928000001_insights",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1790553602000,
+      "tag": "20260928000002_copilot_chat_effort_tier_and_agent_key",
+      "breakpoints": true
     }
   ]
 }

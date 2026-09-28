@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { invoke, ctor } = vi.hoisted(() => ({ invoke: vi.fn(), ctor: vi.fn() }));
+
+vi.mock('@langchain/anthropic', () => ({
+  ChatAnthropic: class {
+    invoke = invoke;
+    constructor(opts: unknown) {
+      ctor(opts);
+    }
+  },
+}));
+
+import {
+  buildRouterPrompt,
+  parseRoutedEffort,
+  routeEffort,
+  shouldRoute,
+  resolveTurnEffort,
+  ROUTER_FALLBACK,
+} from './effortRouter';
+
+beforeEach(() => {
+  invoke.mockReset();
+  ctor.mockReset();
+});
+
+describe('parseRoutedEffort', () => {
+  it('reads a bare tier word', () => {
+    expect(parseRoutedEffort('low')).toBe('low');
+    expect(parseRoutedEffort('  HIGH\n')).toBe('high');
+    expect(parseRoutedEffort('medium.')).toBe('medium');
+    expect(parseRoutedEffort('deep')).toBe('deep');
+  });
+
+  it('never yields max, which no tier may reach automatically', () => {
+    expect(parseRoutedEffort('max')).toBeNull();
+    expect(parseRoutedEffort('xhigh')).toBeNull();
+  });
+
+  it('takes the first tier word when the model writes a sentence', () => {
+    expect(parseRoutedEffort('This looks like a low effort lookup.')).toBe('low');
+  });
+
+  it('returns null when no tier is present so the caller can fall back', () => {
+    expect(parseRoutedEffort('I cannot help with that')).toBeNull();
+    expect(parseRoutedEffort('')).toBeNull();
+  });
+});
+
+describe('shouldRoute', () => {
+  it('routes a never-routed thread or a turn with an attachment, and reuses the stored tier otherwise', () => {
+    expect(shouldRoute(null, false)).toBe(true);
+    expect(shouldRoute('low', true)).toBe(true);
+    expect(shouldRoute('low', false)).toBe(false);
+  });
+});
+
+describe('buildRouterPrompt', () => {
+  it('mentions attachments and the page in view when present', () => {
+    const prompt = buildRouterPrompt({
+      message: 'summarize this',
+      hasAttachments: true,
+      pageSummary: '/companies/acme',
+    });
+    expect(prompt).toContain('summarize this');
+    expect(prompt).toContain('attachments');
+    expect(prompt).toContain('/companies/acme');
+  });
+
+  it('omits the optional lines when there is nothing to report', () => {
+    const prompt = buildRouterPrompt({ message: 'hello' });
+    expect(prompt).not.toContain('attachments');
+    expect(prompt).not.toContain('viewing');
+  });
+
+  it('truncates a very long turn so routing stays cheap', () => {
+    const prompt = buildRouterPrompt({ message: 'x'.repeat(10_000) });
+    expect(prompt.length).toBeLessThan(4_100);
+  });
+});
+
+describe('routeEffort', () => {
+  it('returns the tier the model picked', async () => {
+    invoke.mockResolvedValue({ content: 'high' });
+    await expect(routeEffort({ message: 'analyse Acme' }, 'k')).resolves.toBe('high');
+  });
+
+  it('reads the tier out of block-array content when thinking is on', async () => {
+    invoke.mockResolvedValue({
+      content: [
+        { type: 'thinking', thinking: 'ignored' },
+        { type: 'text', text: 'low' },
+      ],
+    });
+    await expect(routeEffort({ message: 'what is the EBITDA' }, 'k')).resolves.toBe('low');
+  });
+
+  it('runs the routing call itself on a small fast model at low effort', async () => {
+    invoke.mockResolvedValue({ content: 'low' });
+    await routeEffort({ message: 'hi' }, 'k');
+    expect(ctor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-sonnet-5',
+        outputConfig: { effort: 'low' },
+      }),
+    );
+  });
+
+  it('returns null without calling the model on an empty turn', async () => {
+    await expect(routeEffort({ message: '   ' }, 'k')).resolves.toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('returns null rather than throwing when the call fails', async () => {
+    invoke.mockRejectedValue(new Error('timeout'));
+    await expect(routeEffort({ message: 'analyse Acme' }, 'k')).resolves.toBeNull();
+  });
+});
+
+describe('resolveTurnEffort', () => {
+  it('pins the thread to explicit requested effort', () => {
+    expect(resolveTurnEffort({ requested: 'high', stored: 'low', routed: 'deep' })).toBe('high');
+    expect(resolveTurnEffort({ requested: 'low', stored: 'high', routed: 'high' })).toBe('low');
+  });
+
+  it('falls back to ROUTER_FALLBACK (medium, not low) when nothing is stored or routed', () => {
+    expect(resolveTurnEffort({})).toBe('medium');
+    expect(resolveTurnEffort({ requested: null, stored: null, routed: null })).toBe(ROUTER_FALLBACK);
+  });
+
+  it('uses routed effort for brand-new thread with no stored tier', () => {
+    expect(resolveTurnEffort({ routed: 'deep' })).toBe('deep');
+  });
+
+  it('escalates but never de-escalates an existing thread', () => {
+    expect(resolveTurnEffort({ stored: 'low', routed: 'high' })).toBe('high');
+    expect(resolveTurnEffort({ stored: 'high', routed: 'low' })).toBe('high');
+    expect(resolveTurnEffort({ stored: 'medium', routed: 'deep' })).toBe('deep');
+  });
+
+  it('falls back to stored tier when routing fails on an existing thread', () => {
+    expect(resolveTurnEffort({ stored: 'low', routed: null })).toBe('low');
+  });
+});

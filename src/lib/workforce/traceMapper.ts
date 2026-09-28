@@ -12,18 +12,20 @@
  * HumanMessages are skipped (they're the user prompt, surfaced separately
  * above the trace).
  *
- * Caveat — timestamps: BaseMessage doesn't carry per-message timestamps,
- * and per-step checkpoint timestamps would require walking the checkpoint
- * chain. v1 uses the task's started_at for every step (formatted HH:MM:SS).
- * If users need finer granularity later, lift timestamps from the checkpoint
- * chain via `checkpointer.list()`.
+ * Timestamps: BaseMessage doesn't carry per-message timestamps. We match
+ * messages against checkpoint writes via matchMessageTimestamps (reading
+ * the checkpoint child/write ts), falling back to started_at when timestamps
+ * are omitted, unmatched, or for steps not tied to a message.
  */
 import type { BaseMessage } from "@langchain/core/messages";
 import { AIMessage, ToolMessage, HumanMessage } from "@langchain/core/messages";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 import type { HumanDecision } from "@/lib/db/schema";
+import { ASK_OWNER_TOOL_NAME, readAskOwnerArgs } from "@/lib/agents/analysis/hitl";
+import type { CheckpointMessageWrite } from "@/lib/repositories";
 import type {
   AvatarTone,
+  InterventionAsk,
   InterventionData,
   LiveRow,
   LiveRowStatus,
@@ -83,6 +85,14 @@ export interface BuildTraceInput {
   // emitted as 'skipped' instead of being hidden, so the user can see what
   // would have happened. Ignored unless `terminal` is also true.
   cancelled?: boolean;
+  messageTimestamps?: (string | null)[];
+  // Display name of the user a pending intervention is addressed to
+  // (pending_intervention.asked_user_id), for "Waiting for <name>".
+  waitingFor?: string;
+  // Actors keyed by user id, for labelling decisions made by someone other
+  // than `actor` (HumanDecision.decided_by_user_id — e.g. an insight owner
+  // answering a scheduled refresh). Missing ids fall back to `actor`.
+  deciders?: Record<string, TraceActor>;
 }
 
 // HITLRequest shape from langchain's humanInTheLoopMiddleware (hitl.js).
@@ -131,6 +141,12 @@ function coerceContent(content: unknown): string {
       })
       .join("");
     if (text) return text;
+    // An assistant message with no text block is normal — a turn can be pure
+    // thinking + server-side tool use. JSON.stringify-ing it spills the raw
+    // block array at the user, including base64 `encrypted_content` and
+    // `signature` fields that are megabytes of noise and mean nothing to them.
+    // Say nothing rather than that; the tool rows alongside carry the detail.
+    return "";
   }
   try {
     return JSON.stringify(content);
@@ -227,6 +243,34 @@ function deriveToolStatus(
         }
       }
       return undefined;
+    case "create_insight": {
+      if (/^Created insight/i.test(content))
+        return { label: "created", tone: "pass" };
+      if (/^Rejection:/i.test(content))
+        return { label: "refused", tone: "fail" };
+      return undefined;
+    }
+    case "edit_insight_section": {
+      if (/^Updated section/i.test(content))
+        return { label: "updated", tone: "pass" };
+      if (/^Rejection:/i.test(content))
+        return { label: "refused", tone: "fail" };
+      return undefined;
+    }
+    case "replace_insight_document": {
+      if (/^Replaced the document/i.test(content))
+        return { label: "updated", tone: "pass" };
+      if (/^Rejection:/i.test(content))
+        return { label: "refused", tone: "fail" };
+      return undefined;
+    }
+    case "get_insight": {
+      if (/not found in this workspace/i.test(content))
+        return { label: "not found", tone: "warn" };
+      if (/^Insight:/i.test(content))
+        return { label: "found", tone: "pass" };
+      return undefined;
+    }
     default:
       return undefined;
   }
@@ -263,8 +307,21 @@ function buildResolved(
   actor: TraceActor,
 ): InterventionData {
   let text: string;
-  let mappedDecision: "approved" | "modified";
-  if (decision.decision === "approve") {
+  let mappedDecision: "approved" | "modified" | "answered" | "rejected";
+  if (decision.tool_name === ASK_OWNER_TOOL_NAME) {
+    if (decision.decision === "reject") {
+      text = decision.rejection_message
+        ? `Declined: ${decision.rejection_message}`
+        : "Declined to answer";
+      mappedDecision = "rejected";
+    } else if (decision.decision === "approve") {
+      text = `Accepted the recommendation: ${decision.answer ?? ""}`.trim();
+      mappedDecision = "approved";
+    } else {
+      text = `Answered: ${decision.answer ?? ""}`.trim();
+      mappedDecision = "answered";
+    }
+  } else if (decision.decision === "approve") {
     text = "Approved as proposed";
     mappedDecision = "approved";
   } else if (decision.decision === "edit") {
@@ -293,8 +350,23 @@ function buildResolved(
 interface PendingInterrupt {
   question: string;
   proposal: string | undefined;
+  ask: InterventionAsk | undefined;
   toolName: string;
   toolCallId: string | undefined;
+}
+
+function deriveInterventionAsk(
+  toolName: string,
+  args: unknown,
+): InterventionAsk | undefined {
+  if (toolName !== ASK_OWNER_TOOL_NAME) return undefined;
+  const ask = readAskOwnerArgs(args);
+  if (!ask) return undefined;
+  return {
+    recommendation: ask.recommendation,
+    ...(ask.rationale ? { rationale: ask.rationale } : {}),
+    ...(ask.options ? { options: ask.options } : {}),
+  };
 }
 
 /**
@@ -345,14 +417,58 @@ function extractPendingInterrupts(
     const question =
       descRaw.trim() || `Approval required for ${toolName || "tool call"}`;
     const proposal = deriveInterventionProposal(toolName, first?.args);
+    const ask = deriveInterventionAsk(toolName, first?.args);
     out.push({
       question,
       proposal,
+      ask,
       toolName,
       toolCallId: toolName ? lastAiToolCallsByName.get(toolName) : undefined,
     });
   }
   return out;
+}
+
+export function matchMessageTimestamps(
+  messages: BaseMessage[],
+  writes: CheckpointMessageWrite[],
+): (string | null)[] {
+  const aiById = new Map<string, string>();
+  const toolByCallId = new Map<string, string>();
+  const humanTimestamps: string[] = [];
+
+  for (const w of writes) {
+    if (w.kind === "ai" && w.id) {
+      if (!aiById.has(w.id)) {
+        aiById.set(w.id, w.ts);
+      }
+    } else if (w.kind === "tool" && w.toolCallId) {
+      if (!toolByCallId.has(w.toolCallId)) {
+        toolByCallId.set(w.toolCallId, w.ts);
+      }
+    } else if (w.kind === "human") {
+      humanTimestamps.push(w.ts);
+    }
+  }
+
+  let humanIndex = 0;
+  return messages.map((msg) => {
+    if (AIMessage.isInstance(msg)) {
+      const id = msg.id ?? readAi(msg).id;
+      return (id ? aiById.get(id) : undefined) ?? null;
+    }
+    if (ToolMessage.isInstance(msg)) {
+      const toolCallId = readTool(msg).tool_call_id;
+      return (toolCallId ? toolByCallId.get(toolCallId) : undefined) ?? null;
+    }
+    if (HumanMessage.isInstance(msg)) {
+      if (humanIndex < humanTimestamps.length) {
+        return humanTimestamps[humanIndex++];
+      }
+      return null;
+    }
+    return null;
+  });
 }
 
 export function buildTrace(input: BuildTraceInput): TraceData[] {
@@ -364,8 +480,10 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     startedAt,
     terminal = false,
     cancelled = false,
+    messageTimestamps,
+    waitingFor,
+    deciders,
   } = input;
-  const baseTimestamp = formatTime(startedAt);
   const steps: TraceData[] = [];
 
   // Latest plan declared via narrate_step(plan: [...]). The agent is asked
@@ -409,7 +527,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
           stepNumber: aiIndex + 1,
           title: "Follow-up instruction",
           description: content,
-          timestamp: baseTimestamp,
+          timestamp: formatTime(messageTimestamps?.[i] ?? startedAt),
         });
         aiIndex++;
       }
@@ -531,10 +649,15 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       const decision = findResolvedDecision(humanDecisions, tc?.id);
       if (decision) {
         const question =
-          decision.decision === "reject"
-            ? `Reject ${decision.tool_name}?`
-            : `Approve ${decision.tool_name}?`;
-        intervention = buildResolved(decision, question, actor);
+          decision.tool_name === ASK_OWNER_TOOL_NAME
+            ? decision.question ?? "Question for the owner"
+            : decision.decision === "reject"
+              ? `Reject ${decision.tool_name}?`
+              : `Approve ${decision.tool_name}?`;
+        const decider =
+          (decision.decided_by_user_id && deciders?.[decision.decided_by_user_id]) ||
+          actor;
+        intervention = buildResolved(decision, question, decider);
         status = "intervention-resolved";
         break;
       }
@@ -582,7 +705,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       stepNumber: aiIndex + 1,
       title,
       description,
-      timestamp: baseTimestamp,
+      timestamp: formatTime(messageTimestamps?.[i] ?? startedAt),
       ...(fullReport ? { fullReport } : {}),
       toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
       ...(outcomeChips.length > 0 ? { outcomeChips } : {}),
@@ -622,6 +745,8 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
         state: "waiting",
         question: first.question,
         ...(first.proposal ? { proposal: first.proposal } : {}),
+        ...(first.ask ? { ask: first.ask } : {}),
+        ...(waitingFor ? { waitingFor } : {}),
         tool_call_id: first.toolCallId,
         tool_name: first.toolName || undefined,
       };

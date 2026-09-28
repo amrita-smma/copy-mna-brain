@@ -21,6 +21,10 @@ import {
   valyuSearch,
   getToolDescriptions,
 } from "./index";
+import { SECTOR_CHAT_CORE_TOOLS, SECTOR_WORKFORCE_CORE_TOOLS } from "@/lib/agents/sector/coreTools";
+import { MINERBA_TOOLS } from "@/lib/agents/minerba/tools";
+import { DIKTI_TOOLS } from "@/lib/agents/dikti/tools";
+import { BANGUN_TOOLS } from "@/lib/agents/bangun/tools";
 
 /** The tool set each agent flavor is actually constructed with. */
 const AGENT_TOOL_LISTS = {
@@ -40,6 +44,16 @@ describe("agent tool lists", () => {
     expect(AGENT_TOOL_LISTS.workforce.map((t) => t.name)).toContain(
       "get_investment_theses",
     );
+  });
+
+  // ask_owner pauses a run for its owner's answer — only the workforce has
+  // the HITL middleware and the intervention card that resolve it.
+  it("exposes ask_owner to the workforce agent only", () => {
+    expect(AGENT_TOOL_LISTS.workforce.map((t) => t.name)).toContain("ask_owner");
+    for (const [flavor, list] of Object.entries(AGENT_TOOL_LISTS)) {
+      if (flavor === "workforce") continue;
+      expect(list.map((t) => t.name)).not.toContain("ask_owner");
+    }
   });
 
   it("exposes get_investment_theses to the M&A chat agent", () => {
@@ -72,6 +86,72 @@ describe("agent tool lists", () => {
     },
   );
 
+  it.each([
+    ["chat", AGENT_TOOL_LISTS.chat],
+    ["combined", AGENT_TOOL_LISTS.combined],
+    ["investment", AGENT_TOOL_LISTS.investment],
+    ["vc", AGENT_TOOL_LISTS.vc],
+  ])("exposes the insight proposal tools, but not replace_insight_document, to the %s agent", (_label, list) => {
+    const names = list.map((t) => t.name);
+    expect(names).toContain("propose_insight_create");
+    expect(names).toContain("propose_insight_edit");
+    expect(names).not.toContain("replace_insight_document");
+  });
+
+  it.each(Object.entries(AGENT_TOOL_LISTS))(
+    "does not offer propose_insight_template_create to the %s agent",
+    (_label, list) => {
+      expect(list.map((t) => t.name)).not.toContain("propose_insight_template_create");
+    },
+  );
+
+  // Sector agents read templates (get_insight_template) but don't author them.
+  it.each([
+    ["sector chat core", SECTOR_CHAT_CORE_TOOLS],
+    ["sector workforce core", SECTOR_WORKFORCE_CORE_TOOLS],
+    ["minerba chat", MINERBA_TOOLS.chat],
+    ["minerba workforce", MINERBA_TOOLS.workforce],
+    ["dikti chat", DIKTI_TOOLS.chat],
+    ["dikti workforce", DIKTI_TOOLS.workforce],
+    ["bangun chat", BANGUN_TOOLS.chat],
+    ["bangun workforce", BANGUN_TOOLS.workforce],
+  ])("keeps propose_insight_template_create out of the %s tools", (_label, list) => {
+    const names = list.map((t) => t.name);
+    expect(names).toContain("get_insight_template");
+    expect(names).not.toContain("propose_insight_template_create");
+  });
+
+  // Read-only and browser-free, so it lives in the shared base: a large
+  // template-based insight is handed off, and the workforce must read the
+  // template it was told to build from.
+  it.each(Object.entries(AGENT_TOOL_LISTS))(
+    "exposes get_insight_template to the %s agent",
+    (_label, list) => {
+      expect(list.map((t) => t.name)).toContain("get_insight_template");
+    },
+  );
+
+  // A scheduled refresh must read the insight (or its run draft) before it
+  // edits, and must be able to replace a document that has no data-section
+  // blocks. The workforce writes directly, so it never gets the proposal tools.
+  it("gives the workforce agent get_insight and replace_insight_document instead of the proposal tools", () => {
+    const names = AGENT_TOOL_LISTS.workforce.map((t) => t.name);
+    expect(names).toContain("get_insight");
+    expect(names).toContain("replace_insight_document");
+    expect(names).not.toContain("propose_insight_create");
+    expect(names).not.toContain("propose_insight_edit");
+  });
+
+  it.each(Object.entries(AGENT_TOOL_LISTS))(
+    "does not expose old dashboard tools to the %s agent",
+    (_label, list) => {
+      const names = list.map((t) => t.name);
+      expect(names).not.toContain("propose_dashboard_create");
+      expect(names).not.toContain("propose_dashboard_edit");
+      expect(names).not.toContain("get_dashboard_template");
+    },
+  );
+
   it.each(Object.entries(AGENT_TOOL_LISTS))(
     "registers each tool name exactly once in the %s list",
     (_label, list) => {
@@ -90,4 +170,12 @@ describe("getToolDescriptions", () => {
     expect(descriptions).toContain("get_investment_theses");
     expect(descriptions).toContain("investment mandate");
   });
+
+  it("describes the insight tools", () => {
+    const descriptions = getToolDescriptions();
+
+    expect(descriptions).toContain("propose_insight_create");
+    expect(descriptions).toContain("propose_insight_edit");
+  });
 });
+

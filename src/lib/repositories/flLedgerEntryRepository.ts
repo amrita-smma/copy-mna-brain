@@ -2,7 +2,9 @@ import { PAID_IN_WRITEOFF_SUBTYPE } from '@/lib/fundLedger/paidInAdjustment';
 import {
   and,
   asc,
+  desc,
   eq,
+  gte,
   inArray,
   lte,
   sql,
@@ -115,6 +117,40 @@ export class FlLedgerEntryRepository {
         asc(flLedgerEntries.entry_date),
         asc(flLedgerEntries.id),
       );
+    return rows.map((r: { entry: Tables<'fl_ledger_entries'> }) => r.entry);
+  }
+
+  async findRecentByWorkspaceId(
+    workspaceId: string,
+    opts: { limit: number; since?: Date },
+    executor?: DbClient,
+  ): Promise<Tables<'fl_ledger_entries'>[]> {
+    const rawLimit = opts?.limit ?? 50;
+    const limit = Math.min(Math.max(1, rawLimit), 50);
+
+    const conditions: SQL[] = [eq(flPositions.workspace_id, workspaceId)];
+    if (opts?.since) {
+      const sinceStr =
+        opts.since instanceof Date
+          ? opts.since.toISOString().slice(0, 10)
+          : String(opts.since).slice(0, 10);
+      conditions.push(gte(flLedgerEntries.entry_date, sinceStr));
+    }
+
+    const rows = await this.getExecutor(executor)
+      .select({ entry: flLedgerEntries })
+      .from(flLedgerEntries)
+      .innerJoin(
+        flPositions,
+        eq(flLedgerEntries.position_id, flPositions.id),
+      )
+      .where(and(...conditions))
+      .orderBy(
+        desc(flLedgerEntries.entry_date),
+        desc(flLedgerEntries.id),
+      )
+      .limit(limit);
+
     return rows.map((r: { entry: Tables<'fl_ledger_entries'> }) => r.entry);
   }
 

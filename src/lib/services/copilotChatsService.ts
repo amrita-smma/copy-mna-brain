@@ -1,5 +1,11 @@
 import { createHash } from 'crypto';
 import type { CopilotChatsRepository, CopilotChatRow } from '@/lib/repositories';
+import type { EffortChoice } from '@/lib/agents/analysis';
+import {
+  resolveInsightAgentStamp,
+  type InsightAgentStamp,
+} from '@/lib/insights/agentStamp';
+import { isUuid } from '@/lib/uuid';
 
 /**
  * Normalize a first user message so trivial differences (surrounding/whitespace
@@ -85,8 +91,49 @@ export class CopilotChatsService {
     };
   }
 
-  create(userId: string) {
-    return this.repo.create(userId);
+  /**
+   * Create a chat. `agentKey` pre-pins its agent — only a fork passes one, to
+   * carry its source thread's agent; a new chat resolves on its first turn.
+   */
+  create(userId: string, agentKey?: string) {
+    return this.repo.create(userId, agentKey);
+  }
+
+  /**
+   * A chat in this workspace by id, with no owner check. Only for the chat
+   * cache, which is workspace-global: fork reads the cached source thread,
+   * which may belong to a colleague. Everything user-scoped goes through
+   * `assertOwnedBy`.
+   */
+  findInWorkspace(chatId: string): Promise<CopilotChatRow | null> {
+    return this.repo.getById(chatId);
+  }
+
+  /**
+   * Pin the agent the thread runs on (MB-549). Written once: when the thread
+   * is already pinned the stored agent wins and is returned, so a thread never
+   * changes agent. Returns null only when the chat is not in this workspace.
+   */
+  pinAgent(chatId: string, agentKey: string): Promise<string | null> {
+    return this.repo.pinAgentKey(chatId, agentKey);
+  }
+
+  /**
+   * The version stamp for an insight version written from this chat, e.g. an
+   * approved insight edit card (MB-541/549): the thread's pinned agent, or null
+   * for the general CoPilot. The chat must belong to the user; an unknown or
+   * foreign chat also yields null, so a bad id never blocks the publish — it
+   * only leaves the version unstamped. A malformed id is rejected before the
+   * query (the column is a uuid, and Postgres would throw).
+   */
+  async agentStampFor(
+    chatId: string,
+    userId: string,
+  ): Promise<InsightAgentStamp | null> {
+    if (!isUuid(chatId)) return null;
+    const chat = await this.repo.getById(chatId);
+    if (!chat || chat.user_id !== userId) return null;
+    return resolveInsightAgentStamp(chat.agent_key);
   }
 
   /**
@@ -110,6 +157,15 @@ export class CopilotChatsService {
   }
 
   /**
+   * Persist the effort tier this thread runs at. Idempotent by design: the
+   * route writes the tier it resolved on every turn, so a thread that was
+   * routed before an escalation ends up storing the escalated tier.
+   */
+  setEffortTier(chatId: string, tier: EffortChoice) {
+    return this.repo.setEffortTier(chatId, tier);
+  }
+
+  /**
    * Record the first user message of a chat for the cache. No-ops on an empty
    * message so we never index a blank key.
    */
@@ -125,12 +181,16 @@ export class CopilotChatsService {
 
   /**
    * Look up a prior chat that started with the same (normalized) first user
-   * message. Returns the matched chat row, or null when there's no match or
-   * the message is empty.
+   * message and runs on the same agent (`agentKey`, a registry key or
+   * 'general') as the new chat would. Returns the matched chat row, or null
+   * when there's no match or the message is empty.
    */
-  async findCachedFirstTurn(rawMessage: string): Promise<CopilotChatRow | null> {
+  async findCachedFirstTurn(
+    rawMessage: string,
+    agentKey: string,
+  ): Promise<CopilotChatRow | null> {
     const trimmed = rawMessage.trim();
     if (!trimmed) return null;
-    return this.repo.findLatestFirstMessageMatch(hashFirstMessage(rawMessage));
+    return this.repo.findLatestFirstMessageMatch(hashFirstMessage(rawMessage), agentKey);
   }
 }

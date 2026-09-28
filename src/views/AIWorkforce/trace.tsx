@@ -44,8 +44,11 @@ import type {
 export type InterventionDecisionInput = {
   tool_call_id: string;
   tool_name: string;
-  decision: 'approve' | 'reject';
+  // For ask_owner, 'approve' accepts the agent's recommendation and 'answer'
+  // sends `answer` instead.
+  decision: 'approve' | 'answer' | 'reject';
   rejection_message?: string;
+  answer?: string;
 };
 
 // Per-tool contextual icon. Falls back to a generic Wrench for unknown tools.
@@ -700,6 +703,28 @@ function computeEtaLabel(
   return `~${hr}h left`;
 }
 
+const RESOLUTION_LABEL: Record<
+  Extract<InterventionData, { state: 'resolved' }>['resolution']['decision'],
+  { label: string; className: string }
+> = {
+  approved: {
+    label: 'Approved',
+    className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  },
+  modified: {
+    label: 'Modified',
+    className: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  },
+  answered: {
+    label: 'Answered',
+    className: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  },
+  rejected: {
+    label: 'Declined',
+    className: 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+  },
+};
+
 function InterventionCard({
   intervention,
   onDecision,
@@ -709,14 +734,16 @@ function InterventionCard({
   onDecision?: (input: InterventionDecisionInput) => void | Promise<void>;
   canDecide?: boolean;
 }) {
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [rejectMessage, setRejectMessage] = useState('');
+  // Which inline composer is open: free-text answer (ask_owner) or reject reason.
+  const [composer, setComposer] = useState<'answer' | 'reject' | null>(null);
+  const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   if (intervention.state === 'resolved') {
     const { question, resolution } = intervention;
+    const label = RESOLUTION_LABEL[resolution.decision];
     return (
-      <div className="rounded-lg border bg-muted/40 px-3.5 py-3">
+      <div className="rounded-lg border bg-muted px-3.5 py-3">
         <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
           <Check className="h-3 w-3 text-emerald-500" strokeWidth={3} />
           Resolved
@@ -733,15 +760,8 @@ function InterventionCard({
               {resolution.actorInitials}
             </span>
             <span>{resolution.actor}</span>
-            <span
-              className={cn(
-                'px-1.5 py-px rounded text-[9px] font-bold',
-                resolution.decision === 'approved'
-                  ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-blue-50 text-blue-700',
-              )}
-            >
-              {resolution.decision === 'approved' ? 'Approved' : 'Modified'}
+            <span className={cn('px-1.5 py-px rounded text-[9px] font-bold', label.className)}>
+              {label.label}
             </span>
             <span className="ml-auto text-[10px] font-mono font-medium">
               {resolution.timestamp}
@@ -758,11 +778,12 @@ function InterventionCard({
   // Waiting state
   const toolCallId = intervention.tool_call_id;
   const toolName = intervention.tool_name;
+  const ask = intervention.ask;
   const decideAllowed = canDecide && !!onDecision && !!toolCallId && !!toolName;
 
   const submit = async (
-    decision: 'approve' | 'reject',
-    rejection_message?: string,
+    decision: InterventionDecisionInput['decision'],
+    text?: string,
   ) => {
     if (!decideAllowed || submitting) return;
     setSubmitting(true);
@@ -771,28 +792,70 @@ function InterventionCard({
         tool_call_id: toolCallId!,
         tool_name: toolName!,
         decision,
-        ...(rejection_message ? { rejection_message } : {}),
+        ...(decision === 'reject' && text ? { rejection_message: text } : {}),
+        ...(decision === 'answer' && text ? { answer: text } : {}),
       });
     } finally {
       setSubmitting(false);
-      setComposerOpen(false);
-      setRejectMessage('');
+      setComposer(null);
+      setDraft('');
     }
   };
 
+  const openComposer = (mode: 'answer' | 'reject', initial = '') => {
+    setComposer(mode);
+    setDraft(initial);
+  };
+
+  const secondaryButton =
+    'inline-flex items-center rounded-md border bg-card px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed';
+
   return (
-    <div className="relative rounded-lg border-[1.5px] border-blue-300 bg-gradient-to-br from-blue-50/70 to-blue-50/50 px-3.5 py-3 overflow-hidden">
-      <span className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-blue-500" />
-      <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-2">
-        <AlertCircle className="h-3 w-3" />
-        Waiting on input
+    <div className="relative rounded-lg border-[1.5px] border-blue-300 dark:border-blue-800 bg-card px-3.5 py-3 overflow-hidden">
+      <span className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+          <AlertCircle className="h-3 w-3" />
+          Waiting on input
+        </span>
+        {intervention.waitingFor && (
+          <span
+            data-testid="intervention-waiting-for"
+            className="text-[11px] text-muted-foreground"
+          >
+            Waiting for {intervention.waitingFor}
+          </span>
+        )}
       </div>
       <p className="text-sm font-semibold text-foreground mb-2 leading-snug">
         {intervention.question}
       </p>
+      {ask && (
+        <div
+          data-testid="intervention-recommendation"
+          className="rounded-md border border-blue-200 dark:border-blue-900 bg-muted px-3 py-2 mb-2.5"
+        >
+          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
+            Recommended answer
+          </div>
+          <p className="text-sm font-semibold text-foreground leading-snug whitespace-pre-line">
+            {ask.recommendation}
+          </p>
+          {ask.rationale && (
+            <>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-2 mb-0.5">
+                Why
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                {ask.rationale}
+              </p>
+            </>
+          )}
+        </div>
+      )}
       {intervention.proposal && (
-        <div className="rounded-md border bg-card px-3 py-2 mb-2.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1">
+        <div className="rounded-md border bg-muted px-3 py-2 mb-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
             Why
           </div>
           {/* whitespace-pre-line so the "reason\n\nNote: …" composition from
@@ -805,47 +868,99 @@ function InterventionCard({
       )}
       {!decideAllowed ? (
         <p className="text-[11px] text-muted-foreground italic">
-          Only the task creator can decide.
+          {intervention.waitingFor
+            ? `Only ${intervention.waitingFor} or the task creator can decide.`
+            : 'Only the task creator can decide.'}
         </p>
-      ) : !composerOpen ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="intervention-approve-button"
-            disabled={submitting}
-            onClick={() => void submit('approve')}
-            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:from-blue-600 hover:to-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <Check className="h-3 w-3" strokeWidth={3} />
-            Approve
-          </button>
-          <button
-            type="button"
-            data-testid="intervention-reject-button"
-            disabled={submitting}
-            onClick={() => setComposerOpen(true)}
-            className="inline-flex items-center rounded-md border border-rose-300 bg-card px-3 py-1.5 text-xs font-semibold text-rose-700 hover:border-rose-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Reject
-          </button>
+      ) : composer === null ? (
+        <div className="flex flex-col gap-2">
+          {ask?.options && ask.options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5" data-testid="intervention-options">
+              {ask.options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  disabled={submitting}
+                  onClick={() =>
+                    option === ask.recommendation
+                      ? void submit('approve')
+                      : openComposer('answer', option)
+                  }
+                  className="rounded-full border bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground hover:border-blue-400 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid={ask ? 'intervention-accept-button' : 'intervention-approve-button'}
+              disabled={submitting}
+              onClick={() => void submit('approve')}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Check className="h-3 w-3" strokeWidth={3} />
+              {ask ? 'Accept recommendation' : 'Approve'}
+            </button>
+            {ask && (
+              <button
+                type="button"
+                data-testid="intervention-answer-button"
+                disabled={submitting}
+                onClick={() => openComposer('answer')}
+                className={cn(secondaryButton, 'border-blue-300 text-blue-700 hover:border-blue-500 dark:border-blue-800 dark:text-blue-300')}
+              >
+                Answer differently
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="intervention-reject-button"
+              disabled={submitting}
+              onClick={() => openComposer('reject')}
+              className={cn(secondaryButton, 'border-rose-300 text-rose-700 hover:border-rose-500 dark:border-rose-800 dark:text-rose-300')}
+            >
+              Reject
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="flex items-stretch gap-1.5 rounded-md border-[1.5px] border-rose-400 bg-card pl-3 pr-1 py-1">
+        <div
+          className={cn(
+            'flex items-stretch gap-1.5 rounded-md border-[1.5px] bg-card pl-3 pr-1 py-1',
+            composer === 'answer' ? 'border-blue-400' : 'border-rose-400',
+          )}
+        >
           <textarea
             autoFocus
-            rows={1}
-            value={rejectMessage}
-            onChange={(e) => setRejectMessage(e.target.value)}
-            placeholder="Reason (optional)…"
+            rows={composer === 'answer' ? 2 : 1}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setComposer(null);
+            }}
+            placeholder={composer === 'answer' ? 'Your answer…' : 'Reason (optional)…'}
             disabled={submitting}
+            data-testid={composer === 'answer' ? 'intervention-answer-input' : 'intervention-reject-input'}
             className="flex-1 resize-none bg-transparent py-1.5 text-xs outline-none placeholder:text-muted-foreground"
           />
           <button
             type="button"
-            data-testid="intervention-reject-send-button"
-            disabled={submitting}
-            onClick={() => void submit('reject', rejectMessage.trim() || undefined)}
-            className="self-stretch w-7 grid place-items-center rounded bg-gradient-to-br from-rose-500 to-rose-600 text-white hover:from-rose-600 hover:to-rose-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            data-testid={
+              composer === 'answer'
+                ? 'intervention-answer-send-button'
+                : 'intervention-reject-send-button'
+            }
+            disabled={submitting || (composer === 'answer' && !draft.trim())}
+            onClick={() => void submit(composer, draft.trim() || undefined)}
+            className={cn(
+              'self-stretch w-7 grid place-items-center rounded text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+              composer === 'answer'
+                ? 'bg-blue-600 hover:bg-blue-700'
+                : 'bg-rose-600 hover:bg-rose-700',
+            )}
           >
             <Send className="h-3 w-3" />
           </button>

@@ -5,7 +5,7 @@ import { withBackgroundDb } from '@/lib/server/db';
 
 const TITLE_MODEL = 'claude-haiku-4-5-20251001';
 const TITLE_MAX_TOKENS = 60;
-const TITLE_MAX_CHARS = 80;
+export const TITLE_MAX_CHARS = 80;
 
 const SYSTEM_PROMPT =
   'You are titling an AI workforce task. Given the user prompt, return a ' +
@@ -13,6 +13,24 @@ const SYSTEM_PROMPT =
   'and language. Return only the title — no quotes, no trailing punctuation. ' +
   'Examples: "Wet processing comps", "Deck for TechSlurry", ' +
   '"Korean TIM search", "Refresh Project Oriole".';
+
+/**
+ * Persist a known title to ai_workforce_queue.title. Best-effort — failures are
+ * logged and swallowed so callers don't crash on persistence errors.
+ */
+export async function persistWorkforceTitle(
+  runId: string,
+  title: string,
+): Promise<void> {
+  try {
+    await withBackgroundDb(async (db) => {
+      const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
+      await repo.setTitle(runId, title);
+    });
+  } catch (err) {
+    console.error('[workforce] title persist failed:', err);
+  }
+}
 
 /**
  * Generate a human-friendly title for a workforce task using Haiku and persist
@@ -48,10 +66,7 @@ export async function generateWorkforceTitle(
     const title = String(res.content).trim().slice(0, TITLE_MAX_CHARS);
     if (!title) return null;
 
-    await withBackgroundDb(async (db) => {
-      const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
-      await repo.setTitle(runId, title);
-    });
+    await persistWorkforceTitle(runId, title);
     return title;
   } catch (err) {
     console.error('[workforce] title generation failed:', err);

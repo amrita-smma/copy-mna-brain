@@ -13,6 +13,7 @@ import { ChatTextarea } from "./ChatTextarea";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
 import { useChatContext } from "./ChatProvider";
 import { AttachButton, AttachmentChips, useAttachmentDrop, useAttachmentPaste } from "./ChatComposerAttachments";
+import { SelectedContextChips } from "./SelectedContextChips";
 import { CachedChatPreview } from "./CachedChatPreview";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { EffortPill } from "./EffortSelector";
@@ -170,6 +171,7 @@ export function ChatInput(props: {
       {...dropHandlers}
     >
       <AttachmentChips />
+      <SelectedContextChips />
       <div
         className={cn(
           "relative flex items-end gap-2 p-2 bg-background rounded-2xl border",
@@ -330,8 +332,27 @@ export function ChatLayout(props: {
  */
 function ChatInputContainer({ placeholder }: { placeholder?: string }) {
   const [input, setInput] = useState("");
-  const { sendWithCacheCheck, status, chatInputRef, attachments } = useChatContext();
+  const {
+    sendWithCacheCheck,
+    status,
+    chatInputRef,
+    attachments,
+    composerDraft,
+    focusComposer,
+  } = useChatContext();
   const isBusy = status === "streaming" || status === "submitted";
+
+  // When an external trigger (e.g. "New insight") stages a draft, prefill the
+  // input and put the caret at the end. Keyed on nonce so identical prompts can
+  // be triggered consecutively without no-oping; the draft is deliberately not
+  // cleared here to prevent React Strict Mode's double-invoke from wiping it.
+  const draftNonce = composerDraft?.nonce;
+  const draftText = composerDraft?.text;
+  useEffect(() => {
+    if (draftNonce == null || draftText == null) return;
+    setInput(draftText);
+    focusComposer();
+  }, [draftNonce, draftText, focusComposer]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-3">

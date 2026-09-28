@@ -64,3 +64,10 @@ export * from './flLedgerEntryRepository';
 export * from './flAllocationRepository';
 export * from './flValuationRepository';
 export * from './flSourceRecordRepository';
+
+export * from './insightRepository';
+export * from './insightVersionRepository';
+export * from './insightRunDraftRepository';
+export * from './insightTemplateRepository';
+export * from './agentCheckpointRepository';
+

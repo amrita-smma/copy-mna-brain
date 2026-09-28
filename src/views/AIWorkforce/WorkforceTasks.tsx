@@ -323,7 +323,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   // routine-spawned queue item back to its source routine.
   const routineNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of apiRoutines) map.set(r.id, r.title);
+    for (const r of apiRoutines) map.set(r.id, r.insight_name ?? r.title);
     return map;
   }, [apiRoutines]);
 
@@ -333,6 +333,22 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         apiRoutineToUi(row, { runCount: runCountByRoutine.get(row.id) ?? 0 }),
       ),
     [apiRoutines, runCountByRoutine],
+  );
+
+  const handleToggleRoutineEnabled = useCallback(
+    async (id: string, nextEnabled: boolean) => {
+      const res = await fetch(`/api/routines/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      if (!res.ok) {
+        console.error('[WorkforceTasks] toggle routine enabled failed', res.status);
+        return;
+      }
+      await fetchRoutines();
+    },
+    [fetchRoutines],
   );
 
   const handleDeleteRoutine = useCallback(
@@ -616,19 +632,37 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
                     active={isActive}
                     icon={<Icon className="h-3 w-3" />}
                     iconClass={
-                      routine.isFiring
-                        ? 'bg-amber-50 text-amber-600'
-                        : 'bg-emerald-50 text-emerald-700'
+                      routine.pausedNotice
+                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                        : routine.isFiring
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-emerald-50 text-emerald-700'
                     }
                     title={routine.name}
-                    tooltipText={routine.name}
+                    tooltipText={
+                      routine.pausedNotice
+                        ? `${routine.name} — ${routine.pausedNotice}`
+                        : routine.name
+                    }
                     meta={
-                      <span className="flex items-center gap-1">
-                        {routine.isFiring && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        )}
-                        {routine.scheduleSummary}
-                      </span>
+                      routine.pausedNotice ? (
+                        // A system pause for a broken agent binding (MB-560),
+                        // shown with its reason — distinct from a manual pause,
+                        // which keeps the plain schedule summary.
+                        <span
+                          data-testid="routine-paused-reason"
+                          className="block text-amber-700 dark:text-amber-300 leading-snug"
+                        >
+                          {routine.pausedNotice}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          {routine.isFiring && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          )}
+                          {routine.scheduleSummary}
+                        </span>
+                      )
                     }
                   />
                 );
@@ -972,6 +1006,9 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           routine={selectedRoutine}
           onDelete={() => handleDeleteRoutine(selectedRoutine.id)}
           onEnqueued={fetchQueue}
+          onToggleEnabled={(next) =>
+            handleToggleRoutineEnabled(selectedRoutine.id, next)
+          }
           onEdit={() => {
             const row = apiRoutines.find((r) => r.id === selectedRoutine.id);
             if (!row) return;
@@ -1020,6 +1057,14 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         }}
         onCreated={fetchRoutines}
         routine={editingRoutine ?? undefined}
+        insight={
+          editingRoutine?.insight_id
+            ? {
+                id: editingRoutine.insight_id,
+                name: editingRoutine.insight_name ?? editingRoutine.title,
+              }
+            : undefined
+        }
       />
     </div>
   );

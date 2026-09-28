@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { DEFAULT_INSIGHT_REFRESH_PROMPT } from '@/lib/routines/insightRefresh';
 import type { ApiRoutine } from './routineApi';
 
 type Cadence = 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -168,13 +169,25 @@ export function NewRoutineModal({
   // of POST. Caller is responsible for clearing this back to undefined after
   // the modal closes so a subsequent "New Routine" click gets a clean slate.
   routine,
+  insight,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: () => void | Promise<void>;
   routine?: ApiRoutine;
+  insight?: { id: string; name: string };
 }) {
   const isEditMode = !!routine;
+  const isInsightMode = Boolean(insight || routine?.insight_id);
+  const targetInsight =
+    insight ??
+    (routine?.insight_id
+      ? {
+          id: routine.insight_id,
+          name: routine.insight_name ?? routine.title,
+        }
+      : undefined);
+
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState(DEFAULTS.name);
   const [instruction, setInstruction] = useState(DEFAULTS.instruction);
@@ -187,6 +200,8 @@ export function NewRoutineModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const seedInsightName = insight?.name;
+
   // Reset every time the dialog opens. The Radix Dialog keeps the content
   // tree mounted across open/close cycles, so without this useState values
   // would persist from the previous create/edit — the user would see stale
@@ -196,9 +211,16 @@ export function NewRoutineModal({
   // Dependency includes routine?.id so opening for a different routine
   // re-prefills even if the modal was already mounted with `open=true` for
   // a prior routine.
+  // Callers pass a fresh `insight={{...}}` object on each render, so we depend on
+  // the primitive seedInsightName string to prevent wiping form state during background polls.
   useEffect(() => {
     if (!open) return;
-    const seed = routine ? routineToFormState(routine) : DEFAULTS;
+    const seed = routine
+      ? routineToFormState(routine)
+      : {
+          ...DEFAULTS,
+          name: seedInsightName ? `Refresh: ${seedInsightName}` : DEFAULTS.name,
+        };
     setStep(1);
     setName(seed.name);
     setInstruction(seed.instruction);
@@ -210,7 +232,7 @@ export function NewRoutineModal({
     setDayOfMonth(seed.dayOfMonth);
     setSubmitError(null);
     setSubmitting(false);
-  }, [open, routine?.id, routine]);
+  }, [open, routine?.id, routine, seedInsightName]);
 
   const cronInterpretation = interpretCron(cron);
   const tzShort = timezone.match(/\(([^)]+)\)/)?.[1] ?? timezone;
@@ -228,12 +250,12 @@ export function NewRoutineModal({
 
   const canContinue =
     name.trim().length > 0 &&
-    instruction.trim().length > 0 &&
+    (isInsightMode || instruction.trim().length > 0) &&
     (cadence !== 'custom' || cronInterpretation.valid);
 
   const reset = () => {
     setStep(1);
-    setName(DEFAULTS.name);
+    setName(seedInsightName ? `Refresh: ${seedInsightName}` : DEFAULTS.name);
     setInstruction(DEFAULTS.instruction);
     setCadence(DEFAULTS.cadence);
     setTime(DEFAULTS.time);
@@ -264,13 +286,18 @@ export function NewRoutineModal({
         scheduleSpec = { time };
       }
 
-      const payload = {
+      const payload: Record<string, unknown> = {
         title: name.trim(),
         prompt: instruction.trim(),
         schedule_kind: scheduleKind,
         schedule_spec: scheduleSpec,
         timezone: iana,
       };
+      if (insight?.id) {
+        payload.insight_id = insight.id;
+      } else if (routine?.insight_id) {
+        payload.insight_id = routine.insight_id;
+      }
 
       const res = isEditMode
         ? await fetch(`/api/routines/${routine!.id}`, {
@@ -307,17 +334,27 @@ export function NewRoutineModal({
       <DialogContent data-testid="new-routine-modal" className="max-w-2xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 border-b text-left space-y-1">
           <DialogTitle className="text-lg">
-            {isEditMode ? 'Edit Routine' : 'New Standing Routine'}
+            {isInsightMode
+              ? isEditMode
+                ? 'Edit insight refresh'
+                : 'Schedule insight refresh'
+              : isEditMode
+                ? 'Edit Routine'
+                : 'New Standing Routine'}
           </DialogTitle>
           <DialogDescription className="text-xs leading-relaxed">
-            {isEditMode
-              ? 'Update the schedule or instruction. The next scheduled fire is recomputed from the new schedule.'
-              : 'Routines run automatically on schedule when the on-demand queue is empty.'}
+            {isInsightMode
+              ? isEditMode
+                ? 'Update the refresh schedule or additional instructions.'
+                : 'Configure a recurring schedule to automatically refresh this insight.'
+              : isEditMode
+                ? 'Update the schedule or instruction. The next scheduled fire is recomputed from the new schedule.'
+                : 'Routines run automatically on schedule when the on-demand queue is empty.'}
           </DialogDescription>
         </DialogHeader>
 
         {/* Step indicator */}
-        <div className="px-6 py-3 bg-muted/30 border-b flex items-center gap-2 text-xs">
+        <div className="px-6 py-3 bg-muted border-b flex items-center gap-2 text-xs">
           <StepDot num={1} label="Configure" current={step} />
           <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
           <StepDot num={2} label="Review" current={step} />
@@ -342,17 +379,24 @@ export function NewRoutineModal({
               {/* Instruction */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-2">
-                  What should it do <span className="text-red-600">*</span>
+                  {isInsightMode ? 'Extra instructions (optional)' : 'What should it do'}{' '}
+                  {!isInsightMode && <span className="text-red-600">*</span>}
                 </label>
                 <Textarea
                   value={instruction}
                   onChange={(e) => setInstruction(e.target.value)}
                   rows={4}
-                  placeholder="Describe what the Workforce should do each run…"
+                  placeholder={
+                    isInsightMode
+                      ? DEFAULT_INSIGHT_REFRESH_PROMPT
+                      : 'Describe what the Workforce should do each run…'
+                  }
                 />
-                <p className="mt-1.5 text-[11px] text-muted-foreground/80 flex items-start gap-1.5">
+                <p className="mt-1.5 text-[11px] text-muted-foreground flex items-start gap-1.5">
                   <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
-                  Be specific about what to scan, what to filter for, and what counts as a qualifying result.
+                  {isInsightMode
+                    ? 'The refresh uses the default instruction when left blank.'
+                    : 'Be specific about what to scan, what to filter for, and what counts as a qualifying result.'}
                 </p>
               </div>
 
@@ -381,7 +425,7 @@ export function NewRoutineModal({
                 </div>
 
                 {cadence !== 'custom' ? (
-                  <div className="rounded-lg border bg-muted/30 px-3.5 py-3 space-y-3">
+                  <div className="rounded-lg border bg-muted px-3.5 py-3 space-y-3">
                     {cadence === 'weekly' && (
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
@@ -469,7 +513,7 @@ export function NewRoutineModal({
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-lg border bg-muted/30 px-3.5 py-3 space-y-3">
+                  <div className="rounded-lg border bg-muted px-3.5 py-3 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
@@ -504,18 +548,21 @@ export function NewRoutineModal({
                     <div
                       className={cn(
                         'rounded-md border bg-card px-3 py-2 flex items-center gap-2',
-                        !cronInterpretation.valid && 'border-red-200 bg-red-50/40',
+                        !cronInterpretation.valid &&
+                          'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950',
                       )}
                     >
                       {cronInterpretation.valid ? (
-                        <Check className="h-3 w-3 text-emerald-600" strokeWidth={3} />
+                        <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" strokeWidth={3} />
                       ) : (
-                        <AlertCircle className="h-3 w-3 text-red-600" />
+                        <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
                       )}
                       <span
                         className={cn(
                           'text-xs font-medium',
-                          cronInterpretation.valid ? 'text-foreground' : 'text-red-700',
+                          cronInterpretation.valid
+                            ? 'text-foreground'
+                            : 'text-red-700 dark:text-red-300',
                         )}
                       >
                         {cronInterpretation.plain}
@@ -530,14 +577,21 @@ export function NewRoutineModal({
               <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
                 Review your routine
               </p>
-              <div className="rounded-xl border bg-gradient-to-br from-blue-50/40 to-card px-4 py-3.5 space-y-3 text-sm">
+              <div className="rounded-xl border bg-card px-4 py-3.5 space-y-3 text-sm">
+                {isInsightMode && targetInsight && (
+                  <SummaryRow label="Insight">
+                    <span className="font-semibold text-foreground">
+                      {targetInsight.name}
+                    </span>
+                  </SummaryRow>
+                )}
                 <SummaryRow label="Name">
                   <span className="font-semibold text-blue-700">{name}</span>
                 </SummaryRow>
                 <SummaryRow label="Schedule">{scheduleLabel}</SummaryRow>
                 <SummaryRow label="Instruction">
                   <span className="text-[12.5px] text-muted-foreground leading-relaxed">
-                    {instruction}
+                    {instruction.trim() || '(default refresh instruction)'}
                   </span>
                 </SummaryRow>
               </div>
@@ -546,8 +600,8 @@ export function NewRoutineModal({
                 You can pause, edit, or delete this routine anytime from the Workforce sidebar.
               </p>
               {submitError && (
-                <div className="mt-3 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 flex items-start gap-2 text-[12px] text-red-700">
-                  <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 px-3 py-2 flex items-start gap-2 text-[12px] text-red-700 dark:text-red-300">
+                  <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
                   <span>{submitError}</span>
                 </div>
               )}
@@ -556,7 +610,7 @@ export function NewRoutineModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-muted/30 border-t flex items-center justify-between gap-2">
+        <div className="px-6 py-3 bg-muted border-t flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground">Step {step} of 2</span>
           <div className="flex gap-2">
             {step > 1 && (

@@ -1,7 +1,7 @@
 import { type UIMessage } from "@ai-sdk/react";
 import { memo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, X, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
+import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Collapsible,
@@ -30,6 +30,24 @@ import {
   BulkPromoteCompaniesCard,
   type BulkPromoteApprovalPayload,
 } from "./BulkPromoteCompaniesCard";
+import {
+  InsightEditApprovalCard,
+} from "./InsightEditApprovalCard";
+import {
+  InsightCreateApprovalCard,
+} from "./InsightCreateApprovalCard";
+import { InsightRefreshApprovalCard } from "./InsightRefreshApprovalCard";
+import {
+  ReportPlanCard,
+} from "./ReportPlanCard";
+import { AttachedInsightTemplateCard } from "./AttachedInsightTemplateCard";
+import { readInsightTemplatePart } from "@/lib/insights/templateAttachment";
+import type {
+  InsightCreateApprovalPayload,
+  InsightEditApprovalPayload,
+  InsightRefreshApprovalPayload,
+} from "@/lib/insights/types";
+import type { ReportPlanApprovalPayload } from "@/lib/reports/plan";
 import { useChatContext } from "./ChatProvider";
 import { CompanyChip } from "./CompanyChip";
 import { stripNavigateMarkers } from "@/lib/navigation/navigateAction";
@@ -39,6 +57,16 @@ import {
   stripCompanyMentionMarkers,
   type CompanyMention,
 } from "@/lib/navigation/companyMentions";
+import {
+  INSIGHT_CREATE_APPROVAL_MARKER,
+  INSIGHT_EDIT_APPROVAL_MARKER,
+  INSIGHT_REFRESH_APPROVAL_MARKER,
+  REPORT_PLAN_APPROVAL_MARKER,
+  extractApprovalPayload,
+  resolveApprovalPayload,
+  stripApprovalMarkers,
+} from "@/lib/insights/approvalMarker";
+
 
 const WORKFORCE_HANDOFF_MARKER = "WORKFORCE_HANDOFF_JSON";
 const WORKFORCE_HANDOFF_TOOL_NAME = "propose_workforce_handoff";
@@ -46,6 +74,19 @@ const BULK_DROP_APPROVAL_MARKER = "BULK_DROP_APPROVAL_JSON";
 const BULK_DROP_APPROVAL_TOOL_NAME = "propose_bulk_drop_companies";
 const BULK_PROMOTE_APPROVAL_MARKER = "BULK_PROMOTE_APPROVAL_JSON";
 const BULK_PROMOTE_APPROVAL_TOOL_NAME = "propose_bulk_promote_companies";
+// Marker the chat UI (ChatMessageBubble) scans for to detect an insight edit
+// approval card in this tool's output and render the card. Keep in sync with
+// propose_insight_edit.ts.
+const INSIGHT_EDIT_TOOL_NAME = "propose_insight_edit";
+// Same contract for a brand-new insight. Keep in sync with
+// propose_insight_create.ts.
+const INSIGHT_CREATE_TOOL_NAME = "propose_insight_create";
+const REPORT_PLAN_TOOL_NAME = "propose_report_plan";
+// The "Refresh this insight now" card (MB-552). Keep in sync with
+// propose_insight_refresh.ts. Carries no document, so — like the report plan —
+// its payload is used as-is rather than joined with the tool call's html.
+const INSIGHT_REFRESH_TOOL_NAME = "propose_insight_refresh";
+const PAYLOAD_ONLY_APPROVAL_TOOLS = new Set([REPORT_PLAN_TOOL_NAME, INSIGHT_REFRESH_TOOL_NAME]);
 
 interface ChatMessageBubbleProps {
   message: UIMessage;
@@ -165,7 +206,9 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
     return !['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
   });
   
-  const hasAttachments = hasImages || uniqueFilePills.length > 0;
+  const attachedTemplate = readInsightTemplatePart(parts);
+
+  const hasAttachments = hasImages || uniqueFilePills.length > 0 || attachedTemplate !== null;
 
   return (
     <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
@@ -175,6 +218,8 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
       <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end gap-2">
         {hasAttachments && (
           <div className="flex flex-wrap justify-end gap-2 mb-1">
+            {attachedTemplate && <AttachedInsightTemplateCard template={attachedTemplate} />}
+
             {/* Document Pills */}
             {uniqueFilePills.map((fileName, i) => (
               <div 
@@ -235,9 +280,14 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     (part) => part.type === "text" && (part as any).text?.trim()
   );
 
-  // Check if streaming is complete (all text parts have state === 'done')
+  // Check if reasoning content is being streamed
+  const hasReasoningContent = parts.some(
+    (part) => part.type === "reasoning" && Boolean((part as any).text?.trim() || (part as any).reasoning?.trim())
+  );
+
+  // Check if streaming is complete (all text and reasoning parts have state === 'done')
   const isStreamingComplete = parts.length > 0 &&
-    parts.filter((part) => part.type === "text").every((part) => (part as any).state === "done");
+    parts.filter((part) => part.type === "text" || part.type === "reasoning").every((part) => (part as any).state === "done");
 
   // Check if tools are still running
   const hasRunningTools = parts.some(
@@ -245,10 +295,10 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
       (part as any).state !== "output-available"
   );
 
-  // Show thinking indicator when: no text content yet OR tools are running (but not if thinking text
-  // is streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
+  // Show thinking indicator when: no text or reasoning content yet OR tools are running (but not if thinking
+  // is actively streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
   // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
-  const showThinking = (!hasTextContent || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
+  const showThinking = ((!hasTextContent && !hasReasoningContent) || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
 
   // Auto-collapse tool results when response text starts streaming
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
@@ -260,17 +310,18 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
   }, [hasTextContent]);
 
-  // Separate tool parts from text parts
+  // Separate tool parts, text parts, and reasoning parts
   const toolParts = parts.filter(
     (part) => part.type === "dynamic-tool" || part.type === "tool-invocation"
   );
   const textParts = parts.filter((part) => part.type === "text");
+  const reasoningParts = parts.filter((part) => part.type === "reasoning");
 
   // Deterministic ETA notice while send_email builds a presentation (do not rely on the model).
   const isGeneratingPptx =
     (props.isActive ?? false) && toolParts.some((part) => isRunningPptxSendEmail(part as never));
 
-  // Delimiters: thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
+  // Delimiters: legacy thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
   const THINKING_START_DELIMITER = "<!-- THINKING_START -->";
   const THINKING_END_DELIMITER = "<!-- THINKING_END -->";
 
@@ -279,48 +330,60 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   let thinkingText = "";
   let responseText = "";
 
-  const hasEitherDelimiter = fullText.includes(THINKING_START_DELIMITER) || fullText.includes(THINKING_END_DELIMITER);
+  // 1. Primary: genuine reasoning parts from AI SDK
+  const genuineThinkingText = reasoningParts
+    .map((part) => (part as any).text || (part as any).reasoning || "")
+    .filter(Boolean)
+    .join("\n\n---\n\n");
 
-  if (!hasEitherDelimiter) {
+  if (genuineThinkingText) {
+    thinkingText = genuineThinkingText;
     responseText = fullText;
   } else {
-    // Collect all thinking blocks (text between each THINKING_START and THINKING_END pair)
-    const thinkingParts: string[] = [];
-    let remaining = fullText;
+    // 2. Fallback: parse delimiters for historical messages that still contain them
+    const hasEitherDelimiter = fullText.includes(THINKING_START_DELIMITER) || fullText.includes(THINKING_END_DELIMITER);
 
-    while (remaining.length > 0) {
-      const startIdx = remaining.indexOf(THINKING_START_DELIMITER);
-      const endIdx = remaining.indexOf(THINKING_END_DELIMITER);
+    if (!hasEitherDelimiter) {
+      responseText = fullText;
+    } else {
+      // Collect all thinking blocks (text between each THINKING_START and THINKING_END pair)
+      const thinkingParts: string[] = [];
+      let remaining = fullText;
 
-      if (startIdx === -1 && endIdx === -1) {
-        // No more delimiters — rest is response text
-        responseText += remaining;
-        break;
-      }
+      while (remaining.length > 0) {
+        const startIdx = remaining.indexOf(THINKING_START_DELIMITER);
+        const endIdx = remaining.indexOf(THINKING_END_DELIMITER);
 
-      if (startIdx !== -1 && (endIdx === -1 || startIdx < endIdx)) {
-        // Found a THINKING_START — text before it is response
-        responseText += remaining.substring(0, startIdx);
-        remaining = remaining.substring(startIdx + THINKING_START_DELIMITER.length);
-
-        // Look for matching THINKING_END
-        const matchingEnd = remaining.indexOf(THINKING_END_DELIMITER);
-        if (matchingEnd !== -1) {
-          thinkingParts.push(remaining.substring(0, matchingEnd).trim());
-          remaining = remaining.substring(matchingEnd + THINKING_END_DELIMITER.length);
-        } else {
-          // No closing delimiter yet (still streaming) — rest is thinking
-          thinkingParts.push(remaining.trim());
-          remaining = "";
+        if (startIdx === -1 && endIdx === -1) {
+          // No more delimiters — rest is response text
+          responseText += remaining;
+          break;
         }
-      } else {
-        // THINKING_END without a preceding START — skip past it
-        responseText += remaining.substring(0, endIdx);
-        remaining = remaining.substring(endIdx + THINKING_END_DELIMITER.length);
-      }
-    }
 
-    thinkingText = thinkingParts.filter(Boolean).join("\n\n---\n\n");
+        if (startIdx !== -1 && (endIdx === -1 || startIdx < endIdx)) {
+          // Found a THINKING_START — text before it is response
+          responseText += remaining.substring(0, startIdx);
+          remaining = remaining.substring(startIdx + THINKING_START_DELIMITER.length);
+
+          // Look for matching THINKING_END
+          const matchingEnd = remaining.indexOf(THINKING_END_DELIMITER);
+          if (matchingEnd !== -1) {
+            thinkingParts.push(remaining.substring(0, matchingEnd).trim());
+            remaining = remaining.substring(matchingEnd + THINKING_END_DELIMITER.length);
+          } else {
+            // No closing delimiter yet (still streaming) — rest is thinking
+            thinkingParts.push(remaining.trim());
+            remaining = "";
+          }
+        } else {
+          // THINKING_END without a preceding START — skip past it
+          responseText += remaining.substring(0, endIdx);
+          remaining = remaining.substring(endIdx + THINKING_END_DELIMITER.length);
+        }
+      }
+
+      thinkingText = thinkingParts.filter(Boolean).join("\n\n---\n\n");
+    }
   }
 
   // Second pass: pull warning blocks out of responseText. The agent wraps an
@@ -390,6 +453,43 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   let workforceHandoff: WorkforceHandoffPayload | null = null;
   let bulkDropApproval: BulkDropApprovalPayload | null = null;
   let bulkPromoteApproval: BulkPromoteApprovalPayload | null = null;
+  let insightEditApproval: InsightEditApprovalPayload | null = null;
+  let insightCreateApproval: InsightCreateApprovalPayload | null = null;
+  let reportPlanApproval: ReportPlanApprovalPayload | null = null;
+  let insightRefreshApproval: InsightRefreshApprovalPayload | null = null;
+
+  const approvalSpecs = [
+    {
+      tool: INSIGHT_CREATE_TOOL_NAME,
+      marker: INSIGHT_CREATE_APPROVAL_MARKER,
+      isValid: (p: any): p is InsightCreateApprovalPayload => Boolean(p?.name && p?.html),
+      assign: (p: any) => { insightCreateApproval = p; },
+      has: () => Boolean(insightCreateApproval),
+    },
+    {
+      tool: INSIGHT_EDIT_TOOL_NAME,
+      marker: INSIGHT_EDIT_APPROVAL_MARKER,
+      isValid: (p: any): p is InsightEditApprovalPayload => Boolean(p?.insight_id && p?.html),
+      assign: (p: any) => { insightEditApproval = p; },
+      has: () => Boolean(insightEditApproval),
+    },
+    {
+      tool: REPORT_PLAN_TOOL_NAME,
+      marker: REPORT_PLAN_APPROVAL_MARKER,
+      isValid: (p: any): p is ReportPlanApprovalPayload => Boolean(p?.methodology),
+      assign: (p: any) => { reportPlanApproval = p; },
+      has: () => Boolean(reportPlanApproval),
+    },
+    {
+      tool: INSIGHT_REFRESH_TOOL_NAME,
+      marker: INSIGHT_REFRESH_APPROVAL_MARKER,
+      isValid: (p: any): p is InsightRefreshApprovalPayload =>
+        Boolean(p?.insight_id && typeof p?.reason === "string"),
+      assign: (p: any) => { insightRefreshApproval = p; },
+      has: () => Boolean(insightRefreshApproval),
+    },
+  ];
+
   // Every company any tool in this turn resolved, as id↔name pairs. Narrowed
   // below to just the ones the answer actually names.
   const companyMentions: CompanyMention[] = [];
@@ -474,6 +574,24 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
       }
     }
 
+    for (const spec of approvalSpecs) {
+      if (toolName === spec.tool && !spec.has()) {
+        const parsed = extractApprovalPayload(content, spec.marker);
+        if (parsed) {
+          const candidate =
+            PAYLOAD_ONLY_APPROVAL_TOOLS.has(spec.tool)
+              ? parsed
+              : resolveApprovalPayload(
+                  parsed as any,
+                  (part as any).input ?? (part as any).args,
+                );
+          if (candidate && spec.isValid(candidate)) {
+            spec.assign(candidate);
+          }
+        }
+      }
+    }
+
     companyMentions.push(...parseCompanyMentions(content));
 
     if (toolName === "query_files") {
@@ -493,12 +611,31 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
   }
 
+  for (const spec of approvalSpecs) {
+    if (responseText.includes(spec.marker)) {
+      if (!spec.has()) {
+        const parsed = extractApprovalPayload(responseText, spec.marker);
+        if (parsed) {
+          const candidate =
+            PAYLOAD_ONLY_APPROVAL_TOOLS.has(spec.tool)
+              ? parsed
+              : resolveApprovalPayload(parsed as any, undefined);
+          if (candidate && spec.isValid(candidate)) {
+            spec.assign(candidate);
+          }
+        }
+      }
+      responseText = stripApprovalMarkers(responseText);
+    }
+  }
+
+
   // A single query can return fifty rows; chipping all of them would bury the
   // answer. Keep only the companies the assistant actually named.
   const mentionedCompanies = selectMentionedCompanies(companyMentions, responseText);
 
   // Chat context for sending follow-up messages (e.g. "Just answer here")
-  const { sendMessage } = useChatContext();
+  const { sendMessage, activeChatEffortTier } = useChatContext();
   const handleJustAnswerHere = () => {
     sendMessage({
       text: "Just answer here — please proceed inline without sending this to the Workforce.",
@@ -588,6 +725,15 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                     new RegExp(`\\n*<!--\\s*${WORKFORCE_HANDOFF_MARKER}:.*?-->`, "gs"),
                     "",
                   );
+                  displayContent = displayContent.replace(
+                    new RegExp(`\\n*<!--\\s*${BULK_DROP_APPROVAL_MARKER}:.*?-->`, "gs"),
+                    "",
+                  );
+                  displayContent = displayContent.replace(
+                    new RegExp(`\\n*<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:.*?-->`, "gs"),
+                    "",
+                  );
+                  displayContent = stripApprovalMarkers(displayContent);
                   displayContent = stripNavigateMarkers(displayContent);
                   displayContent = stripCompanyMentionMarkers(displayContent);
 
@@ -699,7 +845,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
             with no card/bubble, flat against the background. */}
         {hasResponseContent && (
           <div className="w-full min-w-0 overflow-auto break-words">
-            <MarkdownRenderer content={responseText} linkSurface="copilot" />
+            <MarkdownRenderer content={responseText} linkSurface="copilot" evidenceMarkers />
           </div>
         )}
 
@@ -708,6 +854,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           <WorkforceHandoffCard
             payload={workforceHandoff}
             onJustAnswerHere={handleJustAnswerHere}
+            chatEffortTier={activeChatEffortTier}
           />
         )}
 
@@ -719,6 +866,26 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
         {/* Bulk promote approval card */}
         {bulkPromoteApproval && (
           <BulkPromoteCompaniesCard payload={bulkPromoteApproval} />
+        )}
+
+        {/* Insight edit approval card */}
+        {insightEditApproval && (
+          <InsightEditApprovalCard payload={insightEditApproval} />
+        )}
+
+        {/* New insight approval card */}
+        {insightCreateApproval && (
+          <InsightCreateApprovalCard payload={insightCreateApproval} />
+        )}
+
+        {/* Report plan approval card */}
+        {reportPlanApproval && (
+          <ReportPlanCard payload={reportPlanApproval} />
+        )}
+
+        {/* Insight refresh offer (MB-552) */}
+        {insightRefreshApproval && (
+          <InsightRefreshApprovalCard payload={insightRefreshApproval} />
         )}
 
         {/* One "Open <company>" chip per company the answer actually names,

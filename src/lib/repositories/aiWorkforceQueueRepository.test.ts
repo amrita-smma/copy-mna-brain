@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import {
   AiWorkforceQueueRepository,
   isTerminalWorkforceStatus,
+  ACTIVE_WORKFORCE_STATUSES,
 } from './aiWorkforceQueueRepository';
 
 function makeMockDb() {
@@ -404,6 +407,27 @@ describe('AiWorkforceQueueRepository.markWaitingForHumanInput', () => {
     expect(updateChain.set).toHaveBeenCalledWith({
       status: 'waiting_for_human_input',
       resume_reason: 'awaiting approval',
+      pending_intervention: null,
+    });
+  });
+
+  it('records the pending intervention (gated tool, args, who was asked)', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
+    const intervention = {
+      tool_name: 'ask_owner',
+      tool_args: { question: 'Q?', recommendation: 'A', rationale: 'R' },
+      asked_user_id: 'owner-1',
+      asked_at: '2026-09-24T00:00:00.000Z',
+    };
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.markWaitingForHumanInput('r1', 'Q?', intervention);
+
+    expect(updateChain.set).toHaveBeenCalledWith({
+      status: 'waiting_for_human_input',
+      resume_reason: 'Q?',
+      pending_intervention: intervention,
     });
   });
 
@@ -471,6 +495,7 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
     expect(updateChain.set).toHaveBeenCalledWith({
       status: 'resume_ready',
       resume_reason: 'human approve',
+      pending_intervention: null,
       resume_token: payloadJson,
     });
   });
@@ -486,8 +511,34 @@ describe('AiWorkforceQueueRepository.markResumeReady', () => {
     expect(setArg).toEqual({
       status: 'resume_ready',
       resume_reason: 'subagent done',
+      pending_intervention: null,
     });
     expect(setArg).not.toHaveProperty('resume_token');
+  });
+});
+
+describe('AiWorkforceQueueRepository.markResumeReadyFromWaiting', () => {
+  it('queues the resume only while the row is waiting_for_human_input', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const row = await repo.markResumeReadyFromWaiting('r1', 'human approve', '{"decisions":[]}');
+
+    expect(row).toEqual({ id: 'r1' });
+    expect(updateChain.set).toHaveBeenCalledWith({
+      status: 'resume_ready',
+      resume_reason: 'human approve',
+      resume_token: '{"decisions":[]}',
+      pending_intervention: null,
+    });
+    const where = new PgDialect().sqlToQuery(updateChain.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toContain('"status" = $');
+    expect(where.params).toContain('waiting_for_human_input');
+
+    // The row already moved on.
+    updateChain.returning.mockResolvedValueOnce([]);
+    await expect(repo.markResumeReadyFromWaiting('r1', 'x', '{}')).resolves.toBeNull();
   });
 });
 
@@ -962,5 +1013,67 @@ describe('isTerminalWorkforceStatus', () => {
     for (const status of ['pending', 'running'] as const) {
       expect(isTerminalWorkforceStatus(status)).toBe(false);
     }
+  });
+});
+
+describe('ACTIVE_WORKFORCE_STATUSES', () => {
+  it('lists every non-terminal status, including a run waiting on a human', () => {
+    expect([...ACTIVE_WORKFORCE_STATUSES].sort()).toEqual(
+      [
+        'pending',
+        'resume_ready',
+        'running',
+        'waiting_for_human_input',
+        'waiting_for_subagent',
+      ].sort(),
+    );
+    for (const status of ACTIVE_WORKFORCE_STATUSES) {
+      expect(isTerminalWorkforceStatus(status)).toBe(false);
+    }
+  });
+});
+
+describe('AiWorkforceQueueRepository.findUnsuccessfulRefreshRunsByInsightId', () => {
+  function makeListDb(rows: unknown[]) {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('scopes to the workspace, refresh runs, unsuccessful statuses and both insight-id expressions', async () => {
+    const { db, chain } = makeListDb([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await repo.findUnsuccessfulRefreshRunsByInsightId('insight-1');
+
+    const [condition] = chain.where.mock.calls[0];
+    const { sql: text, params } = new PgDialect().sqlToQuery(condition as SQL);
+    expect(params).toContain('workspace-1');
+    expect(text).toContain('"origin_routine_id" is not null');
+    expect(params).toEqual(expect.arrayContaining(['failed', 'rejected', 'timed_out']));
+    expect(params).not.toContain('succeeded');
+    expect(text).toContain(`("ai_workforce_queue"."trigger_meta"->>'insight_id') =`);
+    expect(text).toContain(`("ai_workforce_queue"."input"->>'insight_id') =`);
+    expect(text).toContain(' or ');
+    expect(params.filter((p) => p === 'insight-1')).toHaveLength(2);
+  });
+
+  it('returns the rows newest-first, bounded to 50 by default or to an explicit limit', async () => {
+    const rows = [{ id: 'r1', status: 'failed', error: null, created_at: 't1', ended_at: 't2' }];
+    const { db, chain } = makeListDb(rows);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await expect(repo.findUnsuccessfulRefreshRunsByInsightId('insight-1')).resolves.toEqual(rows);
+    const { sql: orderText } = new PgDialect().sqlToQuery(chain.orderBy.mock.calls[0][0] as SQL);
+    expect(orderText).toContain('"created_at" desc');
+    expect(chain.limit).toHaveBeenCalledWith(50);
+
+    await repo.findUnsuccessfulRefreshRunsByInsightId('insight-1', 5);
+    expect(chain.limit).toHaveBeenLastCalledWith(5);
   });
 });

@@ -1,13 +1,46 @@
 import { randomUUID } from 'crypto';
-import type {
-  AiWorkforceQueueRepository,
-  DbClient,
-  WorkforceQueueRow,
-  WorkforceStatus,
+import type { BaseMessage } from '@langchain/core/messages';
+import {
+  AgentCheckpointRepository,
+  type AiWorkforceQueueRepository,
+  type DbClient,
+  type WorkforceQueueRow,
+  type WorkforceStatus,
 } from '@/lib/repositories';
 import { enqueueAgentRun } from '@/lib/workforce';
+import { matchMessageTimestamps } from '@/lib/workforce/traceMapper';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { PendingUserMessage } from '@/lib/db/schema';
+import type { ChatAttachmentRef } from './chatAttachmentService';
+import type { InsightFailedRefreshRun } from '@/lib/insights/types';
+
+function readText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * The failure reason shown for an unsuccessful run. Every writer uses
+ * `{ code, message }` (agent failures, the reaper, publish refusals) except
+ * cancellation, which writes `{ code: 'cancelled_by_user', reason? }`.
+ */
+export function describeRunFailure(
+  status: WorkforceStatus,
+  error: Record<string, unknown> | null,
+): string {
+  const code = readText(error?.code);
+  if (code === 'cancelled_by_user') {
+    const reason = readText(error?.reason);
+    return reason ? `Cancelled by user: ${reason}` : 'Cancelled by user';
+  }
+  const message = readText(error?.message);
+  if (message) return message;
+  if (code) return code;
+  if (status === 'timed_out') return 'Timed out';
+  if (status === 'rejected') return 'Rejected';
+  return 'Failed without a recorded reason';
+}
 
 export interface ChatHandoffInput {
   agent_name: string;
@@ -18,6 +51,7 @@ export interface ChatHandoffInput {
   user_id?: string;
   priority?: number;
   effort?: string;
+  attachments?: ChatAttachmentRef[];
 }
 
 export interface SubmitUserMessageInput {
@@ -80,7 +114,19 @@ export class AiWorkforceService {
   constructor(
     private readonly queueRepo: AiWorkforceQueueRepository,
     private readonly db: DbClient,
+    private readonly checkpointRepo: AgentCheckpointRepository = new AgentCheckpointRepository(db),
   ) {}
+
+  /** Best-effort: a timestamp lookup must never break the trace endpoint. */
+  async getMessageTimestamps(threadId: string, messages: BaseMessage[]): Promise<(string | null)[] | undefined> {
+    try {
+      const writes = await this.checkpointRepo.listMessageWrites(threadId);
+      return matchMessageTimestamps(messages, writes);
+    } catch (err) {
+      console.warn('[workforce] trace timestamps unavailable', err);
+      return undefined;
+    }
+  }
 
   /**
    * Enqueue a run spawned from the AI CoPilot chat. The agent_name is the
@@ -97,6 +143,22 @@ export class AiWorkforceService {
 
   findById(id: string): Promise<WorkforceQueueRow | null> {
     return this.queueRepo.findById(id);
+  }
+
+  /**
+   * An insight's refresh runs that failed or were cancelled (newest 50), with
+   * their failure reason, for the insight's version history. A failed run
+   * never writes a version, so this is the only place it shows there.
+   */
+  async listFailedRefreshRuns(insightId: string): Promise<InsightFailedRefreshRun[]> {
+    const rows = await this.queueRepo.findUnsuccessfulRefreshRunsByInsightId(insightId);
+    return rows.map((row) => ({
+      run_id: row.id,
+      status: row.status,
+      reason: describeRunFailure(row.status, row.error ?? null),
+      created_at: row.created_at,
+      ended_at: row.ended_at,
+    }));
   }
 
   /** See AiWorkforceQueueRepository.getGlobalQueuePositions. */
@@ -134,6 +196,9 @@ export class AiWorkforceService {
         instruction: data.instruction,
         prompt: data.instruction,
         effort: data.effort ?? 'medium',
+        ...(data.attachments && data.attachments.length > 0
+          ? { attachments: data.attachments }
+          : {}),
       },
       priority: data.priority ?? 0,
       triggeredByUserId: data.user_id ?? null,
@@ -231,6 +296,13 @@ export class AiWorkforceService {
         ? ((row.input as Record<string, unknown>).title as string)
         : (row.title ?? row.agent_name);
 
+    const parentEffort =
+      typeof row.input === 'object' &&
+      row.input !== null &&
+      typeof (row.input as Record<string, unknown>).effort === 'string'
+        ? ((row.input as Record<string, unknown>).effort as string)
+        : undefined;
+
     const { runId: newRunId } = await enqueueAgentRun(this.db, {
       agentName: row.agent_name,
       triggerSource: 'chat',
@@ -243,6 +315,7 @@ export class AiWorkforceService {
         instruction: trimmed,
         prompt: trimmed,
         follow_up_thread_id: row.id,
+        ...(parentEffort ? { effort: parentEffort } : {}),
       },
       priority: row.priority,
       parentRunId: row.id,

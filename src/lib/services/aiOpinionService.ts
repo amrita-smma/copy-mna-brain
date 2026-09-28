@@ -15,7 +15,7 @@ export interface AiOpinionDispatchResult {
  * Drives the right-most "AI Opinion" pipeline column.
  *
  * Clicking "Analyze AI Opinion" (or "Re-evaluate") enqueues an AI Workforce
- * run — at HIGH effort (Opus, the strongest model) — that researches the company, takes a
+ * run — at the HIGH tier (Opus 5) — that researches the company, takes a
  * FIRM pass/fail verdict (reserving `tentative` for genuinely balanced cases),
  * and finishes by calling the `save_ai_opinion` tool — which writes the
  * verdict + ≤50-word rationale back onto the `companies` row. The pipeline
@@ -110,9 +110,9 @@ export class AiOpinionService {
           instruction,
           prompt: instruction,
           company_id: id,
-          // Form the opinion at HIGH effort (Opus, the strongest model) so the
+          // Form the opinion at the HIGH tier (Opus 5) so the
           // verdict is as firm and well-reasoned as possible. runAgent reads
-          // input.effort ('medium' | 'high') to pick the workforce agent's model.
+          // input.effort to pick the workforce agent's tier ('deep' is chat-Auto only).
           effort: 'high',
         },
         triggeredByUserId: triggeredByUserId ?? null,

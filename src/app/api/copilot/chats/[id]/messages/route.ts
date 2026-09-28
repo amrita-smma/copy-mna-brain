@@ -7,8 +7,14 @@ import {
   CopilotChatNotFoundError,
   CopilotChatForbiddenError,
 } from '@/lib/services/copilotChatsService';
-import { getAgentGraph } from '@/lib/agents/analysis';
+import { getChatAgentGraph } from '@/lib/chat/chatAgent';
+import { toChatAgentKey } from '@/lib/chat/chatAgentKey';
 import type { BaseMessage } from '@langchain/core/messages';
+import {
+  INSIGHT_TEMPLATE_PART_TYPE,
+  parseInsightTemplateBlock,
+  type InsightTemplateAttachment,
+} from '@/lib/insights/templateAttachment';
 
 type TextPart = { type: 'text'; text: string };
 type ToolPart = {
@@ -19,7 +25,8 @@ type ToolPart = {
   input: unknown;
   output?: { kwargs: { content: string } };
 };
-type UIPart = TextPart | ToolPart;
+type TemplatePart = { type: typeof INSIGHT_TEMPLATE_PART_TYPE; data: InsightTemplateAttachment };
+type UIPart = TextPart | ToolPart | TemplatePart;
 
 interface UIMessageOut {
   id: string;
@@ -37,8 +44,11 @@ function extractText(content: unknown): string {
       if (typeof block === 'string') return block;
       if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
         const txt = (block as { text?: string }).text ?? '';
-        // Hide backend file extractions from the UI
+        // Hide backend file extractions and expanded insight templates from the UI
         if (txt.startsWith('Attached file "') && txt.includes('":\n\n')) {
+          return '';
+        }
+        if (parseInsightTemplateBlock(txt)) {
           return '';
         }
         return txt;
@@ -81,9 +91,14 @@ function toUIMessages(messages: BaseMessage[]): UIMessageOut[] {
 
       const text = extractText(m.content);
       const experimental_attachments: { url: string; contentType?: string }[] = [];
-      
+      const parts: UIPart[] = [];
+
       if (Array.isArray(m.content)) {
         for (const block of m.content) {
+          if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+            const template = parseInsightTemplateBlock((block as { text?: string }).text ?? '');
+            if (template) parts.push({ type: INSIGHT_TEMPLATE_PART_TYPE, data: template });
+          }
           if (block && typeof block === 'object' && (block as { type?: string }).type === 'image_url') {
             const imgUrl = (block as { image_url?: { url?: string } }).image_url?.url;
             if (imgUrl) {
@@ -95,11 +110,12 @@ function toUIMessages(messages: BaseMessage[]): UIMessageOut[] {
         }
       }
 
-      if (!text && experimental_attachments.length === 0) continue;
-      out.push({ 
-        id, 
-        role: 'user', 
-        parts: text ? [{ type: 'text', text }] : [],
+      if (text) parts.push({ type: 'text', text });
+      if (parts.length === 0 && experimental_attachments.length === 0) continue;
+      out.push({
+        id,
+        role: 'user',
+        parts,
         experimental_attachments: experimental_attachments.length > 0 ? experimental_attachments : undefined
       });
       continue;
@@ -168,8 +184,9 @@ export async function GET(
   const db = createDb();
   const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
 
+  let chat;
   try {
-    await copilotChatsService.assertOwnedBy(chatId, session.user.id);
+    chat = await copilotChatsService.assertOwnedBy(chatId, session.user.id);
   } catch (err) {
     if (err instanceof CopilotChatNotFoundError) {
       return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
@@ -180,7 +197,10 @@ export async function GET(
     throw err;
   }
 
-  const agent = await getAgentGraph();
+  // Read through the thread's own agent (MB-549). Every graph shares one
+  // checkpointer, so this never pins or resolves anything — an unresolved
+  // thread just reads through the general graph.
+  const agent = await getChatAgentGraph(toChatAgentKey(chat.agent_key));
   if (!agent) {
     return NextResponse.json({ messages: [] });
   }

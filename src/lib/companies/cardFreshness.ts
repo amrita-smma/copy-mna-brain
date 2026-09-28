@@ -3,7 +3,7 @@ import type { Tables } from '@/lib/repositories';
 /**
  * Company Card freshness / conflict resolution.
  *
- * A Company Card is a point-in-time research artefact: `company_analyses.created_at`
+ * A Company Card is a point-in-time research artifact: `company_analyses.created_at`
  * records when its content was produced (there is one row per company, and the
  * completion write re-stamps it on every run). A company's documents (deal
  * documents and matched Smart Files) each carry their own date. When a card is

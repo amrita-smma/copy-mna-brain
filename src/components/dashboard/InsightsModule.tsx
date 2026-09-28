@@ -230,7 +230,7 @@ export default function InsightsModule({ from, to }: InsightsModuleProps) {
       <CardHeader className="pb-4">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg font-semibold">Insights</CardTitle>
+          <CardTitle className="text-lg font-semibold">Analytics</CardTitle>
           <span className="text-sm text-muted-foreground">{formatRange(from, to)}</span>
         </div>
         <p className="text-sm text-muted-foreground">

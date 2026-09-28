@@ -20,7 +20,13 @@ const {
   dispatcherTick,
   HumanMessage,
   failAiOpinionIfStillProcessingMock,
+  prepareForMessageMock,
+  deleteFromAnthropicMock,
+  publishRunDraftMock,
+  notifyInsightRefreshedMock,
+  getSectorAgentGraphMock,
 } = vi.hoisted(() => ({
+  getSectorAgentGraphMock: vi.fn(),
   findById: vi.fn(),
   heartbeat: vi.fn(),
   markSucceeded: vi.fn(),
@@ -34,12 +40,53 @@ const {
   getWorkforceAgentGraph: vi.fn(),
   dispatcherTick: vi.fn(),
   failAiOpinionIfStillProcessingMock: vi.fn(),
+  prepareForMessageMock: vi.fn(),
+  deleteFromAnthropicMock: vi.fn(),
+  publishRunDraftMock: vi.fn(),
+  notifyInsightRefreshedMock: vi.fn(),
   // Identity carrier so tests can assert the argument structure without
   // pulling LangChain types into the test environment.
   HumanMessage: class {
-    constructor(public content: string) {}
+    content: unknown;
+    constructor(fields: unknown) {
+      if (typeof fields === 'string') {
+        this.content = fields;
+      } else if (fields && typeof fields === 'object' && 'content' in fields) {
+        this.content = (fields as { content: unknown }).content;
+      } else {
+        this.content = fields;
+      }
+    }
   },
 }));
+
+const { getStepMetadataMock } = vi.hoisted(() => ({ getStepMetadataMock: vi.fn() }));
+const { resolveRecipientMock, notifyTaskWaitingApprovalMock } = vi.hoisted(() => ({
+  resolveRecipientMock: vi.fn(),
+  notifyTaskWaitingApprovalMock: vi.fn(),
+}));
+
+vi.mock('@/lib/services/interventionRecipientService', () => {
+  class MockInterventionRecipientService {
+    resolveRecipient = resolveRecipientMock;
+  }
+  return { InterventionRecipientService: MockInterventionRecipientService };
+});
+vi.mock('workflow', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('workflow')>()),
+  getStepMetadata: getStepMetadataMock,
+}));
+
+vi.mock('@/lib/services/chatAttachmentService', () => {
+  class MockChatAttachmentService {
+    constructor(public workspaceId: string) {}
+    prepareForMessage = prepareForMessageMock;
+    deleteFromAnthropic = deleteFromAnthropicMock;
+  }
+  return {
+    ChatAttachmentService: MockChatAttachmentService,
+  };
+});
 
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
@@ -52,9 +99,44 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
     clearResumeToken = clearResumeToken;
     consumePendingUserMessages = consumePendingUserMessages;
   }
+  class MockUserRepository {
+    findById = vi.fn().mockResolvedValue(null);
+  }
+  class MockInsightRepository {}
+  class MockInsightVersionRepository {}
+  class MockInsightRunDraftRepository {}
   return {
     ...actual,
     AiWorkforceQueueRepository: MockAiWorkforceQueueRepository,
+    UserRepository: MockUserRepository,
+    InsightRepository: MockInsightRepository,
+    InsightVersionRepository: MockInsightVersionRepository,
+    InsightRunDraftRepository: MockInsightRunDraftRepository,
+  };
+});
+
+vi.mock('@/lib/services/insightService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/insightService')>();
+  class MockInsightService {
+    publishRunDraft = publishRunDraftMock;
+  }
+  return {
+    ...actual,
+    InsightService: MockInsightService,
+  };
+});
+
+vi.mock('@/lib/services/emailNotificationService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/emailNotificationService')>();
+  class MockEmailNotificationService {
+    notifyTaskCompleted = vi.fn().mockResolvedValue(true);
+    notifyTaskFailed = vi.fn().mockResolvedValue(true);
+    notifyTaskWaitingApproval = notifyTaskWaitingApprovalMock;
+    notifyInsightRefreshed = notifyInsightRefreshedMock;
+  }
+  return {
+    ...actual,
+    EmailNotificationService: MockEmailNotificationService,
   };
 });
 
@@ -64,30 +146,18 @@ vi.mock('@/lib/agents/analysis', () => ({
   getWorkforceAgentGraph,
   getWorkforceAgentGraphForEffort: getWorkforceAgentGraph,
   HumanMessage,
-  // Faithful copy of the real helper (a pure function) so we don't pull the
-  // heavy tools/db deps the rest of this mock avoids.
+  // Minimal stand-in for the real (pure) helper, which lives in a module whose
+  // heavy tools/db deps this mock avoids.
   extractMessageText: (message: { content?: unknown } | undefined): string => {
-    if (!message) return '';
-    const content = message.content;
+    const content = message?.content;
     if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content
-        .map((block) => {
-          if (typeof block === 'string') return block;
-          if (
-            block &&
-            typeof block === 'object' &&
-            'text' in block &&
-            typeof (block as { text: unknown }).text === 'string'
-          ) {
-            return (block as { text: string }).text;
-          }
-          return '';
-        })
-        .join('');
-    }
-    return '';
+    if (!Array.isArray(content)) return '';
+    return content.map((b) => (typeof b?.text === 'string' ? b.text : '')).join('');
   },
+}));
+
+vi.mock('@/lib/agents/sector/graph', () => ({
+  getSectorAgentGraph: getSectorAgentGraphMock,
 }));
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
@@ -96,10 +166,13 @@ vi.mock('./clearAiOpinionOnFailure', () => ({
   failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessingMock,
 }));
 
-import { runAgent } from './runAgent';
+import { runAgent, invokeAgent } from './runAgent';
+import { InsightRunPublishError } from '@/lib/services/insightService';
 
 const RUN_ID = 'run-1';
 const PROMPT = 'Find me Industrial sector companies.';
+const STEP_LIMIT_MESSAGE =
+  'Run hit the step limit (recursion limit of 50 reached without completing)';
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -116,7 +189,11 @@ function makeRow(overrides: Record<string, unknown> = {}) {
 
 function makeAgentResult(opts: {
   finalText?: string;
-  messages?: Array<{ content: unknown; tool_calls?: unknown[] }>;
+  messages?: Array<{
+    content: unknown;
+    tool_calls?: unknown[];
+    invalid_tool_calls?: unknown[];
+  }>;
 } = {}) {
   const messages = opts.messages ?? [
     { content: 'user msg' },
@@ -125,31 +202,62 @@ function makeAgentResult(opts: {
   return { messages };
 }
 
+function graph(extra: Record<string, unknown> = {}) {
+  return {
+    invoke: invokeMock,
+    resume: resumeMock,
+    getState: vi.fn().mockResolvedValue({}),
+    ...extra,
+  };
+}
+
+function configOf(mock: typeof invokeMock, call = 0) {
+  return mock.mock.calls[call]![mock === resumeMock ? 2 : 1] as {
+    configurable: Record<string, unknown>;
+  };
+}
+
+function interruptResult(name: string, args: Record<string, unknown>, description: string) {
+  return { messages: [{ content: '' }], interrupt: { actionRequests: [{ name, args, description }] } };
+}
+
+const originalKey = process.env.ANTHROPIC_API_KEY;
+
+// By default a run loads a running row, builds a graph, and finishes with 'Done.'.
+beforeEach(() => {
+  getStepMetadataMock.mockReset().mockReturnValue({ attempt: 1 });
+  resolveRecipientMock.mockReset().mockResolvedValue(null);
+  notifyTaskWaitingApprovalMock.mockReset().mockResolvedValue(true);
+  findById.mockReset();
+  heartbeat.mockReset();
+  markSucceeded.mockReset();
+  markFailed.mockReset().mockResolvedValue({});
+  markWaitingForHumanInput.mockReset();
+  clearResumeToken.mockReset();
+  consumePendingUserMessages.mockReset().mockResolvedValue([]);
+  createDb.mockReset().mockReturnValue({});
+  invokeMock.mockReset().mockResolvedValue(makeAgentResult());
+  resumeMock.mockReset().mockResolvedValue(makeAgentResult({ finalText: 'Resumed.' }));
+  getWorkforceAgentGraph.mockReset().mockResolvedValue(graph());
+  getSectorAgentGraphMock.mockReset();
+  dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
+  failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
+  prepareForMessageMock.mockReset().mockResolvedValue({
+    blocks: [{ type: 'file', fileId: 'file-mock' }],
+    fileIds: ['file-mock'],
+  });
+  deleteFromAnthropicMock.mockReset().mockResolvedValue(undefined);
+  publishRunDraftMock.mockReset();
+  notifyInsightRefreshedMock.mockReset().mockResolvedValue(true);
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+});
+
+afterEach(() => {
+  if (originalKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+  else process.env.ANTHROPIC_API_KEY = originalKey;
+});
+
 describe('runAgent — happy path', () => {
-  const originalKey = process.env.ANTHROPIC_API_KEY;
-
-  beforeEach(() => {
-    findById.mockReset();
-    heartbeat.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset();
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    createDb.mockReset().mockReturnValue({});
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    getWorkforceAgentGraph.mockReset();
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
-  afterEach(() => {
-    if (originalKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = originalKey;
-  });
-
   it('feeds input.prompt through to the agent with runId as thread_id', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
@@ -262,22 +370,6 @@ describe('runAgent — happy path', () => {
 });
 
 describe('runAgent — guard rails', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('throws FatalError when the row is missing', async () => {
     findById.mockResolvedValueOnce(null);
 
@@ -366,22 +458,6 @@ describe('runAgent — guard rails', () => {
 });
 
 describe('runAgent — failure path', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('calls markFailed with the error message and re-throws when invoke fails', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
@@ -411,26 +487,56 @@ describe('runAgent — failure path', () => {
       expect.objectContaining({ code: 'agent_execution_failed' }),
     );
   });
+
+  // The behavioural tests pass with or without the offending import, so this
+  // source-level check is what catches the regression: importing
+  // @langchain/langgraph drags langsmith's top-level `require("node:fs")` into
+  // WDK's VM sandbox and the workflow dies before step 1.
+  it('does not import @langchain/* at module scope (WDK sandbox has no require)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('./runAgent.ts', import.meta.url),
+      'utf8',
+    );
+    const langchainImports = src
+      .split('\n')
+      .filter(
+        (line) =>
+          /^import\s/.test(line) &&
+          /@langchain\//.test(line) &&
+          !/^import\s+type\s/.test(line),
+      );
+    expect(langchainImports).toEqual([]);
+  });
+
+  // By the time a recursion error crosses the step RPC boundary it has been
+  // rehydrated as a plain Error, so it must be matched by name, not instanceof.
+  it.each(['invoke', 'resume'] as const)(
+    'treats a rehydrated recursion error on %s as a clean step-limit failure',
+    async (path) => {
+      findById.mockResolvedValueOnce(
+        makeRow(path === 'resume' ? { resume_token: JSON.stringify({ decisions: [] }) } : {}),
+      );
+      const rehydrated = new Error('Recursion limit of 50 reached without hitting a stop condition.');
+      rehydrated.name = 'GraphRecursionError';
+      (path === 'resume' ? resumeMock : invokeMock).mockRejectedValueOnce(rehydrated);
+
+      await expect(runAgent({ runId: RUN_ID })).resolves.toBeUndefined();
+
+      expect(markFailed).toHaveBeenCalledTimes(1);
+      expect(markFailed).toHaveBeenCalledWith(RUN_ID, {
+        code: 'agent_execution_failed',
+        message: STEP_LIMIT_MESSAGE,
+      });
+      expect(markSucceeded).not.toHaveBeenCalled();
+      expect(clearResumeToken).toHaveBeenCalledWith(RUN_ID);
+      expect(failAiOpinionIfStillProcessingMock).toHaveBeenCalledWith(expect.anything(), 'ws-1', {}, 'workforce');
+      expect(dispatcherTick).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe('runAgent — resume branch (rows carrying a resume_token)', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    heartbeat.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('calls graph.resume with the parsed payload (and not graph.invoke) when resume_token is present', async () => {
     const payload = { decisions: [{ type: 'approve' }] };
     findById.mockResolvedValueOnce(
@@ -454,6 +560,39 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
       }),
     );
     expect(invokeMock).not.toHaveBeenCalled();
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  // A replayed thread may hold file blocks whose Anthropic uploads were deleted
+  // and orphaned tool calls, so it is repaired first; a fresh first attempt has
+  // no history to fix.
+  it.each([
+    { when: 'on resume', resume_token: JSON.stringify({ decisions: [] }), attempt: 1, repairs: true },
+    { when: 'on attempt 2 of a fresh run', resume_token: null, attempt: 2, repairs: true },
+    { when: 'never on attempt 1 of a fresh run', resume_token: null, attempt: 1, repairs: false },
+    { when: 'never when getStepMetadata throws (treated as attempt 1)', resume_token: null, attempt: null, repairs: false },
+  ])('repairs the thread $when', async ({ resume_token, attempt, repairs }) => {
+    if (attempt === null) {
+      getStepMetadataMock.mockImplementationOnce(() => {
+        throw new Error('not running under WDK');
+      });
+    } else {
+      getStepMetadataMock.mockReturnValueOnce({ attempt });
+    }
+    const rewriteFileReferences = vi.fn().mockResolvedValue(undefined);
+    const repairOrphanedToolCalls = vi.fn().mockResolvedValue(0);
+    findById.mockResolvedValueOnce(makeRow({ resume_token }));
+    getWorkforceAgentGraph.mockResolvedValueOnce(graph({ rewriteFileReferences, repairOrphanedToolCalls }));
+
+    await runAgent({ runId: RUN_ID });
+
+    if (repairs) {
+      expect(rewriteFileReferences).toHaveBeenCalledWith(RUN_ID, []);
+      expect(repairOrphanedToolCalls).toHaveBeenCalledWith(RUN_ID);
+    } else {
+      expect(rewriteFileReferences).not.toHaveBeenCalled();
+      expect(repairOrphanedToolCalls).not.toHaveBeenCalled();
+    }
     expect(markSucceeded).toHaveBeenCalledTimes(1);
   });
 
@@ -487,23 +626,6 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
 });
 
 describe('runAgent — HITL interrupt path', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    heartbeat.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('transitions to waiting_for_human_input when the agent returns an interrupt', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
@@ -525,30 +647,113 @@ describe('runAgent — HITL interrupt path', () => {
     expect(markWaitingForHumanInput).toHaveBeenCalledWith(
       RUN_ID,
       'Approve promotion of Acme Corp?',
+      {
+        tool_name: 'promote_l0_to_l1',
+        tool_args: {},
+        asked_user_id: null,
+        asked_at: expect.any(String),
+      },
     );
     expect(markSucceeded).not.toHaveBeenCalled();
     expect(markFailed).not.toHaveBeenCalled();
   });
+
+  it('records the triggering user as the person asked on a non-refresh run and emails them', async () => {
+    findById.mockResolvedValueOnce(makeRow({ triggered_by_user_id: 'requester' }));
+    resolveRecipientMock.mockResolvedValueOnce('requester');
+    invokeMock.mockResolvedValueOnce(
+      interruptResult('promote_to_l1', { company_name: 'Acme' }, 'Promote Acme from L0 to L1?'),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resolveRecipientMock).toHaveBeenCalledWith(
+      { workspace_id: 'ws-1', triggered_by_user_id: 'requester', origin_routine_id: null },
+      null,
+    );
+    expect(markWaitingForHumanInput.mock.calls[0][2]).toMatchObject({ asked_user_id: 'requester' });
+    expect(notifyTaskWaitingApprovalMock).toHaveBeenCalledWith(RUN_ID, {
+      action: 'Promote Acme from L0 to L1?',
+      toolName: 'promote_to_l1',
+      toolArgs: { company_name: 'Acme' },
+      recipientUserId: 'requester',
+    });
+  });
+});
+
+describe('runAgent — refresh run asks the insight owner and waits (MB-561)', () => {
+  const INSIGHT_ID = '22222222-2222-4222-8222-222222222222';
+  const ASK_ARGS = {
+    question: 'The Q3 report is gone. Use Q2?',
+    recommendation: 'Use Q2 and flag the gap',
+    rationale: 'Q2 is the latest audited set',
+  };
+  const refreshRow = (overrides: Record<string, unknown> = {}) =>
+    makeRow({ origin_routine_id: 'rt-1', trigger_meta: { insight_id: INSIGHT_ID }, ...overrides });
+
+  beforeEach(() => {
+    publishRunDraftMock.mockResolvedValue({
+      status: 'published',
+      insightId: INSIGHT_ID,
+      insightName: 'Weekly pulse',
+      versionNo: 4,
+      ownerUserId: 'owner-1',
+    });
+  });
+
+  it('an interrupted refresh run waits on the insight owner and publishes nothing', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+    resolveRecipientMock.mockResolvedValueOnce('owner-1');
+    invokeMock.mockResolvedValueOnce(interruptResult('ask_owner', ASK_ARGS, ASK_ARGS.question));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resolveRecipientMock).toHaveBeenCalledWith(
+      { workspace_id: 'ws-1', triggered_by_user_id: null, origin_routine_id: 'rt-1' },
+      INSIGHT_ID,
+    );
+    expect(markWaitingForHumanInput).toHaveBeenCalledWith(RUN_ID, ASK_ARGS.question, {
+      tool_name: 'ask_owner',
+      tool_args: ASK_ARGS,
+      asked_user_id: 'owner-1',
+      asked_at: expect.any(String),
+    });
+    expect(notifyTaskWaitingApprovalMock).toHaveBeenCalledWith(
+      RUN_ID,
+      expect.objectContaining({ toolName: 'ask_owner', recipientUserId: 'owner-1' }),
+    );
+    expect(publishRunDraftMock).not.toHaveBeenCalled();
+    expect(markSucceeded).not.toHaveBeenCalled();
+    expect(notifyInsightRefreshedMock).not.toHaveBeenCalled();
+  });
+
+  it('the resumed refresh run completes and publishes exactly once', async () => {
+    const decision = {
+      decisions: [
+        {
+          type: 'edit',
+          editedAction: {
+            name: 'ask_owner',
+            args: { ...ASK_ARGS, owner_decision: 'accepted', owner_answer: ASK_ARGS.recommendation },
+          },
+        },
+      ],
+    };
+    findById.mockResolvedValueOnce(refreshRow({ resume_token: JSON.stringify(decision) }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(resumeMock).toHaveBeenCalledWith(RUN_ID, decision, expect.anything());
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(publishRunDraftMock).toHaveBeenCalledTimes(1);
+    expect(publishRunDraftMock).toHaveBeenCalledWith('ws-1', RUN_ID, INSIGHT_ID, null);
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+    expect(markWaitingForHumanInput).not.toHaveBeenCalled();
+    expect(notifyInsightRefreshedMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('runAgent — reactive dispatcher kick', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    heartbeat.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('kicks the dispatcher after markSucceeded on the happy path', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, resume: resumeMock, getState: vi.fn().mockResolvedValue({}) });
@@ -602,23 +807,6 @@ describe('runAgent — reactive dispatcher kick', () => {
 });
 
 describe('runAgent — pending user messages', () => {
-  beforeEach(() => {
-    findById.mockReset();
-    heartbeat.mockReset();
-    markSucceeded.mockReset();
-    markFailed.mockReset().mockResolvedValue({});
-    markWaitingForHumanInput.mockReset();
-    clearResumeToken.mockReset();
-    consumePendingUserMessages.mockReset().mockResolvedValue([]);
-    getWorkforceAgentGraph.mockReset();
-    invokeMock.mockReset();
-    resumeMock.mockReset();
-    createDb.mockReset().mockReturnValue({});
-    dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
-    failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-  });
-
   it('appends pending messages onto the initial invoke', async () => {
     findById.mockResolvedValueOnce(makeRow());
     consumePendingUserMessages.mockResolvedValueOnce([
@@ -736,5 +924,371 @@ describe('runAgent — pending user messages', () => {
 
     expect(resumeMock).toHaveBeenCalledTimes(1);
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('runAgent — attachments, effort tiers, and user attribution', () => {
+  const attachments = [
+    { key: 'chat-attachments/ws-1/file.pdf', fileName: 'file.pdf', contentType: 'application/pdf' },
+  ];
+
+  it('builds a HumanMessage with file blocks when refs are present and cleans up uploads after invoke', async () => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, attachments } }));
+
+    await runAgent({ runId: RUN_ID });
+
+    // The Workforce reads a large HTML attachment whole; only chat outlines it.
+    expect(prepareForMessageMock).toHaveBeenCalledWith(attachments, { largeHtml: 'full' });
+    const [inputArg] = invokeMock.mock.calls[0];
+    expect((inputArg as { messages: Array<{ content: unknown }> }).messages[0].content).toEqual([
+      { type: 'text', text: PROMPT },
+      { type: 'file', fileId: 'file-mock' },
+    ]);
+    expect(deleteFromAnthropicMock).toHaveBeenCalledWith(['file-mock']);
+  });
+
+  it('prepares attachments inside the invokeAgent step, not during loadAndHeartbeat', async () => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, attachments } }));
+    // A null graph fails invokeAgent before it reaches prepareForMessage.
+    getWorkforceAgentGraph.mockResolvedValueOnce(null);
+
+    await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('workforce agent graph unavailable');
+
+    expect(prepareForMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans up Anthropic uploads even when agent invocation fails', async () => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, attachments } }));
+    invokeMock.mockRejectedValueOnce(new Error('LLM call failed'));
+
+    await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('LLM call failed');
+
+    expect(deleteFromAnthropicMock).toHaveBeenCalledWith(['file-mock']);
+  });
+
+  it.each([
+    ['deep', 'deep'],
+    ['high', 'high'],
+    ['low', 'medium'],
+  ])('builds the graph for effort %s at tier %s (low is floored to medium)', async (effort, tier) => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, effort } }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getWorkforceAgentGraph).toHaveBeenLastCalledWith(tier);
+  });
+
+  it('threads triggered_by_user_id into toolConfig', async () => {
+    findById.mockResolvedValueOnce(makeRow({ triggered_by_user_id: 'user-789' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).configurable.triggered_by_user_id).toBe('user-789');
+  });
+});
+
+describe('invokeAgent', () => {
+  const callInvokeAgent = () =>
+    invokeAgent(RUN_ID, PROMPT, null, RUN_ID, [], 'ws-1', 'medium', null);
+  const NO_OUTPUT_REASON =
+    'The run ended without producing any output — the agent stopped before ' +
+    'writing a final message. Nothing was saved — retry the task.';
+
+  it('has maxRetries set to 5', () => {
+    expect(invokeAgent.maxRetries).toBe(5);
+  });
+
+  it('fails with unparseable tool call reason and <unnamed> when final message is empty and invalid_tool_calls is non-empty', async () => {
+    invokeMock.mockResolvedValueOnce({
+      messages: [
+        { content: 'user msg' },
+        { content: '', invalid_tool_calls: [{ name: '', error: 'unexpected end of JSON input' }] },
+      ],
+    });
+
+    const result = await callInvokeAgent();
+
+    expect(result.kind).toBe('failed');
+    const reason = result.kind === 'failed' ? result.reason : '';
+    expect(reason).toContain('The run ended on a tool call that could not be parsed');
+    expect(reason).toContain('<unnamed>');
+    expect(reason).toContain('unexpected end of JSON input');
+  });
+
+  it('fails with the provider error when the agent swallowed an invocation error into its final message', async () => {
+    const swallowed =
+      'Error invoking agent: 400 {"type":"error","error":{"message":"Your credit balance is too low"}}';
+    invokeMock.mockResolvedValueOnce({
+      messages: [{ content: 'user msg' }, { content: swallowed }],
+    });
+
+    expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: swallowed });
+  });
+
+  it.each([
+    ['empty with no invalid_tool_calls', { content: '' }],
+    ['whitespace with an empty invalid_tool_calls', { content: '   ', invalid_tool_calls: [] }],
+  ])('fails with the generic no-output reason when the final message is %s', async (_label, last) => {
+    invokeMock.mockResolvedValueOnce({ messages: [{ content: 'user msg' }, last] });
+
+    expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: NO_OUTPUT_REASON });
+  });
+});
+
+describe('runAgent — pre-step crash handling', () => {
+  it('marks row failed with agent_load_failed code and re-throws when loadAndHeartbeat throws and row is still running', async () => {
+    findById.mockResolvedValue(makeRow({ status: 'running' }));
+    heartbeat.mockRejectedValueOnce(new Error('Database connectivity error'));
+
+    await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('Database connectivity error');
+
+    expect(markFailed).toHaveBeenCalledTimes(1);
+    expect(markFailed).toHaveBeenCalledWith(RUN_ID, {
+      code: 'agent_load_failed',
+      message: 'Database connectivity error',
+    });
+    expect(dispatcherTick).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['succeeded', makeRow({ status: 'succeeded' }), /is in status succeeded, expected 'running'/],
+    ['failed', makeRow({ status: 'failed' }), /is in status failed, expected 'running'/],
+    ['missing', null, /row run-1 not found/],
+  ] as const)(
+    'leaves row alone and re-throws when loadAndHeartbeat throws and row is %s',
+    async (_label, row, error) => {
+      findById.mockResolvedValue(row);
+
+      await expect(runAgent({ runId: RUN_ID })).rejects.toThrow(error);
+
+      expect(markFailed).not.toHaveBeenCalled();
+      expect(dispatcherTick).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('runAgent — insight refresh runs (MB-558)', () => {
+  const INSIGHT_ID = '11111111-1111-4111-8111-111111111111';
+  const refreshRow = (overrides: Record<string, unknown> = {}) =>
+    makeRow({ origin_routine_id: 'rt-1', trigger_meta: { insight_id: INSIGHT_ID }, ...overrides });
+
+  beforeEach(() => {
+    publishRunDraftMock.mockResolvedValue({ status: 'already_published', insightId: INSIGHT_ID, versionNo: 1 });
+  });
+
+  it('refresh run (origin_routine_id + trigger_meta.insight_id) → publishRunDraft called with (workspaceId, runId, insightId) and before markSucceeded', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(publishRunDraftMock).toHaveBeenCalledTimes(1);
+    expect(publishRunDraftMock).toHaveBeenCalledWith('ws-1', RUN_ID, INSIGHT_ID, null);
+    expect(publishRunDraftMock.mock.invocationCallOrder[0]).toBeLessThan(
+      markSucceeded.mock.invocationCallOrder[0],
+    );
+    expect(configOf(invokeMock).configurable).toMatchObject({
+      run_id: RUN_ID,
+      origin_routine_id: 'rt-1',
+      refresh_insight_id: INSIGHT_ID,
+    });
+  });
+
+  it('refresh via input.insight_id fallback (retry) is detected', async () => {
+    findById.mockResolvedValueOnce(
+      refreshRow({ trigger_meta: {}, input: { prompt: PROMPT, insight_id: INSIGHT_ID } }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(publishRunDraftMock).toHaveBeenCalledWith('ws-1', RUN_ID, INSIGHT_ID, null);
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['no origin_routine_id', makeRow({ origin_routine_id: null })],
+    ['an origin without an insight id', refreshRow({ trigger_meta: {} })],
+  ])('a non-refresh run (%s) publishes nothing and carries null refresh ids', async (_label, row) => {
+    findById.mockResolvedValueOnce(row);
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(publishRunDraftMock).not.toHaveBeenCalled();
+    expect(configOf(invokeMock).configurable).toMatchObject({ run_id: RUN_ID, refresh_insight_id: null });
+  });
+
+  it('InsightRunPublishError → markSucceeded NOT called and markFailed called with code refresh_publish_refused + the message', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+    publishRunDraftMock.mockRejectedValueOnce(
+      new InsightRunPublishError(
+        'structural_check_failed',
+        'refresh draft failed the structural check: empty body',
+      ),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(markSucceeded).not.toHaveBeenCalled();
+    expect(markFailed).toHaveBeenCalledWith(RUN_ID, {
+      code: 'refresh_publish_refused',
+      message: 'refresh draft failed the structural check: empty body',
+    });
+  });
+
+  it.each(['already_published', 'unchanged'])(
+    '%s → markSucceeded called, notifyInsightRefreshed NOT called',
+    async (status) => {
+      findById.mockResolvedValueOnce(refreshRow());
+      publishRunDraftMock.mockResolvedValueOnce({ status, insightId: INSIGHT_ID, versionNo: 3 });
+
+      await runAgent({ runId: RUN_ID });
+
+      expect(markSucceeded).toHaveBeenCalledTimes(1);
+      expect(markFailed).not.toHaveBeenCalled();
+      expect(notifyInsightRefreshedMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('published → notifyInsightRefreshed called with the owner', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+    publishRunDraftMock.mockResolvedValueOnce({
+      status: 'published',
+      insightId: INSIGHT_ID,
+      insightName: 'Market Trends Q3',
+      versionNo: 5,
+      baseMoved: false,
+      ownerUserId: 'user-owner-1',
+    });
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+    expect(notifyInsightRefreshedMock).toHaveBeenCalledTimes(1);
+    expect(notifyInsightRefreshedMock).toHaveBeenCalledWith({
+      workspaceId: 'ws-1',
+      insightId: INSIGHT_ID,
+      insightName: 'Market Trends Q3',
+      versionNo: 5,
+      ownerUserId: 'user-owner-1',
+    });
+  });
+
+  it('treats a one-off refresh (no routine, input.insight_refresh) as a refresh and publishes it (MB-552)', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({
+        origin_routine_id: null,
+        trigger_meta: { insight_id: INSIGHT_ID, manual: true },
+        input: { prompt: 'Refresh it', insight_id: INSIGHT_ID, insight_refresh: true, agent_key: 'general' },
+      }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).configurable).toMatchObject({
+      origin_routine_id: null,
+      refresh_insight_id: INSIGHT_ID,
+    });
+    expect(publishRunDraftMock).toHaveBeenCalledWith('ws-1', RUN_ID, INSIGHT_ID, null);
+  });
+
+  it('a non-InsightRunPublishError from publish rethrows / does not markSucceeded', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+    publishRunDraftMock.mockRejectedValueOnce(new Error('database connection timeout'));
+
+    await expect(runAgent({ runId: RUN_ID })).rejects.toThrow('database connection timeout');
+
+    expect(markSucceeded).not.toHaveBeenCalled();
+    expect(markFailed).toHaveBeenCalledWith(RUN_ID, {
+      code: 'agent_execution_failed',
+      message: 'database connection timeout',
+    });
+  });
+});
+
+describe('runAgent — refresh runs on the bound agent (MB-560)', () => {
+  const INSIGHT_ID = '22222222-2222-4222-8222-222222222222';
+
+  function refreshRow(input: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+    return makeRow({
+      origin_routine_id: 'rt-1',
+      trigger_meta: { insight_id: INSIGHT_ID },
+      input: { prompt: PROMPT, insight_id: INSIGHT_ID, ...input },
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    getSectorAgentGraphMock.mockResolvedValue(graph());
+    publishRunDraftMock.mockResolvedValue({ status: 'unchanged', insightId: INSIGHT_ID, versionNo: 4 });
+  });
+
+  it('builds the sector workforce graph for a refresh run whose row names a sector agent, at the run effort', async () => {
+    findById.mockResolvedValueOnce(refreshRow({ agent_key: 'minerba', effort: 'high' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getSectorAgentGraphMock).toHaveBeenCalledWith('minerba', 'workforce', 'high');
+    expect(getWorkforceAgentGraph).not.toHaveBeenCalled();
+    expect(configOf(invokeMock).configurable.agent_key).toBe('minerba');
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds the general workforce graph for general, a missing key (pre-MB-560 rows) and an unknown key', async () => {
+    for (const input of [{ agent_key: 'general' }, {}, { agent_key: 'retired' }]) {
+      invokeMock.mockClear();
+      findById.mockResolvedValueOnce(refreshRow(input));
+
+      await runAgent({ runId: RUN_ID });
+
+      expect(configOf(invokeMock).configurable).not.toHaveProperty('agent_key');
+    }
+    expect(getSectorAgentGraphMock).not.toHaveBeenCalled();
+    expect(getWorkforceAgentGraph).toHaveBeenCalledTimes(3);
+  });
+
+  it('ignores an agent_key on a non-refresh run — only refresh runs pick their agent', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({ origin_routine_id: null, input: { prompt: PROMPT, agent_key: 'bangun' } }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getSectorAgentGraphMock).not.toHaveBeenCalled();
+    expect(getWorkforceAgentGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it('a HITL resume rebuilds the sector graph the run started on', async () => {
+    const payload = { decisions: [{ type: 'edit' }] };
+    findById.mockResolvedValueOnce(
+      refreshRow({ agent_key: 'dikti' }, { resume_token: JSON.stringify(payload) }),
+    );
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getSectorAgentGraphMock).toHaveBeenCalledWith('dikti', 'workforce', expect.any(String));
+    expect(resumeMock).toHaveBeenCalledWith(RUN_ID, payload, expect.anything());
+    expect(configOf(resumeMock).configurable.agent_key).toBe('dikti');
+  });
+
+  // The stamp comes from the run row alone — finalize never re-reads the
+  // insight's (possibly since-rebound) binding.
+  it.each(['bangun', 'minerba'])("stamps the published version with the run row's agent %s", async (agentKey) => {
+    findById.mockResolvedValueOnce(refreshRow({ agent_key: agentKey }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(findById).toHaveBeenCalledTimes(1);
+    expect(publishRunDraftMock).toHaveBeenCalledWith('ws-1', RUN_ID, INSIGHT_ID, { agentKey });
+  });
+
+  it('an unavailable sector graph is retryable, naming the agent', async () => {
+    getSectorAgentGraphMock.mockResolvedValueOnce(null);
+
+    await expect(
+      invokeAgent(RUN_ID, PROMPT, null, RUN_ID, [], 'ws-1', 'medium', null, null, undefined, {
+        originRoutineId: 'rt-1',
+        refreshInsightId: INSIGHT_ID,
+        agentKey: 'bangun',
+      }),
+    ).rejects.toThrow('sector agent graph unavailable (bangun)');
   });
 });

@@ -39,7 +39,15 @@ export function rewriteStaleFileBlocks(
       return block;
     });
     if (changed) {
-      replacements.push(new HumanMessage({ id: msg.id, content: newContent as never }));
+      // Keep additional_kwargs: the turn's chat attachment refs ride there
+      // (CHAT_ATTACHMENTS_KWARG), and a later handoff reads them back.
+      replacements.push(
+        new HumanMessage({
+          id: msg.id,
+          content: newContent as never,
+          additional_kwargs: msg.additional_kwargs,
+        }),
+      );
     }
   }
   return replacements;

@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Inbox, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { AlertCircle, FileText, Inbox, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TraceLine, TraceProgressBar, type InterventionDecisionInput } from './trace';
 import type { AvatarTone, TraceData } from './shared';
-import { avatarToneClass } from './shared';
+import { avatarToneClass, describeLiveness, useVisibleInterval } from './shared';
 import { NotificationStack } from '@/components/notifications/NotificationStack';
 import type { TaskNotification } from '@/lib/notifications/types';
 import { useTaskNotifications } from './useTaskNotifications';
+import { WorkspaceLink } from '@/components/WorkspaceLink';
+import type { InsightRunVersionLink } from '@/lib/insights/types';
 
 interface TraceActorResponse {
   id: string;
@@ -78,7 +80,7 @@ function getComposerMode(status: WorkforceQueueStatus): ComposerMode {
   if (COMPOSER_ATTACH_STATUSES.includes(status)) return 'attach';
   return 'disabled';
 }
-const TRACE_POLL_MS = 2000;
+const TRACE_POLL_MS = 5000;
 
 interface ApiQueueItem {
   id: string;
@@ -90,6 +92,10 @@ interface ApiQueueItem {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  // Bumped by runAgent every 60s while the agent loop is executing. This is
+  // the only field that distinguishes "working" from "the run died and the
+  // row was left behind" — status stays 'running' in both cases.
+  last_heartbeat_at: string | null;
   // jsonb error payload. Read here to distinguish user-cancelled rows
   // (code='cancelled_by_user') from genuine agent failures — both share
   // status='failed' at the DB level (no separate enum for cancel).
@@ -177,6 +183,8 @@ export function TaskCanvas({
   onAttached,
 }: TaskCanvasProps) {
   const [item, setItem] = useState<ApiQueueItem | null>(null);
+  // The insight version this run produced (MB-559), linked from the header.
+  const [insightVersion, setInsightVersion] = useState<InsightRunVersionLink | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [traceSteps, setTraceSteps] = useState<TraceData[]>([]);
@@ -199,6 +207,7 @@ export function TaskCanvas({
   useEffect(() => {
     if (!taskId) {
       setItem(null);
+      setInsightVersion(null);
       setError(null);
       setLoading(false);
       return;
@@ -210,9 +219,13 @@ export function TaskCanvas({
       try {
         const res = await fetch(`/api/workforce-queue/${taskId}`);
         if (!res.ok) throw new Error(`Failed to load task (HTTP ${res.status})`);
-        const data = (await res.json()) as { item?: ApiQueueItem };
+        const data = (await res.json()) as {
+          item?: ApiQueueItem;
+          insight_version?: InsightRunVersionLink | null;
+        };
         if (cancelled) return;
         setItem(data.item ?? null);
+        setInsightVersion(data.insight_version ?? null);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Failed to load task');
@@ -245,63 +258,54 @@ export function TaskCanvas({
   // background transitions (agent finishes, reaper marks failed, another
   // user cancels) never propagate to the local item state and the UI shows
   // stale "Running" + Cancel button after the row is already terminal.
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!taskId) return;
-    let cancelled = false;
-
-    const refresh = async () => {
-      try {
-        const [taskRes, traceRes] = await Promise.all([
-          fetch(`/api/workforce-queue/${taskId}`),
-          fetch(`/api/workforce-queue/${taskId}/trace`),
-        ]);
-        if (cancelled) return;
-        // A 401 from either endpoint means the user's session has expired
-        // mid-task — surface the critical session_expired notification.
-        // The notification is client-side only because the poll itself can
-        // no longer reach the server.
-        if (taskRes.status === 401 || traceRes.status === 401) {
-          setSessionExpired();
-          return;
-        }
-        if (taskRes.ok) {
-          const data = (await taskRes.json()) as { item?: ApiQueueItem };
-          if (data.item) setItem(data.item);
-        }
-        if (!traceRes.ok) {
-          throw new Error(`Failed to load trace (HTTP ${traceRes.status})`);
-        }
-        const data = (await traceRes.json()) as {
-          steps?: TraceData[];
-          canDecide?: boolean;
-          status?: WorkforceQueueStatus;
-          actor?: TraceActorResponse;
-          notifications?: TaskNotification[];
-        };
-        if (cancelled) return;
-        setTraceSteps(data.steps ?? []);
-        setCanDecide(Boolean(data.canDecide));
-        if (data.actor) setActor(data.actor);
-        setServerNotifications(data.notifications ?? []);
-        setTraceError(null);
-        traceLoadedRef.current = true;
-      } catch (e) {
-        if (cancelled) return;
-        setTraceError(e instanceof Error ? e.message : 'Failed to load trace');
+    try {
+      const [taskRes, traceRes] = await Promise.all([
+        fetch(`/api/workforce-queue/${taskId}`),
+        fetch(`/api/workforce-queue/${taskId}/trace`),
+      ]);
+      if (taskRes.status === 401 || traceRes.status === 401) {
+        setSessionExpired();
+        return;
       }
-    };
+      if (taskRes.ok) {
+        const data = (await taskRes.json()) as {
+          item?: ApiQueueItem;
+          insight_version?: InsightRunVersionLink | null;
+        };
+        if (data.item) setItem(data.item);
+        // A refresh publishes at the very end, so the link first appears on the
+        // poll that sees the run finish.
+        setInsightVersion(data.insight_version ?? null);
+      }
+      if (!traceRes.ok) {
+        throw new Error(`Failed to load trace (HTTP ${traceRes.status})`);
+      }
+      const data = (await traceRes.json()) as {
+        steps?: TraceData[];
+        canDecide?: boolean;
+        status?: WorkforceQueueStatus;
+        actor?: TraceActorResponse;
+        notifications?: TaskNotification[];
+      };
+      setTraceSteps(data.steps ?? []);
+      setCanDecide(Boolean(data.canDecide));
+      if (data.actor) setActor(data.actor);
+      setServerNotifications(data.notifications ?? []);
+      setTraceError(null);
+      traceLoadedRef.current = true;
+    } catch (e) {
+      setTraceError(e instanceof Error ? e.message : 'Failed to load trace');
+    }
+  }, [taskId, setSessionExpired]);
 
+  useEffect(() => {
     void refresh();
-    const inProgress = item?.status && IN_PROGRESS_STATUSES.includes(item.status);
-    if (!inProgress) return () => {
-      cancelled = true;
-    };
-    const intervalId = window.setInterval(refresh, TRACE_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [taskId, item?.status]);
+  }, [refresh, item?.status]);
+
+  const inProgress = Boolean(item?.status && IN_PROGRESS_STATUSES.includes(item.status));
+  useVisibleInterval(refresh, TRACE_POLL_MS, inProgress);
 
   if (!taskId) {
     return (
@@ -331,6 +335,14 @@ export function TaskCanvas({
   const title = strField(item.input, 'title') || item.agent_name;
   const instruction = strField(item.input, 'instruction');
   const tone = isCancelled(item) ? CANCELLED_TONE : STATUS_TONE[item.status];
+  // Only the statuses that assert the agent is executing right now. A row
+  // parked on `waiting_for_human_input` or `resume_ready` is idle by design
+  // and has no heartbeat to judge. Recomputed on each 2s trace poll, which is
+  // what keeps the elapsed label ticking without a second timer.
+  const liveness =
+    item.status === 'running' || item.status === 'waiting_for_subagent'
+      ? describeLiveness(item.last_heartbeat_at, Date.now())
+      : null;
   const canCancel = CANCELLABLE_STATUSES.includes(item.status);
   const canRetry = RETRYABLE_STATUSES.includes(item.status);
   const composerMode = getComposerMode(item.status);
@@ -523,6 +535,21 @@ export function TaskCanvas({
                 <span>Ended {fmtTs(item.ended_at)}</span>
               </>
             )}
+            {/* Liveness. Only meaningful while the row claims to be working:
+                a crashed run leaves status='running' behind untouched, so the
+                status pill alone cannot tell "working" from "abandoned". */}
+            {liveness && (
+              <>
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
+                <span
+                  className={cn('inline-flex items-center gap-1.5 font-medium', liveness.tone)}
+                  title={liveness.title}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', liveness.dot)} />
+                  {liveness.label}
+                </span>
+              </>
+            )}
             {item.trigger_source === 'chat' && (
               <>
                 <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
@@ -530,6 +557,21 @@ export function TaskCanvas({
                   <Sparkles className="h-3 w-3" />
                   Spawned from CoPilot
                 </span>
+              </>
+            )}
+            {insightVersion && (
+              <>
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
+                <WorkspaceLink
+                  href={`/insight/${insightVersion.insight_id}`}
+                  data-testid="task-insight-version-link"
+                  className="inline-flex items-center gap-1 text-primary font-semibold hover:underline"
+                >
+                  <FileText className="h-3 w-3" />
+                  {insightVersion.is_unchanged
+                    ? `No changes to ${insightVersion.insight_name}`
+                    : `Published ${insightVersion.insight_name} v${insightVersion.version_no}`}
+                </WorkspaceLink>
               </>
             )}
           </div>

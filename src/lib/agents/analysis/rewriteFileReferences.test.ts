@@ -23,6 +23,19 @@ describe("rewriteStaleFileBlocks", () => {
     ]);
   });
 
+  it("keeps the message's additional_kwargs, where the turn's attachment refs ride", () => {
+    const refs = [{ key: "chat-attachments/ws-1/a.pdf", fileName: "a.pdf", contentType: "application/pdf" }];
+    const messages = [
+      new HumanMessage({
+        id: "u1",
+        content: [{ type: "file", fileId: "old_file" }],
+        additional_kwargs: { chat_attachments: refs },
+      }),
+    ];
+    const out = rewriteStaleFileBlocks(messages, []);
+    expect(out[0].additional_kwargs).toEqual({ chat_attachments: refs });
+  });
+
   it("replaces a stale file block with a placeholder when nothing is attached anymore", () => {
     const messages = [
       new HumanMessage({ id: "u1", content: [{ type: "file", fileId: "old_file" }] }),

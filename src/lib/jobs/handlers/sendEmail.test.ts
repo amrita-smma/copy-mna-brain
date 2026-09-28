@@ -444,4 +444,32 @@ describe('runSendEmail', () => {
     );
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ ballots: [] }));
   });
+
+  it('delegates insight_refreshed to EmailService.sendInsightRefreshedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm-insight' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendInsightRefreshedEmail');
+    const payload: SendEmailPayload = {
+      kind: 'insight_refreshed',
+      to: 'owner@example.com',
+      insightName: 'Japan Target Analysis',
+      versionNo: 2,
+      insightUrl: 'https://app.example.com/w/togan/insight/i1',
+    };
+
+    const result = await runSendEmail(payload, { emailService });
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'owner@example.com',
+      insightName: 'Japan Target Analysis',
+      versionNo: 2,
+      insightUrl: 'https://app.example.com/w/togan/insight/i1',
+    });
+    expect(result).toEqual({
+      kind: 'insight_refreshed',
+      to: 'owner@example.com',
+      messageId: 'm-insight',
+    });
+  });
 });

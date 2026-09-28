@@ -2586,8 +2586,10 @@ export const employerTeamMembers = pgTable(
 
 // Audit entry for a single HITL (human-in-the-loop) decision on a workforce
 // run. Stored as an element of ai_workforce_queue.human_decisions. The
-// `decided_by` is implicit (always the row's triggered_by_user_id — only the
-// task creator can decide, enforced at the API layer).
+// decider is the task creator or the user the intervention was addressed to
+// (pending_intervention.asked_user_id — e.g. the insight owner for a scheduled
+// refresh); `decided_by_user_id` records which. Entries written before MB-561
+// omit it, and their decider is the row's triggered_by_user_id.
 export type HumanDecision = {
   tool_call_id: string;
   tool_name: string;
@@ -2595,6 +2597,26 @@ export type HumanDecision = {
   edited_args?: Record<string, unknown>;
   rejection_message?: string;
   decided_at: string;
+  decided_by_user_id?: string;
+  // ask_owner only: the question put to the owner and the answer the agent
+  // received (the recommendation when accepted, the owner's text otherwise).
+  question?: string;
+  answer?: string;
+};
+
+// The HITL intervention a workforce run is paused on
+// (ai_workforce_queue.pending_intervention). Written when the run enters
+// waiting_for_human_input, cleared when a decision queues the resume.
+export type PendingIntervention = {
+  tool_name: string;
+  // The args the agent proposed for the gated call. The decision route
+  // rebuilds an `edit` decision from these (the middleware replaces args
+  // wholesale on edit).
+  tool_args: Record<string, unknown>;
+  // Who was asked to decide. Null when nobody could be resolved — only the
+  // task creator can then decide.
+  asked_user_id: string | null;
+  asked_at: string;
 };
 
 // Free-form user update message attached to a workforce run via the
@@ -2649,6 +2671,7 @@ export const aiWorkforceQueue = pgTable(
       .default([])
       .notNull(),
     retried_from_id: uuid(),
+    pending_intervention: jsonb().$type<PendingIntervention>(),
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -2701,6 +2724,18 @@ export const aiWorkforceQueue = pgTable(
         "btree",
         table.origin_routine_id.asc().nullsLast().op("uuid_ops"),
       ),
+      // An insight's failed refresh runs (MB-559). Retry copies input but not
+      // trigger_meta, so the query ORs both expressions.
+      idxAiWorkforceQueueRefreshTriggerMetaInsight: index(
+        "idx_ai_workforce_queue_refresh_trigger_meta_insight",
+      )
+        .on(table.workspace_id, sql`(${table.trigger_meta}->>'insight_id')`)
+        .where(sql`origin_routine_id IS NOT NULL`),
+      idxAiWorkforceQueueRefreshInputInsight: index(
+        "idx_ai_workforce_queue_refresh_input_insight",
+      )
+        .on(table.workspace_id, sql`(${table.input}->>'insight_id')`)
+        .where(sql`origin_routine_id IS NOT NULL`),
       idxAiWorkforceQueueTerminal: index(
         "idx_ai_workforce_queue_terminal",
       ).using("btree", table.ended_at.desc().nullsLast().op("timestamptz_ops")),
@@ -2713,6 +2748,13 @@ export const aiWorkforceQueue = pgTable(
         columns: [table.retried_from_id],
         foreignColumns: [table.id],
         name: "ai_workforce_queue_retried_from_id_fkey",
+      }).onDelete("set null"),
+      // SET NULL so hard-deleting a routine (e.g. via an insight's cascade)
+      // keeps the run history and only drops the attribution.
+      aiWorkforceQueueOriginRoutineIdFkey: foreignKey({
+        columns: [table.origin_routine_id],
+        foreignColumns: [routines.id],
+        name: "ai_workforce_queue_origin_routine_id_fkey",
       }).onDelete("set null"),
       idxAiWorkforceQueueRetriedFrom: index(
         "idx_ai_workforce_queue_retried_from",
@@ -2772,9 +2814,29 @@ export const routines = pgTable(
     workspace_id: uuid().references(() => workspaces.id, {
       onDelete: "cascade",
     }),
+    // Set when this routine refreshes an insight (MB-557). At most one
+    // non-archived routine per insight — see uqRoutinesActiveInsight.
+    insight_id: uuid().references(() => insights.id, { onDelete: "cascade" }),
+    // Why the system paused this routine (MB-560): 'agent_deprecated' or
+    // 'agent_incompatible', always with enabled = false. Null for a running
+    // routine and for a manual pause, so rebinding the insight resumes only
+    // system pauses and never a routine a person switched off.
+    paused_reason: text().$type<"agent_deprecated" | "agent_incompatible">(),
+    paused_at: timestamp({ withTimezone: true, mode: "string" }),
   },
   (table) => {
     return {
+      routinesPausedReasonChk: check(
+        "chk_routines_paused_reason",
+        sql`paused_reason IS NULL OR paused_reason IN ('agent_deprecated', 'agent_incompatible')`,
+      ),
+      idxRoutinesInsightId: index("idx_routines_insight_id").using(
+        "btree",
+        table.insight_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      uqRoutinesActiveInsight: uniqueIndex("uq_routines_active_insight")
+        .using("btree", table.insight_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`insight_id IS NOT NULL AND archived_at IS NULL`),
       idxRoutinesActiveDue: index("idx_routines_active_due").using(
         "btree",
         table.next_fire_at.asc().nullsLast().op("timestamptz_ops"),
@@ -2831,6 +2893,17 @@ export const copilotChats = pgTable(
     // detects when a brand-new chat repeats an earlier question.
     first_user_message: text(),
     first_user_message_hash: text(),
+    // Effort tier this thread runs at: 'low' | 'medium' | 'high'. Written once
+    // by the Auto router (or pinned when the user picks a tier explicitly) and
+    // reused on later turns, so Auto costs one routing call per thread and can
+    // only escalate, never descend. NULL means "not yet routed".
+    effort_tier: text(),
+    // The agent this thread runs on (MB-549): a sector agent's registry key, or
+    // 'general' for the workspace's general CoPilot. Resolved and written once
+    // on the thread's first turn — from the insight the chat was opened on —
+    // and reused on every later turn, so one thread never changes agent. NULL
+    // means "not yet resolved", mirroring effort_tier.
+    agent_key: text(),
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
@@ -4044,3 +4117,197 @@ export const flValuations = pgTable("fl_valuations", {
   // is defined in SQL migration because Drizzle TS API does not support NULLS NOT DISTINCT.
 }));
 
+// ============================================================================
+// Insights & Versions
+// ============================================================================
+
+export const insights = pgTable(
+  "insights",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    description: text(),
+    kind: text().$type<"document" | "report">().default("document").notNull(),
+    is_featured: boolean().default(false).notNull(),
+    created_by: uuid().references(() => users.id, { onDelete: "set null" }),
+    updated_by: uuid().references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    archived_at: timestamp({ withTimezone: true, mode: "string" }),
+    // The bound sector agent's registry key (MB-546); null = general CoPilot.
+    // No FK: the registry is code (src/lib/agents/sector/registry.ts).
+    agent_key: text(),
+    // The template the insight was created from. SET NULL keeps the insight
+    // when the template is purged; a soft-deleted template keeps the id.
+    source_template_id: uuid().references(() => insightTemplates.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => {
+    return {
+      idxInsightsWorkspaceId: index("idx_insights_workspace_id").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      idxInsightsWorkspaceSourceTemplate: index(
+        "idx_insights_workspace_source_template",
+      ).using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+        table.source_template_id.asc().nullsLast().op("uuid_ops"),
+      ),
+      uqInsightsWorkspaceFeatured: uniqueIndex(
+        "uq_insights_workspace_featured",
+      )
+        .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`is_featured = true and archived_at is null`),
+      insightsKindChk: check(
+        "chk_insights_kind",
+        sql`kind IN ('document', 'report')`,
+      ),
+    };
+  },
+);
+
+export const insightVersions = pgTable(
+  "insight_versions",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    insight_id: uuid()
+      .notNull()
+      .references(() => insights.id, { onDelete: "cascade" }),
+    version_no: integer().notNull(),
+    // The complete document. Rendered inside a sandboxed iframe, never injected
+    // into the app origin — which is why it is stored exactly as authored.
+    html: text().notNull(),
+    // Plain text, not a pg enum: seed | copilot_create | copilot_edit |
+    // rollback | duplicate | routine | workforce
+    trigger: text().notNull(),
+    label: text(),
+    created_by: uuid().references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    // The workforce run that published this version (trigger routine or
+    // workforce). SET NULL keeps the version when the run row is deleted.
+    source_run_id: uuid().references(() => aiWorkforceQueue.id, {
+      onDelete: "set null",
+    }),
+    // sha256 of the whitespace-normalised HTML (see insights/contentHash).
+    // Null on rows written before MB-559; a null hash never compares equal.
+    content_hash: text(),
+    // A scheduled refresh that changed nothing still records a version, so
+    // every run appears in the history; this marks it and suppresses the
+    // refresh notification.
+    is_unchanged: boolean().default(false).notNull(),
+    // The sector agent that produced this version, stamped at write time so a
+    // rebind never rewrites history. Null when no sector agent produced it.
+    agent_key: text(),
+  },
+  (table) => {
+    return {
+      idxInsightVersionsSourceRunId: index("idx_insight_versions_source_run_id")
+        .using("btree", table.source_run_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`source_run_id IS NOT NULL`),
+      // One published version per refresh run, so a WDK retry landing between
+      // publish and markSucceeded can't publish twice. Partial because a
+      // non-refresh workforce run stamps every per-edit version with its id.
+      uqInsightVersionsRoutineSourceRunId: uniqueIndex(
+        "uq_insight_versions_routine_source_run_id",
+      )
+        .using("btree", table.source_run_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`source_run_id IS NOT NULL AND trigger = 'routine'`),
+      uqInsightVersionsInsightIdVersionNo: unique(
+        "uq_insight_versions_insight_id_version_no",
+      ).on(table.insight_id, table.version_no),
+      idxInsightVersionsWorkspaceInsightVersion: index(
+        "idx_insight_versions_workspace_insight_version",
+      ).using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+        table.insight_id.asc().nullsLast().op("uuid_ops"),
+        table.version_no.desc().nullsLast().op("int4_ops"),
+      ),
+    };
+  },
+);
+
+// A refresh run's unpublished edits to its insight (MB-558). The run publishes
+// the draft once, when it succeeds; a failed run leaves it behind, and
+// deleting the run cascades it away.
+export const insightRunDrafts = pgTable(
+  "insight_run_drafts",
+  {
+    run_id: uuid()
+      .primaryKey()
+      .notNull()
+      .references(() => aiWorkforceQueue.id, { onDelete: "cascade" }),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    insight_id: uuid()
+      .notNull()
+      .references(() => insights.id, { onDelete: "cascade" }),
+    // The version the draft was seeded from; publishing compares it with the
+    // current version to label a refresh that landed over a mid-run edit.
+    base_version_no: integer().notNull(),
+    html: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxInsightRunDraftsInsightId: index(
+        "idx_insight_run_drafts_insight_id",
+      ).using("btree", table.insight_id.asc().nullsLast().op("uuid_ops")),
+    };
+  },
+);
+
+export const insightTemplates = pgTable(
+  "insight_templates",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    description: text(),
+    icon: text(),
+    // The complete template document, stored as authored (like
+    // insight_versions.html). Repository reads other than findById leave it
+    // out so listings don't ship every template's HTML.
+    html: text().notNull(),
+    created_by: uuid().references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    // Soft delete: set while the template sits in Recently deleted. Every read
+    // except the Recently deleted listing leaves these rows out.
+    deleted_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      idxInsightTemplatesWorkspaceId: index(
+        "idx_insight_templates_workspace_id",
+      ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+    };
+  },
+);

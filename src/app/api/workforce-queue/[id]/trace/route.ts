@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
-import { users } from '@/lib/db/schema';
+import { UserRepository } from '@/lib/repositories';
 import { getWorkforceAgentGraph } from '@/lib/agents/analysis';
 import { buildTrace, type TraceActor } from '@/lib/workforce/traceMapper';
 import type { AvatarTone } from '@/views/AIWorkforce/shared';
-import type { HumanDecision } from '@/lib/db/schema';
+import type { HumanDecision, PendingIntervention } from '@/lib/db/schema';
 
 const TONE_PALETTE: AvatarTone[] = [
   'amber',
@@ -53,32 +52,47 @@ export async function GET(
     }
     const notifications = await notificationService.list(id);
 
-    const canDecide = item.triggered_by_user_id === session.user.id;
+    const humanDecisions = (item.human_decisions as HumanDecision[] | null) ?? [];
+    const pending = (item.pending_intervention ?? null) as PendingIntervention | null;
+    const askedUserId = pending?.asked_user_id ?? null;
 
-    // Resolve the creator-actor for resolved-intervention rendering. Only
-    // the creator can decide, so this is also the only actor we'll ever
-    // need to label decisions with.
-    let actor: TraceActor = {
-      id: item.triggered_by_user_id ?? 'system',
-      name: 'System',
-      initials: 'SY',
-      avatarTone: toneForId(item.triggered_by_user_id ?? 'system'),
-    };
-    if (item.triggered_by_user_id) {
-      const [user] = await db
-        .select({ id: users.id, name: users.name })
-        .from(users)
-        .where(eq(users.id, item.triggered_by_user_id))
-        .limit(1);
-      if (user) {
-        actor = {
-          id: user.id,
-          name: user.name,
-          initials: initialsOf(user.name),
-          avatarTone: toneForId(user.id),
-        };
-      }
+    // The creator can always decide; so can the person the intervention was
+    // addressed to (e.g. the insight owner on a scheduled refresh run, which
+    // has no creator). Mirrors the decision route's check.
+    const canDecide =
+      item.triggered_by_user_id === session.user.id ||
+      (askedUserId !== null && askedUserId === session.user.id);
+
+    // One lookup for every user the trace names: the creator (default actor),
+    // the person asked, and whoever made each recorded decision.
+    const userIds = [
+      ...new Set(
+        [
+          item.triggered_by_user_id,
+          askedUserId,
+          ...humanDecisions.map((d) => d.decided_by_user_id),
+        ].filter((v): v is string => typeof v === 'string' && v.length > 0),
+      ),
+    ];
+    const users = await new UserRepository(db).findByIds(userIds);
+    const actorsById: Record<string, TraceActor> = {};
+    for (const user of users) {
+      actorsById[user.id] = {
+        id: user.id,
+        name: user.name,
+        initials: initialsOf(user.name),
+        avatarTone: toneForId(user.id),
+      };
     }
+
+    const actor: TraceActor =
+      (item.triggered_by_user_id && actorsById[item.triggered_by_user_id]) || {
+        id: item.triggered_by_user_id ?? 'system',
+        name: 'System',
+        initials: 'SY',
+        avatarTone: toneForId(item.triggered_by_user_id ?? 'system'),
+      };
+    const waitingFor = askedUserId ? actorsById[askedUserId]?.name : undefined;
 
     // No checkpoint exists until the dispatcher claims the row, so skip the
     // checkpoint read for pending tasks.
@@ -101,8 +115,7 @@ export async function GET(
     }
 
     const { messages, pendingWrites } = await graph.getTrace(item.id);
-    const humanDecisions = (item.human_decisions as HumanDecision[] | null) ?? [];
-
+    const messageTimestamps = await aiWorkforceService.getMessageTimestamps(item.id, messages);
     const TERMINAL: Array<typeof item.status> = [
       'succeeded',
       'failed',
@@ -128,6 +141,9 @@ export async function GET(
       startedAt: item.started_at,
       terminal: isTerminal,
       cancelled: isCancelled,
+      messageTimestamps,
+      waitingFor,
+      deciders: actorsById,
     });
 
     return NextResponse.json({

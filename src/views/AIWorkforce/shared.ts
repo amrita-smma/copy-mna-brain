@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import type { RoutinePausedReason } from '@/lib/routines/pauseReason';
 
 export type AvatarTone = 'amber' | 'indigo' | 'aqua' | 'rose' | 'slate' | 'violet';
 
@@ -98,6 +100,14 @@ export type LiveRow = {
   detail?: string;
 };
 
+// An ask_owner intervention (MB-561): the agent's question carries its
+// recommended answer, the reasoning, and optional one-click answers.
+export type InterventionAsk = {
+  recommendation: string;
+  rationale?: string;
+  options?: string[];
+};
+
 export type InterventionData =
   | {
       state: 'waiting';
@@ -107,6 +117,11 @@ export type InterventionData =
       // endpoint to know what to resume.
       tool_call_id?: string;
       tool_name?: string;
+      // Set for ask_owner: rendered as recommendation + answer controls
+      // instead of Approve/Reject.
+      ask?: InterventionAsk;
+      // Display name of the person the intervention is addressed to.
+      waitingFor?: string;
     }
   | {
       state: 'resolved';
@@ -115,7 +130,7 @@ export type InterventionData =
         actor: string;
         actorInitials: string;
         avatarTone: AvatarTone;
-        decision: 'approved' | 'modified';
+        decision: 'approved' | 'modified' | 'answered' | 'rejected';
         text: string;
         timestamp: string;
       };
@@ -155,6 +170,15 @@ export type Routine = {
   instruction: string;
   runCount: number;
   isFiring?: boolean;
+  enabled: boolean;
+  /**
+   * Set when the system paused the routine for a broken agent binding
+   * (MB-560), as opposed to a manual pause. Only a rebind resumes it.
+   */
+  pausedReason: RoutinePausedReason | null;
+  /** Plain-words notice for `pausedReason`, naming the agent. */
+  pausedNotice: string | null;
+  insight: { id: string; name: string } | null;
   icon: LucideIcon;
 };
 
@@ -174,3 +198,105 @@ export type Selection =
   | { kind: 'routine'; id: string };
 
 export const DEFAULT_SELECTION: Selection = { kind: 'task', id: 'active' };
+
+// `invokeAgent` heartbeats on a 60s ticker, so two missed beats is the point
+// where "quiet" stops being normal jitter. Between there and the stall
+// threshold the run is usually mid-retry: a step that exceeds the platform's
+// function duration is killed and re-entered by the workflow runtime, and the
+// heartbeat legitimately goes quiet for several minutes across that gap — so
+// this band is reported as a fact, not as a failure.
+const HEARTBEAT_FRESH_MS = 120_000;
+// Mirrors DEFAULT_REAPER_STALENESS_SECONDS in src/lib/workforce/dispatcher.ts,
+// which is when the server would reap this row as stuck. Deliberately copied
+// rather than imported: that module pulls in repositories and the DB client,
+// and dragging server-only code into a client component breaks the build.
+const HEARTBEAT_STALLED_MS = 1_800_000;
+
+export type Liveness = {
+  tone: string;
+  dot: string;
+  label: string;
+  title: string;
+};
+
+export function describeLiveness(
+  lastHeartbeatAt: string | null,
+  now: number,
+): Liveness | null {
+  if (!lastHeartbeatAt) return null;
+  const beatAt = new Date(lastHeartbeatAt).getTime();
+  if (Number.isNaN(beatAt)) return null;
+
+  const quietMs = Math.max(0, now - beatAt);
+  const quiet = fmtDuration(quietMs);
+
+  if (quietMs <= HEARTBEAT_FRESH_MS) {
+    return {
+      tone: 'text-emerald-600',
+      dot: 'bg-emerald-500 animate-pulse',
+      label: `Active · ${quiet} ago`,
+      title: `The agent checked in ${quiet} ago. It heartbeats every 60s while working.`,
+    };
+  }
+  if (quietMs < HEARTBEAT_STALLED_MS) {
+    return {
+      tone: 'text-amber-600',
+      dot: 'bg-amber-500',
+      label: `Quiet for ${quiet}`,
+      title:
+        `No check-in for ${quiet} (expected every 60s). This is normal for a ` +
+        `few minutes while a killed step is retried, but the agent is not ` +
+        `doing work right now.`,
+    };
+  }
+  return {
+    tone: 'text-rose-600',
+    dot: 'bg-rose-500',
+    label: `Stalled for ${quiet}`,
+    title:
+      `No check-in for ${quiet}. The run is past the point where the server ` +
+      `treats it as stuck — it is very unlikely to resume on its own.`,
+  };
+}
+
+export function fmtDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ${mins % 60}m`;
+}
+
+export function useVisibleInterval(
+  fn: () => void,
+  ms: number,
+  enabled: boolean,
+): void {
+  const savedFn = useRef(fn);
+  savedFn.current = fn;
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const onTick = () => {
+      if (document.visibilityState === 'hidden') return;
+      savedFn.current();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        savedFn.current();
+      }
+    };
+
+    const intervalId = window.setInterval(onTick, ms);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [ms, enabled]);
+}
+

@@ -437,6 +437,8 @@ export async function processFileContent(
     // this model"). Explicitly leave it unset — ChatAnthropic omits the field
     // from the request when this is undefined (see invocationParams).
     temperature: undefined,
+    // Anthropic defaults to high effort when output_config is omitted; low effort is sufficient for document text extraction.
+    outputConfig: { effort: 'low' },
     // Meeting-minutes / shopping-list docs produce very long structured JSON
     // (multi-paragraph summary + dozens of key_points, tags, companies_detected
     // and company_notes). LangChain defaults maxTokens to 2048, which truncates

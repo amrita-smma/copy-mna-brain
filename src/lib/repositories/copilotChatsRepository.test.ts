@@ -134,6 +134,14 @@ describe('CopilotChatsRepository', () => {
     expect(mockDb.set).toHaveBeenCalledWith({ title: 'My title' });
   });
 
+  it('setEffortTier pins the tier the thread runs at', async () => {
+    mockDb.where.mockResolvedValueOnce(undefined);
+
+    await repo.setEffortTier('c1', 'high');
+
+    expect(mockDb.set).toHaveBeenCalledWith({ effort_tier: 'high' });
+  });
+
   it('recordFirstMessage writes the message and hash', async () => {
     mockDb.where.mockResolvedValueOnce(undefined);
 
@@ -151,7 +159,7 @@ describe('CopilotChatsRepository', () => {
     mockDb.orderBy.mockReturnThis();
     mockDb.limit.mockResolvedValueOnce([row]);
 
-    const result = await repo.findLatestFirstMessageMatch('abc123');
+    const result = await repo.findLatestFirstMessageMatch('abc123', 'general');
 
     expect(result).toEqual(row);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
@@ -162,8 +170,50 @@ describe('CopilotChatsRepository', () => {
     mockDb.orderBy.mockReturnThis();
     mockDb.limit.mockResolvedValueOnce([]);
 
-    const result = await repo.findLatestFirstMessageMatch('nohash');
+    const result = await repo.findLatestFirstMessageMatch('nohash', 'bangun');
 
     expect(result).toBeNull();
+  });
+
+  it('create pre-pins the agent key when one is given', async () => {
+    mockDb.returning.mockResolvedValueOnce([{ id: 'c1', agent_key: 'bangun' }]);
+
+    await repo.create('u1', 'bangun');
+
+    expect(mockDb.values).toHaveBeenCalledWith({
+      user_id: 'u1',
+      workspace_id: 'workspace-1',
+      agent_key: 'bangun',
+    });
+  });
+
+  it('pinAgentKey writes the key and returns it when the thread was unresolved', async () => {
+    mockDb.returning.mockResolvedValueOnce([{ agent_key: 'bangun' }]);
+
+    const result = await repo.pinAgentKey('c1', 'bangun');
+
+    expect(result).toBe('bangun');
+    expect(mockDb.set).toHaveBeenCalledWith({ agent_key: 'bangun' });
+    // Lost-race fallback read not needed.
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('pinAgentKey keeps and returns the stored key when the thread is already pinned', async () => {
+    // The guarded UPDATE matches no row …
+    mockDb.returning.mockResolvedValueOnce([]);
+    // … so the stored key is read back.
+    mockDb.limit.mockResolvedValueOnce([{ agent_key: 'general' }]);
+
+    const result = await repo.pinAgentKey('c1', 'bangun');
+
+    expect(result).toBe('general');
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('pinAgentKey returns null when the chat is not in this workspace', async () => {
+    mockDb.returning.mockResolvedValueOnce([]);
+    mockDb.limit.mockResolvedValueOnce([]);
+
+    await expect(repo.pinAgentKey('missing', 'bangun')).resolves.toBeNull();
   });
 });

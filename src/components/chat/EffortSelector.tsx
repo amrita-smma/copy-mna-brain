@@ -2,19 +2,29 @@
 
 import { cn } from '@/lib/utils';
 
-export type EffortOption = 'auto' | 'medium' | 'high';
+export type EffortOption = 'auto' | 'low' | 'medium' | 'high';
 
 export const OPTIONS: { value: EffortOption; label: string; title: string }[] = [
-  { value: 'auto', label: 'Auto', title: 'Let the system choose (Medium)' },
-  { value: 'medium', label: 'Medium', title: 'Medium effort — fast and capable' },
-  { value: 'high', label: 'High', title: 'High effort — most powerful, slower' },
+  {
+    value: 'auto',
+    label: 'Auto',
+    title: 'Pick the effort level to match the question (recommended)',
+  },
+  { value: 'low', label: 'Low', title: 'Low effort — quickest, for lookups and follow-ups' },
+  { value: 'medium', label: 'Medium', title: 'Medium effort — multi-step questions' },
+  { value: 'high', label: 'High', title: 'High effort — deep analysis, slowest' },
 ];
 
 interface EffortSelectorProps {
   value: EffortOption;
   onChange: (v: EffortOption) => void;
-  /** Show only Medium/High (no Auto option). For workforce handoff card. */
+  /** Hide the Auto option. For the workforce handoff card, which has no router. */
   hideAuto?: boolean;
+  /**
+   * Hide the Low option. The workforce queue floors at Medium, so offering Low
+   * there would show a tier the server would silently raise.
+   */
+  hideLow?: boolean;
   className?: string;
 }
 
@@ -49,8 +59,16 @@ export function EffortPill({ value, onChange, className }: EffortPillProps) {
   );
 }
 
-export function EffortSelector({ value, onChange, hideAuto = false, className }: EffortSelectorProps) {
-  const opts = hideAuto ? OPTIONS.filter((o) => o.value !== 'auto') : OPTIONS;
+export function EffortSelector({
+  value,
+  onChange,
+  hideAuto = false,
+  hideLow = false,
+  className,
+}: EffortSelectorProps) {
+  const opts = OPTIONS.filter(
+    (o) => !(hideAuto && o.value === 'auto') && !(hideLow && o.value === 'low'),
+  );
   return (
     <div
       className={cn(

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
-import { getAgentGraph } from '@/lib/agents/analysis';
 import {
   ChatRequestError,
   prepareConversationRun,
   eventStreamToSse,
 } from '@/lib/server/apiChatSupport';
+import { resolveChatAgentGraph } from '@/lib/chat/chatAgent';
 
 /**
  * External chat API — streaming. Authenticated by API key (Bearer token,
@@ -22,7 +22,9 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const db = createDb();
-    const { apiKeyService, apiChatConversationService } = createContainer(db, await getActiveWorkspaceId());
+    const workspaceId = await getActiveWorkspaceId();
+    const { apiKeyService, apiChatConversationService, copilotChatsService, insightService } =
+      createContainer(db, workspaceId);
 
     const body = await req.json().catch(() => undefined);
     const { conversationId, messages, originalUserQuestion } = await prepareConversationRun(
@@ -31,7 +33,13 @@ export async function POST(req: NextRequest) {
       { apiKeyService, apiChatConversationService },
     );
 
-    const agent = await getAgentGraph();
+    // External API conversations are not CoPilot threads and carry no page,
+    // so they resolve to the general CoPilot with today's defaults. Going
+    // through the resolver keeps every chat entrypoint on one rule (MB-549).
+    const { graph: agent, agentKey } = await resolveChatAgentGraph(
+      { chat: null, pageContext: null },
+      { workspaceId, copilotChatsService, insightService },
+    );
     if (!agent) {
       return NextResponse.json(
         { error: 'Chat agent unavailable' },
@@ -44,7 +52,7 @@ export async function POST(req: NextRequest) {
       {
         version: 'v2',
         recursionLimit: 50,
-        configurable: { thread_id: conversationId, originalUserQuestion },
+        configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
       },
     );
 

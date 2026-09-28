@@ -1,10 +1,38 @@
-import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
-import { aiWorkforceQueue, routines } from '@/lib/db/schema';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
+import { aiWorkforceQueue, insights, routines } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
+import { ACTIVE_WORKFORCE_STATUSES } from './aiWorkforceQueueRepository';
 
 export type RoutineRow = Tables<'routines'>;
 export type RoutineInsert = TablesInsert<'routines'>;
 export type RoutineUpdate = TablesUpdate<'routines'>;
+/**
+ * `insight_agent_key` is the refreshed insight's current binding, so the rail
+ * can name the agent in a paused routine's notice (MB-560) without a second
+ * request.
+ */
+export type RoutineListRow = RoutineRow & {
+  insight_name: string | null;
+  insight_agent_key: string | null;
+};
+
+export interface InsightRefreshTarget {
+  name: string;
+  archived: boolean;
+  agentKey: string | null;
+}
 
 const ROUTINE_DISPATCHER_LOCK_KEY = BigInt('0x4d4231343852'); // "MB148R"
 
@@ -63,14 +91,118 @@ export class RoutinesRepository {
     return row ?? null;
   }
 
+  /**
+   * This workspace's non-archived routine for the given insight, or null.
+   * Scoped strictly to this workspace (not scopeCond()'s legacy-NULL fallback).
+   */
+  async findActiveByInsightId(insightId: string): Promise<RoutineRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.workspace_id, this.workspaceId),
+          eq(routines.insight_id, insightId),
+          isNull(routines.archived_at),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * The active refresh routines of many insights in one query — the batched
+   * {@link findActiveByInsightId}, with the same filters, for the insight
+   * list's refresh badges. Ordered by `insight_id` so callers can group in one
+   * pass. At most one per insight (`uq_routines_active_insight`); insights
+   * without one are absent. Guard: `[]` without querying for no ids.
+   */
+  async findActiveByInsightIds(insightIds: string[]): Promise<RoutineRow[]> {
+    if (insightIds.length === 0) {
+      return [];
+    }
+    return this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.workspace_id, this.workspaceId),
+          inArray(routines.insight_id, insightIds),
+          isNull(routines.archived_at),
+        ),
+      )
+      .orderBy(asc(routines.insight_id));
+  }
+
+  /**
+   * Look up insight names for the given IDs in a single query. Deliberately
+   * NOT workspace-scoped: the cron tick fires routines across workspaces.
+   * Guard: returns an empty Map without querying if insightIds is empty.
+   */
+  async findInsightNamesByIds(insightIds: string[]): Promise<Map<string, string>> {
+    if (insightIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db
+      .select({
+        id: insights.id,
+        name: insights.name,
+      })
+      .from(insights)
+      .where(inArray(insights.id, insightIds));
+
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      map.set(row.id, row.name);
+    }
+    return map;
+  }
+
+  /**
+   * One inArray query, NOT workspace-scoped (same reason as findInsightNamesByIds);
+   * empty → new Map() with no DB call. `agentKey` is the insight's raw binding
+   * (null when unbound), which the fire tick resolves into the run's agent.
+   */
+  async findInsightRefreshTargetsByIds(
+    insightIds: string[],
+  ): Promise<Map<string, InsightRefreshTarget>> {
+    if (insightIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db
+      .select({
+        id: insights.id,
+        name: insights.name,
+        archived_at: insights.archived_at,
+        agent_key: insights.agent_key,
+      })
+      .from(insights)
+      .where(inArray(insights.id, insightIds));
+
+    const map = new Map<string, InsightRefreshTarget>();
+    for (const row of rows) {
+      map.set(row.id, {
+        name: row.name,
+        archived: Boolean(row.archived_at),
+        agentKey: row.agent_key ?? null,
+      });
+    }
+    return map;
+  }
+
   /** This workspace's own routines plus legacy pre-tenancy rows with no workspace_id. */
-  async list(opts: { includeArchived?: boolean } = {}): Promise<RoutineRow[]> {
+  async list(opts: { includeArchived?: boolean } = {}): Promise<RoutineListRow[]> {
     const where = opts.includeArchived
       ? this.scopeCond()
       : and(this.scopeCond(), isNull(routines.archived_at));
     return this.db
-      .select()
+      .select({
+        ...getTableColumns(routines),
+        insight_name: insights.name,
+        insight_agent_key: insights.agent_key,
+      })
       .from(routines)
+      .leftJoin(insights, eq(insights.id, routines.insight_id))
       .where(where)
       .orderBy(desc(routines.created_at));
   }
@@ -145,6 +277,146 @@ export class RoutinesRepository {
         next_fire_at: nextFireAt,
       })
       .where(eq(routines.id, id));
+  }
+
+  /**
+   * Advance a routine's schedule without recording a fire — for a due routine
+   * the tick skipped (e.g. its previous run is still active), so it doesn't
+   * come due again on every tick. Unscoped by id, like markFired.
+   */
+  async advanceSchedule(id: string, nextFireAt: string): Promise<void> {
+    await this.db
+      .update(routines)
+      .set({ next_fire_at: nextFireAt })
+      .where(eq(routines.id, id));
+  }
+
+  /**
+   * The subset of `routineIds` that already have a run that hasn't finished
+   * (queued, running, waiting on a human, queued to resume…). One query for a
+   * whole tick's due routines. Unscoped: the cron tick spans workspaces and
+   * routine ids are globally unique.
+   */
+  async findActiveRunRoutineIds(routineIds: string[]): Promise<Set<string>> {
+    if (routineIds.length === 0) return new Set();
+    const rows = await this.db
+      .selectDistinct({ origin_routine_id: aiWorkforceQueue.origin_routine_id })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          inArray(aiWorkforceQueue.origin_routine_id, routineIds),
+          inArray(aiWorkforceQueue.status, [...ACTIVE_WORKFORCE_STATUSES]),
+        ),
+      )
+      .orderBy(asc(aiWorkforceQueue.origin_routine_id));
+    return new Set(
+      rows
+        .map((r) => r.origin_routine_id)
+        .filter((id): id is string => id !== null),
+    );
+  }
+
+  /**
+   * The newest refresh run of `insightId` that hasn't finished (queued,
+   * running, waiting on a human…), or null — the run-now guard (MB-552), so a
+   * second "Refresh now" doesn't stack a parallel refresh. Covers a routine's
+   * runs and one-off refreshes alike: both name the insight in trigger_meta,
+   * a retried run only in input. Workspace-scoped; the status filter keeps the
+   * scan to the handful of live rows.
+   */
+  async findActiveInsightRefreshRunId(insightId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ id: aiWorkforceQueue.id })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          inArray(aiWorkforceQueue.status, [...ACTIVE_WORKFORCE_STATUSES]),
+          or(
+            sql`(${aiWorkforceQueue.trigger_meta}->>'insight_id') = ${insightId}`,
+            sql`(${aiWorkforceQueue.input}->>'insight_id') = ${insightId}`,
+          ),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  /**
+   * Unscoped by id, like markFired (the cron tick's repo is bound to the legacy workspace).
+   * Sets enabled=false, updated_at=now().
+   */
+  async pause(id: string): Promise<void> {
+    await this.db
+      .update(routines)
+      .set({
+        enabled: false,
+        updated_at: sql`now()` as unknown as string,
+      })
+      .where(eq(routines.id, id));
+  }
+
+  /**
+   * Pause every enabled, non-archived insight refresh routine whose insight is
+   * bound to one of `agentKeys` (MB-560) — one set-based UPDATE … FROM
+   * insights. Sets paused_reason='agent_deprecated' + paused_at so a rebind can
+   * tell this pause from a manual one. Already-paused routines (manual or
+   * system) are untouched because of the `enabled` filter, so re-running every
+   * tick is a no-op once they're paused. Unscoped: the cron tick spans
+   * workspaces. Empty `agentKeys` → no query. Returns the paused routine ids.
+   */
+  async pauseForDeprecatedAgents(agentKeys: string[]): Promise<string[]> {
+    if (agentKeys.length === 0) return [];
+    const rows = await this.db
+      .update(routines)
+      .set({
+        enabled: false,
+        paused_reason: 'agent_deprecated',
+        paused_at: sql`now()` as unknown as string,
+        updated_at: sql`now()` as unknown as string,
+      })
+      .from(insights)
+      .where(
+        and(
+          eq(routines.insight_id, insights.id),
+          eq(routines.enabled, true),
+          isNull(routines.archived_at),
+          inArray(insights.agent_key, agentKeys),
+        ),
+      )
+      .returning({ id: routines.id });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Resume a routine the system paused (MB-560): enabled=true, reason and
+   * paused_at cleared, next_fire_at set to the caller's recomputed instant.
+   * Cadence columns are untouched. The `paused_reason IS NOT NULL` guard is
+   * what makes a manual pause impossible to re-enable here, even under a race
+   * with the toggle. Scoped strictly to this workspace. Null when nothing
+   * matched (not found, not system-paused, or another workspace's).
+   */
+  async resumeFromAgentPause(id: string, nextFireAt: string): Promise<RoutineRow | null> {
+    const [row] = await this.db
+      .update(routines)
+      .set({
+        enabled: true,
+        paused_reason: null,
+        paused_at: null,
+        next_fire_at: nextFireAt,
+        updated_at: sql`now()` as unknown as string,
+      })
+      .where(
+        and(
+          eq(routines.id, id),
+          eq(routines.workspace_id, this.workspaceId),
+          isNotNull(routines.paused_reason),
+          isNull(routines.archived_at),
+        ),
+      )
+      .returning();
+    return row ?? null;
   }
 
   /**

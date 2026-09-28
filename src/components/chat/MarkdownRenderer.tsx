@@ -3,6 +3,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import posthog from 'posthog-js';
+import { ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   CHAT_LINK_CLICKED,
@@ -10,6 +11,8 @@ import {
   linkTextOf,
   type ChatSurface,
 } from '@/lib/posthog-chat';
+import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
+import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
 
 interface MarkdownRendererProps {
   content: string;
@@ -22,13 +25,34 @@ interface MarkdownRendererProps {
    * clicked there is not a chat interaction.
    */
   linkSurface?: ChatSurface;
+  /**
+   * Style the sector agents' evidence forms (MB-542, MB-543): a paragraph
+   * opening **Data limit:** as a guardrail callout, and a bold Observed /
+   * Inferred / Modelled as a pill. Opt-in, so only the assistant's answer is
+   * affected — never a user message, a tool trace or any other markdown.
+   */
+  evidenceMarkers?: boolean;
 }
+
+const DATA_LIMIT_CALLOUT =
+  'my-2 flex items-start gap-2 rounded-lg border border-amber-500 bg-muted px-3 py-2 text-foreground dark:border-amber-400';
+
+// Opaque fills in both themes: a pill must never let the bubble show through.
+const EVIDENCE_PILL: Record<ChatEvidenceLabel, string> = {
+  observed:
+    'border-emerald-600 bg-emerald-100 text-emerald-900 dark:border-emerald-400 dark:bg-emerald-950 dark:text-emerald-100',
+  inferred:
+    'border-violet-600 bg-violet-100 text-violet-900 dark:border-violet-400 dark:bg-violet-950 dark:text-violet-100',
+  modelled:
+    'border-blue-600 bg-blue-100 text-blue-900 dark:border-blue-400 dark:bg-blue-950 dark:text-blue-100',
+};
 
 export function MarkdownRenderer({
   content,
   className,
   variant = 'chat',
   linkSurface,
+  evidenceMarkers = false,
 }: MarkdownRendererProps) {
   const isCard = variant === 'card';
 
@@ -52,14 +76,36 @@ export function MarkdownRenderer({
           ),
 
           // Paragraphs
-          p: ({ children }) => (
-            <p className={cn("mb-2 last:mb-0 leading-relaxed", isCard ? "text-foreground" : "text-foreground/90")}>{children}</p>
-          ),
+          p: ({ node, children }) =>
+            evidenceMarkers && isDataLimitBlock(node) ? (
+              <div data-testid="chat-data-limit" role="note" className={DATA_LIMIT_CALLOUT}>
+                <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                <p className="m-0 leading-relaxed text-foreground">{children}</p>
+              </div>
+            ) : (
+              <p className={cn("mb-2 last:mb-0 leading-relaxed", isCard ? "text-foreground" : "text-foreground/90")}>{children}</p>
+            ),
 
           // Strong/Bold
-          strong: ({ children }) => (
-            <strong className={cn(isCard ? "font-bold text-foreground" : "font-semibold text-foreground")}>{children}</strong>
-          ),
+          strong: ({ node, children }) => {
+            const label = evidenceMarkers ? evidenceLabelOf(node) : null;
+            if (label) {
+              return (
+                <strong
+                  data-testid={`chat-evidence-${label}`}
+                  className={cn(
+                    "inline-block rounded-full border px-2 py-px align-baseline text-[0.75em] font-semibold leading-normal whitespace-nowrap",
+                    EVIDENCE_PILL[label],
+                  )}
+                >
+                  {children}
+                </strong>
+              );
+            }
+            return (
+              <strong className={cn(isCard ? "font-bold text-foreground" : "font-semibold text-foreground")}>{children}</strong>
+            );
+          },
 
           // Emphasis/Italic
           em: ({ children }) => (
@@ -73,9 +119,17 @@ export function MarkdownRenderer({
           ol: ({ children }) => (
             <ol className={cn("my-2 pl-5 list-decimal list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
           ),
-          li: ({ children }) => (
-            <li className={cn(isCard ? "text-foreground leading-snug" : "text-foreground/90")}>{children}</li>
-          ),
+          // A guardrail in a tight bullet list has no <p>, so the <li> itself
+          // becomes the callout.
+          li: ({ node, children }) =>
+            evidenceMarkers && isDataLimitBlock(node) ? (
+              <li data-testid="chat-data-limit" role="note" className={cn(DATA_LIMIT_CALLOUT, "list-none -ml-5")}>
+                <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                <span className="min-w-0 leading-relaxed text-foreground">{children}</span>
+              </li>
+            ) : (
+              <li className={cn(isCard ? "text-foreground leading-snug" : "text-foreground/90")}>{children}</li>
+            ),
 
           // Tables - styled to match our UI
           table: ({ children }) => (

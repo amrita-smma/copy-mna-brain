@@ -74,7 +74,12 @@ const ChatTextarea = React.forwardRef<HTMLTextAreaElement, ChatTextareaProps>(
         rows={1}
         value={value}
         onKeyDown={(e) => {
+          // Run the caller's handler first so it can suppress the
+          // Enter-to-submit behavior (e.g. a popup hijacking Enter to select
+          // a highlighted row) by calling preventDefault().
+          onKeyDown?.(e);
           if (
+            !e.defaultPrevented &&
             e.key === "Enter" &&
             !e.shiftKey &&
             !e.nativeEvent.isComposing
@@ -82,7 +87,6 @@ const ChatTextarea = React.forwardRef<HTMLTextAreaElement, ChatTextareaProps>(
             e.preventDefault();
             onSubmit?.();
           }
-          onKeyDown?.(e);
         }}
         className={cn(
           "flex w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-h-[7.25rem] sm:max-h-[13.5rem]",

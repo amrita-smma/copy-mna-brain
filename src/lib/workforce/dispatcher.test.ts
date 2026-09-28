@@ -40,6 +40,9 @@ describe('dispatcherTick', () => {
     claimNextRunnable.mockReset();
     triggerWorkflowForRun.mockReset();
     triggerWorkflowForRun.mockResolvedValue(undefined);
+    findStuckRunning.mockReset().mockResolvedValue([]);
+    markFailed.mockReset().mockResolvedValue({});
+    failAiOpinionIfStillProcessing.mockReset().mockResolvedValue(undefined);
   });
 
   it('returns running_already without claiming when a row is already running', async () => {
@@ -70,6 +73,50 @@ describe('dispatcherTick', () => {
 
     expect(result).toEqual({ outcome: 'claimed', runId: 'r-1' });
     expect(triggerWorkflowForRun).toHaveBeenCalledWith('r-1');
+  });
+
+  it('reaps before checking hasRunning', async () => {
+    hasRunning.mockResolvedValueOnce(true);
+
+    await dispatcherTick(fakeDb);
+
+    expect(findStuckRunning.mock.invocationCallOrder[0]).toBeLessThan(
+      hasRunning.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('a reap that throws does not prevent the claim/dispatch that follows', async () => {
+    findStuckRunning.mockRejectedValueOnce(new Error('reap database failure'));
+    hasRunning.mockResolvedValueOnce(false);
+    claimNextRunnable.mockResolvedValueOnce({ id: 'r-after-reap-fail' });
+
+    const result = await dispatcherTick(fakeDb);
+
+    expect(result).toEqual({ outcome: 'claimed', runId: 'r-after-reap-fail' });
+    expect(triggerWorkflowForRun).toHaveBeenCalledWith('r-after-reap-fail');
+  });
+
+  it('a row reaped by the tick frees the gate: hasRunning false afterwards -> the next runnable row is claimed', async () => {
+    findStuckRunning.mockResolvedValueOnce([
+      {
+        id: 'r-stuck',
+        last_heartbeat_at: '2026-05-12T00:00:00Z',
+        workspace_id: 'ws-1',
+        agent_name: 'test-agent',
+        trigger_meta: {},
+      },
+    ]);
+    hasRunning.mockResolvedValueOnce(false);
+    claimNextRunnable.mockResolvedValueOnce({ id: 'r-next' });
+
+    const result = await dispatcherTick(fakeDb);
+
+    expect(markFailed).toHaveBeenCalledWith(
+      'r-stuck',
+      expect.objectContaining({ code: 'stuck_no_heartbeat' }),
+    );
+    expect(result).toEqual({ outcome: 'claimed', runId: 'r-next' });
+    expect(triggerWorkflowForRun).toHaveBeenCalledWith('r-next');
   });
 });
 

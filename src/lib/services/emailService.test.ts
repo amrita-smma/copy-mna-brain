@@ -17,6 +17,7 @@ import {
   renderVoteInvitationEmail,
   renderVoteSubmittedEmail,
   renderVoteRecapEmail,
+  renderInsightRefreshedEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -645,6 +646,34 @@ describe('renderTaskInsightEmail', () => {
   });
 });
 
+describe('renderInsightRefreshedEmail', () => {
+  it('includes the escaped name, the version number and the CTA href', () => {
+    const out = renderInsightRefreshedEmail({
+      insightName: '<script>alert("xss")</script> Market Report',
+      versionNo: 4,
+      insightUrl: 'https://app.example.com/w/slug/insight/123',
+    });
+    expect(out.subject).toBe('"<script>alert("xss")</script> Market Report" was refreshed');
+    expect(out.html).not.toContain('<script>alert("xss")</script>');
+    expect(out.html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt; Market Report');
+    expect(out.html).toContain('version 4');
+    expect(out.html).toContain('href="https://app.example.com/w/slug/insight/123"');
+    expect(out.html).toContain('Open insight');
+    expect(out.text).toContain('Market Report');
+    expect(out.text).toContain('version 4');
+    expect(out.text).toContain('Open insight: https://app.example.com/w/slug/insight/123');
+  });
+
+  it('omits CTA button when insightUrl is not provided', () => {
+    const out = renderInsightRefreshedEmail({
+      insightName: 'Market Report',
+      versionNo: 2,
+    });
+    expect(out.html).not.toContain('Open insight');
+    expect(out.text).not.toContain('Open insight:');
+  });
+});
+
 describe('renderCompanyAssignedEmail', () => {
   it('addresses the recipient by name and names the assigned company', () => {
     const out = renderCompanyAssignedEmail({
@@ -740,6 +769,40 @@ describe('EmailService notification methods', () => {
     ).rejects.toThrow(/companyName is required/);
   });
 
+  it('sendInsightRefreshedEmail delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm-refreshed' });
+    const svc = new EmailService(sender as EmailSender);
+    const result = await svc.sendInsightRefreshedEmail({
+      email: 'owner@example.com',
+      insightName: 'Market Overview',
+      versionNo: 5,
+      insightUrl: 'https://app.example.com/insight/1',
+    });
+    expect(result).toEqual({ messageId: 'm-refreshed' });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'owner@example.com',
+      subject: '"Market Overview" was refreshed',
+    });
+  });
+
+  it('sendInsightRefreshedEmail throws without email or insightName', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendInsightRefreshedEmail({
+        email: '',
+        insightName: 'Market Overview',
+        versionNo: 1,
+      }),
+    ).rejects.toThrow(/email is required/);
+    await expect(
+      svc.sendInsightRefreshedEmail({
+        email: 'owner@example.com',
+        insightName: '',
+        versionNo: 1,
+      }),
+    ).rejects.toThrow(/insightName is required/);
+  });
 });
 
 describe('renderDealResurfacedEmail', () => {

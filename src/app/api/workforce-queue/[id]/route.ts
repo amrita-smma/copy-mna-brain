@@ -16,7 +16,7 @@ export async function GET(
     const { id } = await params;
     const db = createDb();
     const workspaceId = await getActiveWorkspaceId();
-    const { aiWorkforceService } = createContainer(db, workspaceId);
+    const { aiWorkforceService, insightService } = createContainer(db, workspaceId);
     const item = await aiWorkforceService.findById(id);
     // findById is unscoped (shared with system-internal callers) — enforce
     // workspace ownership here, at the user-facing edge. 404 rather than 403
@@ -24,7 +24,12 @@ export async function GET(
     if (!item || item.workspace_id !== workspaceId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    return NextResponse.json({ item });
+    // The insight version this run produced, for the task header's link to
+    // it. A field on this response (one indexed lookup by source_run_id)
+    // rather than a new endpoint: TaskCanvas already fetches and polls it.
+    const insightVersion =
+      (await insightService.findVersionForRun(item.workspace_id, id)) ?? null;
+    return NextResponse.json({ item, insight_version: insightVersion });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : 'Failed to load workforce task';

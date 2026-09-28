@@ -47,6 +47,10 @@ function scrubThinkingMarkers(text: string): string {
     }
   }
 
+  result = result
+    .replace(/<!--\s*THINKING_(?:START|END)\s*-->/g, '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+
   return result.trim();
 }
 

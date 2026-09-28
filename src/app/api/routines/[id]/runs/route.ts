@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActiveWorkspaceId } from '@/lib/workspace';
+import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
 import { auth } from '@/auth';
 import { RoutinesRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { enqueueAgentRun } from '@/lib/workforce';
+import { buildRoutineRunPayload } from '@/lib/routines';
+import { createContainer } from '@/lib/services/container';
+import { routineErrorResponse } from '../../errorResponse';
 
 const DEFAULT_ROUTINE_AGENT = 'analysis';
 
@@ -51,28 +54,33 @@ export async function POST(
   }
   const userId = session.user.id;
 
+  let routineId = '';
   try {
     const { id } = await params;
+    routineId = id;
+    const workspaceId = await getActiveWorkspaceIdOrThrow();
     const db = createDb();
-    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
-    const routine = await repo.findById(id);
-    if (!routine) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
+    const { routineService } = createContainer(db, workspaceId);
+    // Refuses (409) a routine paused for a broken agent binding (MB-560), and
+    // resolves the run's agent the same way the fire tick does.
+    const { routine, insightName, agentKey } =
+      await routineService.prepareManualRun(id);
 
-    const { runId, created } = await enqueueAgentRun(db, {
-      agentName: routine.agent_name ?? DEFAULT_ROUTINE_AGENT,
-      triggerSource: 'api',
-      triggerMeta: {
+    const { triggerMeta, input } = buildRoutineRunPayload(routine, {
+      insightName,
+      agentKey,
+      baseTriggerMeta: {
         routine_id: routine.id,
         manual: true,
         fired_at: new Date().toISOString(),
       },
-      input: {
-        title: routine.title,
-        instruction: routine.prompt,
-        prompt: routine.prompt,
-      },
+    });
+
+    const { runId, created } = await enqueueAgentRun(db, {
+      agentName: routine.agent_name ?? DEFAULT_ROUTINE_AGENT,
+      triggerSource: 'api',
+      triggerMeta,
+      input,
       priority: routine.priority,
       originRoutineId: routine.id,
       triggeredByUserId: userId,
@@ -80,8 +88,6 @@ export async function POST(
 
     return NextResponse.json({ runId, created }, { status: 201 });
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to enqueue routine run';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return routineErrorResponse(error, `[POST /api/routines/${routineId}/runs]`);
   }
 }

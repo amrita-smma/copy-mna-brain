@@ -4,7 +4,7 @@ import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { dispatcherTick } from './dispatcher';
-import { generateWorkforceTitle } from './title';
+import { generateWorkforceTitle, persistWorkforceTitle, TITLE_MAX_CHARS } from './title';
 
 export type TriggerSource = 'chat' | 'cron' | 'webhook' | 'api';
 
@@ -76,18 +76,26 @@ export async function enqueueAgentRun(
 }
 
 /**
- * Fire-and-forget title generation. If `input.prompt` is a string, use Haiku
- * to produce a 2-6 word title and UPDATE the row. Best-effort: errors are
- * caught inside generateWorkforceTitle.
+ * Fire-and-forget title generation / persistence.
  *
- * Skipped when the prompt isn't a string (e.g. subagent dispatch passing
- * structured input, future trigger sources without prompts). The UI should
- * fall back to truncating input.prompt or the agent_name when title is null.
+ * If `input.title` is a non-empty string, persist it directly (trimmed,
+ * truncated to TITLE_MAX_CHARS) via `after()` and skip the Haiku call entirely.
+ *
+ * Otherwise, fall back to Haiku generation on `input.prompt`. If neither is
+ * present, do nothing.
  */
 function scheduleTitleGeneration(
   runId: string,
   input: Record<string, unknown>,
 ): void {
+  const rawTitle = typeof input.title === 'string' ? input.title.trim() : '';
+  if (rawTitle) {
+    after(async () => {
+      await persistWorkforceTitle(runId, rawTitle.slice(0, TITLE_MAX_CHARS));
+    });
+    return;
+  }
+
   const prompt = typeof input.prompt === 'string' ? input.prompt : undefined;
   if (!prompt) return;
   after(async () => {

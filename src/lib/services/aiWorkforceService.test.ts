@@ -16,6 +16,7 @@ import {
   TaskBusyError,
   TaskNotFoundError,
   TaskOwnershipError,
+  describeRunFailure,
 } from './aiWorkforceService';
 
 function makeService(findById: ReturnType<typeof vi.fn>) {
@@ -178,6 +179,22 @@ describe('AiWorkforceService.enqueueFromChat', () => {
         instruction: 'i',
       }),
     ).rejects.toThrow(/row gone was inserted but findById returned null/);
+  });
+
+  it('carries attachments through into input jsonb when present', async () => {
+    enqueueAgentRun.mockResolvedValueOnce({ runId: 'r-att', created: true });
+    const service = makeService(vi.fn().mockResolvedValueOnce({ id: 'r-att' }));
+
+    const attachments = [{ key: 'chat-attachments/ws-1/a.xlsx', fileName: 'a.xlsx', contentType: 'application/xlsx' }];
+
+    await service.enqueueFromChat({
+      agent_name: 'chat_handoff',
+      title: 'Analyze sheet',
+      instruction: 'Run analysis',
+      attachments,
+    });
+
+    expect(enqueueAgentRun.mock.calls[0][1].input.attachments).toEqual(attachments);
   });
 });
 
@@ -344,4 +361,110 @@ describe('AiWorkforceService.submitUserMessage', () => {
       expect(enqueueAgentRun).not.toHaveBeenCalled();
     },
   );
+
+  it('reopened task keeps parent row effort when forking a new run', async () => {
+    enqueueAgentRun.mockResolvedValueOnce({ runId: 'forked-1', created: true });
+    const service = makeServiceWith({
+      findById: vi.fn().mockResolvedValueOnce({
+        id: 'orig',
+        triggered_by_user_id: 'u1',
+        status: 'archived' as any,
+        agent_name: 'analysis',
+        input: { title: 'Original task', effort: 'deep' },
+        title: 'Original task',
+        priority: 7,
+      }),
+    });
+
+    const result = await service.submitUserMessage({
+      runId: 'orig',
+      userId: 'u1',
+      text: 'follow up on deep task',
+    });
+
+    expect(result).toMatchObject({ kind: 'forked', new_run_id: 'forked-1' });
+    expect(enqueueAgentRun.mock.calls[0][1].input).toMatchObject({ effort: 'deep', follow_up_thread_id: 'orig' });
+  });
+});
+
+describe('AiWorkforceService.getMessageTimestamps', () => {
+  it('returns undefined and does not reject when checkpointRepo throws', async () => {
+    const checkpointRepo = {
+      listMessageWrites: vi.fn().mockRejectedValue(new Error('db connection lost')),
+    };
+    const service = new AiWorkforceService({} as never, {} as never, checkpointRepo as never);
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await service.getMessageTimestamps('thread-1', []);
+
+    expect(result).toBeUndefined();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      '[workforce] trace timestamps unavailable',
+      expect.any(Error),
+    );
+    consoleWarn.mockRestore();
+  });
+
+  it('delegates to checkpointRepo and matchMessageTimestamps on success', async () => {
+    const checkpointRepo = {
+      listMessageWrites: vi.fn().mockResolvedValue([
+        { ts: '2026-05-15T10:01:00Z', kind: 'ai', id: 'ai-1', toolCallId: null },
+      ]),
+    };
+    const service = new AiWorkforceService({} as never, {} as never, checkpointRepo as never);
+    const { AIMessage } = await import('@langchain/core/messages');
+    const msg = new AIMessage({ content: 'test', id: 'ai-1' });
+
+    const result = await service.getMessageTimestamps('thread-1', [msg]);
+
+    expect(checkpointRepo.listMessageWrites).toHaveBeenCalledWith('thread-1');
+    expect(result).toEqual(['2026-05-15T10:01:00Z']);
+  });
+});
+
+describe('describeRunFailure', () => {
+  it.each([
+    ['failed', { code: 'refresh_publish_refused', message: 'draft truncated' }, 'draft truncated'],
+    ['failed', { code: 'cancelled_by_user' }, 'Cancelled by user'],
+    ['failed', { code: 'cancelled_by_user', reason: 'wrong prompt' }, 'Cancelled by user: wrong prompt'],
+    ['failed', { code: 'stuck_no_heartbeat' }, 'stuck_no_heartbeat'],
+    ['timed_out', null, 'Timed out'],
+    ['rejected', null, 'Rejected'],
+    ['failed', null, 'Failed without a recorded reason'],
+    // Never renders the notifications array.
+    ['failed', { notifications: [{ id: 'n1' }] }, 'Failed without a recorded reason'],
+  ] as const)('describes a %s run with error %j as %j', (status, error, expected) => {
+    expect(describeRunFailure(status, error as never)).toBe(expected);
+  });
+});
+
+describe('AiWorkforceService.listFailedRefreshRuns', () => {
+  it('maps each run to its id, status, reason and timestamps in one repository call', async () => {
+    const findUnsuccessfulRefreshRunsByInsightId = vi.fn().mockResolvedValue([
+      {
+        id: 'run-2',
+        status: 'failed',
+        error: { code: 'refresh_publish_refused', message: 'insight archived' },
+        created_at: '2026-09-24T01:00:00Z',
+        ended_at: '2026-09-24T01:05:00Z',
+      },
+      { id: 'run-1', status: 'timed_out', error: null, created_at: '2026-09-23T01:00:00Z', ended_at: null },
+    ]);
+    const service = makeServiceWith({ findUnsuccessfulRefreshRunsByInsightId });
+
+    const result = await service.listFailedRefreshRuns('insight-1');
+
+    expect(findUnsuccessfulRefreshRunsByInsightId).toHaveBeenCalledTimes(1);
+    expect(findUnsuccessfulRefreshRunsByInsightId).toHaveBeenCalledWith('insight-1');
+    expect(result).toEqual([
+      {
+        run_id: 'run-2',
+        status: 'failed',
+        reason: 'insight archived',
+        created_at: '2026-09-24T01:00:00Z',
+        ended_at: '2026-09-24T01:05:00Z',
+      },
+      { run_id: 'run-1', status: 'timed_out', reason: 'Timed out', created_at: '2026-09-23T01:00:00Z', ended_at: null },
+    ]);
+  });
 });

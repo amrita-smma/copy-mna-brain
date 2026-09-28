@@ -42,6 +42,9 @@ import {
   flFunds,
   flAssets,
   flFundingSources,
+  insightTemplates,
+  insights,
+  insightVersions,
 } from '../src/lib/db/schema';
 import { RSS_CATEGORIES, type RssCategory } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
@@ -53,6 +56,7 @@ import type { CopilotAgentType } from '../src/lib/agents/analysis';
 import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
 import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
 import { normalizeCanonicalName } from '../src/lib/fundLedger/normalizeIdentity';
+import { insightContentHash } from '../src/lib/insights/contentHash';
 
 const SEED_USER_EMAIL = 'test@sqe.co.id';
 const SEED_USER_PASSWORD = 'password';
@@ -4724,6 +4728,8 @@ async function main() {
 
     await seedRssFeeds(db as unknown as DbClient);
     await seedFundLedger(db as unknown as DbClient, MNA_WORKSPACE_ID);
+    await seedInsightTemplates(db as unknown as DbClient, MNA_WORKSPACE_ID);
+    await seedInsights(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
 
     console.log('done.');
   } finally {
@@ -5251,6 +5257,351 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
 
     console.log('  ✓ Fund Ledger v2 fixtures seeded successfully');
   });
+}
+
+/**
+ * Shared "paper" stylesheet for the seed insight templates below — a fixed
+ * light card regardless of app theme (like a document preview), so the
+ * hover-preview thumbnail always reads cleanly.
+ */
+const SEED_TEMPLATE_STYLE = `
+  :root{--ink:#0f172a;--sub:#475569;--line:#e2e8f0;--accent:#2563eb;--bg:#f8fafc;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  .doc{max-width:840px;margin:0 auto;padding:40px 48px;background:#fff;min-height:100vh;}
+  .doc h1{font-size:26px;margin:0 0 4px;}
+  .doc .meta{color:var(--sub);font-size:13px;margin-bottom:8px;}
+  .doc h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);
+    border-bottom:2px solid var(--accent);padding-bottom:6px;margin:32px 0 14px;}
+  .doc h2:first-of-type{margin-top:28px;}
+  .doc p{line-height:1.6;}
+  .doc table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0 4px;}
+  .doc th{text-align:left;color:var(--sub);font-weight:600;border-bottom:1px solid var(--line);padding:8px 10px;}
+  .doc td{padding:8px 10px;border-bottom:1px solid var(--line);}
+  .doc ul{margin:6px 0;padding-left:20px;line-height:1.6;}
+  .doc .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
+  .tag-high{background:#fee2e2;color:#b91c1c;}
+  .tag-medium{background:#fef3c7;color:#92400e;}
+  .tag-low{background:#dcfce7;color:#166534;}
+`;
+
+/** Wraps a template's title/meta/body into a self-contained styled document. */
+function seedTemplateDoc(title: string, meta: string, bodyHtml: string): string {
+  return (
+    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    `<title>${title}</title><style>${SEED_TEMPLATE_STYLE}</style></head>` +
+    `<body><div class="doc"><h1>${title}</h1><div class="meta">${meta}</div>${bodyHtml}</div></body></html>`
+  );
+}
+
+const SEED_TEMPLATE_PLACEHOLDERS: Record<string, string> = {
+  '00000000-0000-0000-0000-00000000e001': seedTemplateDoc(
+    'Market Brief',
+    'Sector: Enterprise Software &middot; Region: Southeast Asia &middot; Prepared for internal review',
+    `
+    <section data-section="summary">
+      <h2>Executive Summary</h2>
+      <p>The sector continues to see active competitive tension, with three parties currently engaged across
+      overlapping stages of diligence. Valuation benchmarks below suggest the market is pricing quality assets
+      at a premium to the trailing five-year median.</p>
+    </section>
+    <section data-section="landscape">
+      <h2>Deal Landscape &amp; Active Bidders</h2>
+      <table>
+        <tr><th>Bidder</th><th>Type</th><th>Stage</th><th>Indicative Offer</th></tr>
+        <tr><td>Bidder A</td><td>Strategic</td><td>Exclusivity</td><td>$180&ndash;210M</td></tr>
+        <tr><td>Bidder B</td><td>Financial Sponsor</td><td>First Round</td><td>$150&ndash;170M</td></tr>
+        <tr><td>Bidder C</td><td>Strategic</td><td>Diligence</td><td>$195&ndash;220M</td></tr>
+      </table>
+    </section>
+    <section data-section="valuation">
+      <h2>Valuation Benchmarks</h2>
+      <table>
+        <tr><th>Comparable</th><th>EV / EBITDA</th><th>EV / Revenue</th></tr>
+        <tr><td>Comparable 1</td><td>11.2x</td><td>3.4x</td></tr>
+        <tr><td>Comparable 2</td><td>9.8x</td><td>2.9x</td></tr>
+        <tr><td>Comparable 3</td><td>12.6x</td><td>3.8x</td></tr>
+        <tr><td><strong>Sector Median</strong></td><td><strong>11.0x</strong></td><td><strong>3.3x</strong></td></tr>
+      </table>
+    </section>
+    <section data-section="considerations">
+      <h2>Key Considerations</h2>
+      <ul>
+        <li>Confirm whether any bidder holds a financing contingency that could slow signing.</li>
+        <li>Cross-check management's growth case against the comparable set's realised multiples.</li>
+        <li>Flag any regulatory approval that could extend timeline beyond the current process window.</li>
+      </ul>
+    </section>`,
+  ),
+  '00000000-0000-0000-0000-00000000e002': seedTemplateDoc(
+    'Investment Memo',
+    'Target: [Company Name] &middot; Stage: IC Review &middot; Analyst: [Name]',
+    `
+    <section data-section="thesis">
+      <h2>Investment Thesis</h2>
+      <p>[Company Name] is a category leader in its niche with durable unit economics and a clear path to
+      margin expansion. The thesis rests on continued net revenue retention above 110% and a still-fragmented
+      addressable market.</p>
+    </section>
+    <section data-section="overview">
+      <h2>Company Overview</h2>
+      <table>
+        <tr><th>Founded</th><th>HQ</th><th>Employees</th><th>Revenue Model</th></tr>
+        <tr><td>[Year]</td><td>[City, Country]</td><td>[Headcount]</td><td>Subscription / SaaS</td></tr>
+      </table>
+    </section>
+    <section data-section="financials">
+      <h2>Financial Review</h2>
+      <table>
+        <tr><th>Metric</th><th>FY24</th><th>FY25E</th><th>FY26E</th></tr>
+        <tr><td>Revenue</td><td>$[X]M</td><td>$[X]M</td><td>$[X]M</td></tr>
+        <tr><td>EBITDA</td><td>$[X]M</td><td>$[X]M</td><td>$[X]M</td></tr>
+        <tr><td>EBITDA Margin</td><td>[X]%</td><td>[X]%</td><td>[X]%</td></tr>
+        <tr><td>Net Debt / EBITDA</td><td>[X]x</td><td>[X]x</td><td>[X]x</td></tr>
+      </table>
+    </section>
+    <section data-section="risks">
+      <h2>Risk Matrix</h2>
+      <table>
+        <tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr>
+        <tr><td>Customer concentration</td><td><span class="tag tag-medium">Medium</span></td><td><span class="tag tag-high">High</span></td><td>Diversify top-10 accounts over 24 months</td></tr>
+        <tr><td>Key-person dependency</td><td><span class="tag tag-low">Low</span></td><td><span class="tag tag-medium">Medium</span></td><td>Retention package + succession plan</td></tr>
+        <tr><td>Competitive entry</td><td><span class="tag tag-medium">Medium</span></td><td><span class="tag tag-medium">Medium</span></td><td>Accelerate product roadmap in core segment</td></tr>
+      </table>
+    </section>
+    <section data-section="recommendation">
+      <h2>Recommendation</h2>
+      <p><span class="tag tag-low">Recommendation: Proceed to IC</span></p>
+      <p>Subject to confirmatory diligence on customer concentration and a final quality-of-earnings review.</p>
+    </section>`,
+  ),
+  '00000000-0000-0000-0000-00000000e003': seedTemplateDoc(
+    'Portfolio Exposure Review',
+    'As of [Quarter] &middot; Fund: [Fund Name] &middot; NAV: $[X]M',
+    `
+    <section data-section="summary">
+      <h2>Executive Summary</h2>
+      <p>Portfolio concentration remains within policy limits, though two sectors are approaching their
+      internal caps. Geographic exposure is broadly diversified, with no single region above 40% of NAV.</p>
+    </section>
+    <section data-section="sector">
+      <h2>Sector Concentration</h2>
+      <table>
+        <tr><th>Sector</th><th>% of NAV</th><th>Positions</th></tr>
+        <tr><td>Sector Alpha</td><td>28%</td><td>4</td></tr>
+        <tr><td>Sector Beta</td><td>22%</td><td>3</td></tr>
+        <tr><td>Sector Gamma</td><td>18%</td><td>5</td></tr>
+        <tr><td>Other</td><td>32%</td><td>9</td></tr>
+      </table>
+    </section>
+    <section data-section="geography">
+      <h2>Geographic Exposure</h2>
+      <table>
+        <tr><th>Region</th><th>% of NAV</th></tr>
+        <tr><td>Southeast Asia</td><td>38%</td></tr>
+        <tr><td>Greater China</td><td>26%</td></tr>
+        <tr><td>South Asia</td><td>19%</td></tr>
+        <tr><td>Other</td><td>17%</td></tr>
+      </table>
+    </section>
+    <section data-section="flags">
+      <h2>Flagged Risks</h2>
+      <ul>
+        <li><span class="tag tag-high">High</span> Sector Alpha is 2pp from its internal concentration cap.</li>
+        <li><span class="tag tag-medium">Medium</span> One position accounts for &gt;8% of NAV on a standalone basis.</li>
+        <li><span class="tag tag-low">Low</span> FX exposure to a single currency has drifted up but remains hedged.</li>
+      </ul>
+    </section>`,
+  ),
+  '00000000-0000-0000-0000-00000000e004': seedTemplateDoc(
+    'Regulatory Watch',
+    'Coverage Period: [Date Range] &middot; Jurisdictions: Multiple',
+    `
+    <section data-section="summary">
+      <h2>Executive Summary</h2>
+      <p>No new merger-control filings were required this period. One existing antitrust review remains open
+      and is tracking to its original timeline.</p>
+    </section>
+    <section data-section="matters">
+      <h2>Active Matters</h2>
+      <table>
+        <tr><th>Jurisdiction</th><th>Matter</th><th>Status</th><th>Next Milestone</th></tr>
+        <tr><td>[Jurisdiction A]</td><td>Merger clearance review</td><td>Phase 1</td><td>Decision expected [Date]</td></tr>
+        <tr><td>[Jurisdiction B]</td><td>Sector licensing inquiry</td><td>Information request</td><td>Response due [Date]</td></tr>
+      </table>
+    </section>
+    <section data-section="developments">
+      <h2>Antitrust Developments</h2>
+      <ul>
+        <li>Regulator signalled closer scrutiny of roll-up strategies in adjacent sectors.</li>
+        <li>No new guidance published affecting current deal structures this period.</li>
+      </ul>
+    </section>
+    <section data-section="implications">
+      <h2>Implications for Active Deals</h2>
+      <ul>
+        <li>Build an extra [X]-week buffer into signing-to-close timelines pending Phase 1 outcome.</li>
+        <li>No changes required to current deal structuring or step plans.</li>
+      </ul>
+    </section>`,
+  ),
+};
+
+export const SEED_INSIGHT_TEMPLATES = [
+  {
+    id: '00000000-0000-0000-0000-00000000e001',
+    name: 'Market Brief',
+    description: 'Deal landscape, active bidders and valuation benchmarks for a sector or region.',
+    icon: 'chart-line',
+    html: SEED_TEMPLATE_PLACEHOLDERS['00000000-0000-0000-0000-00000000e001'],
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000e002',
+    name: 'Investment Memo',
+    description: 'Comprehensive investment memo covering thesis, financial review, risk matrix and valuation.',
+    icon: 'file-text',
+    html: SEED_TEMPLATE_PLACEHOLDERS['00000000-0000-0000-0000-00000000e002'],
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000e003',
+    name: 'Portfolio Exposure Review',
+    description: 'Concentration, sector and geographic exposure across the portfolio with flagged risks.',
+    icon: 'briefcase',
+    html: SEED_TEMPLATE_PLACEHOLDERS['00000000-0000-0000-0000-00000000e003'],
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000e004',
+    name: 'Regulatory Watch',
+    description: 'Regulatory and antitrust developments affecting active deals and targets.',
+    icon: 'scale',
+    html: SEED_TEMPLATE_PLACEHOLDERS['00000000-0000-0000-0000-00000000e004'],
+  },
+];
+
+export async function seedInsightTemplates(
+  db: DbClient,
+  workspaceId: string = MNA_WORKSPACE_ID,
+): Promise<void> {
+  const rows = SEED_INSIGHT_TEMPLATES.map((tpl) => ({
+    id: tpl.id,
+    workspace_id: workspaceId,
+    name: tpl.name,
+    description: tpl.description,
+    icon: tpl.icon,
+    html: tpl.html,
+  }));
+
+  await db
+    .insert(insightTemplates)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: insightTemplates.id,
+      set: {
+        name: sql`excluded.name`,
+        description: sql`excluded.description`,
+        icon: sql`excluded.icon`,
+        html: sql`excluded.html`,
+        deleted_at: null,
+      },
+    });
+
+  console.log(`  ✓ seeded ${rows.length} insight templates`);
+}
+
+export const SEED_INSIGHT_WEATHER_ID = '00000000-0000-0000-0000-00000000e101';
+export const SEED_INSIGHT_WEATHER_VERSION_ID = '00000000-0000-0000-0000-00000000e201';
+
+const SEED_WEATHER_FORECAST = [
+  { day: 'Mon', condition: 'Sunny', icon: '&#9728;&#65039;', high: 33, low: 25, rain: 10 },
+  { day: 'Tue', condition: 'Partly cloudy', icon: '&#9925;', high: 32, low: 25, rain: 20 },
+  { day: 'Wed', condition: 'Thunderstorms', icon: '&#9928;&#65039;', high: 30, low: 24, rain: 80 },
+  { day: 'Thu', condition: 'Showers', icon: '&#127783;&#65039;', high: 29, low: 24, rain: 65 },
+  { day: 'Fri', condition: 'Partly cloudy', icon: '&#9925;', high: 31, low: 25, rain: 30 },
+  { day: 'Sat', condition: 'Sunny', icon: '&#9728;&#65039;', high: 33, low: 26, rain: 10 },
+  { day: 'Sun', condition: 'Sunny', icon: '&#9728;&#65039;', high: 34, low: 26, rain: 5 },
+];
+
+const SEED_INSIGHT_WEATHER_HTML = seedTemplateDoc(
+  'Weekly Weather Forecast',
+  'Location: Jakarta, Indonesia &middot; Week of 21 September 2026 &middot; Sample insight',
+  `
+    <section data-section="summary">
+      <h2>Summary</h2>
+      <p>A hot, humid week with a wet spell midweek. Expect afternoon thunderstorms on Wednesday and
+      scattered showers on Thursday before conditions clear into a sunny weekend.</p>
+    </section>
+    <section data-section="forecast">
+      <h2>7-Day Forecast</h2>
+      <table>
+        <tr><th>Day</th><th>Conditions</th><th>High</th><th>Low</th><th>Chance of Rain</th></tr>
+        ${SEED_WEATHER_FORECAST.map(
+          (d) =>
+            `<tr><td>${d.day}</td><td>${d.icon} ${d.condition}</td><td>${d.high}&deg;C</td>` +
+            `<td>${d.low}&deg;C</td><td>${d.rain}%</td></tr>`,
+        ).join('\n        ')}
+      </table>
+    </section>
+    <section data-section="advisories">
+      <h2>Advisories</h2>
+      <ul>
+        <li><span class="tag tag-high">High</span> Localised flooding possible Wednesday afternoon; allow extra travel time.</li>
+        <li><span class="tag tag-medium">Medium</span> UV index very high on Monday, Saturday and Sunday.</li>
+        <li><span class="tag tag-low">Low</span> Light winds all week; no marine warnings in effect.</li>
+      </ul>
+    </section>`,
+);
+
+/**
+ * Seeds a simple sample insight (a weekly weather forecast) with its version 1,
+ * so the Insights list isn't empty on a fresh database. Fixed ids keep it
+ * idempotent; later versions a user adds on top are left alone.
+ */
+export async function seedInsights(
+  db: DbClient,
+  workspaceId: string = MNA_WORKSPACE_ID,
+  userId: string | null = null,
+): Promise<void> {
+  await db
+    .insert(insights)
+    .values({
+      id: SEED_INSIGHT_WEATHER_ID,
+      workspace_id: workspaceId,
+      name: 'Weekly Weather Forecast',
+      description: 'Sample insight: a 7-day weather forecast with advisories.',
+      kind: 'document',
+      created_by: userId,
+      updated_by: userId,
+    })
+    .onConflictDoUpdate({
+      target: insights.id,
+      set: {
+        name: sql`excluded.name`,
+        description: sql`excluded.description`,
+        archived_at: null,
+      },
+    });
+
+  await db
+    .insert(insightVersions)
+    .values({
+      id: SEED_INSIGHT_WEATHER_VERSION_ID,
+      workspace_id: workspaceId,
+      insight_id: SEED_INSIGHT_WEATHER_ID,
+      version_no: 1,
+      html: SEED_INSIGHT_WEATHER_HTML,
+      trigger: 'seed',
+      label: 'Seeded',
+      created_by: userId,
+      content_hash: insightContentHash(SEED_INSIGHT_WEATHER_HTML),
+    })
+    .onConflictDoUpdate({
+      target: [insightVersions.insight_id, insightVersions.version_no],
+      set: {
+        html: sql`excluded.html`,
+        content_hash: sql`excluded.content_hash`,
+      },
+    });
+  console.log('  ✓ seeded 1 insight (Weekly Weather Forecast)');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

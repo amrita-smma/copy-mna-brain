@@ -36,7 +36,7 @@ export interface FlAssetAiOpinion {
  * table using Fund Ledger v2 storage (fl_assets.instrument_terms.aiOpinion).
  *
  * Clicking "Analyze AI Opinion" (or "Re-evaluate") enqueues an AI Workforce
- * run — at HIGH effort (Opus) — that reviews the holding's metrics, takes a
+ * run — at the HIGH tier (Opus 5) — that reviews the holding's metrics, takes a
  * FIRM buy/hold/sell verdict, and finishes by calling the `save_fund_ai_opinion`
  * tool, which writes the verdict + <=50-word rationale back onto the
  * `fl_assets.instrument_terms.aiOpinion` JSON object.

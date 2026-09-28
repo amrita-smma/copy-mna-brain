@@ -709,6 +709,53 @@ in `chatOnlyTools` — a Workforce run has no browser, so neither reaches it.
   tool output as an id to pass verbatim to `company_id`-taking tools — which is
   what stops a near-identical company name from resolving to a sibling record.
 
+### Insights
+
+An **insight** (`/w/<ws>/insight/<id>`) is a document the Copilot writes for
+you — a brief, a report, a dashboard-style page — saved as a self-contained
+HTML page. Figures are captured when it is written; an insight does not update
+itself unless you edit or refresh it.
+
+- **Create and edit from chat.** Ask the Copilot to write or change an insight.
+  It shows a preview card first, and nothing is saved until you approve it. An
+  edit card shows what changed.
+- **Point at a section.** On an open insight you can select sections and ask the
+  Copilot to change just those.
+- **Reports.** A report is planned with you before it is written, and must
+  follow a fixed structure.
+- **Sources.** Figures cite their sources, and a figure that couldn't be found is
+  marked *Unavailable* rather than guessed.
+- **Version history.** Every change is saved as a new version. You can preview
+  any earlier version and roll back to it.
+- **List.** The insight list can be searched, filtered by agent or owner,
+  archived and restored. One insight per workspace can be featured.
+- **Safety.** Insight HTML only ever renders inside a sandboxed iframe
+  (`InsightFrame`); never render it anywhere else.
+
+#### Insight templates
+
+- Upload an `.html` file (up to 250,000 characters) as a template, or save an
+  existing insight as one.
+- Attach a template in chat to have the Copilot write an insight in that layout.
+  The library shows how many insights came from each template.
+- Deleting a template moves it to **Recently deleted**, where it can be restored
+  or removed for good.
+
+#### Large documents
+
+A chat turn can write roughly 20,000 characters. For anything bigger, the
+Copilot offers to hand the job to the **AI Workforce**, which runs it in the
+background.
+
+#### Scheduled refresh
+
+- An insight can be refreshed on a schedule (also listed under AI Workforce →
+  Routines), or on demand with **Refresh now**.
+- A refresh publishes one new version, only if the run succeeds. If nothing
+  changed, the version is marked *No changes* and no email is sent.
+- If the agent needs input during a refresh, it asks the insight's owner and
+  waits for their answer before publishing.
+
 ### Editing company records from chat (`update_company_details`)
 
 Any editable field on a company can be changed by asking the Copilot — its
@@ -1011,6 +1058,26 @@ How it's wired:
   singleton per flavor (they share the same checkpointer, so a thread's history
   is readable regardless of the active flavor).
 
+## Sector agents (`@minerba`, `@dikti`, `@bangun`)
+
+Specialist agents, one per sector, alongside the general Copilot:
+
+| Agent | Sector |
+| --- | --- |
+| `@minerba` | Mining and minerals |
+| `@dikti` | Education |
+| `@bangun` | Construction and property development |
+
+- **Bind an insight to an agent.** An insight can be assigned to a sector
+  agent. Chatting from that insight, and its scheduled refreshes, then use that
+  agent. Its version history shows which agent wrote each version.
+- **Context.** When you chat from an open insight, the agent already knows the
+  insight's contents.
+- **Retired agents.** A retired agent can't be chosen for new insights. Refresh
+  schedules on it pause until the insight is moved to another agent.
+- **Code.** Agents are defined in code: `src/lib/agents/sector/registry.ts` lists
+  them, and each has a folder under `src/lib/agents/<key>/`.
+
 ## Workspace display currency (USD / IDR / CNY)
 
 Each workspace has a **display currency** that relabels all money shown in the UI
@@ -1232,8 +1299,10 @@ Lifecycle:
   referenced as `file` content blocks. **Every other type** (docx, pptx, xlsx,
   csv, json, …) is text-extracted via `extractTextFromFile` and inlined as a
   labelled text block — the Files API only accepts PDF/plaintext/images, so this
-  is what lets *any* file type be sent. Because the S3 object persists, the file
-  is re-referenced on **every subsequent turn** of the conversation.
+  is what lets *any* file type be sent. An HTML file over 20,000 characters is
+  sent to chat as an outline instead (see *Large documents*). Because the
+  S3 object persists, the file is re-referenced on **every subsequent turn** of
+  the conversation.
 - **Cleanup (done / stopped / disconnected).** The per-turn Anthropic upload is
   ephemeral: it is deleted once the streamed response drains (`after()`), and
   also on `req.signal` abort — which covers the UI's stop button and a dropped
@@ -1242,8 +1311,9 @@ Lifecycle:
   block persisted in the checkpointed history would 404 when the next turn
   replays it. So on every follow-up turn `AgentGraph.rewriteFileReferences`
   repoints the history's stale `file` blocks at the freshly re-uploaded id
-  (`rewriteStaleFileBlocks`, reusing each message's id so the reducer overwrites
-  in place) — or neutralizes them to a text placeholder if the file was removed.
+  (`rewriteStaleFileBlocks`, reusing each message's id and `additional_kwargs` so
+  the reducer overwrites in place and the recorded attachment refs survive) — or
+  neutralizes them to a text placeholder if the file was removed.
 - **Remove → S3 delete.** Removing a chip (`DELETE /api/chat/attachments`) or
   starting a new chat deletes the S3 object. This is the only thing that removes
   the durable file.
@@ -1801,6 +1871,12 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/cleanup-job
 # force an immediate sweep
 curl -H "Authorization: Bearer $CRON_SECRET" "https://<host>/api/cron/cleanup-jobs?force=true"
 ```
+
+### Workforce run liveness
+
+A Workforce run that stops reporting progress for 30 minutes is marked failed,
+so a stuck run can't block the queue. A run interrupted mid-way retries from its
+last checkpoint.
 
 ### Scheduled deal resurfacing
 

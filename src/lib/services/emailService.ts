@@ -668,6 +668,43 @@ export function renderTaskInsightEmail(input: {
   return { subject, html, text };
 }
 
+export interface InsightRefreshedEmailInput {
+  email: string;
+  insightName: string;
+  versionNo: number;
+  insightUrl?: string;
+}
+
+export function renderInsightRefreshedEmail(input: {
+  insightName: string;
+  versionNo: number;
+  insightUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `"${input.insightName}" was refreshed`;
+  const safeName = escapeHtml(input.insightName);
+  const versionText = `A scheduled refresh published version ${input.versionNo}.`;
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Insight Refreshed',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<h1 style="margin:0 0 8px; font-size:24px;">${safeName}</h1>
+      <p style="margin:0 0 16px; line-height:1.5; color:#52525b;">${versionText}</p>`,
+    ctaUrl: input.insightUrl,
+    ctaLabel: 'Open insight',
+  });
+
+  const text = [
+    `"${input.insightName}" was refreshed`,
+    '',
+    input.insightName,
+    versionText,
+    ...(input.insightUrl ? ['', `Open insight: ${input.insightUrl}`] : []),
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface CompanyAssignedEmailInput {
   email: string;
   /** Display name of the assignee (the email recipient / custodian). */
@@ -1410,6 +1447,18 @@ export class EmailService {
     }
     if (!input.level) throw new Error('sendTaskInsightEmail: level is required');
     const { subject, html, text } = renderTaskInsightEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** A scheduled routine refresh published a new insight version. */
+  async sendInsightRefreshedEmail(
+    input: InsightRefreshedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendInsightRefreshedEmail: email is required');
+    if (!input.insightName) {
+      throw new Error('sendInsightRefreshedEmail: insightName is required');
+    }
+    const { subject, html, text } = renderInsightRefreshedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

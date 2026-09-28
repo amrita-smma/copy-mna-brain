@@ -28,6 +28,17 @@ export async function dispatcherTick(db: DbClient): Promise<DispatchResult> {
   // doc comment). This tick never touches the workspace-scoped CRUD surface.
   const queueRepo = new AiWorkforceQueueRepository(db, NO_ACTIVE_WORKSPACE_ID);
 
+  // Clear wedged rows BEFORE the hasRunning precheck. Vercel crons are
+  // production-only, so /api/cron/dispatch — reapStuckRuns' only other caller —
+  // never fires on preview; without this a crashed run blocks the shared queue
+  // for every workspace indefinitely. The precheck below would also short-
+  // circuit on the very row we need to clear, so the order here matters.
+  try {
+    await reapStuckRuns(db);
+  } catch (err) {
+    console.error('[dispatcher] reap failed; continuing to dispatch:', err);
+  }
+
   // Fast precheck without acquiring the lock — avoids txn churn on the common
   // case where nothing is runnable. The advisory lock inside claimNextRunnable
   // is the source of truth; this is just a cheap fast-fail.

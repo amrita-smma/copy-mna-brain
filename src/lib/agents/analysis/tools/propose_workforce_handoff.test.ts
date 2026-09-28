@@ -19,6 +19,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
 });
 
 import {
+  handoffAttachments,
   proposeWorkforceHandoff,
   WORKFORCE_HANDOFF_MARKER,
 } from './propose_workforce_handoff';
@@ -175,5 +176,101 @@ describe('proposeWorkforceHandoff', () => {
 
     const payload = extractPayload(result);
     expect(payload.company_ids).toEqual(['c-acme']);
+  });
+
+  describe('attachments', () => {
+    const VALID = {
+      key: 'chat-attachments/ws-1/file_1.pdf',
+      fileName: 'file_1.pdf',
+      contentType: 'application/pdf',
+    };
+    const handoff = async (attachments?: unknown) =>
+      extractPayload(
+        (await proposeWorkforceHandoff.invoke(
+          { title: 'Analyze attached PDF', rationale: 'r', instruction: 'i', company_names: [] },
+          attachments === undefined ? undefined : { configurable: { attachments } },
+        )) as string,
+      );
+
+    it('embeds attachments from runtime configurable in the payload', async () => {
+      expect((await handoff([VALID])).attachments).toEqual([VALID]);
+    });
+
+    it('drops malformed attachment entries rather than throwing', async () => {
+      const payload = await handoff([
+        VALID,
+        { ...VALID, key: 123 },
+        null,
+        'just-a-string',
+        { key: VALID.key, fileName: 'no-type.pdf' },
+      ]);
+      expect(payload.attachments).toEqual([VALID]);
+    });
+
+    it.each([
+      ['no configurable attachments', undefined],
+      ['only malformed entries', [{ notAnAttachment: 123 }, null]],
+    ])('leaves the attachments key off the payload with %s', async (_label, attachments) => {
+      expect(await handoff(attachments)).not.toHaveProperty('attachments');
+    });
+
+    describe('fallback to the thread\'s earlier attachments', () => {
+      const EARLIER = {
+        key: 'chat-attachments/ws-1/brief.html',
+        fileName: 'brief.html',
+        contentType: 'text/html',
+      };
+      const handoffWith = async (configurable: Record<string, unknown>) =>
+        extractPayload(
+          (await proposeWorkforceHandoff.invoke(
+            { title: 'Build the insight', rationale: 'r', instruction: 'i', company_names: [] },
+            { configurable },
+          )) as string,
+        );
+
+      it('carries the most recent earlier attachments when this turn has none', async () => {
+        const payload = await handoffWith({ attachments: [], priorAttachments: [EARLIER] });
+        expect(payload.attachments).toEqual([EARLIER]);
+      });
+
+      it("prefers this turn's attachments over earlier ones", async () => {
+        const payload = await handoffWith({ attachments: [VALID], priorAttachments: [EARLIER] });
+        expect(payload.attachments).toEqual([VALID]);
+      });
+
+      it('drops malformed earlier entries, and carries nothing when none are valid', async () => {
+        expect((await handoffWith({ priorAttachments: [EARLIER, { key: 1 }] })).attachments).toEqual([EARLIER]);
+        expect(await handoffWith({ attachments: [], priorAttachments: [null] })).not.toHaveProperty('attachments');
+      });
+    });
+  });
+});
+
+describe('handoffAttachments', () => {
+  const REF = { key: 'chat-attachments/ws-1/a.pdf', fileName: 'a.pdf', contentType: 'application/pdf' };
+
+  it('returns undefined with no configurable at all', () => {
+    expect(handoffAttachments(undefined)).toBeUndefined();
+  });
+
+  it('uses priorAttachments only when the current list is empty or absent', () => {
+    expect(handoffAttachments({ priorAttachments: [REF] })).toEqual([REF]);
+    expect(handoffAttachments({ attachments: [REF], priorAttachments: [] })).toEqual([REF]);
+  });
+});
+
+describe('proposeWorkforceHandoff description', () => {
+  const description = (proposeWorkforceHandoff as unknown as { description: string })
+    .description;
+
+  // "Do NOT use this tool for read-only analysis" made the agent refuse a
+  // direct "hand it to workforce" instruction; long research builds are the
+  // whole reason Workforce can author insights.
+  it('routes work that cannot finish in one turn, read-only included', () => {
+    expect(description).not.toMatch(/Do NOT use this tool for read-only analysis/i);
+    expect(description).toMatch(/too large to finish in one chat turn/i);
+    expect(description).toMatch(/read-only is fine/i);
+    // An explicit user instruction must win over the model's own categorisation.
+    expect(description).toMatch(/do not argue that the task is read-only/i);
   });
 });

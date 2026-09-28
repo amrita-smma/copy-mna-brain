@@ -1,11 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronRight, ListPlus, Pencil, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ChevronRight, ListPlus, Pause, Pencil, Play, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { TraceLine } from './trace';
 import type { InterventionDecisionInput } from './trace';
 import type { Routine, RoutineRunStatus, TraceData } from './shared';
+import { useVisibleInterval } from './shared';
 
 type WorkforceQueueStatus =
   | 'pending'
@@ -21,7 +24,7 @@ type WorkforceQueueStatus =
 // Polled while a run is non-terminal so the inline trace + decision UI
 // stays current. Mirrors TaskCanvas's poll cadence; cleared on collapse or
 // terminal status.
-const TRACE_POLL_MS = 2000;
+const TRACE_POLL_MS = 5000;
 const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
   'pending',
   'running',
@@ -31,9 +34,9 @@ const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
 ];
 
 const runStatusToneClass: Record<RoutineRunStatus, string> = {
-  done: 'bg-emerald-50 text-emerald-700',
-  failed: 'bg-red-50 text-red-700',
-  running: 'bg-amber-50 text-amber-700',
+  done: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  failed: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
+  running: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
 };
 
 const runStatusLabel: Record<RoutineRunStatus, string> = {
@@ -85,6 +88,7 @@ export function RoutineCanvas({
   onDelete,
   onEdit,
   onEnqueued,
+  onToggleEnabled,
 }: {
   routine: Routine;
   onDelete?: () => void | Promise<void>;
@@ -92,11 +96,27 @@ export function RoutineCanvas({
   // modal in edit mode prefilled with the current routine's values.
   onEdit?: () => void;
   onEnqueued?: () => void | Promise<void>;
+  onToggleEnabled?: (next: boolean) => void | Promise<void>;
 }) {
   const [runs, setRuns] = useState<DisplayRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [enqueuing, setEnqueuing] = useState(false);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
+
+  const insightHref = useWorkspaceHref(
+    routine.insight ? `/insight/${routine.insight.id}` : '',
+  );
+
+  const handleToggleEnabled = async () => {
+    if (!onToggleEnabled) return;
+    setTogglingEnabled(true);
+    try {
+      await onToggleEnabled(!routine.enabled);
+    } finally {
+      setTogglingEnabled(false);
+    }
+  };
 
   const fetchRuns = useCallback(async () => {
     setRunsLoading(true);
@@ -155,6 +175,18 @@ export function RoutineCanvas({
           <h2 className="text-[22px] font-extrabold tracking-tight leading-tight">
             {routine.name}
           </h2>
+          {routine.insight && (
+            <p className="text-xs text-muted-foreground">
+              Refreshes insight{' '}
+              <Link
+                href={insightHref}
+                data-testid="routine-insight-link"
+                className="font-semibold text-foreground underline hover:text-primary transition-colors"
+              >
+                {routine.insight.name}
+              </Link>
+            </p>
+          )}
           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span>{routine.scheduleDetailed}</span>
             <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
@@ -166,8 +198,34 @@ export function RoutineCanvas({
           </div>
         </div>
 
+        {/* Paused for a broken agent binding (MB-560): only a rebind resumes it,
+            so Run now and Resume are disabled below. */}
+        {routine.pausedNotice && (
+          <div
+            data-testid="routine-canvas-paused-reason"
+            className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              {routine.pausedNotice}
+              {routine.insight && (
+                <>
+                  {' '}
+                  <Link
+                    href={insightHref}
+                    data-testid="routine-paused-insight-link"
+                    className="font-semibold underline"
+                  >
+                    Open the insight
+                  </Link>
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* Summary card */}
-        <div className="relative rounded-xl border bg-gradient-to-br from-blue-50/30 to-card px-5 py-4 mb-7 overflow-hidden">
+        <div className="relative rounded-xl border bg-card px-5 py-4 mb-7 overflow-hidden">
           <span className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
           <div className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2 text-sm">
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground pt-0.5">
@@ -189,7 +247,7 @@ export function RoutineCanvas({
               type="button"
               data-testid="routine-add-to-queue-button"
               onClick={handleAddToQueue}
-              disabled={enqueuing}
+              disabled={enqueuing || Boolean(routine.pausedReason)}
               className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ListPlus className="h-3 w-3" />
@@ -207,16 +265,35 @@ export function RoutineCanvas({
             </button>
             <button
               type="button"
+              data-testid="routine-toggle-enabled-button"
+              onClick={handleToggleEnabled}
+              disabled={!onToggleEnabled || togglingEnabled || Boolean(routine.pausedReason)}
+              className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {routine.enabled ? (
+                <>
+                  <Pause className="h-3 w-3" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play className="h-3 w-3" />
+                  Resume
+                </>
+              )}
+            </button>
+            <button
+              type="button"
               data-testid="routine-delete-button"
               onClick={handleDelete}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-red-700 hover:border-red-200 transition-colors"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground hover:text-red-700 hover:border-red-200 dark:hover:border-red-900 transition-colors"
             >
               <Trash2 className="h-3 w-3" />
               Delete
             </button>
           </div>
           {enqueueError && (
-            <div className="mt-3 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-[12px] text-red-700">
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 px-3 py-2 text-[12px] text-red-700 dark:text-red-300">
               {enqueueError}
             </div>
           )}
@@ -233,11 +310,11 @@ export function RoutineCanvas({
             </span>
           </div>
           {runsLoading ? (
-            <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center text-xs text-muted-foreground">
+            <div className="rounded-lg border border-dashed bg-muted px-4 py-8 text-center text-xs text-muted-foreground">
               Loading run history…
             </div>
           ) : runs.length === 0 ? (
-            <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center text-xs text-muted-foreground">
+            <div className="rounded-lg border border-dashed bg-muted px-4 py-8 text-center text-xs text-muted-foreground">
               No runs yet — first run will appear here once it executes.
             </div>
           ) : (
@@ -269,8 +346,13 @@ function RunCard({
   const [traceError, setTraceError] = useState<string | null>(null);
   const [canDecide, setCanDecide] = useState(false);
   const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+  const [status, setStatus] = useState<WorkforceQueueStatus>(run.rawStatus);
 
-  const isInProgress = IN_PROGRESS_STATUSES.includes(run.rawStatus);
+  useEffect(() => {
+    setStatus(run.rawStatus);
+  }, [run.rawStatus]);
+
+  const isInProgress = IN_PROGRESS_STATUSES.includes(status);
 
   // Pull `cancelled` semantics in via a ref-style closure isn't needed here
   // because we recreate fetchTrace on every render and the interval below
@@ -282,47 +364,36 @@ function RunCard({
       const data = (await res.json()) as {
         steps?: TraceData[];
         canDecide?: boolean;
+        status?: WorkforceQueueStatus;
       };
       setTrace(data.steps ?? []);
       setCanDecide(Boolean(data.canDecide));
+      if (data.status) {
+        setStatus(data.status);
+      }
       setTraceError(null);
     } catch (err) {
       setTraceError(err instanceof Error ? err.message : 'Failed to load trace');
     }
   }, [run.id]);
 
-  // Lazy-fetch on first open; then poll every 2s while the run is still
-  // active and the card is expanded. Collapsing or reaching a terminal
-  // status stops the polling.
+  // Lazy-fetch on first open; re-fetch when run goes terminal.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
 
-    const run1 = async () => {
-      if (trace === null) setTraceLoading(true);
-      try {
-        await fetchTrace();
-      } finally {
-        if (!cancelled) setTraceLoading(false);
-      }
-    };
-    void run1();
+    if (trace === null) setTraceLoading(true);
+    fetchTrace().finally(() => {
+      if (!cancelled) setTraceLoading(false);
+    });
 
-    if (!isInProgress) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    const intervalId = window.setInterval(fetchTrace, TRACE_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
-    // We intentionally don't depend on `trace` — that would re-arm the
-    // interval on every poll. The setTraceLoading-on-null check is just a
-    // first-paint cue; subsequent polls update silently.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isInProgress, fetchTrace]);
+
+  useVisibleInterval(fetchTrace, TRACE_POLL_MS, open && isInProgress);
 
   const handleToggle = () => setOpen((v) => !v);
 
@@ -359,7 +430,7 @@ function RunCard({
         type="button"
         data-testid={`routine-run-toggle-${run.id}`}
         onClick={handleToggle}
-        className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-muted/30 transition-colors"
+        className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-muted transition-colors"
       >
         <ChevronRight
           className={cn(
@@ -404,7 +475,7 @@ function RunCard({
             <div className="text-xs text-muted-foreground/70 py-2">Loading trace…</div>
           )}
           {traceError && (
-            <div className="rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-[12px] text-red-700">
+            <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 px-3 py-2 text-[12px] text-red-700 dark:text-red-300">
               {traceError}
             </div>
           )}

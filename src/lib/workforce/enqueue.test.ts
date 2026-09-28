@@ -7,6 +7,7 @@ const {
   dispatcherTick,
   createDb,
   generateWorkforceTitle,
+  persistWorkforceTitle,
 } = vi.hoisted(() => {
   const afterCalls: Array<() => Promise<void>> = [];
   return {
@@ -18,6 +19,7 @@ const {
     dispatcherTick: vi.fn(),
     createDb: vi.fn(),
     generateWorkforceTitle: vi.fn(),
+    persistWorkforceTitle: vi.fn(),
   };
 });
 
@@ -38,7 +40,11 @@ vi.mock('next/server', () => ({ after }));
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
-vi.mock('./title', () => ({ generateWorkforceTitle }));
+vi.mock('./title', () => ({
+  generateWorkforceTitle,
+  persistWorkforceTitle,
+  TITLE_MAX_CHARS: 80,
+}));
 
 vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
@@ -54,6 +60,8 @@ describe('enqueueAgentRun', () => {
     createDb.mockReturnValue(fakeDb);
     generateWorkforceTitle.mockReset();
     generateWorkforceTitle.mockResolvedValue('Mock title');
+    persistWorkforceTitle.mockReset();
+    persistWorkforceTitle.mockResolvedValue(undefined);
     afterCalls.length = 0;
   });
 
@@ -236,7 +244,43 @@ describe('enqueueAgentRun', () => {
     );
   });
 
-  it('schedules title generation when input.prompt is a string', async () => {
+  const LONG_TITLE =
+    'Build the semiconductor value-chain conviction ranking (15 stages, ~103 names) as an HTML report insight';
+
+  it.each([
+    ['verbatim (trimmed)', '  Build value-chain ranking  ', 'Build value-chain ranking'],
+    ['truncated to 80 chars', `  ${LONG_TITLE}  `, LONG_TITLE.slice(0, 80)],
+  ])('persists input.title %s after the response and skips Haiku', async (_label, title, persisted) => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-title' }, created: true });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'x',
+      triggerSource: 'chat',
+      input: { title, prompt: 'Very long prompt...' },
+    });
+
+    expect(persistWorkforceTitle).not.toHaveBeenCalled();
+    expect(afterCalls).toHaveLength(1);
+    await afterCalls[0]();
+    expect(persistWorkforceTitle).toHaveBeenCalledWith('r-title', persisted);
+    expect(generateWorkforceTitle).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the Haiku path when input.title is whitespace-only', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-ws' }, created: true });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'x',
+      triggerSource: 'chat',
+      input: { title: '   ', prompt: 'Refresh project Oriole' },
+    });
+
+    await afterCalls[0]();
+    expect(persistWorkforceTitle).not.toHaveBeenCalled();
+    expect(generateWorkforceTitle).toHaveBeenCalledWith('r-ws', 'Refresh project Oriole');
+  });
+
+  it('falls back to the Haiku path when input.title is absent and input.prompt is present', async () => {
     createOrGetByIdempotencyKey.mockResolvedValueOnce({
       row: { id: 'r-t' },
       created: true,
@@ -248,7 +292,7 @@ describe('enqueueAgentRun', () => {
       input: { prompt: 'Refresh project Oriole' },
     });
 
-    // One after() callback: for title generation.
+    expect(persistWorkforceTitle).not.toHaveBeenCalled();
     expect(afterCalls).toHaveLength(1);
 
     await afterCalls[0]();

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { tool } from "@langchain/core/tools";
+import type { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { CompanyRepository } from "@/lib/repositories";
+import { isChatAttachmentRef, type ChatAttachmentRef } from "@/lib/services/chatAttachmentService";
 
 /**
  * Marker used by the chat UI ([ChatMessageBubble]) to detect a workforce
@@ -28,22 +30,46 @@ export interface WorkforceHandoffPayload {
   // by the chat UI to forward company_ids to /api/workforce-queue so the
   // server can reject enqueues that target dropped rows.
   company_ids: string[];
+  attachments?: ChatAttachmentRef[];
+}
+
+function validRefs(value: unknown): ChatAttachmentRef[] {
+  return Array.isArray(value) ? value.filter(isChatAttachmentRef) : [];
+}
+
+/**
+ * The files the handoff carries: this turn's attachments, or — when this turn
+ * has none — those of the thread's most recent user turn that had any
+ * (`priorAttachments`, resolved and ownership-checked by the chat route). A
+ * user who attaches a document on one turn and agrees to hand it off on a
+ * later one still sends the Workforce the file.
+ */
+export function handoffAttachments(
+  configurable: Record<string, unknown> | undefined,
+): ChatAttachmentRef[] | undefined {
+  const current = validRefs(configurable?.attachments);
+  if (current.length > 0) return current;
+  const prior = validRefs(configurable?.priorAttachments);
+  return prior.length > 0 ? prior : undefined;
 }
 
 export const proposeWorkforceHandoff = tool(
-  async ({
-    title,
-    rationale,
-    instruction,
-    agent_name,
-    company_names,
-  }: {
-    title: string;
-    rationale: string;
-    instruction: string;
-    agent_name?: string;
-    company_names: string[];
-  }) => {
+  async (
+    {
+      title,
+      rationale,
+      instruction,
+      agent_name,
+      company_names,
+    }: {
+      title: string;
+      rationale: string;
+      instruction: string;
+      agent_name?: string;
+      company_names: string[];
+    },
+    runtime?: RunnableConfig,
+  ) => {
     logger.debug(`🔧 TOOL CALLED: propose_workforce_handoff(title='${title}')`);
 
     const db = createDb();
@@ -86,6 +112,8 @@ export const proposeWorkforceHandoff = tool(
       return msg;
     }
 
+    const attachments = handoffAttachments(runtime?.configurable);
+
     const payload: WorkforceHandoffPayload = {
       handoff_id: randomUUID(),
       title: title.trim(),
@@ -93,6 +121,7 @@ export const proposeWorkforceHandoff = tool(
       instruction: instruction.trim(),
       agent_name: agent_name?.trim() || "chat_handoff",
       company_ids: resolved.map((r) => r.id),
+      ...(attachments ? { attachments } : {}),
     };
 
     return [
@@ -110,13 +139,24 @@ export const proposeWorkforceHandoff = tool(
     name: "propose_workforce_handoff",
     description: `Propose handing a request off to the AI Workforce queue.
 
-Use this tool for any request that modifies pipeline data — the Workforce is the only path for write actions. This includes:
+Two kinds of request belong here.
+
+**1. Anything that modifies pipeline data** — the Workforce is the only path for write actions:
   - L0→L1 promotions (single named company or batch).
   - Outbound search + screening + pipeline writes.
   - Adding companies, writing notes, sending emails.
   - Any multi-step job that touches pipeline state.
 
-Do NOT use this tool for read-only analysis or single-tool answers — just answer directly.
+**2. Anything too large to finish in one chat turn** — read-only is fine here; size is what decides, not whether anything is written:
+  - Scoring, ranking or profiling dozens of entities.
+  - Authoring a long multi-section report or insight.
+  - Research that needs many rounds of tool calls before a word can be written.
+
+Your turn has a hard time budget and the Workforce has none — it runs as durable, retryable steps. It builds an insight one section per turn and receives any file attached to this turn (or, when this turn has none, to the most recent earlier turn that had one) in full. A deliverable of that size attempted in chat exhausts the budget part-way and the entire turn's work is lost.
+
+If the user asks you to hand something to the Workforce, use this tool — do not argue that the task is read-only.
+
+Do NOT use it for a single-tool answer, one company's profile, or an analysis that fits comfortably in one turn — just answer directly.
 
 Calling this tool does NOT enqueue anything itself. It renders a card in the chat that asks the user to confirm via "Assign to Workforce" or to keep the conversation in-chat via "Just answer here". After calling it, write a single short sentence explaining the offer and then STOP — do not start executing the plan yourself in the same turn.
 

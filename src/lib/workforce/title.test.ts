@@ -25,7 +25,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
 
 vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
-import { generateWorkforceTitle } from './title';
+import { generateWorkforceTitle, persistWorkforceTitle } from './title';
 
 describe('generateWorkforceTitle', () => {
   const originalKey = process.env.ANTHROPIC_API_KEY;
@@ -93,6 +93,33 @@ describe('generateWorkforceTitle', () => {
 
     expect(result).toBeNull();
     expect(setTitle).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+});
+
+describe('persistWorkforceTitle', () => {
+  beforeEach(() => {
+    setTitle.mockReset();
+    createDb.mockReset();
+    createDb.mockReturnValue({});
+  });
+
+  it('persists title via repository', async () => {
+    await persistWorkforceTitle('r-p1', 'Direct title');
+
+    expect(setTitle).toHaveBeenCalledWith('r-p1', 'Direct title');
+  });
+
+  it('swallows repository errors without rejecting', async () => {
+    setTitle.mockRejectedValueOnce(new Error('db connection lost'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      persistWorkforceTitle('r-p2', 'Failing title'),
+    ).resolves.toBeUndefined();
+
+    expect(setTitle).toHaveBeenCalledWith('r-p2', 'Failing title');
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });

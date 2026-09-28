@@ -1,5 +1,12 @@
 import { after, NextRequest, NextResponse } from 'next/server';
-import { getAgentGraph, AIMessage, extractFirstTurn, type EffortChoice } from '@/lib/agents/analysis';
+import {
+  AIMessage,
+  extractFirstTurn,
+  asEffortChoice,
+  asManualEffort,
+  EFFORT_TIERS,
+  type EffortChoice,
+} from '@/lib/agents/analysis';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
@@ -10,7 +17,7 @@ import {
 } from '@/lib/services/copilotChatsService';
 import { auth } from '@/auth';
 import { BaseMessage, HumanMessage } from '@langchain/core/messages';
-import { toUIMessageStream, toBaseMessages } from '@ai-sdk/langchain';
+import { toBaseMessages } from '@ai-sdk/langchain';
 import { createUIMessageStream, createUIMessageStreamResponse, UIMessage } from 'ai';
 import {
   ChatAttachmentForbiddenError,
@@ -23,6 +30,34 @@ import { sanitizePageContext } from '@/lib/chat/pageContext';
 import { stripComposerMarkup } from '@/lib/chat/composerMarkup';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { CHAT_MESSAGE_SENT, chatMessageSentProperties } from '@/lib/posthog-chat';
+import { resolveChatAgentGraph } from '@/lib/chat/chatAgent';
+import { formatInsightChatContext } from '@/lib/insights/chatOutline';
+import {
+  isTooLargeInsightTemplateBlock,
+  readInsightTemplatePart,
+} from '@/lib/insights/templateAttachment';
+import {
+  CHAT_ATTACHMENTS_KWARG,
+  latestUserAttachments,
+  previousTurnTimedOutWithNoWork,
+  wholeDocumentToolsToWithhold,
+  ZERO_WORK_FOLLOW_UP_CONTEXT,
+} from '@/lib/chat/largeDocumentTurn';
+import {
+  routeEffort,
+  shouldRoute,
+  resolveTurnEffort,
+} from '@/lib/chat/effortRouter';
+import {
+  isGraphRecursionError,
+  RECURSION_LIMIT_ERROR_MESSAGE,
+  toThinkingMessageStream,
+} from '@/lib/chat/thinkingStream';
+import {
+  buildBudgetNotice,
+  summarizeAbandonedTurn,
+  withBudgetWrapUp,
+} from '@/lib/chat/turnBudget';
 
 /** Allow long Anthropic pptx-skill runs inside send_email (up to ~10 min). */
 export const maxDuration = 600;
@@ -71,13 +106,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     const requestedChatId: string | undefined = body.chat_id;
-    const effort: EffortChoice =
-      body.effort === 'high' ? 'high' : 'medium';
+    // 'auto' (or anything unrecognised) means the client is deferring to the
+    // server. An explicit tier pins the thread; see resolveEffort below.
+    // Narrowed with asManualEffort, not asEffortChoice: a client must not be
+    // able to pin a thread to the Auto-only `deep` tier by posting the string.
+    const requestedEffort = asManualEffort(body.effort);
 
     const db = createDb();
     const workspaceId = await getActiveWorkspaceId();
-    const { chatService, copilotChatsService, chatAttachmentService, workspaceService } =
-      createContainer(db, workspaceId);
+    const {
+      chatService,
+      copilotChatsService,
+      chatAttachmentService,
+      insightTemplateService,
+      insightService,
+      workspaceService,
+    } = createContainer(db, workspaceId);
 
     // Composer attachments the client is carrying for this turn. Each is an S3
     // key under the workspace's `chat-attachments/` prefix plus display
@@ -93,6 +137,21 @@ export async function POST(req: NextRequest) {
     // `userEmail` — the model reads it through `read_page_context`, never as an
     // argument it could fabricate.
     const pageContext = sanitizePageContext(body.page_context);
+
+    // The insight open on screen (MB-550): a compact outline of its current
+    // version rides on this turn's system context, so a question can be asked
+    // in the insight's own terms. Started now so the read overlaps the setup
+    // below. Best-effort — a failure only means this turn goes without it.
+    const openInsightId = pageContext?.insightId;
+    const insightContextPromise: Promise<string | null> = openInsightId
+      ? (async () => {
+          const context = await insightService.getChatContext(workspaceId, openInsightId);
+          return context ? formatInsightChatContext(context) : null;
+        })().catch((err: unknown) => {
+          console.error('[chat] failed to build the open insight context:', err);
+          return null;
+        })
+      : Promise.resolve(null);
 
     let chat;
     if (requestedChatId) {
@@ -111,13 +170,13 @@ export async function POST(req: NextRequest) {
       chat = await copilotChatsService.create(userId);
     }
 
-    const contextData = await chatService.buildContext({
-      user: { name: session.user.name ?? null },
-    });
-    // Auth-sensitive values (the user's email) are NOT in `contextData`; they
-    // travel via `configurable` so tools can read them as parameters rather
-    // than parsing them out of LLM-facing instructions.
+    const contextData = await chatService.buildContext();
+    // Auth-sensitive values (the user's email) and per-user bytes (the user's
+    // name) are NOT in `contextData`; they travel via `configurable` so tools
+    // can read them as parameters rather than parsing them out of LLM-facing
+    // instructions, keeping the cached system prompt prefix identical across users.
     const userEmail = session.user.email ?? null;
+    const userName = session.user.name ?? null;
 
     // The client posts the full UI message history; with a checkpointer we
     // only feed the latest user turn — prior state is rehydrated by the
@@ -131,6 +190,13 @@ export async function POST(req: NextRequest) {
     if (!lastUserUI) {
       return NextResponse.json({ error: 'No user message in request' }, { status: 400 });
     }
+
+    // An insight template attached in the composer rides on the message as a
+    // `data-insight-template` part. Read it before the parts are narrowed to
+    // text; it is expanded into the human turn below.
+    const insightTemplate = readInsightTemplatePart(
+      (lastUserUI as { parts?: unknown }).parts,
+    );
 
     const normalizedLast: UIMessage = ((): UIMessage => {
       const m = lastUserUI as { role: string; parts?: { type: string }[]; content?: unknown };
@@ -155,25 +221,72 @@ export async function POST(req: NextRequest) {
       .map((p) => p.text)
       .join('\n');
 
-    // When the turn carries attachments, upload each to Anthropic's Files API
-    // and build the human message ourselves with `file` content blocks —
-    // `toBaseMessages` only preserves text. `uploadedFileIds` is what we clean
-    // up when the turn finishes, is stopped, or the connection drops.
+    // Auto tiering. Kicked off HERE and awaited just before the graph is built,
+    // so the routing call overlaps the attachment upload and the workspace/flag
+    // lookups below instead of adding its latency on top of them.
+    //
+    // `shouldRoute` keeps this to one call per thread: a thread that has already
+    // been routed reuses its stored tier unless the turn brings a new
+    // attachment, which is the one cheap signal that the work just got heavier.
+    // An attached insight template counts: it is a whole document to author.
+    const storedEffort = asEffortChoice(chat.effort_tier);
+    const hasAttachments = attachments.length > 0 || insightTemplate !== null;
+    const routedEffortPromise: Promise<EffortChoice | null> =
+      requestedEffort === null && shouldRoute(storedEffort, hasAttachments)
+        ? routeEffort(
+            {
+              // Despite the name, this holds THIS turn's text (it is derived
+              // from `normalizedLast`), which is what we want to route on.
+              message: firstUserText,
+              hasAttachments,
+              pageSummary: pageContext?.path ?? null,
+            },
+            process.env.ANTHROPIC_API_KEY ?? '',
+          )
+        : Promise.resolve(null);
+
+    // When the turn carries attachments or an insight template, build the human
+    // message ourselves: files become Files-API `file` / image / extracted-text
+    // blocks, and the template becomes an `<insight_template>` text block placed
+    // before the user's words. `toBaseMessages` only preserves text.
+    // `uploadedFileIds` is what we clean up when the turn finishes, is stopped,
+    // or the connection drops.
+    //
+    // A template or HTML file too large for chat arrives as an outline plus a
+    // hard instruction to hand it to the Workforce (`largeHtml: 'outline'`);
+    // `carriesTooLargeDocument` also withholds the whole-document tools below.
+    // The turn's attachment refs are recorded on the message's
+    // additional_kwargs (never sent to the model), so a handoff on a later
+    // turn can still carry the file.
     let messages: BaseMessage[];
     let uploadedFileIds: string[] = [];
-    if (attachments.length > 0) {
+    let carriesTooLargeDocument = false;
+    if (attachments.length > 0 || insightTemplate) {
       try {
-        const { blocks, fileIds } = await chatAttachmentService.prepareForMessage(attachments);
+        const templateBlocks = insightTemplate
+          ? [await insightTemplateService.prepareForMessage(insightTemplate)]
+          : [];
+        const { blocks, fileIds, outlinedHtml } = await chatAttachmentService.prepareForMessage(
+          attachments,
+          { largeHtml: 'outline' },
+        );
         uploadedFileIds = fileIds;
+        carriesTooLargeDocument =
+          outlinedHtml.length > 0 ||
+          templateBlocks.some((block) => isTooLargeInsightTemplateBlock(block.text));
+        const fallbackText = attachments.length > 0
+          ? 'Please review the attached file(s).'
+          : 'Create an insight from the attached template.';
         messages = [
           new HumanMessage({
             content: [
-              {
-                type: 'text',
-                text: firstUserText || 'Please review the attached file(s).',
-              },
+              ...templateBlocks,
+              { type: 'text', text: firstUserText || fallbackText },
               ...blocks,
             ],
+            ...(attachments.length > 0
+              ? { additional_kwargs: { [CHAT_ATTACHMENTS_KWARG]: chatAttachmentService.ownedRefs(attachments) } }
+              : {}),
           }),
         ];
       } catch (err) {
@@ -202,13 +315,36 @@ export async function POST(req: NextRequest) {
     }
 
     // The workspace picks its Copilot flavor ('mna' — M&A/acquisitions — or
-    // 'investment' — funds & investing). Resolve it and select the matching
+    // 'investment' — funds & investing). A general thread runs on the matching
     // agent graph for the requested effort tier; defaults to 'mna' when unset.
+    // A thread pinned to a sector agent ignores the flavor (see below).
     const copilotAgent = await workspaceService.getCopilotAgent(workspaceId);
     // Source-of-funds tracking is a per-workspace setting; when off, the agent
     // is built without the `query_fund_sources` tool (see getAgentGraph).
     const sofEnabled = await sourceOfFundsEnabled();
-    const agent = await getAgentGraph(copilotAgent, effort, sofEnabled);
+    const routed = await routedEffortPromise;
+    const effort = resolveTurnEffort({
+      requested: requestedEffort,
+      stored: storedEffort,
+      routed,
+    });
+    if (effort !== storedEffort) {
+      await copilotChatsService.setEffortTier(chat.id, effort);
+    }
+
+    // Which agent this thread runs on (MB-549). Resolved from the insight the
+    // chat was opened on and pinned on the thread's first turn; later turns
+    // reuse the pin wherever the user is. Pinned before the response starts, so
+    // the client's chat-list refresh on X-Chat-Id already sees it.
+    const {
+      graph: agent,
+      agentKey,
+      notice: agentNotice,
+    } = await resolveChatAgentGraph(
+      { chat, pageContext, effort, flavour: copilotAgent, sof: sofEnabled },
+      { workspaceId, copilotChatsService, insightService },
+    );
+    const insightContext = await insightContextPromise;
     if (!agent) {
       return NextResponse.json(
         {
@@ -252,6 +388,44 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    // The thread's persisted history, read once for an existing thread: the
+    // zero-work check, the earlier attachments and the file-reference rewrite
+    // below all use this one read.
+    const priorMessages = requestedChatId ? await agent.getMessages(chat.id) : [];
+
+    // The previous turn hit its budget before any tool finished (it ended on
+    // the zero-work notice), so "continue" must not retry the same huge call:
+    // this turn is told to hand off, and — like a turn carrying a document too
+    // large for chat — does not get the whole-document tools.
+    const previousTurnTimedOut = previousTurnTimedOutWithNoWork(priorMessages);
+    const withheldTools = wholeDocumentToolsToWithhold({
+      previousTurnTimedOut,
+      carriesTooLargeDocument,
+    });
+
+    // A handoff carries this turn's attachments, or the thread's most recent
+    // earlier ones, re-validated against this workspace.
+    const priorAttachments =
+      attachments.length > 0
+        ? []
+        : latestUserAttachments(priorMessages, (raw) => chatAttachmentService.ownedRefs(raw));
+
+    // The one-turn "no sector agent on this insight" notice, the open
+    // insight's outline and the zero-work follow-up ride on the per-invoke
+    // system context, after the workspace context. System context is rebuilt
+    // every turn and never written into the thread's messages, so the outline
+    // always describes the insight open now, not the one open when the thread
+    // started.
+    const additionalSystemContext =
+      [
+        contextData,
+        agentNotice,
+        insightContext,
+        previousTurnTimedOut ? ZERO_WORK_FOLLOW_UP_CONTEXT : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n') || undefined;
+
     // Prior turns' persisted `file` blocks reference Anthropic uploads we
     // already deleted, so replaying the thread would 404. Repoint them at this
     // turn's fresh uploads (or neutralize them when nothing is attached) before
@@ -261,7 +435,7 @@ export async function POST(req: NextRequest) {
     // (e.g. user switched chats during PPTX generation) — without a matching
     // ToolMessage Anthropic rejects the next turn.
     if (requestedChatId) {
-      await agent.rewriteFileReferences(chat.id, uploadedFileIds);
+      await agent.rewriteFileReferences(chat.id, uploadedFileIds, priorMessages);
       await agent.repairOrphanedToolCalls(chat.id);
     }
 
@@ -278,7 +452,18 @@ export async function POST(req: NextRequest) {
     // errored runs out of the cache. Gated on `!requestedChatId` so we never
     // touch a resumed thread, and on the `chatCacheEnabled` flag so caching can
     // be turned off entirely.
-    if (!requestedChatId && (await chatCacheEnabled())) {
+    // A template-backed first turn is not cached: its text alone doesn't say
+    // which template was attached, so a later plain question could match it.
+    // A turn that carried the no-sector-agent notice isn't cached either: its
+    // answer opens with that statement, which is wrong anywhere else. Nor is a
+    // turn made on an open insight (MB-550): its answer reads that insight.
+    if (
+      !requestedChatId &&
+      !insightTemplate &&
+      !agentNotice &&
+      !openInsightId &&
+      (await chatCacheEnabled())
+    ) {
       after(async () => {
         try {
           const finalMessages = await agent.getMessages(chat.id);
@@ -310,25 +495,42 @@ export async function POST(req: NextRequest) {
       after(() => titlePromise);
     }
 
-    const headers = { 'X-Chat-Id': chat.id };
+    // X-Chat-Agent lets the CoPilot header show the thread's agent as soon as
+    // the turn starts, without waiting for the chat list to refresh.
+    const headers = { 'X-Chat-Id': chat.id, 'X-Chat-Agent': agentKey };
+
+    // Per-tier turn budget.
+    const budgetMs = EFFORT_TIERS[effort].turnBudgetMs;
+    const budgetSignal = AbortSignal.timeout(budgetMs);
+    const turnSignal = AbortSignal.any([req.signal, budgetSignal]);
+    /** The budget fired and the user did not press stop. */
+    const isBudgetAbort = () => budgetSignal.aborted && !req.signal.aborted;
 
     if (!returnIntermediateSteps) {
       const eventStream = await agent.streamEvents(
-        { messages, additionalSystemContext: contextData || undefined },
+        { messages, additionalSystemContext, withheldTools },
         {
           version: 'v2',
           recursionLimit: 50,
           configurable: {
             thread_id: chat.id,
             userEmail,
+            userName,
             agentRole: 'chat',
             pageContext,
             originalUserQuestion: firstUserText,
+            attachments,
+            // Read by propose_workforce_handoff when this turn has none.
+            priorAttachments,
+            // The thread's pinned agent, for stamping insight versions. From
+            // the chat row, never a tool argument the model could choose.
+            agent_key: agentKey,
           },
-          // Propagate client disconnects (the UI's stop()/aborted fetch) down
-          // into LangGraph so the underlying Anthropic request is cancelled and
-          // the graph stops executing — not just the SSE stream to the client.
-          signal: req.signal,
+          // Propagate client disconnects (the UI's stop()/aborted fetch) and
+          // the tier's turn budget down into LangGraph so the underlying
+          // Anthropic request is cancelled and the graph stops executing — not
+          // just the SSE stream to the client.
+          signal: turnSignal,
         },
       );
 
@@ -342,14 +544,50 @@ export async function POST(req: NextRequest) {
         // not a real failure — swallow it so it doesn't reach the (already
         // gone) client or pollute logs.
         onError: (error) => {
+          // A budget abort is handled by withBudgetWrapUp below and never
+          // reaches here; if it somehow does, say so rather than going silent.
+          if (isBudgetAbort()) {
+            console.error(
+              `[chat] turn budget of ${budgetMs}ms elapsed on tier "${effort}" (chat ${chat.id})`,
+            );
+            return buildBudgetNotice({ budgetMs });
+          }
           if (req.signal.aborted || (error as Error)?.name === 'AbortError') {
             return '';
+          }
+          if (isGraphRecursionError(error)) {
+            return RECURSION_LIMIT_ERROR_MESSAGE;
           }
           console.error(error);
           return 'Internal server error';
         },
         execute: async ({ writer }) => {
-          writer.merge(toUIMessageStream(eventStream));
+          writer.merge(
+            withBudgetWrapUp(toThinkingMessageStream(eventStream, writer), {
+              isBudgetAbort,
+              // Stage two: the graph is stopped, but the tool rounds it did
+              // finish are in the checkpoint. Spend the headroom under
+              // maxDuration turning them into an answer, and persist it so the
+              // thread does not reload ending on a tool result.
+              wrapUp: async () => {
+                console.error(
+                  `[chat] turn budget of ${budgetMs}ms elapsed on tier "${effort}" (chat ${chat.id}) — wrapping up`,
+                );
+                const persisted = await agent.getMessages(chat.id).catch(() => []);
+                const text = await summarizeAbandonedTurn({
+                  messages: persisted,
+                  budgetMs,
+                  apiKey,
+                });
+                try {
+                  await agent.seedMessages(chat.id, [new AIMessage(text)]);
+                } catch (err) {
+                  console.error('[chat] failed to persist wrap-up message:', err);
+                }
+                return text;
+              },
+            }),
+          );
           if (titlePromise) {
             // Cap so a slow Haiku call can't hold the response open.
             const title = await Promise.race([
@@ -378,17 +616,21 @@ export async function POST(req: NextRequest) {
     } else {
       try {
         const result = await agent.invoke(
-          { messages, additionalSystemContext: contextData || undefined },
+          { messages, additionalSystemContext, withheldTools },
           {
             recursionLimit: 50,
             configurable: {
               thread_id: chat.id,
               userEmail,
+              userName,
               agentRole: 'chat',
               pageContext,
               originalUserQuestion: firstUserText,
+              attachments,
+              priorAttachments,
+              agent_key: agentKey,
             },
-            signal: req.signal,
+            signal: turnSignal,
           },
         );
 
@@ -403,6 +645,22 @@ export async function POST(req: NextRequest) {
           { messages: validMessages.map(convertLangChainMessageToVercelMessage) },
           { status: 200, headers },
         );
+      } catch (invokeErr) {
+        // Debug path: no stream to wrap up into, so report the budget plainly
+        // instead of surfacing a bare AbortError as a 500.
+        if (isBudgetAbort()) {
+          return NextResponse.json(
+            { error: buildBudgetNotice({ budgetMs }) },
+            { status: 504, headers },
+          );
+        }
+        if (isGraphRecursionError(invokeErr)) {
+          return NextResponse.json(
+            { error: RECURSION_LIMIT_ERROR_MESSAGE },
+            { status: 400, headers },
+          );
+        }
+        throw invokeErr;
       } finally {
         // Non-streaming path fully resolves here, so a finally reliably tears
         // down the per-turn Anthropic uploads on success, error, or abort.
@@ -411,6 +669,12 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (e: unknown) {
+    if (isGraphRecursionError(e)) {
+      return NextResponse.json(
+        { error: RECURSION_LIMIT_ERROR_MESSAGE },
+        { status: 400 },
+      );
+    }
     const err = e as { message?: string; status?: number };
     return NextResponse.json({ error: err.message }, { status: err.status ?? 500 });
   }

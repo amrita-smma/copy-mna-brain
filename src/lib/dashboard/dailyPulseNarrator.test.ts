@@ -130,15 +130,16 @@ describe('generateDailyPulse', () => {
     expect(messages[0].content).toBe(buildDailyPulsePrompt(NOW));
   });
 
-  it('passes a system-context override that bans thinking delimiters and preamble', async () => {
+  it('passes a system-context override that bans reasoning narration and preamble', async () => {
     invoke.mockResolvedValueOnce({ messages: [] });
     extractFirstTurn.mockReturnValueOnce({ userText: '', assistantText: 'x' });
 
     await generateDailyPulse(NOW, 'ws-1');
 
     const ctx = invoke.mock.calls[0][0].additionalSystemContext as string;
-    expect(ctx).toContain('THINKING_START');
+    expect(ctx).toMatch(/do not include any internal reasoning/i);
     expect(ctx).toMatch(/do not write any preamble/i);
+    expect(ctx).not.toContain('THINKING_START');
   });
 
   it('throws when the Analyst agent is unavailable', async () => {

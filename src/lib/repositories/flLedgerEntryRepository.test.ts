@@ -153,6 +153,43 @@ describe('FlLedgerEntryRepository', () => {
     });
   });
 
+  describe('findRecentByWorkspaceId', () => {
+    it('orders DESC by entry_date and id, applies limit, and scopes to workspace', async () => {
+      const entries = [{ id: 'e1', entry_date: '2026-03-31' }];
+      mockDb.limit.mockResolvedValueOnce(entries.map((e) => ({ entry: e })));
+
+      const result = await repo.findRecentByWorkspaceId('ws-1', { limit: 10 });
+      expect(result).toEqual(entries);
+      expect(mockDb.innerJoin).toHaveBeenCalledTimes(1);
+      expect(mockDb.where).toHaveBeenCalledTimes(1);
+      expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
+      expect(mockDb.limit).toHaveBeenCalledWith(10);
+    });
+
+    it('clamps limit above 50 to 50', async () => {
+      mockDb.limit.mockResolvedValueOnce([]);
+
+      await repo.findRecentByWorkspaceId('ws-1', { limit: 100 });
+      expect(mockDb.limit).toHaveBeenCalledWith(50);
+    });
+
+    it('uses supplied executor when provided', async () => {
+      const executorMock = createMockDb();
+      const entries = [{ id: 'e1' }];
+      executorMock.limit.mockResolvedValueOnce(entries.map((e) => ({ entry: e })));
+
+      const result = await repo.findRecentByWorkspaceId(
+        'ws-1',
+        { limit: 5 },
+        executorMock as unknown as DbClient,
+      );
+      expect(result).toEqual(entries);
+      expect(executorMock.select).toHaveBeenCalledTimes(1);
+      expect(executorMock.limit).toHaveBeenCalledWith(5);
+      expect(mockDb.select).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findByPositionIds', () => {
     it('returns empty array without hitting db when positionIds is empty', async () => {
       const result = await repo.findByPositionIds('ws-1', []);

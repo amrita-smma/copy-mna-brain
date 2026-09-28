@@ -146,6 +146,7 @@ describe('groupedConsoleTabs', () => {
       'ledger',
     ]);
     expect(groups.find((g) => g.id === 'intelligence')?.tabs.map((t) => t.slug)).toEqual([
+      'insight',
       'smart-files',
       'data-navigator',
       'presentation',

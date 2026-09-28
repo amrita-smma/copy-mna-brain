@@ -7,6 +7,8 @@ import {
   getUploadSignedUrl,
 } from '@/lib/s3';
 import { extractTextFromFile } from '@/lib/fileExtractor';
+import { formatLargeHtmlAttachmentBlock, isHtmlAttachment } from '@/lib/insights/largeDocument';
+import { isTooLargeForChat } from '@/lib/insights/templateAttachment';
 
 /**
  * Beta flag required for the Files API. Both the upload/delete calls and any
@@ -19,6 +21,16 @@ export interface ChatAttachmentRef {
   key: string;
   fileName: string;
   contentType: string;
+}
+
+export function isChatAttachmentRef(v: unknown): v is ChatAttachmentRef {
+  return Boolean(
+    v &&
+      typeof v === 'object' &&
+      typeof (v as ChatAttachmentRef).key === 'string' &&
+      typeof (v as ChatAttachmentRef).fileName === 'string' &&
+      typeof (v as ChatAttachmentRef).contentType === 'string',
+  );
 }
 
 export interface ChatAttachmentUploadTarget {
@@ -37,6 +49,24 @@ export interface PreparedAttachments {
   blocks: AttachmentContentBlock[];
   /** Anthropic Files API ids that must be deleted once the turn settles. */
   fileIds: string[];
+  /**
+   * File names of HTML attachments sent as an outline (plus the Workforce
+   * handoff rule) instead of their text, because they are too large for chat.
+   * Always empty in `'full'` mode.
+   */
+  outlinedHtml: string[];
+}
+
+export interface PrepareAttachmentsOptions {
+  /**
+   * What an HTML attachment larger than CHAT_INLINE_DOCUMENT_MAX_CHARS
+   * becomes. Chat passes `'outline'`: an outline of its sections plus a hard
+   * instruction to hand the work to the Workforce, because one chat turn
+   * cannot write a document that size. The Workforce passes `'full'`: it
+   * builds section by section and needs the whole file. Required, so neither
+   * caller gets the other's behaviour by default.
+   */
+  largeHtml: 'outline' | 'full';
 }
 
 /**
@@ -98,6 +128,21 @@ export class ChatAttachmentService {
     }
   }
 
+  /**
+   * The well-formed refs among `values` whose key is under this workspace's
+   * prefix — the same ownership rule `prepareForMessage` enforces. Used for
+   * refs read back from a thread's history: anything else is dropped rather
+   * than thrown on, so a bad entry in history can never block a later turn.
+   */
+  ownedRefs(values: unknown): ChatAttachmentRef[] {
+    if (!Array.isArray(values)) return [];
+    const prefix = this.prefix();
+    return values
+      .filter(isChatAttachmentRef)
+      .filter((ref) => ref.key.startsWith(prefix))
+      .map(({ key, fileName, contentType }) => ({ key, fileName, contentType }));
+  }
+
   private anthropic(): Anthropic {
     if (!this.apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not configured');
@@ -130,15 +175,19 @@ export class ChatAttachmentService {
    * uploaded to Anthropic's Files API and referenced by id; every other file
    * type is text-extracted (`extractTextFromFile` handles docx/pptx/xlsx/csv/
    * json/text) and inlined as a labelled text block — so ANY uploaded file can
-   * be sent without tripping the Files API's format restriction. On failure,
-   * best-effort deletes whatever was already uploaded so nothing is orphaned.
+   * be sent without tripping the Files API's format restriction. An HTML file
+   * over CHAT_INLINE_DOCUMENT_MAX_CHARS follows `options.largeHtml`. On
+   * failure, best-effort deletes whatever was already uploaded so nothing is
+   * orphaned.
    */
   async prepareForMessage(
     attachments: ChatAttachmentRef[],
+    options: PrepareAttachmentsOptions,
   ): Promise<PreparedAttachments> {
     const blocks: AttachmentContentBlock[] = [];
     const fileIds: string[] = [];
-    if (attachments.length === 0) return { blocks, fileIds };
+    const outlinedHtml: string[] = [];
+    if (attachments.length === 0) return { blocks, fileIds, outlinedHtml };
     const anthropic = this.anthropic();
     try {
       for (const att of attachments) {
@@ -163,12 +212,25 @@ export class ChatAttachmentService {
           try {
             text = await extractTextFromFile(buffer, att.contentType, att.fileName);
           } catch (err) {
-            text = `[Unable to read this file: ${(err as Error).message}]`;
+            blocks.push({
+              type: 'text',
+              text: `Attached file "${att.fileName}":\n\n[Unable to read this file: ${(err as Error).message}]`,
+            });
+            continue;
+          }
+          if (
+            options.largeHtml === 'outline' &&
+            isHtmlAttachment(att.contentType, att.fileName) &&
+            isTooLargeForChat(text)
+          ) {
+            outlinedHtml.push(att.fileName);
+            blocks.push({ type: 'text', text: formatLargeHtmlAttachmentBlock(att.fileName, text) });
+            continue;
           }
           blocks.push({ type: 'text', text: `Attached file "${att.fileName}":\n\n${text}` });
         }
       }
-      return { blocks, fileIds };
+      return { blocks, fileIds, outlinedHtml };
     } catch (err) {
       await this.deleteFromAnthropic(fileIds);
       throw err;

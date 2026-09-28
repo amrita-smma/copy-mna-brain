@@ -106,6 +106,13 @@ export type SendEmailPayload =
       droppedAtLabel?: string;
       dropReason?: string;
       companyUrl?: string;
+    }
+  | {
+      kind: 'insight_refreshed';
+      to: string;
+      insightName: string;
+      versionNo: number;
+      insightUrl?: string;
     };
 
 export interface SendEmailJobResult {
@@ -284,6 +291,15 @@ export async function runSendEmail(
         companyUrl: payload.companyUrl,
       });
       return { kind: 'deal_resurfaced', to: payload.to, messageId };
+    }
+    case 'insight_refreshed': {
+      const { messageId } = await emailService.sendInsightRefreshedEmail({
+        email: payload.to,
+        insightName: payload.insightName,
+        versionNo: payload.versionNo,
+        insightUrl: payload.insightUrl,
+      });
+      return { kind: 'insight_refreshed', to: payload.to, messageId };
     }
     default: {
       // Exhaustiveness check — adding a new `kind` without a case here is a

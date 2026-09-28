@@ -1,17 +1,31 @@
 "use client";
 
-import { TrendingUp, Briefcase, Activity, Timer, Search, Droplets, Target, Globe } from "lucide-react";
+import { TrendingUp, Briefcase, Activity, Timer, Search, Droplets, Target, Globe, FileText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useChatContext } from "./ChatProvider";
 import { useCopilotAgent } from "./CopilotAgentContext";
+import { INSIGHT_TEMPLATE_TRIGGER } from "@/lib/insights/insightSlashCommand";
 
 interface ChatSuggestion {
   label: string;
   prompt: string;
   icon: LucideIcon;
+  /**
+   * Prefill the composer instead of sending immediately — for a suggestion
+   * that opens a picker (e.g. the `/insight-template` popup) rather than one
+   * that's a complete, ready-to-send question.
+   */
+  prefillOnly?: boolean;
 }
+
+const INSIGHT_TEMPLATE_SUGGESTION: ChatSuggestion = {
+  label: "Create an insight from a template",
+  prompt: `${INSIGHT_TEMPLATE_TRIGGER} `,
+  icon: FileText,
+  prefillOnly: true,
+};
 
 const MNA_SUGGESTIONS: ChatSuggestion[] = [
   {
@@ -109,10 +123,10 @@ const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
 ];
 
 export function ChatSuggestions({ className }: { className?: string }) {
-  const { sendWithCacheCheck, status } = useChatContext();
+  const { sendWithCacheCheck, prefillComposer, focusComposer, status } = useChatContext();
   const agentType = useCopilotAgent();
   const isBusy = status === "streaming" || status === "submitted";
-  const suggestions =
+  const baseSuggestions =
     agentType === "vc"
       ? VC_SUGGESTIONS
       : agentType === "investment"
@@ -120,6 +134,7 @@ export function ChatSuggestions({ className }: { className?: string }) {
         : agentType === "combined"
           ? COMBINED_SUGGESTIONS
           : MNA_SUGGESTIONS;
+  const suggestions = [...baseSuggestions, INSIGHT_TEMPLATE_SUGGESTION];
 
   return (
     <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}>
@@ -130,7 +145,14 @@ export function ChatSuggestions({ className }: { className?: string }) {
             key={suggestion.label}
             type="button"
             disabled={isBusy}
-            onClick={() => sendWithCacheCheck(suggestion.prompt)}
+            onClick={() => {
+              if (suggestion.prefillOnly) {
+                prefillComposer(suggestion.prompt);
+                focusComposer();
+              } else {
+                sendWithCacheCheck(suggestion.prompt);
+              }
+            }}
             className={cn(
               "group flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2.5 text-left",
               "transition-colors hover:border-blue-500/50 hover:bg-blue-500/5",

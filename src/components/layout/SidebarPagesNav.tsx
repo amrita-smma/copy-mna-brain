@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import {
   Circle,
   Database,
+  FileCode2,
   FileStack,
   GitBranch,
   Landmark,
@@ -41,6 +42,7 @@ const TAB_ICONS: Record<string, LucideIcon> = {
   ledger: Receipt,
   'master-data': Database,
   crm: Users,
+  insight: FileCode2,
   'smart-files': FileStack,
   presentation: Presentation,
   'ai-workforce': Sparkles,

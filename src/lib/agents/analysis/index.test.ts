@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
 // Hoisted mock fns so the module-level vi.mock factories can reference them.
 const mocks = vi.hoisted(() => ({
@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   humanInTheLoopMiddleware: vi.fn(() => ({ __middleware: true })),
   postgresSaverCtor: vi.fn(),
   postgresSaverSetup: vi.fn().mockResolvedValue(undefined),
+  serverTools: [
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+  ],
 }));
 
 vi.mock('langchain', () => ({
@@ -19,7 +23,14 @@ vi.mock('langchain', () => ({
 
 vi.mock('@langchain/anthropic', () => ({
   ChatAnthropic: class {
-    constructor(public opts: unknown) {}
+    constructor(public opts: Record<string, unknown>) {}
+    withConfig(config: Record<string, unknown>) {
+      return {
+        bound: this,
+        opts: this.opts,
+        config,
+      };
+    }
   },
 }));
 
@@ -37,18 +48,28 @@ vi.mock('@langchain/langgraph-checkpoint-postgres', () => ({
 // The real tools module pulls in repositories/db — stub it out so the agent
 // module loads without any I/O wiring.
 vi.mock('@/lib/agents/analysis/tools', () => ({
-  tools: [],
+  SERVER_TOOLS: mocks.serverTools,
+  tools: [...mocks.serverTools],
   chatOnlyTools: [],
   workforceOnlyTools: [],
   // Include a `query_fund_sources` entry so the source-of-funds gating in
   // getAgentGraph has something to strip.
-  investmentTools: [{ name: 'query_funds' }, { name: 'query_fund_sources' }],
-  combinedTools: [{ name: 'add_company' }, { name: 'query_fund_sources' }],
+  investmentTools: [
+    { name: 'query_funds' },
+    { name: 'query_fund_sources' },
+    ...mocks.serverTools,
+  ],
+  combinedTools: [
+    { name: 'add_company' },
+    { name: 'query_fund_sources' },
+    ...mocks.serverTools,
+  ],
   vcTools: [
     { name: 'query_companies' },
     { name: 'get_investment_theses' },
     { name: 'query_funds' },
     { name: 'query_fund_sources' },
+    ...mocks.serverTools,
     { name: 'valyu_search' },
     { name: 'valyu_extract_content' },
     { name: 'get_company_profile' },
@@ -77,14 +98,42 @@ vi.mock('@/lib/server/db', () => ({
 }));
 
 import {
+  createLocalAgent,
   extractMessageText,
   extractFirstTurn,
   getStatelessAgentGraph,
   getAgentGraph,
+  AgentGraph,
   getWorkforceAgentGraphForEffort,
   resetAgent,
+  EFFORT_TIERS,
+  CHAT_TURN_BUDGET_CEILING_MS,
+  maxEffort,
+  asEffortChoice,
+  asManualEffort,
+  withoutTools,
+  type EffortChoice,
+  type ToolList,
 } from '@/lib/agents/analysis';
+import { WORKFORCE_HITL_INTERRUPT_ON } from '@/lib/agents/analysis/hitl';
+import { logger } from '@/lib/agents/logger';
 import type { BaseMessage } from '@langchain/core/messages';
+
+// The workforce HITL middleware is built once at module load; capture its
+// config before any afterEach clears the mock's call log.
+const workforceHitlConfig = (mocks.humanInTheLoopMiddleware.mock.calls as unknown[][])[0]?.[0] as
+  | { interruptOn?: Record<string, unknown> }
+  | undefined;
+
+describe('workforce HITL middleware', () => {
+  it('gates exactly ask_owner and promote_to_l1 with the shared interrupt config', () => {
+    expect(workforceHitlConfig?.interruptOn).toBe(WORKFORCE_HITL_INTERRUPT_ON);
+    expect(Object.keys(workforceHitlConfig?.interruptOn ?? {}).sort()).toEqual([
+      'ask_owner',
+      'promote_to_l1',
+    ]);
+  });
+});
 
 // Minimal stand-in for a message — extractMessageText only reads `.content`.
 const msg = (content: unknown) => ({ content }) as unknown as BaseMessage;
@@ -287,12 +336,15 @@ describe('getAgentGraph flavor selection', () => {
     expect(prompt).toContain('get_market_signals');
     expect(prompt).toContain('calculate_investment_returns');
     expect(prompt).toContain('valyu_extract_content');
-    expect(prompt).toContain('<!-- THINKING_START -->');
+    expect(prompt).not.toContain('<!-- THINKING_START -->');
+    expect(prompt).not.toContain('<!-- THINKING_END -->');
     expect(tools.map((t) => t.name)).toEqual([
       'query_companies',
       'get_investment_theses',
       'query_funds',
       'query_fund_sources',
+      'web_search',
+      'web_fetch',
       'valyu_search',
       'valyu_extract_content',
       'get_company_profile',
@@ -310,6 +362,7 @@ describe('getAgentGraph flavor selection', () => {
     const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
 
     // Available tools list numbering
+    expect(prompt).toMatch(/16\.\s+\*\*web_search\*\*/);
     expect(prompt).toMatch(/17\.\s+\*\*valyu_search\*\*/);
     expect(prompt).toMatch(/18\.\s+\*\*valyu_extract_content\*\*/);
     expect(prompt).toMatch(/19\.\s+\*\*get_company_profile\*\*/);
@@ -377,7 +430,7 @@ describe('getAgentGraph flavor selection', () => {
     };
 
     expect(mediumModel.opts.model).toBe('claude-sonnet-5');
-    expect(highModel.opts.model).toBe('claude-opus-4-8');
+    expect(highModel.opts.model).toBe('claude-opus-5');
 
     expect(await getAgentGraph('vc', 'high')).toBe(high);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
@@ -598,6 +651,15 @@ describe('workforce prompt evidence rules', () => {
     expect(prompt).toMatch(/a mark can lag reality by quarters/);
   });
 
+  it('lets the agent ask the owner (with a recommendation) instead of guessing, refresh runs included', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).not.toMatch(/there is NO interactive user to clarify with/);
+    expect(prompt).toMatch(/The one exception is \*\*ask_owner\*\*/);
+    expect(prompt).toMatch(/\*\*ask_owner\*\* — pause the run and ask the task's owner ONE question/);
+    expect(prompt).toMatch(/call `ask_owner` with your recommended answer instead of guessing/);
+  });
+
   it('treats the news lake and the web as one turn, not a precedence chain', async () => {
     const prompt = await workforcePrompt();
 
@@ -652,6 +714,15 @@ describe('getAgentGraph source-of-funds gating', () => {
     expect(toolNames(0)).toContain('calculate_investment_returns');
     expect(toolNames(0)).toContain('get_investment_theses');
   });
+
+  it.each(['investment', 'combined', 'vc'] as const)(
+    'does not strip server tools from the %s flavor when query_fund_sources is removed',
+    async (flavor) => {
+      await getAgentGraph(flavor, 'medium', false);
+      expect(toolNames(0)).not.toContain('query_fund_sources');
+      expect(toolNames(0)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']));
+    },
+  );
 
   it('memoizes enabled and disabled graphs as distinct singletons', async () => {
     const enabled = await getAgentGraph('investment', 'medium', true);
@@ -716,6 +787,53 @@ describe('AgentGraph abort signal forwarding', () => {
       { messages: [] },
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+});
+
+describe('AgentGraph withheld tools', () => {
+  const toolList = [
+    { name: 'query_companies' },
+    { name: 'propose_insight_create' },
+    { name: 'propose_workforce_handoff' },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+  ] as unknown as ToolList;
+  const names = (list: unknown) => (list as Array<{ name: string }>).map((t) => t.name);
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mocks.createAgent.mockClear();
+  });
+
+  it('withoutTools drops the named tools, keeps order, and returns the list itself when nothing is withheld', () => {
+    expect(names(withoutTools(toolList, ['propose_insight_create', 'not_a_tool']))).toEqual([
+      'query_companies',
+      'propose_workforce_handoff',
+      'web_search',
+    ]);
+    expect(withoutTools(toolList, [])).toBe(toolList);
+    expect(withoutTools(toolList)).toBe(toolList);
+  });
+
+  it('builds this turn\'s agent without the withheld tools, and leaves the default agent whole', async () => {
+    const graph = new AgentGraph({ apiKey: 'test-key' } as never, toolList, 'PROMPT');
+    const defaultTools = names(mocks.createAgent.mock.calls[0][0].tools);
+
+    await graph.streamEvents(
+      { messages: [], additionalSystemContext: 'ctx', withheldTools: ['propose_insight_create'] },
+      { version: 'v2' },
+    );
+
+    expect(defaultTools).toContain('propose_insight_create');
+    const turnTools = names(mocks.createAgent.mock.calls.at(-1)![0].tools);
+    expect(turnTools).toEqual(['query_companies', 'propose_workforce_handoff', 'web_search']);
+  });
+
+  it('keeps every tool on an ordinary turn', async () => {
+    const graph = new AgentGraph({ apiKey: 'test-key' } as never, toolList, 'PROMPT');
+
+    await graph.invoke({ messages: [], additionalSystemContext: 'ctx' });
+
+    expect(names(mocks.createAgent.mock.calls.at(-1)![0].tools)).toContain('propose_insight_create');
   });
 });
 
@@ -821,5 +939,261 @@ describe('extractFirstTurn', () => {
 
   it('returns empty strings for an empty thread', () => {
     expect(extractFirstTurn([])).toEqual({ userText: '', assistantText: '' });
+  });
+});
+
+// Builds every agent flavor in turn and hands its createAgent config to `check`.
+const AGENT_BUILDERS: Array<[string, () => Promise<unknown>]> = [
+  ['mna', () => getAgentGraph('mna')],
+  ['investment', () => getAgentGraph('investment')],
+  ['combined', () => getAgentGraph('combined')],
+  ['vc', () => getAgentGraph('vc')],
+  ['workforce', () => getWorkforceAgentGraphForEffort('medium')],
+];
+
+async function eachBuiltAgent(check: (config: Record<string, unknown>, flavor: string) => void) {
+  for (const [flavor, build] of AGENT_BUILDERS) {
+    mocks.createAgent.mockClear();
+    await build();
+    check(mocks.createAgent.mock.calls[0][0], flavor);
+  }
+}
+
+type BuiltModel = { opts: Record<string, unknown>; config?: Record<string, unknown> };
+const builtModel = () => mocks.createAgent.mock.calls[0][0].model as BuiltModel;
+
+describe('Agent LLM configuration', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('never selects the max effort rung automatically', () => {
+    for (const tier of Object.values(EFFORT_TIERS)) {
+      expect(tier.effort).not.toBe('max');
+    }
+  });
+
+  it('leaves every tier room under the route ceiling to wrap up', () => {
+    // The route's maxDuration is a build-time constant and cannot vary by tier,
+    // so each budget must fire first — with enough slack left for the wrap-up
+    // call and for the response to drain. Hitting the platform limit instead
+    // discards the whole turn silently.
+    for (const [name, tier] of Object.entries(EFFORT_TIERS)) {
+      expect(
+        CHAT_TURN_BUDGET_CEILING_MS - tier.turnBudgetMs,
+        `tier "${name}" leaves too little headroom`,
+      ).toBeGreaterThanOrEqual(120_000);
+    }
+  });
+
+  it('orders the turn budgets by tier', () => {
+    const ladder: EffortChoice[] = ['low', 'medium', 'high', 'deep'];
+    for (let i = 1; i < ladder.length; i++) {
+      expect(EFFORT_TIERS[ladder[i]].turnBudgetMs).toBeGreaterThan(EFFORT_TIERS[ladder[i - 1]].turnBudgetMs);
+    }
+  });
+
+  it.each<[EffortChoice | undefined, string, string, number]>([
+    ['low', 'claude-sonnet-5', 'medium', 16_000],
+    ['medium', 'claude-sonnet-5', 'high', 32_000],
+    ['high', 'claude-opus-5', 'high', 64_000],
+    ['deep', 'claude-opus-5', 'xhigh', 96_000],
+    // An omitted tier must stay at today's behaviour, not silently drop.
+    [undefined, 'claude-sonnet-5', 'high', 32_000],
+  ])('maps tier %s to its model, output effort and output ceiling', (effort, model, outputEffort, maxTokens) => {
+    createLocalAgent({ apiKey: 'test-key', ...(effort ? { effort } : {}) });
+    const { opts } = builtModel();
+    expect(opts.model).toBe(model);
+    expect(opts.outputConfig).toEqual({ effort: outputEffort });
+    expect(opts.maxTokens).toBe(maxTokens);
+  });
+
+  it('stamps the tier into run metadata so traces can report it', async () => {
+    const graph = new AgentGraph({ apiKey: 'test-key', effort: 'deep' });
+    const agent = mocks.createAgent.mock.results[0].value as {
+      streamEvents: ReturnType<typeof vi.fn>;
+    };
+    await graph.streamEvents({ messages: [] });
+    const runConfig = agent.streamEvents.mock.calls[0][1] as {
+      metadata: Record<string, string>;
+    };
+    expect(runConfig.metadata).toMatchObject({
+      effort_tier: 'deep',
+      effort_model: 'claude-opus-5',
+      output_effort: 'xhigh',
+    });
+  });
+
+  it('escalates but never de-escalates a thread', () => {
+    expect(maxEffort('low', 'high')).toBe('high');
+    expect(maxEffort('high', 'low')).toBe('high');
+    expect(maxEffort('medium', 'medium')).toBe('medium');
+    expect(maxEffort('deep', 'high')).toBe('deep');
+  });
+
+  it('narrows server-side tier input, accepting deep', () => {
+    expect(asEffortChoice('low')).toBe('low');
+    expect(asEffortChoice('deep')).toBe('deep');
+    expect(asEffortChoice('auto')).toBeNull();
+    expect(asEffortChoice('max')).toBeNull();
+    expect(asEffortChoice(7)).toBeNull();
+  });
+
+  it('rejects deep from request bodies so a client cannot pin the top tier', () => {
+    expect(asManualEffort('high')).toBe('high');
+    expect(asManualEffort('deep')).toBeNull();
+    expect(asManualEffort('max')).toBeNull();
+    expect(asManualEffort(null)).toBeNull();
+  });
+
+  it('configures ChatAnthropic with adaptive thinking, summarized display, and ephemeral cache_control', () => {
+    createLocalAgent({ apiKey: 'test-key' });
+    const model = builtModel();
+    expect(model.opts.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    expect(model.config?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(model.opts.cache_control).toBeUndefined();
+    expect(model.opts.streaming).toBe(true);
+    expect(model.opts.temperature).toBeUndefined();
+  });
+
+  it('enables context editing and beta header on workforce agent graph, but not on chat graphs', async () => {
+    await getWorkforceAgentGraphForEffort('medium');
+    expect(builtModel().opts.contextManagement).toEqual({
+      edits: [{ type: 'clear_tool_uses_20250919' }],
+    });
+    expect(builtModel().opts.betas).toContain('context-management-2025-06-27');
+
+    for (const build of [() => getAgentGraph('mna'), () => getStatelessAgentGraph()]) {
+      mocks.createAgent.mockClear();
+      await build();
+      expect(builtModel().opts.contextManagement).toBeUndefined();
+      expect(builtModel().opts.betas).not.toContain('context-management-2025-06-27');
+    }
+  });
+
+  it('does not include thinking delimiters in any agent system prompt', async () => {
+    const checkPrompt = (prompt: string) => {
+      expect(prompt).not.toContain('<!-- THINKING_START -->');
+      expect(prompt).not.toContain('<!-- THINKING_END -->');
+    };
+
+    await eachBuiltAgent((config) => checkPrompt(config.systemPrompt as string));
+  });
+});
+
+describe('Anthropic server tools and pause_turn handling', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('equips each agent flavor with web_search and web_fetch server tools', async () => {
+    await eachBuiltAgent((config, flavor) => {
+      const tools = config.tools as Array<{ name: string; type?: string }>;
+      expect(tools.find((t) => t.name === 'web_search')?.type, flavor).toBe('web_search_20260209');
+      expect(tools.find((t) => t.name === 'web_fetch')?.type, flavor).toBe('web_fetch_20260209');
+    });
+  });
+
+  it('describes web_search and never mentions web_fetch across all agent system prompts', async () => {
+    await eachBuiltAgent((config, flavor) => {
+      const prompt = config.systemPrompt as string;
+      expect(prompt, `${flavor} should not mention web_fetch`).not.toContain('web_fetch');
+      expect(prompt, `${flavor} should describe real results with URLs`).toMatch(/real results with URLs/i);
+    });
+  });
+
+  describe('pause_turn warning', () => {
+    let warnSpy: MockInstance;
+
+    beforeEach(() => {
+      warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    async function statelessGraphWith(agent: { invoke?: unknown; streamEvents?: unknown }) {
+      mocks.createAgent.mockReturnValueOnce({
+        __agent: true,
+        streamEvents: vi.fn(),
+        invoke: vi.fn(),
+        ...agent,
+      } as never);
+      const graph = await getStatelessAgentGraph();
+      expect(graph).not.toBeNull();
+      return graph!;
+    }
+
+    async function drain(events: unknown[]) {
+      async function* fakeStream() {
+        yield* events;
+      }
+      const graph = await statelessGraphWith({ streamEvents: vi.fn().mockResolvedValue(fakeStream()) });
+      const collected: unknown[] = [];
+      for await (const event of await graph.streamEvents({ messages: [msg('search query')] })) {
+        collected.push(event);
+      }
+      return collected;
+    }
+
+    const metadata = (stop_reason: string) => ({ response_metadata: { stop_reason } });
+    const modelEnd = (stop_reason: string) => ({
+      event: 'on_chat_model_end',
+      data: { output: { content: 'Calling web_search...', ...metadata(stop_reason) } },
+    });
+
+    it.each([
+      ['pause_turn', 1],
+      ['end_turn', 0],
+    ])('warns %s-ending invoke turns %i time(s)', async (stopReason, warnings) => {
+      const graph = await statelessGraphWith({
+        invoke: vi.fn().mockResolvedValue({ messages: [{ content: 'x', ...metadata(stopReason) }] }),
+      });
+
+      await graph.invoke({ messages: [msg('trigger search')] });
+
+      expect(warnSpy).toHaveBeenCalledTimes(warnings);
+      if (warnings) expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('pause_turn'));
+    });
+
+    it('passes stream events through and warns once across several pause_turn model-end events', async () => {
+      const collected = await drain([
+        { event: 'on_chat_model_stream', data: { chunk: { content: 'Calling web_search...' } } },
+        modelEnd('pause_turn'),
+        modelEnd('pause_turn'),
+      ]);
+
+      expect(collected).toHaveLength(3);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('pause_turn'));
+    });
+
+    it('does not warn on non-model-end events like on_chain_end or on_chat_model_stream', async () => {
+      await drain([
+        {
+          event: 'on_chat_model_stream',
+          data: { chunk: { content: 'stream chunk', additional_kwargs: { stop_reason: 'pause_turn' } } },
+        },
+        {
+          event: 'on_chain_end',
+          data: { output: { messages: [{ content: 'Interim pause', ...metadata('pause_turn') }] } },
+        },
+      ]);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
   });
 });

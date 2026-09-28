@@ -12,7 +12,12 @@ import { WorkspaceLink } from "@/components/WorkspaceLink";
 import posthog from "posthog-js";
 import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from "@/lib/posthog-chat";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
-import type { EffortChoice } from "@/lib/agents/analysis";
+import {
+  asManualEffort,
+  asEffortChoice,
+  type ManualEffortChoice,
+} from "@/lib/chat/effortTiers";
+import type { ChatAttachmentRef } from "@/lib/services/chatAttachmentService";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,12 +46,14 @@ export interface WorkforceHandoffPayload {
   // Optional for backward compat with marker payloads written before the
   // dropped-company guard shipped.
   company_ids?: string[];
+  attachments?: ChatAttachmentRef[];
 }
 
 interface WorkforceHandoffCardProps {
   payload: WorkforceHandoffPayload;
   onJustAnswerHere: () => void;
   className?: string;
+  chatEffortTier?: string | null;
 }
 
 type Status = "idle" | "submitting" | "assigned" | "declined";
@@ -55,12 +62,23 @@ export function WorkforceHandoffCard({
   payload,
   onJustAnswerHere,
   className,
+  chatEffortTier,
 }: WorkforceHandoffCardProps) {
   const handoffId = payload.handoff_id;
   const [status, setStatus] = useState<Status>("idle");
   const [queueId, setQueueId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [effort, setEffort] = useState<EffortChoice>("medium");
+  const [overridden, setOverridden] = useState(false);
+  const [manualEffort, setManualEffort] = useState<ManualEffortChoice>(
+    () => asManualEffort(chatEffortTier) ?? "medium",
+  );
+  const effort = overridden ? manualEffort : (asManualEffort(chatEffortTier) ?? "medium");
+
+  const inheritedTier = asEffortChoice(chatEffortTier);
+  // Untouched → inherit the thread's real tier verbatim, including 'deep', which
+  // the selector cannot represent. Touched → the user's explicit choice wins.
+  const submittedEffort = overridden ? effort : (inheritedTier ?? effort);
+
   // The copilot pane may be full-screen over the console; navigating behind it
   // would look like the click did nothing (same rationale as CompanyChip).
   const { revealConsole } = useLayoutControl();
@@ -104,7 +122,8 @@ export function WorkforceHandoffCard({
           instruction: payload.instruction,
           tool_call_id: handoffId,
           company_ids: payload.company_ids ?? [],
-          effort,
+          effort: submittedEffort,
+          attachments: payload.attachments,
         }),
       });
       setQueueId(body?.id ?? null);
@@ -198,7 +217,29 @@ export function WorkforceHandoffCard({
           <div className="flex flex-col gap-2 w-full">
             <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
               <span>Effort</span>
-              <EffortSelector value={effort} onChange={(v) => { if (v !== 'auto') setEffort(v); }} hideAuto />
+              {!overridden && inheritedTier === 'deep' ? (
+                <button
+                  type="button"
+                  title="The thread was escalated to Deep automatically and the task will inherit it; click to choose a different level."
+                  onClick={() => {
+                    setManualEffort(effort);
+                    setOverridden(true);
+                  }}
+                  className="inline-flex items-center rounded-md border bg-muted px-2.5 py-1 text-xs font-medium text-foreground select-none cursor-pointer transition-colors"
+                >
+                  Deep · inherited
+                </button>
+              ) : (
+                <EffortSelector
+                  value={effort}
+                  onChange={(v) => {
+                    setOverridden(true);
+                    if (v !== 'auto' && v !== 'low') setManualEffort(v);
+                  }}
+                  hideAuto
+                  hideLow
+                />
+              )}
             </div>
             <Button
               data-testid="workforce-handoff-assign-button"

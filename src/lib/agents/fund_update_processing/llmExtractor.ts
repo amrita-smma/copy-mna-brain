@@ -148,6 +148,8 @@ export async function extractFundUpdateProposal(
     temperature: undefined,
     maxTokens: 32000,
     streaming: true,
+    // Anthropic defaults to high effort when output_config is omitted; low effort is sufficient for field extraction from known layout.
+    outputConfig: { effort: 'low' },
   });
 
   const anthropic = new Anthropic({ apiKey });

@@ -4,8 +4,11 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
-import { getAgentGraph, extractFirstTurn } from '@/lib/agents/analysis';
+import { extractFirstTurn } from '@/lib/agents/analysis';
 import { chatCacheEnabled } from '@/lib/flags';
+import { sanitizePageContext } from '@/lib/chat/pageContext';
+import { getChatAgentGraph, resolveChatAgentKey } from '@/lib/chat/chatAgent';
+import { toChatAgentKey } from '@/lib/chat/chatAgentKey';
 
 /**
  * Chat cache lookup. Given the first user message of a brand-new chat, find a
@@ -14,6 +17,13 @@ import { chatCacheEnabled } from '@/lib/flags';
  * agent, offering to continue from the cached chat or start fresh.
  *
  * Only meaningful for the first turn of a new chat — the client gates the call.
+ *
+ * A cached answer is only offered when it came from the agent the new chat
+ * would run on (MB-549): the client sends its `page_context`, and the match is
+ * scoped to the agent that page resolves to. A new chat opened on an insight
+ * always misses (MB-550): its turn carries that insight's outline, so its
+ * answer depends on that insight — and a first turn is never written to the
+ * cache from an insight page either.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -35,15 +45,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ data: { hit: false } });
     }
 
-    const db = createDb();
-    const { copilotChatsService } = createContainer(db, await getActiveWorkspaceId());
+    const pageContext = sanitizePageContext(body?.page_context);
+    if (pageContext?.insightId) {
+      return NextResponse.json({ data: { hit: false } });
+    }
 
-    const match = await copilotChatsService.findCachedFirstTurn(message);
+    const db = createDb();
+    const workspaceId = await getActiveWorkspaceId();
+    const { copilotChatsService, insightService } = createContainer(db, workspaceId);
+
+    // What the new chat would run on — a preview, nothing is pinned.
+    const wouldRun = await resolveChatAgentKey(
+      { chat: null, pageContext },
+      { workspaceId, copilotChatsService, insightService },
+    );
+    if (wouldRun.notice) {
+      return NextResponse.json({ data: { hit: false } });
+    }
+
+    const match = await copilotChatsService.findCachedFirstTurn(message, wouldRun.agentKey);
     if (!match) {
       return NextResponse.json({ data: { hit: false } });
     }
 
-    const agent = await getAgentGraph();
+    const agent = await getChatAgentGraph(toChatAgentKey(match.agent_key));
     if (!agent) {
       return NextResponse.json({ data: { hit: false } });
     }

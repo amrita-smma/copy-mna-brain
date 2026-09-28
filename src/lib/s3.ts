@@ -1,26 +1,37 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-// S3 Configuration
-const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-3';
-const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
-const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
-const AWS_SESSION_TOKEN = process.env.AWS_SESSION_TOKEN;
-const S3_BUCKET = process.env.AWS_S3_BUCKET || 'mna-files';
-// Optional custom endpoint for server→S3 operations (upload/download/delete).
-// Set to `http://localhost:9000` (host dev) or `http://minio:9000` (docker
-// network). Omit to use real AWS S3.
-const AWS_S3_ENDPOINT = process.env.AWS_S3_ENDPOINT;
-// Optional separate endpoint used ONLY when generating presigned URLs. These
-// URLs end up in the browser, so they must be reachable from there. In docker
-// dev the server can reach `http://minio:9000` but the browser cannot — it
-// needs `http://localhost:9000`. Fall back to AWS_S3_ENDPOINT if unset (same
-// address works for both in host dev and real AWS).
-const AWS_S3_PUBLIC_ENDPOINT = process.env.AWS_S3_PUBLIC_ENDPOINT ?? AWS_S3_ENDPOINT;
-// MinIO (and most S3-alike servers) require path-style addressing —
-// `http://host/bucket/key` instead of `http://bucket.host/key`.
-const AWS_S3_FORCE_PATH_STYLE = process.env.AWS_S3_FORCE_PATH_STYLE === 'true';
+// S3 Configuration. Read lazily (inside a function) rather than into
+// module-level consts: this module is reachable through several transitive
+// static imports (e.g. scripts/seed.ts -> createContainer -> fileService ->
+// s3.ts), which ES module hoisting can evaluate before a caller's own
+// dotenv config() has run. Module-level consts would then freeze these as
+// undefined for the lifetime of the process; reading process.env fresh on
+// every call sidesteps the import-order hazard entirely.
+function getS3Env() {
+  const endpoint = process.env.AWS_S3_ENDPOINT;
+  return {
+    region: process.env.AWS_REGION || 'ap-southeast-3',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    sessionToken: process.env.AWS_SESSION_TOKEN,
+    bucket: process.env.AWS_S3_BUCKET || 'mna-files',
+    // Optional custom endpoint for server→S3 operations (upload/download/delete).
+    // Set to `http://localhost:9000` (host dev) or `http://minio:9000` (docker
+    // network). Omit to use real AWS S3.
+    endpoint,
+    // Optional separate endpoint used ONLY when generating presigned URLs. These
+    // URLs end up in the browser, so they must be reachable from there. In docker
+    // dev the server can reach `http://minio:9000` but the browser cannot — it
+    // needs `http://localhost:9000`. Fall back to AWS_S3_ENDPOINT if unset (same
+    // address works for both in host dev and real AWS).
+    publicEndpoint: process.env.AWS_S3_PUBLIC_ENDPOINT ?? endpoint,
+    // MinIO (and most S3-alike servers) require path-style addressing —
+    // `http://host/bucket/key` instead of `http://bucket.host/key`.
+    forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
+  };
+}
 
 type ClientKind = 'internal' | 'presigner';
 
@@ -39,28 +50,29 @@ export function buildContentDisposition(fileName: string): string {
 }
 
 function createS3Client(kind: ClientKind = 'internal'): S3Client {
-  const endpoint = kind === 'presigner' ? AWS_S3_PUBLIC_ENDPOINT : AWS_S3_ENDPOINT;
-  const hasExplicitCredentials = AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY;
+  const env = getS3Env();
+  const endpoint = kind === 'presigner' ? env.publicEndpoint : env.endpoint;
+  const hasExplicitCredentials = env.accessKeyId && env.secretAccessKey;
 
   if (endpoint && !hasExplicitCredentials) {
     throw new Error('AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.');
   }
 
   return new S3Client({
-    region: AWS_REGION,
+    region: env.region,
     ...(hasExplicitCredentials
       ? {
           credentials: {
-            accessKeyId: AWS_ACCESS_KEY_ID,
-            secretAccessKey: AWS_SECRET_ACCESS_KEY,
-            ...(AWS_SESSION_TOKEN ? { sessionToken: AWS_SESSION_TOKEN } : {}),
+            accessKeyId: env.accessKeyId!,
+            secretAccessKey: env.secretAccessKey!,
+            ...(env.sessionToken ? { sessionToken: env.sessionToken } : {}),
           },
         }
       : {}),
     ...(endpoint && { endpoint }),
     // If an explicit endpoint is set (MinIO/LocalStack), default to path-style
     // unless explicitly overridden.
-    forcePathStyle: endpoint ? AWS_S3_FORCE_PATH_STYLE || true : AWS_S3_FORCE_PATH_STYLE,
+    forcePathStyle: endpoint ? env.forcePathStyle || true : env.forcePathStyle,
   });
 }
 
@@ -75,13 +87,13 @@ export async function uploadFile(
   fileBuffer: Buffer | Uint8Array,
   key: string,
   contentType: string,
-  bucket: string = S3_BUCKET,
+  bucket?: string,
   contentEncoding?: string,
 ): Promise<string> {
   const s3Client = createS3Client();
 
   const command = new PutObjectCommand({
-    Bucket: bucket,
+    Bucket: bucket ?? getS3Env().bucket,
     Key: key,
     Body: fileBuffer,
     ContentType: contentType,
@@ -96,12 +108,36 @@ export async function uploadFile(
  * Delete a file from S3
  * @param key - The S3 object key (path)
  */
-export async function deleteFile(key: string, bucket: string = S3_BUCKET): Promise<void> {
+export async function deleteFile(key: string, bucket?: string): Promise<void> {
   const s3Client = createS3Client();
 
   const command = new DeleteObjectCommand({
-    Bucket: bucket,
+    Bucket: bucket ?? getS3Env().bucket,
     Key: key,
+  });
+
+  await s3Client.send(command);
+}
+
+/**
+ * Copy an object in S3 to a new key.
+ * @param sourceKey - The source S3 object key
+ * @param destKey - The destination S3 object key
+ * @param bucket - The S3 bucket (defaults to the configured bucket)
+ */
+export async function copyFile(
+  sourceKey: string,
+  destKey: string,
+  bucket?: string,
+): Promise<void> {
+  const s3Client = createS3Client();
+
+  const resolvedBucket = bucket ?? getS3Env().bucket;
+  const encodedSourceKey = encodeURIComponent(sourceKey).replace(/%2F/g, '/');
+  const command = new CopyObjectCommand({
+    Bucket: resolvedBucket,
+    CopySource: `${resolvedBucket}/${encodedSourceKey}`,
+    Key: destKey,
   });
 
   await s3Client.send(command);
@@ -122,7 +158,7 @@ export async function getSignedUrl(
   const s3Client = createS3Client('presigner');
 
   const command = new GetObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: getS3Env().bucket,
     Key: key,
     ResponseContentDisposition: fileName ? buildContentDisposition(fileName) : undefined,
   });
@@ -145,7 +181,7 @@ export async function getUploadSignedUrl(
   const s3Client = createS3Client('presigner');
 
   const command = new PutObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: getS3Env().bucket,
     Key: key,
     ContentType: contentType,
   });
@@ -158,11 +194,11 @@ export async function getUploadSignedUrl(
  * @param key - The S3 object key (path)
  * @returns The file content as a Buffer
  */
-export async function downloadFile(key: string, bucket: string = S3_BUCKET): Promise<Buffer> {
+export async function downloadFile(key: string, bucket?: string): Promise<Buffer> {
   const s3Client = createS3Client();
 
   const command = new GetObjectCommand({
-    Bucket: bucket,
+    Bucket: bucket ?? getS3Env().bucket,
     Key: key,
   });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmailNotificationService, deriveApprovalDetails } from './emailNotificationService';
-import type { NotificationDeps } from './emailNotificationService';
+import type { NotificationDeps, InsightRefreshedNotice } from './emailNotificationService';
 
 const APP_URL = 'https://app.example.com';
 
@@ -190,6 +190,37 @@ describe('EmailNotificationService', () => {
     );
   });
 
+  it('sends the waiting email to the asked user (the insight owner), not the routine creator', async () => {
+    const { deps, enqueue, findRoutine, findByIds } = makeDeps({
+      run: { id: 'r1', trigger_source: 'cron', triggered_by_user_id: null, origin_routine_id: 'ro1', title: 'Weekly pulse refresh', workspace_id: 'ws1' },
+      routine: { id: 'ro1', created_by: 'u9' },
+      users: [{ id: 'owner-1', name: 'Insight Owner', email: 'insight.owner@e.com' }],
+    });
+    const svc = new EmailNotificationService(deps);
+    const ok = await svc.notifyTaskWaitingApproval('r1', {
+      action: 'Use the Q2 figures?',
+      toolName: 'ask_owner',
+      toolArgs: {
+        question: 'Use the Q2 figures?',
+        recommendation: 'Use Q2 and flag the gap',
+        rationale: 'Q3 report is gone',
+      },
+      recipientUserId: 'owner-1',
+    });
+    expect(ok).toBe(true);
+    expect(findByIds).toHaveBeenCalledWith(['owner-1']);
+    expect(findRoutine).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'task_waiting_approval',
+        to: 'insight.owner@e.com',
+        action: 'Use the Q2 figures?',
+        proposedAction: 'Recommended answer: Use Q2 and flag the gap',
+        reason: 'Q3 report is gone',
+      }),
+    );
+  });
+
   it('builds the structured proposal card from a promote_to_l1 interrupt', async () => {
     const { deps, enqueue } = makeDeps({
       run: { id: 'r1', trigger_source: 'chat', triggered_by_user_id: 'u1', title: 'Project Maple screening' },
@@ -276,6 +307,63 @@ describe('EmailNotificationService', () => {
     await expect(svc.notifyTaskCompleted('r1')).resolves.toBe(false);
     expect(enqueue).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  describe('notifyInsightRefreshed', () => {
+    const NOTICE: InsightRefreshedNotice = {
+      workspaceId: 'ws1',
+      insightId: 'ins-1',
+      insightName: 'Japan Target Analysis',
+      versionNo: 2,
+      ownerUserId: 'u-owner',
+    };
+    const OWNER = { id: 'u-owner', name: 'Alice', email: 'alice@example.com' };
+
+    it('enqueues insight_refreshed to the owner email with the slugged link', async () => {
+      const { deps, enqueue, findWorkspace, findByIds } = makeDeps({ users: [OWNER] });
+
+      expect(await new EmailNotificationService(deps).notifyInsightRefreshed(NOTICE)).toBe(true);
+      expect(findByIds).toHaveBeenCalledWith(['u-owner']);
+      expect(findWorkspace).toHaveBeenCalledWith('ws1');
+      expect(enqueue).toHaveBeenCalledWith({
+        kind: 'insight_refreshed',
+        to: 'alice@example.com',
+        insightName: 'Japan Target Analysis',
+        versionNo: 2,
+        insightUrl: `${APP_URL}/w/togan-vcc/insight/ins-1`,
+      });
+    });
+
+    it.each([
+      ['the notifications flag is off', { ...OWNER }, NOTICE, true],
+      ['there is no owner', { ...OWNER }, { ...NOTICE, ownerUserId: null }, false],
+      ['the owner has no email', { ...OWNER, email: null }, NOTICE, false],
+    ])('returns false without enqueueing when %s', async (_label, owner, notice, flagOff) => {
+      if (flagOff) delete process.env.TASK_NOTIFICATIONS_ENABLED;
+      const { deps, enqueue } = makeDeps({ users: [owner] });
+
+      expect(await new EmailNotificationService(deps).notifyInsightRefreshed(notice)).toBe(false);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the un-prefixed link when the workspace lookup throws', async () => {
+      const { deps, enqueue } = makeDeps({ users: [OWNER] });
+      deps.workspaceRepo = { findById: vi.fn().mockRejectedValue(new Error('db connection lost')) } as never;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(await new EmailNotificationService(deps).notifyInsightRefreshed(NOTICE)).toBe(true);
+      expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ insightUrl: `${APP_URL}/insight/ins-1` }));
+      errSpy.mockRestore();
+    });
+
+    it('enqueue throws → resolves false (never throws)', async () => {
+      const { deps, enqueue } = makeDeps({ users: [OWNER] });
+      enqueue.mockRejectedValue(new Error('queue down'));
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(new EmailNotificationService(deps).notifyInsightRefreshed(NOTICE)).resolves.toBe(false);
+      errSpy.mockRestore();
+    });
   });
 });
 

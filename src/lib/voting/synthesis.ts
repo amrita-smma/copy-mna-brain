@@ -108,6 +108,8 @@ export async function generateVoteSynthesis(
     systemPrompt: SYSTEM_PROMPT,
     prompt: buildVoteSynthesisPrompt(input),
     model: VOTE_SYNTHESIS_MODEL,
+    // Anthropic defaults to high effort when output_config is omitted; medium effort preserves synthesis judgment.
+    effort: 'medium',
     maxTokens: 4000,
     toolName: 'record_vote_minutes',
     llmOverride: input.llmOverride,

@@ -1,0 +1,60 @@
+diff --git a/dist/utils/message_inputs.cjs b/dist/utils/message_inputs.cjs
+index 545a8fd724346e1f7800e6092dc6f98207cb44ac..707d81a0de73abb43a27ef03479ee0e4a0ef16cf 100644
+--- a/dist/utils/message_inputs.cjs
++++ b/dist/utils/message_inputs.cjs
+@@ -67,6 +67,8 @@ function* _formatContentBlocks(content, toolCalls) {
+ 		"input_json_delta",
+ 		"server_tool_use",
+ 		"text_editor_code_execution_tool_result",
++		"code_execution_tool_result",
++		"web_fetch_tool_result",
+ 		"tool_result",
+ 		"tool_use",
+ 		"web_search_result",
+diff --git a/dist/utils/message_inputs.js b/dist/utils/message_inputs.js
+index bdf8e45c5f1f5305e88db6b99e0340e029bf2d70..0a0d205d0bfb80cd7df0e90f75ebe14953123d74 100644
+--- a/dist/utils/message_inputs.js
++++ b/dist/utils/message_inputs.js
+@@ -66,6 +66,8 @@ function* _formatContentBlocks(content, toolCalls) {
+ 		"input_json_delta",
+ 		"server_tool_use",
+ 		"text_editor_code_execution_tool_result",
++		"code_execution_tool_result",
++		"web_fetch_tool_result",
+ 		"tool_result",
+ 		"tool_use",
+ 		"web_search_result",
+diff --git a/dist/utils/message_outputs.cjs b/dist/utils/message_outputs.cjs
+index ca00859e10792bf4b552cf1e41389384491fe5cd..07a7eaceabe05902482ea42500adf11cc98d9266 100644
+--- a/dist/utils/message_outputs.cjs
++++ b/dist/utils/message_outputs.cjs
+@@ -38,7 +38,11 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+ 		"tool_use",
+ 		"document",
+ 		"server_tool_use",
+-		"web_search_tool_result"
++		"web_search_tool_result",
++		"web_fetch_tool_result",
++		"code_execution_tool_result",
++		"bash_code_execution_tool_result",
++		"text_editor_code_execution_tool_result"
+ 	].includes(data.content_block.type)) {
+ 		const contentBlock = data.content_block;
+ 		let toolCallChunks;
+diff --git a/dist/utils/message_outputs.js b/dist/utils/message_outputs.js
+index 4edf724077c82e61b1982879592216a6d78288fb..78a546b16e225e660601c39362537b53e2016177 100644
+--- a/dist/utils/message_outputs.js
++++ b/dist/utils/message_outputs.js
+@@ -37,7 +37,11 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+ 		"tool_use",
+ 		"document",
+ 		"server_tool_use",
+-		"web_search_tool_result"
++		"web_search_tool_result",
++		"web_fetch_tool_result",
++		"code_execution_tool_result",
++		"bash_code_execution_tool_result",
++		"text_editor_code_execution_tool_result"
+ 	].includes(data.content_block.type)) {
+ 		const contentBlock = data.content_block;
+ 		let toolCallChunks;

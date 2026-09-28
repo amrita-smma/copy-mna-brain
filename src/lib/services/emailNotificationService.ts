@@ -7,15 +7,16 @@ import {
 import type { WorkforceQueueRow } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
+import { ASK_OWNER_TOOL_NAME, readAskOwnerArgs } from '@/lib/agents/analysis/hitl';
 
 /**
- * Task lifecycle email notifications (MB-90).
+ * Task lifecycle and insight refresh email notifications (MB-90, MB-558).
  *
- * Resolves the human who should hear about a workforce run, then enqueues the
- * appropriate transactional email onto the existing `send-email` queue. Every
- * public `notify*` method is **best-effort and non-throwing**: notifications
- * must never break the workflow step / request that triggered them, so failures
- * are caught and logged and the method resolves to `false`.
+ * Resolves the human who should hear about a workforce run or insight refresh,
+ * then enqueues the appropriate transactional email onto the existing `send-email`
+ * queue. Every public `notify*` method is **best-effort and non-throwing**:
+ * notifications must never break the workflow step / request that triggered
+ * them, so failures are caught and logged and the method resolves to `false`.
  *
  * Gated by `TASK_NOTIFICATIONS_ENABLED` (matching the `taskNotificationsEnabled`
  * flag in `src/lib/flags.ts`). The env var is read directly rather than via the
@@ -44,6 +45,14 @@ export interface NotificationDeps {
 interface Recipient {
   email: string;
   name: string;
+}
+
+export interface InsightRefreshedNotice {
+  workspaceId: string;
+  insightId: string;
+  insightName: string;
+  versionNo: number;
+  ownerUserId: string | null;
 }
 
 export interface ApprovalDetails {
@@ -88,6 +97,15 @@ export function deriveApprovalDetails(
       changeField: 'Pipeline Stage',
       beforeValue: 'L0',
       afterValue: 'L1',
+    };
+  }
+  if (toolName === ASK_OWNER_TOOL_NAME) {
+    const ask = readAskOwnerArgs(a);
+    if (!ask) return {};
+    return {
+      action: ask.question,
+      proposedAction: `Recommended answer: ${ask.recommendation}`,
+      reason: ask.rationale || undefined,
     };
   }
   return {};
@@ -266,6 +284,9 @@ export class EmailNotificationService {
    * tool's name + args (from the HITL interrupt) so the email can render the
    * structured "what's being proposed" / "change preview" card; `action` is
    * the human-readable fallback headline (the interrupt description).
+   * `recipientUserId` is the user the intervention is addressed to (e.g. the
+   * insight owner for a refresh run); without it the usual run recipient is
+   * used.
    */
   async notifyTaskWaitingApproval(
     runId: string,
@@ -273,6 +294,7 @@ export class EmailNotificationService {
       action: string;
       toolName?: string;
       toolArgs?: Record<string, unknown>;
+      recipientUserId?: string | null;
     },
   ): Promise<boolean> {
     return this.dispatch(runId, 'task_waiting_approval', async (run, recipient) => {
@@ -293,7 +315,7 @@ export class EmailNotificationService {
         beforeValue: details.beforeValue,
         afterValue: details.afterValue,
       };
-    });
+    }, opts.recipientUserId);
   }
 
   /** Task reached terminal `failed` — agent error or user cancellation. */
@@ -364,6 +386,49 @@ export class EmailNotificationService {
     }));
   }
 
+  /**
+   * An insight was updated by a scheduled refresh run. Notifies the insight's
+   * owner (never the run's triggerer). Best-effort and non-throwing.
+   */
+  async notifyInsightRefreshed(
+    notice: InsightRefreshedNotice,
+  ): Promise<boolean> {
+    const tag = `[EmailNotificationService] insight_refreshed insight=${notice.insightId}`;
+    try {
+      if (!(await this.isEnabled())) {
+        console.info(`${tag} skipped: notifications feature flag is off`);
+        return false;
+      }
+      if (!notice.ownerUserId) {
+        console.info(`${tag} skipped: no ownerUserId`);
+        return false;
+      }
+      const recipient = await this.lookupUser(notice.ownerUserId);
+      if (!recipient) {
+        console.info(
+          `${tag} skipped: owner has no email on file (ownerUserId=${notice.ownerUserId})`,
+        );
+        return false;
+      }
+      const insightUrl = await this.insightUrl(notice.insightId, notice.workspaceId);
+      const payload: SendEmailPayload = {
+        kind: 'insight_refreshed',
+        to: recipient.email,
+        insightName: notice.insightName,
+        versionNo: notice.versionNo,
+        insightUrl,
+      };
+      const { messageId } = await this.enqueue(payload);
+      console.info(
+        `${tag} enqueued to ${recipient.email} (queue messageId=${messageId ?? 'null'})`,
+      );
+      return true;
+    } catch (err) {
+      console.error(`${tag} failed:`, err);
+      return false;
+    }
+  }
+
   // ── internals ────────────────────────────────────────────────────────────
 
   /**
@@ -378,6 +443,7 @@ export class EmailNotificationService {
       run: WorkforceQueueRow,
       recipient: Recipient,
     ) => Promise<SendEmailPayload | null>,
+    recipientUserId?: string | null,
   ): Promise<boolean> {
     const tag = `[EmailNotificationService][${label}] run=${runId}`;
     if (!(await this.isEnabled())) {
@@ -390,10 +456,12 @@ export class EmailNotificationService {
         console.info(`${tag} skipped: run not found`);
         return false;
       }
-      const recipient = await this.resolveRecipient(run);
+      const recipient = recipientUserId
+        ? await this.lookupUser(recipientUserId)
+        : await this.resolveRecipient(run);
       if (!recipient) {
         console.info(
-          `${tag} skipped: no recipient with an email (triggered_by_user_id=${run.triggered_by_user_id ?? 'null'}, origin_routine_id=${run.origin_routine_id ?? 'null'})`,
+          `${tag} skipped: no recipient with an email (recipient_user_id=${recipientUserId ?? 'null'}, triggered_by_user_id=${run.triggered_by_user_id ?? 'null'}, origin_routine_id=${run.origin_routine_id ?? 'null'})`,
         );
         return false;
       }
@@ -479,5 +547,23 @@ export class EmailNotificationService {
       console.error(`[EmailNotificationService] taskUrl: workspace lookup failed for ${workspaceId}:`, err);
     }
     return `${this.appUrl}/ai-workforce/tasks/${runId}`;
+  }
+
+  // Builds the insight link scoped by workspace slug when available, falling back
+  // to the un-prefixed URL if the workspace lookup fails or has no slug.
+  private async insightUrl(insightId: string, workspaceId: string): Promise<string | undefined> {
+    if (!this.appUrl) return undefined;
+    try {
+      const workspace = await this.workspaceRepo.findById(workspaceId);
+      if (workspace?.slug) {
+        return `${this.appUrl}/w/${workspace.slug}/insight/${insightId}`;
+      }
+    } catch (err) {
+      console.error(
+        `[EmailNotificationService] insightUrl: workspace lookup failed for ${workspaceId}:`,
+        err,
+      );
+    }
+    return `${this.appUrl}/insight/${insightId}`;
   }
 }

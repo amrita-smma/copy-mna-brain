@@ -1,6 +1,10 @@
-import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
-import { aiWorkforceQueue } from '@/lib/db/schema';
-import type { HumanDecision, PendingUserMessage } from '@/lib/db/schema';
+import { and, desc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { aiWorkforceQueue, workforceStatus } from '@/lib/db/schema';
+import type {
+  HumanDecision,
+  PendingIntervention,
+  PendingUserMessage,
+} from '@/lib/db/schema';
 import type {
   TaskErrorPayload,
   TaskNotification,
@@ -40,6 +44,17 @@ const TERMINAL_STATUSES: readonly Status[] = [
   'rejected',
   'timed_out',
 ] as const;
+
+/**
+ * Every status a run can still progress from — queued, running, paused on a
+ * human or a subagent, or queued to resume. Derived from the enum so a new
+ * status is treated as active until it is listed as terminal.
+ */
+export const ACTIVE_WORKFORCE_STATUSES: readonly Status[] =
+  workforceStatus.enumValues.filter((s) => !TERMINAL_STATUSES.includes(s));
+
+/** Terminal statuses other than success. Cancellation is `failed`. */
+const UNSUCCESSFUL_TERMINAL_STATUSES: Status[] = ['failed', 'rejected', 'timed_out'];
 
 /** Whether a run has finished (successfully or not) and will never progress. */
 export function isTerminalWorkforceStatus(status: Status): boolean {
@@ -180,6 +195,47 @@ export class AiWorkforceQueueRepository {
         ),
       );
     return new Set(rows.map((r) => r.company_id).filter(Boolean));
+  }
+
+  /**
+   * An insight's refresh runs that ended without success (failed — including
+   * user cancellation, which is `failed` + code cancelled_by_user — rejected
+   * or timed out), newest first, bounded. One query for the insight's version
+   * history.
+   *
+   * A refresh run names its insight in trigger_meta; a retried one only in
+   * input (retry copies input but not trigger_meta), hence the OR. The
+   * predicates match the partial expression indexes
+   * idx_ai_workforce_queue_refresh_{trigger_meta,input}_insight exactly.
+   */
+  async findUnsuccessfulRefreshRunsByInsightId(
+    insightId: string,
+    limit = 50,
+  ): Promise<
+    Pick<Row, 'id' | 'status' | 'error' | 'created_at' | 'ended_at'>[]
+  > {
+    return this.db
+      .select({
+        id: aiWorkforceQueue.id,
+        status: aiWorkforceQueue.status,
+        error: aiWorkforceQueue.error,
+        created_at: aiWorkforceQueue.created_at,
+        ended_at: aiWorkforceQueue.ended_at,
+      })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          isNotNull(aiWorkforceQueue.origin_routine_id),
+          inArray(aiWorkforceQueue.status, UNSUCCESSFUL_TERMINAL_STATUSES),
+          or(
+            sql`(${aiWorkforceQueue.trigger_meta}->>'insight_id') = ${insightId}`,
+            sql`(${aiWorkforceQueue.input}->>'insight_id') = ${insightId}`,
+          ),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(limit);
   }
 
   /** Same idempotency check as {@link findActiveByCompanyId}, keyed on a
@@ -534,12 +590,45 @@ export class AiWorkforceQueueRepository {
     reason: string,
     resumeToken?: string,
   ): Promise<Row> {
+    // The intervention is answered once the resume is queued; a later pause
+    // writes its own.
     const patch: Partial<Row> = {
       status: 'resume_ready',
       resume_reason: reason,
+      pending_intervention: null,
     };
     if (resumeToken !== undefined) patch.resume_token = resumeToken;
     return this.updateStatusOrThrow(id, patch);
+  }
+
+  /**
+   * A human decision queueing the resume: same writes as markResumeReady, but
+   * only while the row is still waiting_for_human_input. Returns null when it
+   * isn't — e.g. the creator and the person asked both decided, and the first
+   * decision's resume already moved the row on; an unconditional write would
+   * flip a claimed `running` row back to `resume_ready`.
+   */
+  async markResumeReadyFromWaiting(
+    id: string,
+    reason: string,
+    resumeToken: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .update(aiWorkforceQueue)
+      .set({
+        status: 'resume_ready',
+        resume_reason: reason,
+        resume_token: resumeToken,
+        pending_intervention: null,
+      } as TablesUpdate<'ai_workforce_queue'>)
+      .where(
+        and(
+          eq(aiWorkforceQueue.id, id),
+          eq(aiWorkforceQueue.status, 'waiting_for_human_input'),
+        ),
+      )
+      .returning();
+    return row ?? null;
   }
 
   async clearResumeToken(id: string): Promise<void> {
@@ -568,11 +657,17 @@ export class AiWorkforceQueueRepository {
   }
 
   // Transition to waiting_for_human_input — the agent emitted a HITL
-  // interrupt and is paused awaiting a decision from the task creator.
-  async markWaitingForHumanInput(id: string, reason: string): Promise<Row> {
+  // interrupt and is paused awaiting a decision. `intervention` records the
+  // gated call and who was asked (see PendingIntervention).
+  async markWaitingForHumanInput(
+    id: string,
+    reason: string,
+    intervention: PendingIntervention | null = null,
+  ): Promise<Row> {
     return this.updateStatusOrThrow(id, {
       status: 'waiting_for_human_input',
       resume_reason: reason,
+      pending_intervention: intervention,
     });
   }
 

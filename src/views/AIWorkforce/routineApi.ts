@@ -2,6 +2,10 @@ import { formatDistanceToNow } from 'date-fns';
 import { LayoutGrid, RefreshCw, Search, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+// Direct import, never the `@/lib/routines` barrel: that reaches the cron tick
+// and server-only code, and this module ships in the client bundle.
+import { describeRoutinePause, isRoutinePausedReason } from '@/lib/routines/pauseReason';
+
 import type { Routine } from './shared';
 
 /**
@@ -26,6 +30,16 @@ export interface ApiRoutine {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  insight_id: string | null;
+  insight_name?: string | null;
+  /** The refreshed insight's current binding (list endpoint only). */
+  insight_agent_key?: string | null;
+  /**
+   * Why the system paused the routine (MB-560); null for a running routine and
+   * for a manual pause.
+   */
+  paused_reason?: string | null;
+  paused_at?: string | null;
 }
 
 const ICON_PALETTE: LucideIcon[] = [Search, RefreshCw, Zap, LayoutGrid];
@@ -94,7 +108,15 @@ function summarizeNextRun(nextFireAt: string | null): string {
  */
 export function apiRoutineToUi(
   row: ApiRoutine,
-  opts: { runCount?: number; currentUserId?: string | null } = {},
+  opts: {
+    runCount?: number;
+    currentUserId?: string | null;
+    /**
+     * The insight's binding, for naming the agent in a paused notice when the
+     * row doesn't carry `insight_agent_key` (the per-insight endpoint).
+     */
+    insightAgentKey?: string | null;
+  } = {},
 ): Routine {
   const summary = summarizeKind(row);
   const createdByLabel =
@@ -102,9 +124,15 @@ export function apiRoutineToUi(
       ? 'You'
       : 'Teammate';
 
+  const pausedReason = isRoutinePausedReason(row.paused_reason) ? row.paused_reason : null;
+  const pausedNotice = describeRoutinePause(
+    pausedReason,
+    row.insight_agent_key ?? opts.insightAgentKey ?? null,
+  );
+
   return {
     id: row.id,
-    name: row.title,
+    name: row.insight_name ?? row.title,
     scheduleSummary: `${summary.short} · ${summarizeLastRun(row.last_fired_at)}`,
     scheduleDetailed: summary.detailed,
     nextRun: summarizeNextRun(row.enabled ? row.next_fire_at : null),
@@ -113,6 +141,12 @@ export function apiRoutineToUi(
     instruction: row.prompt,
     runCount: opts.runCount ?? 0,
     isFiring: false,
+    enabled: row.enabled,
+    pausedReason,
+    pausedNotice,
+    insight: row.insight_id
+      ? { id: row.insight_id, name: row.insight_name ?? row.title }
+      : null,
     icon: iconForId(row.id),
   };
 }

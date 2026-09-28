@@ -131,10 +131,17 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: true,
   },
+  {
+    key: 'INSIGHTS_ENABLED',
+    label: 'Insights',
+    description: 'CoPilot-authored HTML documents — reports, briefs and one-off analyses.',
+    defaultEnabled: true,
+    navItem: true,
+  },
   // ── Not on the navbar: in-page flags & background/sub-features (default OFF) ──
   {
     key: 'INSIGHTS_DASHBOARD_ENABLED',
-    label: 'Insights Dashboard',
+    label: 'Dashboard Analytics',
     description: 'Pipeline funnel analytics, conversion rates, and stale-deal insights on the dashboard.',
     defaultEnabled: false,
     navItem: false,

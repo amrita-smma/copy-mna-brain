@@ -16,12 +16,19 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
-import { getPageContext } from "@/lib/chat/pageContextStore";
+import { getPageContext, useOpenInsightAgent } from "@/lib/chat/pageContextStore";
+import { describeChatAgent, toChatAgentKey } from "@/lib/chat/chatAgentKey";
 import posthog from "posthog-js";
 import { CHAT_ATTACHMENT_UPLOADED, chatAttachmentProperties } from "@/lib/posthog-chat";
-import type { EffortChoice } from "@/lib/agents/analysis";
+import {
+  insightTemplatePart,
+  type InsightTemplateAttachment,
+} from "@/lib/insights/templateAttachment";
+import type { ManualEffortChoice } from "@/lib/agents/analysis";
 
-export type ChatEffortChoice = 'auto' | EffortChoice;
+// Manual tiers only. The Auto-only `deep` tier is decided and stored server
+// side; the client never names it, so it must not be representable here.
+export type ChatEffortChoice = 'auto' | ManualEffortChoice;
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,6 +146,12 @@ export interface CopilotChatSummary {
   title: string | null;
   last_active_at: string;
   created_at: string;
+  effort_tier: string | null;
+  /**
+   * The agent the thread is pinned to (MB-549): a sector agent key or
+   * 'general'; null until the thread's first turn resolves it.
+   */
+  agent_key: string | null;
 }
 
 /**
@@ -192,6 +205,12 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   setChatId: (id: string | null) => void;
   newChat: () => void;
   chats: CopilotChatSummary[];
+  activeChatEffortTier: string | null;
+  /**
+   * The agent the active thread is pinned to, or null when there is no thread
+   * yet or its pin isn't known on the client.
+   */
+  activeChatAgentKey: string | null;
   refreshChats: () => Promise<void>;
   /**
    * Append the next page of chat history. The sidebar calls this when the
@@ -219,12 +238,20 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
    */
   analyzeWithAI: (text: string) => void;
   /**
+   * Put text in the composer ready to edit, without sending it. Unlike
+   * `analyzeWithAI` (which sends immediately), this hands the user a
+   * half-written sentence to finish and submit themselves.
+   */
+  prefillComposer: (text: string) => void;
+  /** The pending prefill, consumed by the composer. */
+  composerDraft: { text: string; nonce: number } | null;
+  /**
    * Send the first message of a chat with a cache pre-check. For a brand-new
    * chat it looks up a prior chat that started with the same question and, on
    * a hit, surfaces an inline cached preview instead of sending. Falls back to
    * a normal send for existing chats or on lookup failure.
    */
-  sendWithCacheCheck: (text: string) => void;
+  sendWithCacheCheck: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
   /** The active cached-chat hit to preview inline, or null. */
   cacheHit: CachedChatHit | null;
   /** Fork the cached turn-1 into a new owned chat and focus the input. */
@@ -245,11 +272,15 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   addFiles: (files: File[]) => void;
   /** Remove an attachment (deletes its S3 object) by its local id. */
   removeAttachment: (localId: string) => void;
-  /** Which effort tier the chat will use. 'auto' defers to the server default (Medium). */
+  /** Which effort tier the chat will use. 'auto' lets the server route the thread. */
   effortChoice: ChatEffortChoice;
   setEffortChoice: (m: ChatEffortChoice) => void;
   /** Holds attachments for optimistically rendered user messages before server reload. */
   optimisticAttachments: Record<string, ChatAttachment[]>;
+  /** The insight template selected via the `/insight-template` chip, if any. */
+  insightTemplate: { id: string; name: string } | null;
+  /** Select (or clear, with `null`) the insight-template chip. */
+  setInsightTemplate: (tpl: { id: string; name: string } | null) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -274,6 +305,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const justMintedChatIdRef = useRef<string | null>(null);
 
   const [chats, setChats] = useState<CopilotChatSummary[]>([]);
+  // The tier the thread is actually running at, for consumers that need to
+  // inherit it (e.g. the workforce handoff card). `chats` is the paged sidebar
+  // list; a chat outside the loaded page yields null and the consumer falls back.
+  const activeChatEffortTier = useMemo(
+    () => chats.find((c) => c.id === chatId)?.effort_tier ?? null,
+    [chats, chatId],
+  );
+  // Agents the server reported via X-Chat-Agent this session, by chat id. The
+  // header can name the thread's agent the moment a turn starts, before the
+  // chat list refresh lands (or when the chat sits outside the loaded page).
+  const [reportedAgentKeys, setReportedAgentKeys] = useState<Record<string, string>>({});
+  const activeChatAgentKey = useMemo(
+    () =>
+      (chatId
+        ? reportedAgentKeys[chatId] ?? chats.find((c) => c.id === chatId)?.agent_key
+        : null) ?? null,
+    [chats, chatId, reportedAgentKeys],
+  );
+  const activeChatAgentKeyRef = useRef<string | null>(null);
+  activeChatAgentKeyRef.current = activeChatAgentKey;
   const [hasMoreChats, setHasMoreChats] = useState(false);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   // The paging callbacks read the current list length to compute the next
@@ -321,6 +372,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const effortChoiceRef = useRef<ChatEffortChoice>('auto');
   effortChoiceRef.current = effortChoice;
 
+  // The template selected via the composer's `/insight-template` popup. Kept
+  // as its own slot (not folded into `composerDraft`) because `composerDraft`
+  // is deliberately never cleared by its consumer effect — a template value
+  // piggybacked on it would silently re-apply itself to a later, unrelated
+  // message after any composer remount (pane collapse/expand, route change).
+  const [insightTemplate, setInsightTemplate] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+
   // Holds attachments associated with message IDs to render them optimistically
   // in the chat bubble before the server reloads the history.
   const [optimisticAttachments, setOptimisticAttachments] = useState<Record<string, ChatAttachment[]>>({});
@@ -361,6 +421,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           // brand-new chat. Set it before the stream finishes so the next
           // user message in the same session sticks to the same thread.
           const newId = res.headers.get('X-Chat-Id');
+          const agentKey = res.headers.get('X-Chat-Agent');
+          if (newId && agentKey) {
+            setReportedAgentKeys((prev) =>
+              prev[newId] === agentKey ? prev : { ...prev, [newId]: agentKey },
+            );
+          }
           if (newId && newId !== chatIdRef.current) {
             chatIdRef.current = newId;
             justMintedChatIdRef.current = newId;
@@ -698,7 +764,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setAttachments([]);
   }, []);
 
-  const sendWithAttachments = useCallback((text: string) => {
+  // An attached insight template is a structured part of the message itself —
+  // the bubble renders it as a card and the server expands it into the model's
+  // turn — never words added to what the user typed.
+  const sendWithAttachments = useCallback((text: string, insightTemplate?: InsightTemplateAttachment) => {
     const readyAttachments = attachmentsRef.current.filter((a) => a.status === 'ready' && a.key);
     let payloadText = text;
     
@@ -717,7 +786,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       pendingAttachmentsRef.current = readyAttachments;
     }
     
-    chatStateRef.current.sendMessage({ id: messageId, text: payloadText });
+    chatStateRef.current.sendMessage({
+      id: messageId,
+      parts: [
+        { type: 'text', text: payloadText },
+        ...(insightTemplate ? [insightTemplatePart(insightTemplate)] : []),
+      ],
+    });
     resetComposerAttachments();
   }, [resetComposerAttachments]);
 
@@ -780,6 +855,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Starting a new chat discards any pending cached-chat preview.
     setCacheHit(null);
     clearAttachments();
+    // A fresh chat shouldn't carry over a stale template selection.
+    setInsightTemplate(null);
     // Pressing "New Chat" is always a prelude to typing one, so hand the caret
     // over. Emptying the transcript swaps the docked composer for the empty
     // state's hero one, so the focus has to survive that remount — which
@@ -792,10 +869,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // already answered; on a hit it opens the warning dialog instead of sending.
   // Any other case (existing chat, empty text, or lookup failure) sends
   // immediately so caching never blocks the normal flow.
-  const sendWithCacheCheck = useCallback(async (text: string) => {
+  const sendWithCacheCheck = useCallback(async (text: string, insightTemplate?: InsightTemplateAttachment) => {
     const trimmed = text.trim();
-    if (chatIdRef.current || !trimmed) {
-      sendWithAttachments(text);
+    // A template-backed ask is never served from the cache: the cached chat's
+    // text alone can't say whether the same template was attached.
+    if (chatIdRef.current || !trimmed || insightTemplate) {
+      sendWithAttachments(text, insightTemplate);
       return;
     }
     try {
@@ -807,7 +886,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         firstAssistantMessage?: string;
       }>('/api/chat/cache-check', {
         method: 'POST',
-        body: JSON.stringify({ message: trimmed }),
+        // The page decides which agent a new chat would run on, and a cached
+        // answer is only offered from that same agent (MB-549).
+        body: JSON.stringify({ message: trimmed, page_context: getPageContext() }),
       });
       if (data?.hit && data.chatId) {
         setCacheHit({
@@ -862,9 +943,52 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     sendWithAttachments(hit.pendingText);
   }, [cacheHit, sendWithAttachments]);
 
+  // Switching insights switches the agent (MB-549, US-10 AC4). When the user
+  // opens an insight whose bound agent differs from the one the current thread
+  // is pinned to, the panel starts a new thread for it; the old thread is
+  // untouched and stays resumable from history on its own agent. Keyed on the
+  // open insight and its binding only — never on the active chat — so resuming
+  // an old thread from history while an insight is open does not bounce the
+  // user out of it. An empty thread needs nothing: its first turn resolves the
+  // agent on the server. A thread whose pin the client doesn't know, or one
+  // that is mid-response, is left alone.
+  const openInsight = useOpenInsightAgent();
+  const openInsightId = openInsight?.insightId ?? null;
+  const openInsightAgentKey = openInsight?.agentKey ?? null;
+  useEffect(() => {
+    if (!openInsightId || !chatIdRef.current) return;
+    const current = chatStateRef.current;
+    if (current.messages.length === 0) return;
+    if (current.status === 'streaming' || current.status === 'submitted') return;
+    const pinned = activeChatAgentKeyRef.current;
+    if (!pinned) return;
+    const target = toChatAgentKey(openInsightAgentKey);
+    if (toChatAgentKey(pinned) === target) return;
+
+    // Not `newChat()`: that also deletes the composer's uploaded files and
+    // grabs focus, neither of which a page navigation should do.
+    chatIdRef.current = null;
+    setChatIdState(null);
+    setMessages([]);
+    setMessagesChatId(null);
+    setCacheHit(null);
+    toast.info(`New chat with ${describeChatAgent(target).label}`, {
+      description: 'This insight uses a different agent. Your previous chat is in history.',
+    });
+  }, [openInsightId, openInsightAgentKey, setMessages]);
+
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
   const [pendingAnalysis, setPendingAnalysis] = useState<string | null>(null);
+
+  // The pending composer prefill, consumed by ChatInputContainer. Nonce increments on
+  // every prefill so identical prompts (e.g. clicking "New insight" twice) still
+  // re-trigger the consumer effect.
+  const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(null);
+
+  const prefillComposer = useCallback((text: string) => {
+    setComposerDraft((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   const analyzeWithAI = useCallback(
     (text: string) => {
@@ -929,6 +1053,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setChatId,
       newChat,
       chats,
+      activeChatEffortTier,
+      activeChatAgentKey,
       refreshChats,
       loadMoreChats,
       hasMoreChats,
@@ -936,6 +1062,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,
+      prefillComposer,
+      composerDraft,
       sendWithCacheCheck,
       cacheHit,
       continueFromCached,
@@ -948,6 +1076,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       effortChoice,
       setEffortChoice,
       optimisticAttachments,
+      insightTemplate,
+      setInsightTemplate,
     }),
     [
       chat,
@@ -955,6 +1085,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setChatId,
       newChat,
       chats,
+      activeChatEffortTier,
+      activeChatAgentKey,
       refreshChats,
       loadMoreChats,
       hasMoreChats,
@@ -962,6 +1094,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,
+      prefillComposer,
+      composerDraft,
       sendWithCacheCheck,
       cacheHit,
       continueFromCached,
@@ -972,6 +1106,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       removeAttachment,
       effortChoice,
       optimisticAttachments,
+      insightTemplate,
     ],
   );
 

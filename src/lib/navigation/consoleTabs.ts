@@ -92,6 +92,14 @@ export const CONSOLE_TABS: ConsoleTab[] = [
       'Every posted ledger row — commitments, capital calls, buys, distributions and transfers — against the position that holds it.',
   },
   {
+    slug: 'insight',
+    path: '/insight',
+    label: 'Insights',
+    group: 'intelligence',
+    flag: 'INSIGHTS_ENABLED',
+    purpose: 'CoPilot-authored HTML documents — reports, briefs and one-off analyses.',
+  },
+  {
     slug: 'smart-files',
     path: '/smart-files',
     label: 'Smart Files',

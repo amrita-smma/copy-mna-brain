@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActiveWorkspaceId } from '@/lib/workspace';
+import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { RoutinesRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
-import { computeNextFireAt, normalizeSchedule } from '@/lib/routines';
-import type { ScheduleKind } from '@/lib/routines';
+import { createContainer } from '@/lib/services/container';
+import { routineErrorResponse } from './errorResponse';
 
 const dailySpec = z.object({ time: z.string() });
 const weeklySpec = z.object({
@@ -23,11 +23,12 @@ const cronSpec = z.object({ expression: z.string() });
 // strip `weekdays`, which then crashes normalizeSchedule downstream.
 const baseFields = {
   title: z.string().min(1).max(200),
-  prompt: z.string().min(1),
+  prompt: z.string(),
   timezone: z.string().default('UTC'),
   agent_name: z.string().optional().nullable(),
   priority: z.number().int().optional(),
   enabled: z.boolean().optional(),
+  insight_id: z.string().uuid().nullable().optional(),
 };
 
 const createSchema = z.discriminatedUnion('schedule_kind', [
@@ -77,40 +78,26 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const normalized = normalizeSchedule(
-      parsed.data.schedule_kind as ScheduleKind,
-      parsed.data.schedule_spec,
-    );
-    const nextFireAt = computeNextFireAt(
-      normalized.cronExpression,
-      parsed.data.timezone,
-      new Date(),
-      {
-        kind: parsed.data.schedule_kind as ScheduleKind,
-        spec: normalized.scheduleSpec,
-      },
-    );
-
+    const workspaceId = await getActiveWorkspaceIdOrThrow();
     const db = createDb();
-    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
-    const row = await repo.create({
-      title: parsed.data.title,
-      prompt: parsed.data.prompt,
-      schedule_kind: parsed.data.schedule_kind,
-      schedule_spec: normalized.scheduleSpec,
-      cron_expression: normalized.cronExpression,
-      timezone: parsed.data.timezone,
-      agent_name: parsed.data.agent_name ?? null,
-      priority: parsed.data.priority ?? 0,
-      enabled: parsed.data.enabled ?? true,
-      next_fire_at: nextFireAt,
-      created_by: userId,
-    });
+    const { routineService } = createContainer(db, workspaceId);
 
+    const row = await routineService.create(
+      {
+        title: parsed.data.title,
+        prompt: parsed.data.prompt,
+        schedule_kind: parsed.data.schedule_kind,
+        schedule_spec: parsed.data.schedule_spec,
+        timezone: parsed.data.timezone,
+        agent_name: parsed.data.agent_name,
+        priority: parsed.data.priority,
+        enabled: parsed.data.enabled,
+        insight_id: parsed.data.insight_id,
+      },
+      userId,
+    );
     return NextResponse.json({ item: row }, { status: 201 });
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to create routine';
-    return NextResponse.json({ error: message }, { status: 400 });
+    return routineErrorResponse(error, '[POST /api/routines]');
   }
 }

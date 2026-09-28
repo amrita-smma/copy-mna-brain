@@ -62,6 +62,11 @@ import {
   FlAllocationRepository,
   FlValuationRepository,
   FlSourceRecordRepository,
+  InsightRepository,
+  InsightVersionRepository,
+  InsightRunDraftRepository,
+  InsightTemplateRepository,
+  AgentCheckpointRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -121,6 +126,11 @@ import { RssFeedService } from './rssFeedService';
 import { DataNavigatorService } from './dataNavigatorService';
 import { BedrockEmbeddingClient } from '@/lib/bedrock';
 import { ConsentService } from './consentService';
+import { InsightService } from './insightService';
+import { InterventionRecipientService } from './interventionRecipientService';
+import { InsightTemplateService } from './insightTemplateService';
+import { RoutineService } from './routineService';
+import { enqueueAgentRun } from '@/lib/workforce/enqueue';
 
 export interface Container {
   companyService: CompanyService;
@@ -177,6 +187,10 @@ export interface Container {
   flValuationService: FlValuationService;
   flBalanceService: FlBalanceService;
   flPortfolioService: FlPortfolioService;
+  insightService: InsightService;
+  interventionRecipientService: InterventionRecipientService;
+  insightTemplateService: InsightTemplateService;
+  routineService: RoutineService;
 }
 
 export function createContainer(db: DbClient, workspaceId: string): Container {
@@ -322,7 +336,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
 
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
-  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db);
+  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db, new AgentCheckpointRepository(db));
   const notificationService = new NotificationService(aiWorkforceQueueRepo);
 
   const copilotChatsRepo = new CopilotChatsRepository(db, workspaceId);
@@ -492,6 +506,41 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flPositionRepo,
     flBalanceService,
   );
+
+  const insightRepo = new InsightRepository(db);
+  const insightVersionRepo = new InsightVersionRepository(db);
+  const insightRunDraftRepo = new InsightRunDraftRepository(db);
+  const insightTemplateRepo = new InsightTemplateRepository(db, workspaceId);
+  const insightService = new InsightService(
+    insightRepo,
+    insightVersionRepo,
+    insightRunDraftRepo,
+    db,
+    undefined, // the shipped sector registry (the default)
+    routinesRepo,
+    insightTemplateRepo,
+  );
+
+  const insightTemplateService = new InsightTemplateService(
+    insightTemplateRepo,
+    insightRepo,
+    workspaceId,
+  );
+
+  const routineService = new RoutineService(
+    routinesRepo,
+    insightRepo,
+    workspaceId,
+    undefined, // the shipped sector registry (the default)
+    (input) => enqueueAgentRun(db, input),
+  );
+
+  const interventionRecipientService = new InterventionRecipientService(
+    insightRepo,
+    routinesRepo,
+    userWorkspaceRepo,
+  );
+
   return {
     companyService,
     companyGraphService,
@@ -547,5 +596,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flValuationService,
     flBalanceService,
     flPortfolioService,
+    insightService,
+    interventionRecipientService,
+    insightTemplateService,
+    routineService,
   };
 }

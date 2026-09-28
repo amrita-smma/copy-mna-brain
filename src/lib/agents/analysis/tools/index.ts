@@ -10,7 +10,7 @@ import { getCompanyDetails } from "./get_company_details";
 import { analyzeStalledDeals } from "./analyze_stalled_deals";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
-import { webSearch } from "./web_search";
+import { SERVER_TOOLS } from "./server_tools";
 import { valyuSearch } from "./valyu_search";
 import { alphasenseSearch } from "./alphasense_search";
 import { queryMeetingNotes } from "./query_files";
@@ -18,6 +18,7 @@ import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { promoteToL1 } from "./promote_to_l1";
+import { askOwner } from "./ask_owner";
 import { promoteToL0 } from "./promote_to_l0";
 import { dropCompany } from "./drop_company";
 import { addCompany } from "./add_company";
@@ -56,6 +57,15 @@ import { getMarketSignals } from "./get_market_signals";
 import { navigatePage } from "./navigate_page";
 import { readPageContext } from "./read_page_context";
 import { searchNews } from "./search_news";
+import { getInsight } from "./get_insight";
+import { getInsightTemplate } from "./get_insight_template";
+import { proposeInsightCreate } from "./propose_insight_create";
+import { proposeInsightEdit } from "./propose_insight_edit";
+import { proposeInsightRefresh } from "./propose_insight_refresh";
+import { proposeReportPlan } from "./propose_report_plan";
+import { createInsight } from "./create_insight";
+import { editInsightSection } from "./edit_insight_section";
+import { replaceInsightDocument } from "./replace_insight_document";
 
 export {
   getDataSchema,
@@ -65,7 +75,7 @@ export {
   analyzeStalledDeals,
   lookupCrm,
   crmInsights,
-  webSearch,
+  SERVER_TOOLS,
   valyuSearch,
   alphasenseSearch,
   queryMeetingNotes,
@@ -73,6 +83,7 @@ export {
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   promoteToL1,
+  askOwner,
   promoteToL0,
   addCompany,
   updateCompanyRelationship,
@@ -110,6 +121,15 @@ export {
   navigatePage,
   readPageContext,
   searchNews,
+  getInsight,
+  getInsightTemplate,
+  proposeInsightCreate,
+  proposeInsightEdit,
+  proposeInsightRefresh,
+  proposeReportPlan,
+  createInsight,
+  editInsightSection,
+  replaceInsightDocument,
 };
 
 export {
@@ -118,6 +138,8 @@ export {
   companyFxAdjustmentsSchema,
   companyScreeningDerivedSchema,
 } from "./schemas";
+
+export type { AnthropicServerTool } from "./server_tools";
 
 /**
  * Base tools — safe for any agent context, including the workforce itself.
@@ -136,13 +158,14 @@ export const tools = [
   analyzeStalledDeals,
   lookupCrm,
   crmInsights,
-  webSearch,
+  ...SERVER_TOOLS,
   searchNews,
   alphasenseSearch,
   queryMeetingNotes,
   readRelationshipGraph,
   getTaskProgress,
   lookupUser,
+  getInsightTemplate,
 ];
 
 /**
@@ -164,6 +187,11 @@ export const chatOnlyTools = [
   updateCompanyCardSection,
   navigatePage,
   readPageContext,
+  getInsight,
+  proposeInsightCreate,
+  proposeInsightEdit,
+  proposeInsightRefresh,
+  proposeReportPlan,
 ];
 
 /**
@@ -200,6 +228,11 @@ export const workforceOnlyTools = [
   flagInsight,
   sendEmailTool,
   dropCompany,
+  createInsight,
+  editInsightSection,
+  getInsight,
+  replaceInsightDocument,
+  askOwner,
 ];
 
 /**
@@ -220,7 +253,7 @@ export const investmentTools = [
   queryInvestors,
   queryFundSources,
   queryLedgerEntries,
-  webSearch,
+  ...SERVER_TOOLS,
   valyuSearch,
   alphasenseSearch,
   queryMeetingNotes,
@@ -231,6 +264,12 @@ export const investmentTools = [
   proposeWorkforceHandoff,
   navigatePage,
   readPageContext,
+  getInsight,
+  getInsightTemplate,
+  proposeInsightCreate,
+  proposeInsightEdit,
+  proposeInsightRefresh,
+  proposeReportPlan,
 ];
 
 /**
@@ -283,7 +322,7 @@ export const vcTools = [
   queryMeetingNotes,
   lookupCrm,
   crmInsights,
-  webSearch,
+  ...SERVER_TOOLS,
   valyuSearch,
   alphasenseSearch,
   valyuExtractContent,
@@ -298,6 +337,12 @@ export const vcTools = [
   proposeWorkforceHandoff,
   navigatePage,
   readPageContext,
+  getInsight,
+  getInsightTemplate,
+  proposeInsightCreate,
+  proposeInsightEdit,
+  proposeInsightRefresh,
+  proposeReportPlan,
 ];
 
 /**
@@ -424,6 +469,31 @@ export function getToolDescriptions(): string {
       name: "search_news",
       description:
         "Search the ingested market-news lake (funding, M&A, market assessments, expert insights, industry reports) for recent real-world events about a company, sector or deal",
+    },
+    {
+      name: "get_insight",
+      description:
+        "Read an insight's current HTML document; call before propose_insight_edit",
+    },
+    {
+      name: "get_insight_template",
+      description:
+        "Read an insight template's HTML by id or name — for a template named in plain text or a template_id from a handoff; a template attached to the message is already in it",
+    },
+    {
+      name: "propose_insight_create",
+      description:
+        "Propose a NEW insight from a description, via an approval card; approving creates it and opens it",
+    },
+    {
+      name: "propose_insight_edit",
+      description:
+        "Propose editing an existing insight (complete updated HTML document) via an approval card",
+    },
+    {
+      name: "propose_report_plan",
+      description:
+        "Propose a methodology and clarifying questions for a report before researching or building it, via an approval card",
     },
   ];
 

@@ -23,10 +23,28 @@ import {
   useAttachmentPaste,
 } from '@/components/chat/ChatComposerAttachments';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
+import { ActiveAgentLabel } from '@/components/chat/ActiveAgentLabel';
+import { InsightContextButton } from '@/components/chat/InsightContextButton';
 import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageBubble';
 import { CachedChatPreview } from '@/components/chat/CachedChatPreview';
 import { ChatSuggestions } from '@/components/chat/ChatSuggestions';
+import { InsightTemplatePopup } from '@/components/chat/InsightTemplatePopup';
+import { InsightTemplateChip } from '@/components/chat/InsightTemplateChip';
 import { OPTIONS } from '@/components/chat/EffortSelector';
+import {
+  stripSlashCommand,
+  resolveSlashCommandState,
+  filterSlashCommands,
+  completeSlashCommand,
+  type SlashCommandDefinition,
+} from '@/lib/chat/slashCommand';
+import {
+  INSIGHT_TEMPLATE_TRIGGER,
+  INSIGHT_TEMPLATE_COMMAND,
+  filterInsightTemplates,
+  sortTemplatesByRecency,
+} from '@/lib/insights/insightSlashCommand';
+import { listInsightTemplates, type InsightTemplateSummary } from '@/lib/api/insightTemplates';
 import {
   Select,
   SelectContent,
@@ -67,6 +85,35 @@ function ScrollContent({ children }: { children: React.ReactNode }) {
 // affordance appears next to the composer.
 const ENHANCE_IDLE_MS = 1250;
 
+// Per-browser memory of the last insight template used, so the
+// `/insight-template` popup can surface it first. Best-effort — private
+// browsing / storage-disabled environments just fall back to API order.
+const LAST_INSIGHT_TEMPLATE_KEY = 'mna-brain:lastInsightTemplateId';
+
+function readLastInsightTemplateId(): string | null {
+  try {
+    return typeof window !== 'undefined'
+      ? window.localStorage.getItem(LAST_INSIGHT_TEMPLATE_KEY)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastInsightTemplateId(id: string) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LAST_INSIGHT_TEMPLATE_KEY, id);
+    }
+  } catch {
+    // Ignore — recency sort just won't persist this session.
+  }
+}
+
+// The composer's slash-command palette. A second command later just adds its
+// own entry here (and its own content branch in `InsightTemplatePopup`).
+const SLASH_COMMANDS: SlashCommandDefinition[] = [INSIGHT_TEMPLATE_COMMAND];
+
 /**
  * Where the composer is sitting. `docked` is the classic bottom-of-transcript
  * bar; `hero` is the free-standing box under the greeting on an empty chat,
@@ -88,10 +135,81 @@ function ChatInput({
   // Set when an enhancement succeeds so we can re-focus the textarea only
   // after it re-enables (focusing while still disabled is a no-op).
   const refocusAfterEnhanceRef = useRef(false);
-  const { sendWithCacheCheck, status, stop, chatInputRef, attachments } = useChatContext();
+  const {
+    sendWithCacheCheck,
+    status,
+    stop,
+    chatInputRef,
+    attachments,
+    composerDraft,
+    focusComposer,
+    insightTemplate,
+    setInsightTemplate,
+  } = useChatContext();
   const { onPaste } = useAttachmentPaste();
   const isBusy = status === 'streaming' || status === 'submitted';
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
+
+  // When an external trigger (e.g. "New insight") stages a draft, prefill the
+  // input and put the caret at the end. Keyed on nonce so identical prompts
+  // can be triggered consecutively without no-oping; the draft is
+  // deliberately not cleared here to prevent React Strict Mode's
+  // double-invoke from wiping it.
+  const draftNonce = composerDraft?.nonce;
+  const draftText = composerDraft?.text;
+  useEffect(() => {
+    if (draftNonce == null || draftText == null) return;
+    setInput(draftText);
+    focusComposer();
+  }, [draftNonce, draftText, focusComposer]);
+
+  // Slash-command palette + per-command content: detection, template
+  // fetch/cache, and keyboard-driven highlight. All state lives here so the
+  // popup and the keyboard handler below share one source of truth.
+  const [insightTemplates, setInsightTemplates] = useState<InsightTemplateSummary[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesFetched, setTemplatesFetched] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [popupDismissed, setPopupDismissed] = useState(false);
+
+  const slashState = resolveSlashCommandState(input, SLASH_COMMANDS);
+  const popupOpen = slashState.stage !== 'closed' && !insightTemplate && !popupDismissed;
+  const isInsightTemplateCommand =
+    slashState.stage === 'command' && slashState.command.trigger === INSIGHT_TEMPLATE_TRIGGER;
+  const activeQuery = slashState.stage === 'closed' ? '' : slashState.query;
+
+  useEffect(() => {
+    setPopupDismissed(false);
+  }, [slashState.stage]);
+
+  useEffect(() => {
+    if (!isInsightTemplateCommand || templatesFetched) return;
+    setTemplatesLoading(true);
+    listInsightTemplates()
+      .then((data) => {
+        setInsightTemplates(data);
+        setTemplatesFetched(true);
+      })
+      .catch((err: unknown) => {
+        console.error('[copilot] failed to load insight templates:', err);
+      })
+      .finally(() => setTemplatesLoading(false));
+  }, [isInsightTemplateCommand, templatesFetched]);
+
+  const paletteCommands =
+    slashState.stage === 'palette' ? filterSlashCommands(SLASH_COMMANDS, slashState.query) : [];
+
+  const filteredTemplates = (() => {
+    if (!isInsightTemplateCommand) return [];
+    const byQuery = filterInsightTemplates(insightTemplates, activeQuery);
+    return activeQuery.trim()
+      ? byQuery
+      : sortTemplatesByRecency(byQuery, readLastInsightTemplateId());
+  })();
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [slashState.stage, activeQuery]);
 
   const clearIdleTimer = useCallback(() => {
     if (idleTimerRef.current) {
@@ -99,6 +217,35 @@ function ChatInput({
       idleTimerRef.current = null;
     }
   }, []);
+
+  const handleSelectTemplate = useCallback(
+    (tpl: InsightTemplateSummary) => {
+      setInsightTemplate({ id: tpl.id, name: tpl.name });
+      writeLastInsightTemplateId(tpl.id);
+      setInput((prev) => stripSlashCommand(prev, INSIGHT_TEMPLATE_TRIGGER));
+      setPopupDismissed(false);
+      // The slash-command text (and any query typed to filter it) is gone
+      // from the box now, so any pending/shown "… enhance" affordance for
+      // that now-vanished text must go with it — otherwise it renders on top
+      // of the fresh placeholder.
+      clearIdleTimer();
+      setShowEnhance(false);
+      requestAnimationFrame(() => chatInputRef.current?.focus());
+    },
+    [setInsightTemplate, chatInputRef, clearIdleTimer],
+  );
+
+  // A palette row was chosen: complete the partial "/…" text to that
+  // command's full trigger and let it flow straight into that command's own
+  // content (resolved fresh on the next render from the completed input).
+  const handleSelectCommand = useCallback(
+    (command: SlashCommandDefinition) => {
+      setInput((prev) => completeSlashCommand(prev, command.trigger));
+      setHighlightedIndex(0);
+      requestAnimationFrame(() => chatInputRef.current?.focus());
+    },
+    [chatInputRef],
+  );
 
   // Restart the idle countdown on every keystroke: hide the affordance now, and
   // re-show it only after ENHANCE_IDLE_MS of no typing — provided there's text
@@ -148,8 +295,10 @@ function ChatInput({
     if (!input.trim() && !hasReadyAttachment) return;
     // Attachment-only send still needs a real user turn — fall back to a
     // default prompt so the model has an instruction to act on.
-    sendWithCacheCheck(input.trim() ? input : 'Please review the attached file(s).');
+    const rawText = input.trim() ? input : 'Please review the attached file(s).';
+    sendWithCacheCheck(rawText, insightTemplate ?? undefined);
     setInput('');
+    setInsightTemplate(null);
     clearIdleTimer();
     setShowEnhance(false);
   };
@@ -226,6 +375,27 @@ function ChatInput({
           onPaste={onPaste}
         >
           <AttachmentChips className="mb-2" />
+          {insightTemplate && (
+            <div className="mb-2 flex">
+              <InsightTemplateChip
+                name={insightTemplate.name}
+                onRemove={() => setInsightTemplate(null)}
+              />
+            </div>
+          )}
+          <InsightTemplatePopup
+            open={popupOpen}
+            stage={slashState.stage === 'palette' ? 'palette' : 'command'}
+            paletteCommands={paletteCommands}
+            loading={templatesLoading}
+            hasAnyTemplates={insightTemplates.length > 0}
+            filtered={filteredTemplates}
+            highlightedIndex={highlightedIndex}
+            onHighlightChange={setHighlightedIndex}
+            onSelectCommand={handleSelectCommand}
+            onSelectTemplate={handleSelectTemplate}
+            onDismiss={() => setPopupDismissed(true)}
+          >
           <div
             className={cn(
               'relative flex items-end gap-2 rounded-2xl border bg-background p-2',
@@ -251,13 +421,50 @@ function ChatInput({
                 onSubmit={handleSubmit}
                 onFocus={handleFocus}
                 onKeyDown={(e) => {
+                  // While the insight-template popup is open, hijack
+                  // navigation/selection keys instead of the textarea's own
+                  // newline/submit behavior (ChatTextarea runs this handler
+                  // before its own Enter-to-submit check and honors
+                  // preventDefault()).
+                  if (popupOpen && !e.nativeEvent.isComposing) {
+                    const activeList =
+                      slashState.stage === 'palette' ? paletteCommands : filteredTemplates;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setHighlightedIndex((i) => Math.min(i + 1, activeList.length - 1));
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setHighlightedIndex((i) => Math.max(i - 1, 0));
+                      return;
+                    }
+                    if ((e.key === 'Enter' || e.key === 'Tab') && activeList[highlightedIndex]) {
+                      e.preventDefault();
+                      if (slashState.stage === 'palette') {
+                        handleSelectCommand(paletteCommands[highlightedIndex]);
+                      } else {
+                        handleSelectTemplate(filteredTemplates[highlightedIndex]);
+                      }
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setPopupDismissed(true);
+                      return;
+                    }
+                  }
                   // Shift+Tab enhances the draft instead of moving focus.
                   if (e.key === 'Tab' && e.shiftKey && input.trim() && !isEnhancing && !isBusy) {
                     e.preventDefault();
                     handleEnhance('shortcut');
                   }
                 }}
-                placeholder="Ask anything..."
+                placeholder={
+                  insightTemplate
+                    ? `Add instructions for the "${insightTemplate.name}" insight…`
+                    : 'Ask anything...'
+                }
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
@@ -310,6 +517,7 @@ function ChatInput({
               </Button>
             )}
           </div>
+          </InsightTemplatePopup>
         </form>
       </motion.div>
     </div>
@@ -520,7 +728,7 @@ export function AICopilotPane({
         )}
         layout
       >
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {showHistoryButton && (
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
@@ -575,9 +783,13 @@ export function AICopilotPane({
               >
                 <Sparkles className="h-4 w-4 text-blue-500" />
               </motion.div>
-              <span className="text-sm font-medium">AI CoPilot</span>
+              <span className="shrink-0 text-sm font-medium">AI CoPilot</span>
             </>
           )}
+          {/* Shown docked and full-screen alike: which agent this chat runs on. */}
+          <ActiveAgentLabel className="max-w-[16rem]" />
+          {/* While an insight is open: the outline each turn carries (MB-550). */}
+          <InsightContextButton />
         </div>
         <div className="flex items-center gap-1">
           <Select value={effortChoice} onValueChange={(v) => setEffortChoice(v as typeof effortChoice)}>

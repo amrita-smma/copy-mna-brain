@@ -32,7 +32,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
   class MockAiWorkforceQueueRepository {
     appendDecision = appendDecisionMock;
-    markResumeReady = markResumeReadyMock;
+    markResumeReadyFromWaiting = markResumeReadyMock;
   }
   return {
     ...actual,
@@ -173,7 +173,7 @@ describe('POST /api/workforce-queue/[id]/decision — approve flow', () => {
     });
     findByIdMock.mockReset();
     appendDecisionMock.mockReset().mockResolvedValue({});
-    markResumeReadyMock.mockReset().mockResolvedValue({});
+    markResumeReadyMock.mockReset().mockResolvedValue({ id: 'row-1' });
     dispatcherTickMock.mockReset().mockResolvedValue({ outcome: 'empty' });
     afterMock.mockClear();
   });
@@ -234,7 +234,7 @@ describe('POST /api/workforce-queue/[id]/decision — reject flow', () => {
     });
     findByIdMock.mockReset();
     appendDecisionMock.mockReset().mockResolvedValue({});
-    markResumeReadyMock.mockReset().mockResolvedValue({});
+    markResumeReadyMock.mockReset().mockResolvedValue({ id: 'row-1' });
     dispatcherTickMock.mockReset().mockResolvedValue({ outcome: 'empty' });
     afterMock.mockClear();
   });
@@ -285,5 +285,156 @@ describe('POST /api/workforce-queue/[id]/decision — reject flow', () => {
 
     const auditEntry = appendDecisionMock.mock.calls[0][1];
     expect(auditEntry).not.toHaveProperty('rejection_message');
+  });
+});
+
+describe('POST /api/workforce-queue/[id]/decision — ask_owner (MB-561)', () => {
+  const OWNER_ID = 'owner-1';
+  const ASK_ARGS = {
+    question: 'The Q3 report is gone. Use Q2?',
+    recommendation: 'Use Q2 and flag the gap',
+    rationale: 'Q2 is the latest audited set',
+  };
+
+  // A scheduled refresh: no triggerer; the insight owner was asked.
+  function askRow(overrides: Record<string, unknown> = {}) {
+    return makeRow({
+      triggered_by_user_id: null,
+      pending_intervention: {
+        tool_name: 'ask_owner',
+        tool_args: ASK_ARGS,
+        asked_user_id: OWNER_ID,
+        asked_at: '2026-09-24T00:00:00.000Z',
+      },
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    authMock.mockReset();
+    createDbMock.mockReset().mockReturnValue({});
+    createContainerMock.mockReset().mockReturnValue({
+      aiWorkforceService: { findById: findByIdMock },
+    });
+    findByIdMock.mockReset();
+    appendDecisionMock.mockReset().mockResolvedValue({});
+    markResumeReadyMock.mockReset().mockResolvedValue({ id: 'row-1' });
+    dispatcherTickMock.mockReset().mockResolvedValue({ outcome: 'empty' });
+    afterMock.mockClear();
+  });
+
+  async function decide(body: Record<string, unknown>, userId = OWNER_ID) {
+    authMock.mockResolvedValueOnce({ user: { id: userId } });
+    return POST(
+      makeRequest({ tool_call_id: 'call-ask', tool_name: 'ask_owner', ...body }),
+      makeParams(ROW_ID),
+    );
+  }
+
+  function resumePayload() {
+    return JSON.parse(markResumeReadyMock.mock.calls[0][2] as string);
+  }
+
+  it('lets the asked owner accept the recommendation → edit carrying it as the answer', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow());
+
+    const res = await decide({ decision: 'approve' });
+
+    expect(res.status).toBe(200);
+    expect(resumePayload()).toEqual({
+      decisions: [
+        {
+          type: 'edit',
+          editedAction: {
+            name: 'ask_owner',
+            args: {
+              ...ASK_ARGS,
+              owner_decision: 'accepted',
+              owner_answer: ASK_ARGS.recommendation,
+            },
+          },
+        },
+      ],
+    });
+    expect(appendDecisionMock).toHaveBeenCalledWith(
+      ROW_ID,
+      expect.objectContaining({
+        tool_name: 'ask_owner',
+        decision: 'approve',
+        decided_by_user_id: OWNER_ID,
+        question: ASK_ARGS.question,
+        answer: ASK_ARGS.recommendation,
+      }),
+    );
+  });
+
+  it("answer → edit carrying the owner's text, audited as an edit", async () => {
+    findByIdMock.mockResolvedValueOnce(askRow());
+
+    const res = await decide({ decision: 'answer', answer: 'Drop the section' });
+
+    expect(res.status).toBe(200);
+    expect(appendDecisionMock).toHaveBeenCalledWith(
+      ROW_ID,
+      expect.objectContaining({ decision: 'edit', answer: 'Drop the section' }),
+    );
+    expect(markResumeReadyMock.mock.calls[0][1]).toBe('human answer');
+  });
+
+  it('answer without text → 400', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow());
+
+    const res = await decide({ decision: 'answer', answer: '  ' });
+
+    expect(res.status).toBe(400);
+    expect(markResumeReadyMock).not.toHaveBeenCalled();
+  });
+
+  it('lets the task creator decide too', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow({ triggered_by_user_id: USER_ID }));
+
+    const res = await decide({ decision: 'approve' }, USER_ID);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses anyone who is neither the creator nor the person asked', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow());
+
+    const res = await decide({ decision: 'approve' }, 'someone-else');
+
+    expect(res.status).toBe(403);
+    expect(appendDecisionMock).not.toHaveBeenCalled();
+  });
+
+  it('builds the owner answer from stored args, ignoring anything else in the body', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow());
+
+    await decide({ decision: 'approve', edited_args: { owner_answer: 'forged' } });
+
+    expect(resumePayload().decisions[0].editedAction.args.owner_answer).toBe(
+      ASK_ARGS.recommendation,
+    );
+  });
+
+  it('refuses an answer claimed for ask_owner when the run is paused on promote_to_l1', async () => {
+    findByIdMock.mockResolvedValueOnce(
+      askRow({ pending_intervention: { tool_name: 'promote_to_l1', tool_args: {}, asked_user_id: OWNER_ID } }),
+    );
+
+    const res = await decide({ decision: 'answer', answer: 'yes' });
+
+    expect(res.status).toBe(409);
+    expect(markResumeReadyMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 without auditing when another decision already resumed the run', async () => {
+    findByIdMock.mockResolvedValueOnce(askRow({ triggered_by_user_id: USER_ID }));
+    markResumeReadyMock.mockResolvedValueOnce(null);
+
+    const res = await decide({ decision: 'approve' });
+
+    expect(res.status).toBe(409);
+    expect(appendDecisionMock).not.toHaveBeenCalled();
   });
 });

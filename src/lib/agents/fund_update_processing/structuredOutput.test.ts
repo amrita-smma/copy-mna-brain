@@ -1,8 +1,33 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+
+const { chatAnthropicInstances } = vi.hoisted(() => ({
+  chatAnthropicInstances: [] as Array<{ opts: Record<string, unknown> }>,
+}));
+
+vi.mock('@langchain/anthropic', () => ({
+  ChatAnthropic: class {
+    opts: Record<string, unknown>;
+    constructor(opts: Record<string, unknown>) {
+      this.opts = opts;
+      chatAnthropicInstances.push(this);
+    }
+    withStructuredOutput = () => ({
+      invoke: async () => ({ name: 'Alpha Fund', count: 42, tags: ['growth', 'tech'] }),
+    });
+  },
+}));
+
 import { invokeStructuredOutput, StructuredOutputError } from './structuredOutput';
 
 describe('invokeStructuredOutput', () => {
+  beforeEach(() => {
+    chatAnthropicInstances.length = 0;
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-api-key');
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
   const TestSchema = z.object({
     name: z.string(),
     count: z.number(),
@@ -94,5 +119,18 @@ describe('invokeStructuredOutput', () => {
     ).rejects.toThrow(StructuredOutputError);
 
     expect(mockStructuredLlm.invoke).toHaveBeenCalledTimes(2); // 1 initial + 1 retry
+  });
+
+  it('omits outputConfig for Haiku models, which reject output_config.effort', async () => {
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x', model: 'claude-haiku-4-5-20251001' });
+
+    expect(chatAnthropicInstances).toHaveLength(1);
+    expect(chatAnthropicInstances[0].opts).not.toHaveProperty('outputConfig');
+  });
+
+  it('sends outputConfig for Sonnet models, which support effort', async () => {
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x' });
+
+    expect(chatAnthropicInstances[0].opts).toMatchObject({ model: 'claude-sonnet-5', outputConfig: { effort: 'low' } });
   });
 });

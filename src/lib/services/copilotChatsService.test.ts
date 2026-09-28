@@ -19,6 +19,7 @@ describe('CopilotChatsService', () => {
     setTitle: ReturnType<typeof vi.fn>;
     recordFirstMessage: ReturnType<typeof vi.fn>;
     findLatestFirstMessageMatch: ReturnType<typeof vi.fn>;
+    pinAgentKey: ReturnType<typeof vi.fn>;
   };
   let service: CopilotChatsService;
 
@@ -31,6 +32,7 @@ describe('CopilotChatsService', () => {
       setTitle: vi.fn(),
       recordFirstMessage: vi.fn(),
       findLatestFirstMessageMatch: vi.fn(),
+      pinAgentKey: vi.fn(),
     };
     service = new CopilotChatsService(repo as unknown as CopilotChatsRepository);
   });
@@ -90,7 +92,7 @@ describe('CopilotChatsService', () => {
     repo.create.mockResolvedValueOnce({ id: 'c1', user_id: 'u1' });
     const result = await service.create('u1');
     expect(result).toEqual({ id: 'c1', user_id: 'u1' });
-    expect(repo.create).toHaveBeenCalledWith('u1');
+    expect(repo.create).toHaveBeenCalledWith('u1', undefined);
   });
 
   describe('assertOwnedBy', () => {
@@ -172,19 +174,68 @@ describe('CopilotChatsService', () => {
       const row = { id: 'c9' };
       repo.findLatestFirstMessageMatch.mockResolvedValueOnce(row);
 
-      const result = await service.findCachedFirstTurn(' Hello World ');
+      const result = await service.findCachedFirstTurn(' Hello World ', 'general');
 
       expect(repo.findLatestFirstMessageMatch).toHaveBeenCalledWith(
         hashFirstMessage('hello world'),
+        'general',
       );
       expect(result).toEqual(row);
     });
 
     it('returns null without hitting the repo for a blank message', async () => {
-      const result = await service.findCachedFirstTurn('  ');
+      const result = await service.findCachedFirstTurn('  ', 'general');
 
       expect(result).toBeNull();
       expect(repo.findLatestFirstMessageMatch).not.toHaveBeenCalled();
+    });
+  });
+
+  it('pinAgent returns the key the repository reports, which is the earlier pin when a second pin loses', async () => {
+    repo.pinAgentKey.mockResolvedValueOnce('general');
+
+    await expect(service.pinAgent('c1', 'bangun')).resolves.toBe('general');
+    expect(repo.pinAgentKey).toHaveBeenCalledWith('c1', 'bangun');
+  });
+
+  it('create passes a pre-pinned agent key through to the repository', async () => {
+    repo.create.mockResolvedValueOnce({ id: 'c2', agent_key: 'dikti' });
+
+    await service.create('u1', 'dikti');
+
+    expect(repo.create).toHaveBeenCalledWith('u1', 'dikti');
+  });
+
+  it('findInWorkspace reads the chat without an owner check', async () => {
+    repo.getById.mockResolvedValueOnce({ id: 'c3', user_id: 'someone-else' });
+
+    await expect(service.findInWorkspace('c3')).resolves.toEqual({ id: 'c3', user_id: 'someone-else' });
+  });
+
+  describe('CopilotChatsService.agentStampFor', () => {
+    const CHAT_UUID = '11111111-2222-4333-8444-555555555555';
+
+    it("stamps the thread's pinned sector agent", async () => {
+      repo.getById.mockResolvedValueOnce({ id: 'c1', user_id: 'u1', agent_key: 'bangun' });
+
+      const stamp = await service.agentStampFor(CHAT_UUID, 'u1');
+
+      expect(stamp).toEqual({ agentKey: 'bangun' });
+    });
+
+    it.each([
+      ['a general-CoPilot thread', { id: 'c1', user_id: 'u1', agent_key: 'general' }],
+      ["another user's chat, instead of throwing", { id: 'c1', user_id: 'u2', agent_key: 'bangun' }],
+      ['a chat not in this workspace', null],
+    ])('returns null for %s', async (_label, row) => {
+      repo.getById.mockResolvedValueOnce(row);
+
+      await expect(service.agentStampFor(CHAT_UUID, 'u1')).resolves.toBeNull();
+    });
+
+    it('returns null for a malformed chat id without querying', async () => {
+      await expect(service.agentStampFor('not-a-uuid', 'u1')).resolves.toBeNull();
+      expect(repo.getById).not.toHaveBeenCalled();
     });
   });
 });

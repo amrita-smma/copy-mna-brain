@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 import type { HumanDecision } from "@/lib/db/schema";
-import { buildTrace, type TraceActor } from "./traceMapper";
+import type { CheckpointMessageWrite } from "@/lib/repositories";
+import { buildTrace, matchMessageTimestamps, type TraceActor } from "./traceMapper";
 
 const ACTOR: TraceActor = {
   id: "u-1",
@@ -13,11 +14,15 @@ const ACTOR: TraceActor = {
 
 const STARTED = "2026-05-15T10:00:00Z";
 
-function ai(content: string, toolCalls: Array<{ id: string; name: string; args: unknown }> = []) {
-  return new AIMessage({ content, tool_calls: toolCalls });
+function ai(content: string | unknown[], toolCalls: Array<{ id: string; name: string; args: unknown }> = []) {
+  return new AIMessage({ content: content as string, tool_calls: toolCalls });
 }
 function tool(content: string, toolCallId: string) {
   return new ToolMessage({ content, tool_call_id: toolCallId });
+}
+type TraceInput = Parameters<typeof buildTrace>[0];
+function trace(messages: TraceInput["messages"], extra: Partial<TraceInput> = {}) {
+  return buildTrace({ messages, pendingWrites: [], humanDecisions: [], actor: ACTOR, startedAt: STARTED, ...extra });
 }
 
 describe("buildTrace", () => {
@@ -303,6 +308,89 @@ describe("buildTrace", () => {
     expect(call?.running).toBeUndefined();
     expect(call?.status).toBe("cancelled");
     expect(call?.tone).toBe("default");
+  });
+
+  describe("ask_owner interventions (MB-561)", () => {
+    const ASK_ARGS = {
+      question: "The Q3 report is gone. Use Q2?",
+      recommendation: "Use Q2 and flag the gap",
+      rationale: "Q2 is the latest audited set",
+      options: ["Use Q2", "Drop the section"],
+    };
+    const OWNER: TraceActor = {
+      id: "owner-1",
+      name: "Insight Owner",
+      initials: "IO",
+      avatarTone: "rose",
+    };
+
+    it("renders the question, recommendation, rationale, options and who is asked", () => {
+      const pendingWrites: CheckpointPendingWrite[] = [
+        [
+          "task-1",
+          "__interrupt__",
+          {
+            value: {
+              actionRequests: [
+                { name: "ask_owner", args: ASK_ARGS, description: ASK_ARGS.question },
+              ],
+            },
+          },
+        ],
+      ];
+      const steps = trace([ai("", [{ id: "c-ask", name: "ask_owner", args: ASK_ARGS }])], {
+        pendingWrites,
+        waitingFor: "Insight Owner",
+      });
+      expect(steps[0].status).toBe("intervention-waiting");
+      expect(steps[0].intervention).toEqual({
+        state: "waiting",
+        question: ASK_ARGS.question,
+        ask: {
+          recommendation: ASK_ARGS.recommendation,
+          rationale: ASK_ARGS.rationale,
+          options: ASK_ARGS.options,
+        },
+        waitingFor: "Insight Owner",
+        tool_call_id: "c-ask",
+        tool_name: "ask_owner",
+      });
+    });
+
+    it.each([
+      [
+        { decision: "approve" as const, answer: ASK_ARGS.recommendation },
+        "approved",
+        `Accepted the recommendation: ${ASK_ARGS.recommendation}`,
+      ],
+      [{ decision: "edit" as const, answer: "Drop the section" }, "answered", "Answered: Drop the section"],
+      [
+        { decision: "reject" as const, rejection_message: "wait for Q3" },
+        "rejected",
+        "Declined: wait for Q3",
+      ],
+    ])("labels a resolved %o with the question and the person who decided", (fields, label, text) => {
+      const decisions: HumanDecision[] = [
+        {
+          tool_call_id: "c-ask",
+          tool_name: "ask_owner",
+          decided_at: "2026-05-15T10:01:30Z",
+          decided_by_user_id: "owner-1",
+          question: ASK_ARGS.question,
+          ...fields,
+        },
+      ];
+      const steps = trace(
+        [ai("", [{ id: "c-ask", name: "ask_owner", args: ASK_ARGS }]), tool("The owner answered", "c-ask")],
+        { humanDecisions: decisions, deciders: { "owner-1": OWNER } },
+      );
+      expect(steps[0].status).toBe("intervention-resolved");
+      expect(steps[0].intervention).toMatchObject({
+        state: "resolved",
+        question: ASK_ARGS.question,
+        resolution: { actor: "Insight Owner", decision: label, text },
+      });
+    });
   });
 
   it("attaches a resolved approve decision to the matching AIMessage", () => {
@@ -686,6 +774,41 @@ describe("buildTrace", () => {
       expect(steps[0].toolCalls?.[0].tone).toBe("fail");
     });
 
+    it.each([
+      ["create_insight", "Created insight **Sector Brief** — [open it](/insight/123)", "created", "pass"],
+      ["create_insight", "Rejection: An insight name is required.", "refused", "fail"],
+      [
+        "edit_insight_section",
+        'Updated section "summary" of insight **Sector Brief** (version 2) — [open it](/insight/123)',
+        "updated",
+        "pass",
+      ],
+      ["edit_insight_section", 'Rejection: Section "missing" not found in document.', "refused", "fail"],
+      [
+        "replace_insight_document",
+        "Replaced the document of insight **Sector Brief** (version 2) — [open it](/insight/123)",
+        "updated",
+        "pass",
+      ],
+      [
+        "replace_insight_document",
+        "Replaced the document of insight **Sector Brief** in this refresh run's draft (based on version 2). Nothing is published until the run completes.",
+        "updated",
+        "pass",
+      ],
+      [
+        "replace_insight_document",
+        "Rejection: This run is a scheduled refresh of insight 123; it can only write to that insight.",
+        "refused",
+        "fail",
+      ],
+      ["get_insight", "Insight: Sector Brief (id 123, version 2)\nKind: document\n\nCurrent document:\n<p>x</p>", "found", "pass"],
+      ["get_insight", 'Insight "123" not found in this workspace.', "not found", "warn"],
+    ])("emits the %s status for result %j", (name, result, status, tone) => {
+      const steps = trace([ai("working", [{ id: "c-1", name, args: {} }]), tool(result, "c-1")]);
+      expect(steps[0].toolCalls?.[0]).toMatchObject({ status, tone });
+    });
+
     it("does not emit a status for tools we don't recognize", () => {
       const steps = buildTrace({
         messages: [
@@ -972,5 +1095,89 @@ describe("buildTrace", () => {
       });
       expect(steps[0].liveRows).toBeUndefined();
     });
+  });
+
+  describe("empty-content handling in coerceContent", () => {
+    it.each([
+      [
+        "a thinking-only message, never leaking its signature",
+        [{ type: "thinking", thinking: "private thought", signature: "sig_secret", encrypted_content: "enc_blob" }],
+        "(no content)",
+      ],
+      [
+        "a server_tool_use block with no text",
+        [{ type: "server_tool_use", id: "stu-1", name: "query_database", input: { filter: "all" } }],
+        "(no content)",
+      ],
+      [
+        "only the text next to a thinking block",
+        [
+          { type: "thinking", thinking: "evaluating options...", signature: "sig-abc" },
+          { type: "text", text: "Here is the final report analysis." },
+        ],
+        "Here is the final report analysis.",
+      ],
+    ])("describes %s", (_label, blocks, description) => {
+      expect(trace([ai(blocks)])[0].description).toBe(description);
+    });
+  });
+
+  describe("messageTimestamps handling", () => {
+    it("shows each supplied timestamp on its step", () => {
+      const steps = trace(
+        [
+          new AIMessage({ content: "step 1", id: "step-1" }),
+          new HumanMessage("follow-up instruction"),
+          new AIMessage({ content: "step 2", id: "step-2" }),
+        ],
+        { messageTimestamps: ["2026-05-15T10:02:15Z", "2026-05-15T10:05:30Z", "2026-05-15T10:08:45Z"] },
+      );
+      expect(steps.map((s) => s.timestamp)).toEqual(["10:02:15", "10:05:30", "10:08:45"]);
+    });
+
+    it("falls back to startedAt for a null entry or a short array", () => {
+      const steps = trace(
+        [new AIMessage({ content: "step 1", id: "step-1" }), new AIMessage({ content: "step 2", id: "step-2" })],
+        { messageTimestamps: [null] },
+      );
+      expect(steps.map((s) => s.timestamp)).toEqual(["10:00:00", "10:00:00"]);
+    });
+  });
+});
+
+describe("matchMessageTimestamps", () => {
+  it("matches AI messages by id, tool messages by tool_call_id and human messages by order, first occurrence winning", () => {
+    const writes: CheckpointMessageWrite[] = [
+      { ts: "2026-05-15T10:00:00Z", kind: "human", id: null, toolCallId: null },
+      { ts: "2026-05-15T10:01:00Z", kind: "ai", id: "msg-ai-1", toolCallId: null },
+      { ts: "2026-05-15T10:03:00Z", kind: "tool", id: null, toolCallId: "tc-1" },
+      { ts: "2026-05-15T10:09:00Z", kind: "ai", id: "msg-ai-1", toolCallId: null },
+      { ts: "2026-05-15T10:10:00Z", kind: "human", id: null, toolCallId: null },
+    ];
+    const messages = [
+      new HumanMessage("First prompt"),
+      new AIMessage({ content: "hello", id: "msg-ai-1" }),
+      new ToolMessage({ content: "res1", tool_call_id: "tc-1" }),
+      new HumanMessage("Second prompt"),
+    ];
+    expect(matchMessageTimestamps(messages, writes)).toEqual([
+      "2026-05-15T10:00:00Z",
+      "2026-05-15T10:01:00Z",
+      "2026-05-15T10:03:00Z",
+      "2026-05-15T10:10:00Z",
+    ]);
+  });
+
+  it("returns null for every message without a matching write", () => {
+    const writes: CheckpointMessageWrite[] = [
+      { ts: "2026-05-15T10:00:00Z", kind: "human", id: null, toolCallId: null },
+    ];
+    const messages = [
+      new AIMessage({ content: "hi", id: "unknown-id" }),
+      new ToolMessage({ content: "res", tool_call_id: "unknown-call" }),
+      new HumanMessage("Third"),
+      new HumanMessage("Fourth"),
+    ];
+    expect(matchMessageTimestamps(messages, writes)).toEqual([null, null, "2026-05-15T10:00:00Z", null]);
   });
 });

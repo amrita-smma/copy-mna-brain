@@ -5,20 +5,30 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { dispatcherTick } from '@/lib/workforce';
-import type { HumanDecision } from '@/lib/db/schema';
+import type { HumanDecision, PendingIntervention } from '@/lib/db/schema';
+import {
+  buildResumeDecision,
+  type ApiDecision,
+} from '@/lib/agents/analysis/hitl';
 
 interface DecisionRequestBody {
   tool_call_id?: unknown;
   tool_name?: unknown;
   decision?: unknown;
   rejection_message?: unknown;
+  answer?: unknown;
 }
 
+const API_DECISIONS: readonly ApiDecision[] = ['approve', 'answer', 'reject'];
+
+// Shape-only validation. Whether the decision is allowed for the paused tool
+// is decided by buildResumeDecision against the row's stored tool name.
 function parseBody(raw: unknown): {
   tool_call_id: string;
   tool_name: string;
-  decision: 'approve' | 'reject';
+  decision: ApiDecision;
   rejection_message?: string;
+  answer?: string;
 } | { error: string } {
   if (!raw || typeof raw !== 'object') return { error: 'invalid body' };
   const b = raw as DecisionRequestBody;
@@ -28,19 +38,26 @@ function parseBody(raw: unknown): {
   if (typeof b.tool_name !== 'string' || !b.tool_name) {
     return { error: 'tool_name is required' };
   }
-  if (b.decision !== 'approve' && b.decision !== 'reject') {
-    return { error: "decision must be 'approve' or 'reject'" };
+  if (!API_DECISIONS.includes(b.decision as ApiDecision)) {
+    return { error: "decision must be 'approve', 'answer' or 'reject'" };
   }
+  const decision = b.decision as ApiDecision;
   const out: ReturnType<typeof parseBody> = {
     tool_call_id: b.tool_call_id,
     tool_name: b.tool_name,
-    decision: b.decision,
+    decision,
   };
-  if (b.decision === 'reject') {
+  if (decision === 'reject') {
     if (typeof b.rejection_message === 'string' && b.rejection_message.trim()) {
       (out as { rejection_message?: string }).rejection_message =
         b.rejection_message;
     }
+  }
+  if (decision === 'answer') {
+    if (typeof b.answer !== 'string' || !b.answer.trim()) {
+      return { error: 'answer is required' };
+    }
+    (out as { answer?: string }).answer = b.answer.trim();
   }
   return out;
 }
@@ -73,9 +90,15 @@ export async function POST(
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (item.triggered_by_user_id !== session.user.id) {
+    // The task creator may always decide; so may the user the intervention
+    // was addressed to (e.g. the insight owner on a scheduled refresh, which
+    // has no creator).
+    const pending = (item.pending_intervention ?? null) as PendingIntervention | null;
+    const isCreator = item.triggered_by_user_id === session.user.id;
+    const isAsked = pending?.asked_user_id === session.user.id;
+    if (!isCreator && !isAsked) {
       return NextResponse.json(
-        { error: 'Only the task creator can decide' },
+        { error: 'Only the task creator or the person asked can decide' },
         { status: 403 },
       );
     }
@@ -86,17 +109,27 @@ export async function POST(
       );
     }
 
-    const resumePayload =
-      parsed.decision === 'approve'
-        ? { decisions: [{ type: 'approve' as const }] }
-        : {
-            decisions: [
-              {
-                type: 'reject' as const,
-                message: parsed.rejection_message,
-              },
-            ],
-          };
+    // Validate against the tool the run is actually paused on. Rows paused
+    // before pending_intervention existed fall back to the body's tool_name
+    // (ask_owner post-dates the column, so that only covers approve/reject).
+    const pausedToolName = pending?.tool_name || parsed.tool_name;
+    if (pending?.tool_name && parsed.tool_name !== pending.tool_name) {
+      return NextResponse.json(
+        { error: `task is paused on ${pending.tool_name}, not ${parsed.tool_name}` },
+        { status: 409 },
+      );
+    }
+    const built = buildResumeDecision({
+      toolName: pausedToolName,
+      decision: parsed.decision,
+      storedArgs: pending?.tool_args,
+      answer: parsed.answer,
+      rejectionMessage: parsed.rejection_message,
+    });
+    if ('error' in built) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    const resumePayload = { decisions: [built.decision] };
 
     // Audit the decision and queue the resume. The dispatcher claims the row
     // (advisory lock + serial guard), starts a WDK workflow, and runAgent
@@ -106,17 +139,35 @@ export async function POST(
     const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
     const auditEntry: HumanDecision = {
       tool_call_id: parsed.tool_call_id,
-      tool_name: parsed.tool_name,
-      decision: parsed.decision,
+      tool_name: pausedToolName,
+      // 'answer' is an edit of the agent's proposal; accepting the
+      // recommendation stays an approve in the audit even though the
+      // middleware receives an edit.
+      decision: parsed.decision === 'answer' ? 'edit' : parsed.decision,
       decided_at: new Date().toISOString(),
+      decided_by_user_id: session.user.id,
       ...(parsed.decision === 'reject' && parsed.rejection_message
         ? { rejection_message: parsed.rejection_message }
         : {}),
+      ...(built.question ? { question: built.question } : {}),
+      ...(built.answer ? { answer: built.answer } : {}),
     };
-    await repo.appendDecision(item.id, auditEntry);
-
+    // Queue the resume first, guarded on the row still waiting: two people
+    // may decide now (creator and the person asked), and only the first
+    // decision may resume the run or land in the audit.
     const reason = `human ${parsed.decision}`;
-    await repo.markResumeReady(item.id, reason, JSON.stringify(resumePayload));
+    const queued = await repo.markResumeReadyFromWaiting(
+      item.id,
+      reason,
+      JSON.stringify(resumePayload),
+    );
+    if (!queued) {
+      return NextResponse.json(
+        { error: 'this intervention was already decided' },
+        { status: 409 },
+      );
+    }
+    await repo.appendDecision(item.id, auditEntry);
 
     // Fire-and-forget dispatcher kick so the resume claims the slot
     // immediately when free. The cron tick remains the liveness fallback.
