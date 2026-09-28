@@ -44,6 +44,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "d5aff8d0cc7e18544a1754ceb1076ab41d6ea1d3",
+    "date": "2026-09-28",
+    "subject": "20260920 feat/dashboard and copilot enhancement",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "5d9374acd4ee6ab41c597c2ee7d6ea5f69227356",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
