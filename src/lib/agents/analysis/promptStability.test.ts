@@ -86,10 +86,10 @@ function lastSystemPrompt(): string {
 // Workforce; a template request is pointed at Upload Template / Save as
 // template; a handoff carries the most recent earlier attachments.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '50f04523d5f4bd3cdddac21e348ac2d15a75bff466f88458bfb60b9b4e9ee26b',
-  investment: '737969d8c30d21d9282919042887b0e3687f4ac0418f37d51a493bf87c4ef145',
-  combined: 'b82e456dc5f171feb3048b5d00e213a5053ee0fe36f70e0c42126559ab960db0',
-  vc: 'e30dcb50b9eb1a551780eab39d5a5cece34f14035031675cb46d8797ac189c2d',
+  mna: '199810a6dc37648b1fad60feb928c55100b04e20f2407641d0b66e74dfce9f2e',
+  investment: 'd91fbfa279cc6dd78dcc9dfac806758698e7770c9fb141769560a0e923b87f71',
+  combined: 'c10eeaafbe9ab24c9ccb12feeb027fb2bab74cfc04658bc92463810e96cdb01b',
+  vc: '3d905ba5b38816e03e04a1d9352f9edba02b0909db3d78b1f286da5c7361de73',
 };
 // The Workforce prompt changed on purpose: get_insight_template returns a
 // template in parts, and the Workforce reads every part before building it

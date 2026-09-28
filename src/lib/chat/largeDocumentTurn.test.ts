@@ -3,12 +3,14 @@ import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import {
   CHAT_ATTACHMENTS_KWARG,
   latestUserAttachments,
-  previousTurnTimedOutWithNoWork,
+  previousTurnTimedOut,
+  TIMED_OUT_FOLLOW_UP_CONTEXT,
+  timeoutFollowUpContext,
   WHOLE_DOCUMENT_TOOL_NAMES,
   wholeDocumentToolsToWithhold,
   ZERO_WORK_FOLLOW_UP_CONTEXT,
 } from './largeDocumentTurn';
-import { buildBudgetNotice } from './turnBudget';
+import { buildBudgetNotice, TIMEOUT_WORKFORCE_OFFER } from './turnBudget';
 
 const zeroWork = buildBudgetNotice({ budgetMs: 180_000 });
 const withTools = buildBudgetNotice({ budgetMs: 180_000, toolNames: ['web_search'] });
@@ -27,59 +29,82 @@ const validate = (raw: unknown) =>
       Boolean(r) && typeof r.key === 'string' && r.key.startsWith('chat-attachments/ws-1/'),
   );
 
-describe('previousTurnTimedOutWithNoWork', () => {
-  it('is true when the previous turn ended on the zero-work notice', () => {
-    expect(
-      previousTurnTimedOutWithNoWork([new HumanMessage('build the insight'), new AIMessage(zeroWork)]),
-    ).toBe(true);
+describe('previousTurnTimedOut', () => {
+  it("is 'no-work' when the previous turn ended on the zero-work notice", () => {
+    expect(previousTurnTimedOut([new HumanMessage('build the insight'), new AIMessage(zeroWork)])).toBe('no-work');
   });
 
-  it('is false when the previous turn timed out after tools completed', () => {
+  it("is 'with-work' when the previous turn timed out after tools completed", () => {
     expect(
-      previousTurnTimedOutWithNoWork([
+      previousTurnTimedOut([
         new HumanMessage('rank them'),
         new ToolMessage({ content: 'r', name: 'web_search', tool_call_id: 't1' }),
         new AIMessage(withTools),
       ]),
-    ).toBe(false);
+    ).toBe('with-work');
   });
 
-  it('is false after an ordinary answer, or on a fresh thread', () => {
-    expect(previousTurnTimedOutWithNoWork([new HumanMessage('q'), new AIMessage('an answer')])).toBe(false);
-    expect(previousTurnTimedOutWithNoWork([])).toBe(false);
+  it("is 'with-work' for a model-written wrap-up that closes on the Workforce offer", () => {
+    expect(
+      previousTurnTimedOut([
+        new HumanMessage('remove this sidebar'),
+        new AIMessage(`I ran out of time. I read the insight.\n\n${TIMEOUT_WORKFORCE_OFFER}`),
+      ]),
+    ).toBe('with-work');
+  });
+
+  it('is null after an ordinary answer, or on a fresh thread', () => {
+    expect(previousTurnTimedOut([new HumanMessage('q'), new AIMessage('an answer')])).toBeNull();
+    expect(previousTurnTimedOut([])).toBeNull();
   });
 
   it('reads the last assistant message of the previous turn only', () => {
     // The notice was already followed up; the latest turn answered normally.
     expect(
-      previousTurnTimedOutWithNoWork([
+      previousTurnTimedOut([
         new HumanMessage('build it'),
         new AIMessage(zeroWork),
         new HumanMessage('continue'),
         new AIMessage('Handed to the Workforce.'),
       ]),
-    ).toBe(false);
+    ).toBeNull();
     // An older notice does not count when the previous turn left no assistant message.
     expect(
-      previousTurnTimedOutWithNoWork([new HumanMessage('build it'), new AIMessage(zeroWork), new HumanMessage('continue')]),
-    ).toBe(false);
+      previousTurnTimedOut([new HumanMessage('build it'), new AIMessage(zeroWork), new HumanMessage('continue')]),
+    ).toBeNull();
   });
 
   it('reads content-block messages as text', () => {
     expect(
-      previousTurnTimedOutWithNoWork([
+      previousTurnTimedOut([
         new HumanMessage('build it'),
         new AIMessage({ content: [{ type: 'text', text: zeroWork }] }),
       ]),
-    ).toBe(true);
+    ).toBe('no-work');
   });
 });
 
-describe('ZERO_WORK_FOLLOW_UP_CONTEXT', () => {
-  it('tells the model to hand off now, carrying the template_id', () => {
-    expect(ZERO_WORK_FOLLOW_UP_CONTEXT).toContain('Call propose_workforce_handoff now');
-    expect(ZERO_WORK_FOLLOW_UP_CONTEXT).toContain('template_id');
-    expect(ZERO_WORK_FOLLOW_UP_CONTEXT).toContain('Do not try to write the document in this turn');
+describe('timeoutFollowUpContext', () => {
+  it('tells the model to hand off now after a zero-work timeout, carrying the template_id', () => {
+    const context = timeoutFollowUpContext('no-work');
+    expect(context).toBe(ZERO_WORK_FOLLOW_UP_CONTEXT);
+    expect(context).toContain('Call propose_workforce_handoff now');
+    expect(context).toContain('template_id');
+    expect(context).toContain('Do not try to write the document in this turn');
+  });
+
+  it('after a timeout with work, hands a document request off with the edit target but lets research continue', () => {
+    const context = timeoutFollowUpContext('with-work');
+    expect(context).toBe(TIMED_OUT_FOLLOW_UP_CONTEXT);
+    expect(context).toContain('create or edit an insight');
+    expect(context).toContain('propose_workforce_handoff');
+    expect(context).toContain('insight_id');
+    expect(context).toContain('element path');
+    expect(context).toContain('Otherwise continue');
+  });
+
+  it('adds nothing when the previous turn did not time out', () => {
+    expect(timeoutFollowUpContext(null)).toBeNull();
   });
 });
 
@@ -123,7 +148,7 @@ describe('wholeDocumentToolsToWithhold', () => {
     const all = [...WHOLE_DOCUMENT_TOOL_NAMES];
     expect(wholeDocumentToolsToWithhold({ previousTurnTimedOut: true, carriesTooLargeDocument: false })).toEqual(all);
     expect(wholeDocumentToolsToWithhold({ previousTurnTimedOut: false, carriesTooLargeDocument: true })).toEqual(all);
-    expect(all).toEqual(['propose_insight_create', 'replace_insight_document']);
+    expect(all).toEqual(['propose_insight_create', 'propose_insight_edit', 'replace_insight_document']);
   });
 
   it('withholds nothing on an ordinary turn', () => {

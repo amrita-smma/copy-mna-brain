@@ -3,6 +3,7 @@ import {
   formatInsightTemplateBlock,
   formatInsightTemplatePart,
   formatLargeHtmlAttachmentBlock,
+  formatLargeInsightForChat,
   isHtmlAttachment,
   LARGE_DOCUMENT_OUTLINE_MAX_CHARS,
   largeTemplateHandoffInstruction,
@@ -177,5 +178,31 @@ describe('formatLargeHtmlAttachmentBlock', () => {
     expect(block).toContain('block-0');
     expect(block).not.toContain('<style>');
     expect(block).not.toContain('9'.repeat(400));
+  });
+});
+
+describe('formatLargeInsightForChat', () => {
+  const html = bigTemplate(CHAT_INLINE_DOCUMENT_MAX_CHARS * 2);
+  const block = formatLargeInsightForChat({ id: ID, name: 'Capital deployment', html });
+
+  it('states the size against the chat cap and withholds the HTML', () => {
+    expect(block).toContain(`${html.length.toLocaleString('en-US')} characters`);
+    expect(block).toContain('too large to edit in chat');
+    expect(block).not.toContain('<table>');
+    expect(block).not.toContain('body{color:#111}');
+  });
+
+  it('forbids propose_insight_edit and hands the edit to the Workforce with the insight id and the selection', () => {
+    expect(block).toContain('Do NOT call propose_insight_edit');
+    expect(block).toContain('Call propose_workforce_handoff');
+    expect(block).toContain(`insight_id ${ID}`);
+    expect(block).toContain('section key or element path');
+    expect(block).toContain('previous version stays in the insight');
+  });
+
+  it('carries a bounded outline of the sections', () => {
+    const outline = block.slice(block.indexOf('<insight_outline>'), block.indexOf('</insight_outline>'));
+    expect(outline).toContain('block-0');
+    expect(outline.length).toBeLessThanOrEqual(LARGE_DOCUMENT_OUTLINE_MAX_CHARS + '<insight_outline>\n'.length);
   });
 });

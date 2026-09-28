@@ -10,7 +10,10 @@ import { formatInsightTemplateBlock } from '@/lib/insights/largeDocument';
 
 import {
   buildBudgetNotice,
+  isBudgetWrapUpWithOffer,
   isZeroWorkBudgetNotice,
+  TIMEOUT_WORKFORCE_OFFER,
+  WRAP_UP_SYSTEM_PROMPT,
   ZERO_WORK_NOTICE_MARKER,
   collectAbandonedTurnWork,
   summarizeAbandonedTurn,
@@ -120,14 +123,25 @@ describe('collectAbandonedTurnWork', () => {
     expect(work.question).toBe('create a BBCA insight');
   });
 
-  it('truncates an oversized tool result rather than sending it whole', () => {
+  it('clips an oversized tool result to an excerpt rather than sending it whole', () => {
     const work = collectAbandonedTurnWork([
       new HumanMessage('q'),
       tool('valyu_search', 'x'.repeat(WRAP_UP_PER_TOOL_CHARS * 3)),
     ]);
 
-    expect(work.digest).toContain('…[truncated]');
+    expect(work.digest).toContain('…[excerpt ends]');
     expect(work.digest.length).toBeLessThan(WRAP_UP_PER_TOOL_CHARS * 2);
+  });
+
+  it('never labels a clipped excerpt "truncated", which the wrap-up would relay as a tool failure', () => {
+    const work = collectAbandonedTurnWork([
+      new HumanMessage('remove this sidebar'),
+      tool('get_insight', '<html>'.repeat(WRAP_UP_PER_TOOL_CHARS)),
+    ]);
+
+    expect(work.digest).not.toMatch(/truncated/i);
+    expect(WRAP_UP_SYSTEM_PROMPT).toContain('the tool itself returned it in full');
+    expect(WRAP_UP_SYSTEM_PROMPT).toContain('Never tell the user a result was truncated');
   });
 
   it('caps the whole digest so a long tool loop cannot blow up the wrap-up call', () => {
@@ -160,9 +174,10 @@ describe('buildBudgetNotice', () => {
     const notice = buildBudgetNotice({ budgetMs: 180_000, toolNames: ['web_search'] });
 
     expect(notice).toBe(
-      'This turn hit its 3-minute budget before I could write the answer. It completed 1 tool call first (web_search), and those results are kept in this thread. Ask me to continue and I will pick up from here.',
+      `This turn hit its 3-minute budget before I could write the answer. It completed 1 tool call first (web_search), and those results are kept in this thread. Ask me to continue and I will pick up from here.\n\n${TIMEOUT_WORKFORCE_OFFER}`,
     );
     expect(isZeroWorkBudgetNotice(notice)).toBe(false);
+    expect(isBudgetWrapUpWithOffer(notice)).toBe(true);
   });
 
   it('never offers to continue when nothing ran, and offers the Workforce instead', () => {
@@ -174,6 +189,7 @@ describe('buildBudgetNotice', () => {
     expect(notice).not.toContain('Ask me to continue');
     expect(notice).not.toContain('tool call');
     expect(isZeroWorkBudgetNotice(notice)).toBe(true);
+    expect(isBudgetWrapUpWithOffer(notice)).toBe(false);
   });
 
   it('treats an empty tool list as nothing ran, at any budget', () => {
@@ -196,7 +212,8 @@ describe('summarizeAbandonedTurn', () => {
 
     const text = await summarizeAbandonedTurn({ messages, budgetMs: 420_000, complete });
 
-    expect(text).toBe('Ran out of time. TSMC medians came back at 52%.');
+    expect(text).toBe(`Ran out of time. TSMC medians came back at 52%.\n\n${TIMEOUT_WORKFORCE_OFFER}`);
+    expect(isBudgetWrapUpWithOffer(text)).toBe(true);
     expect(complete).toHaveBeenCalledTimes(1);
     const { user } = complete.mock.calls[0][0];
     expect(user).toContain('rank the semiconductor value chain');

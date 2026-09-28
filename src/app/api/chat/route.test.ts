@@ -50,8 +50,8 @@ vi.mock('@/lib/agents/analysis', () => ({
   },
   extractFirstTurn: vi.fn(() => ({ userText: '', assistantText: '' })),
   asEffortChoice: (v: unknown) => (typeof v === 'string' ? v : null),
-  asManualEffort: () => null,
-  EFFORT_TIERS: { medium: { turnBudgetMs: 60_000 } },
+  asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
+  EFFORT_TIERS: { low: { turnBudgetMs: 30_000 }, medium: { turnBudgetMs: 60_000 } },
 }));
 vi.mock('@ai-sdk/langchain', () => ({ toBaseMessages: vi.fn(async () => []) }));
 vi.mock('@/lib/flags', () => ({
@@ -60,10 +60,12 @@ vi.mock('@/lib/flags', () => ({
 }));
 vi.mock('@/lib/langfuse', () => ({ flushLangfuse: vi.fn() }));
 vi.mock('@/lib/chat/title', () => ({ generateChatTitle: vi.fn() }));
-vi.mock('@/lib/chat/effortRouter', () => ({
+// The real tier resolution (escalate-only, the open-insight floor); only the
+// routing call is stubbed.
+vi.mock('@/lib/chat/effortRouter', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   routeEffort: vi.fn(),
   shouldRoute: () => false,
-  resolveTurnEffort: () => 'medium',
 }));
 vi.mock('@/lib/chat/thinkingStream', () => ({
   isGraphRecursionError: () => false,
@@ -84,6 +86,7 @@ import { buildBudgetNotice } from '@/lib/chat/turnBudget';
 import {
   CHAT_ATTACHMENTS_KWARG,
   WHOLE_DOCUMENT_TOOL_NAMES,
+  TIMED_OUT_FOLLOW_UP_CONTEXT,
   ZERO_WORK_FOLLOW_UP_CONTEXT,
 } from '@/lib/chat/largeDocumentTurn';
 
@@ -193,6 +196,41 @@ describe('POST /api/chat', () => {
       { workspaceId: 'ws-1', copilotChatsService, insightService },
     );
     expect(res.headers.get('X-Chat-Agent')).toBe('bangun');
+  });
+
+  describe('effort floor on an open insight', () => {
+    const lowThread = () =>
+      assertOwnedByMock.mockResolvedValue({ id: CHAT_ID, title: 'T', effort_tier: 'low', agent_key: null });
+    const onInsight = { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID };
+
+    it('raises an Auto thread on low to medium when an insight is open, and stores it', async () => {
+      lowThread();
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID, page_context: onInsight }));
+
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
+      expect(setEffortTierMock).toHaveBeenCalledWith(CHAT_ID, 'medium');
+    });
+
+    it('leaves an Auto thread on low when no insight is open', async () => {
+      lowThread();
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
+      expect(setEffortTierMock).not.toHaveBeenCalled();
+    });
+
+    it('never overrides a tier the user picked by hand', async () => {
+      lowThread();
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID, effort: 'low', page_context: onInsight }));
+
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
+    });
   });
 
   it("passes the thread's agent to tools via configurable.agent_key", async () => {
@@ -339,11 +377,21 @@ describe('POST /api/chat', () => {
       expect(inputs().withheldTools).toEqual([...WHOLE_DOCUMENT_TOOL_NAMES]);
     });
 
-    it('adds nothing after a timeout that did complete tools, or an ordinary answer', async () => {
+    it('after a timeout that did complete tools, steers a document request to a handoff and withholds the whole-document tools', async () => {
       getMessagesMock.mockResolvedValue([
-        new HumanMessage('rank them'),
-        new AIMessage(buildBudgetNotice({ budgetMs: 180_000, toolNames: ['web_search'] })),
+        new HumanMessage('remove this sidebar'),
+        new AIMessage(buildBudgetNotice({ budgetMs: 90_000, toolNames: ['get_insight'] })),
       ]);
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+
+      expect(inputs().additionalSystemContext).toBe(`WORKSPACE CONTEXT\n\n${TIMED_OUT_FOLLOW_UP_CONTEXT}`);
+      expect(inputs().withheldTools).toEqual([...WHOLE_DOCUMENT_TOOL_NAMES]);
+    });
+
+    it('adds nothing after an ordinary answer', async () => {
+      getMessagesMock.mockResolvedValue([new HumanMessage('rank them'), new AIMessage('Here is the ranking.')]);
       resolve();
 
       await POST(chatRequest({ chat_id: CHAT_ID }));

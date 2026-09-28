@@ -18,6 +18,7 @@ vi.mock('@/lib/services/container', () => ({
 }));
 
 import { getInsight, MAX_INSIGHT_READ_CHARS } from './get_insight';
+import { CHAT_INLINE_DOCUMENT_MAX_CHARS } from '@/lib/insights/templateAttachment';
 
 const INSIGHT_ID = '11111111-2222-3333-4444-555555555555';
 const PAGE_CONTEXT = { pageContext: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID } };
@@ -92,10 +93,52 @@ describe('getInsight', () => {
     expect(await invoke({ insight_id: INSIGHT_ID })).toContain('not found in this workspace');
   });
 
+  it('returns only an outline and the Workforce handoff instruction in chat when the insight is over the chat cap', async () => {
+    const html = `<section data-section="scope-rail"><h2>Scope rail</h2>${'<p>filler</p>'.repeat(3_000)}</section>`;
+    mockGet.mockResolvedValue(insight({ html }));
+
+    const out = await invoke({}, { configurable: PAGE_CONTEXT });
+
+    expect(html.length).toBeGreaterThan(CHAT_INLINE_DOCUMENT_MAX_CHARS);
+    expect(out).toContain('Sector Brief');
+    expect(out).toContain('version 3');
+    expect(out).toContain(`Length: ${html.length.toLocaleString('en-US')} characters`);
+    expect(out).toContain('too large to edit in chat');
+    expect(out).toContain('Do NOT call propose_insight_edit');
+    expect(out).toContain('propose_workforce_handoff');
+    expect(out).toContain(`insight_id ${INSIGHT_ID}`);
+    expect(out).toContain('<insight_outline>');
+    expect(out).toContain('scope-rail');
+    expect(out).not.toContain('<p>filler</p>');
+    expect(out).not.toContain('Current document:');
+  });
+
+  it('returns the full document in chat at exactly the chat cap', async () => {
+    const html = 'x'.repeat(CHAT_INLINE_DOCUMENT_MAX_CHARS);
+    mockGet.mockResolvedValue(insight({ html }));
+
+    const out = await invoke({}, { configurable: PAGE_CONTEXT });
+
+    expect(out).toContain('Current document:');
+    expect(out).toContain(html);
+    expect(out).not.toContain('<insight_outline>');
+  });
+
+  it('returns the full document of a large insight to a Workforce run', async () => {
+    const html = 'y'.repeat(CHAT_INLINE_DOCUMENT_MAX_CHARS * 2);
+    mockGet.mockResolvedValue(insight({ html }));
+
+    const out = await invoke({ insight_id: INSIGHT_ID }, { configurable: { agentRole: 'workforce' } });
+
+    expect(out).toContain('Current document:');
+    expect(out).toContain(html);
+    expect(out).not.toContain('<insight_outline>');
+  });
+
   it('warns against a wholesale edit when the document is truncated', async () => {
     mockGet.mockResolvedValue(insight({ html: '<p>'.repeat(MAX_INSIGHT_READ_CHARS) }));
 
-    const out = await invoke({ insight_id: INSIGHT_ID });
+    const out = await invoke({ insight_id: INSIGHT_ID }, { configurable: { agentRole: 'workforce' } });
 
     expect(out).toContain('TRUNCATED');
     expect(out).toContain('Do NOT submit an edit built from this fragment');
@@ -137,6 +180,17 @@ describe('getInsight', () => {
     );
     expect(out).toContain('<h1>Draft HTML from Refresh Run</h1>');
     expect(out).not.toContain('<h1>Old Live Version</h1>');
+  });
+
+  it('returns the full draft of a large insight in a refresh run', async () => {
+    const html = 'z'.repeat(CHAT_INLINE_DOCUMENT_MAX_CHARS * 2);
+    mockGet.mockResolvedValue(insight({ version_no: 2 }));
+    mockGetRunDraft.mockResolvedValue({ run_id: 'run-1', insight_id: INSIGHT_ID, base_version_no: 2, html });
+
+    const out = await invoke({}, REFRESH);
+
+    expect(out).toContain(html);
+    expect(out).not.toContain('<insight_outline>');
   });
 
   it('never calls getRunDraft in a non-refresh run', async () => {

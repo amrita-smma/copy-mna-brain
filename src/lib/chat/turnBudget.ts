@@ -41,7 +41,11 @@ export const WRAP_UP_SYSTEM_PROMPT =
   'so the user can ask for it directly.\n\n' +
   'Never invent a finding that is not in the gathered results. If the results ' +
   'are empty or useless, say so instead of padding. Do not apologise more than ' +
-  'once and do not describe your own limitations.';
+  'once and do not describe your own limitations.\n\n' +
+  'Each result below is a short excerpt, clipped only for this summary — the ' +
+  'tool itself returned it in full, and the full result is kept in the thread. ' +
+  'Never tell the user a result was truncated, cut off or incomplete because ' +
+  'its excerpt ends.';
 
 /**
  * Budget as an adjective — always singular ("a 7-minute budget"), and in
@@ -56,7 +60,7 @@ export function formatBudget(budgetMs: number): string {
  * A stable phrase that appears only in the zero-work notice — never in the
  * with-tools notice, and independent of the tier's budget — so the next turn
  * can recognise the notice in the thread's persisted messages
- * (`previousTurnTimedOutWithNoWork`) and route the retry to the Workforce.
+ * (`previousTurnTimedOut`) and route the retry to the Workforce.
  */
 export const ZERO_WORK_NOTICE_MARKER = 'before any step finished, so there is nothing to pick up from';
 
@@ -84,8 +88,24 @@ export function buildBudgetNotice(opts: {
   } first (${[...new Set(opts.toolNames)].join(', ')}), and those results are kept in this thread.`;
   return (
     `This turn hit its ${budget} budget before I could write the answer.${ran}` +
-    ' Ask me to continue and I will pick up from here.'
+    ' Ask me to continue and I will pick up from here.\n\n' +
+    TIMEOUT_WORKFORCE_OFFER
   );
+}
+
+/**
+ * The closing line of every budget wrap-up that did some work. The turn most
+ * likely ran out of time writing a whole document, which "continue" would only
+ * retry, so the user is offered the Workforce. Stable text: the next turn
+ * recognises it (`previousTurnTimedOut`) and steers a document request into a
+ * handoff.
+ */
+export const TIMEOUT_WORKFORCE_OFFER =
+  "If this was creating or editing an insight or another long document, reply and I'll hand it to the AI Workforce instead — it works in the background with no time limit, so you don't have to wait here.";
+
+/** True for a budget wrap-up that ends with the Workforce offer. */
+export function isBudgetWrapUpWithOffer(text: string): boolean {
+  return text.includes(TIMEOUT_WORKFORCE_OFFER);
 }
 
 /** True for the zero-work budget notice (see ZERO_WORK_NOTICE_MARKER). */
@@ -181,7 +201,7 @@ export function collectAbandonedTurnWork(
     if (!body) continue;
 
     const room = Math.min(WRAP_UP_PER_TOOL_CHARS, WRAP_UP_DIGEST_CHARS - used);
-    const slice = body.length > room ? `${body.slice(0, room)}…[truncated]` : body;
+    const slice = body.length > room ? `${body.slice(0, room)}…[excerpt ends]` : body;
     chunks.push(`## ${name}\n${slice}`);
     used += slice.length;
   }
@@ -250,7 +270,7 @@ export async function summarizeAbandonedTurn(opts: {
         `Results gathered before the turn was stopped:\n\n${work.digest}`,
     });
     const trimmed = String(text ?? '').trim();
-    return trimmed || notice;
+    return trimmed ? `${trimmed}\n\n${TIMEOUT_WORKFORCE_OFFER}` : notice;
   } catch {
     return notice;
   }

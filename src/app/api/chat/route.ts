@@ -39,11 +39,12 @@ import {
 import {
   CHAT_ATTACHMENTS_KWARG,
   latestUserAttachments,
-  previousTurnTimedOutWithNoWork,
+  previousTurnTimedOut,
   wholeDocumentToolsToWithhold,
-  ZERO_WORK_FOLLOW_UP_CONTEXT,
+  timeoutFollowUpContext,
 } from '@/lib/chat/largeDocumentTurn';
 import {
+  OPEN_INSIGHT_EFFORT_FLOOR,
   routeEffort,
   shouldRoute,
   resolveTurnEffort,
@@ -323,10 +324,13 @@ export async function POST(req: NextRequest) {
     // is built without the `query_fund_sources` tool (see getAgentGraph).
     const sofEnabled = await sourceOfFundsEnabled();
     const routed = await routedEffortPromise;
+    // A turn made on an open insight is likely an edit, which rewrites the
+    // whole document in one call — too long for `low` (see the floor's doc).
     const effort = resolveTurnEffort({
       requested: requestedEffort,
       stored: storedEffort,
       routed,
+      floor: openInsightId ? OPEN_INSIGHT_EFFORT_FLOOR : null,
     });
     if (effort !== storedEffort) {
       await copilotChatsService.setEffortTier(chat.id, effort);
@@ -393,13 +397,13 @@ export async function POST(req: NextRequest) {
     // below all use this one read.
     const priorMessages = requestedChatId ? await agent.getMessages(chat.id) : [];
 
-    // The previous turn hit its budget before any tool finished (it ended on
-    // the zero-work notice), so "continue" must not retry the same huge call:
-    // this turn is told to hand off, and — like a turn carrying a document too
-    // large for chat — does not get the whole-document tools.
-    const previousTurnTimedOut = previousTurnTimedOutWithNoWork(priorMessages);
+    // The previous turn hit its budget (it ended on a wrap-up), so "continue"
+    // must not retry the same huge call: this turn is told to hand a document
+    // off, and — like a turn carrying a document too large for chat — does not
+    // get the whole-document tools.
+    const previousTimeout = previousTurnTimedOut(priorMessages);
     const withheldTools = wholeDocumentToolsToWithhold({
-      previousTurnTimedOut,
+      previousTurnTimedOut: previousTimeout !== null,
       carriesTooLargeDocument,
     });
 
@@ -421,7 +425,7 @@ export async function POST(req: NextRequest) {
         contextData,
         agentNotice,
         insightContext,
-        previousTurnTimedOut ? ZERO_WORK_FOLLOW_UP_CONTEXT : null,
+        timeoutFollowUpContext(previousTimeout),
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;

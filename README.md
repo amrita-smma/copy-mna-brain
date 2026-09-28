@@ -747,6 +747,20 @@ A chat turn can write roughly 20,000 characters. For anything bigger, the
 Copilot offers to hand the job to the **AI Workforce**, which runs it in the
 background.
 
+- **Editing a large insight.** Chat edits rewrite the whole document, so in
+  chat `get_insight` returns only an outline for an insight over that size,
+  with an instruction to hand the edit (insight id plus the selected section
+  or element) to the Workforce. The Workforce applies the edit directly as a
+  new version; the old version stays restorable from the insight's history.
+- **Tier floor.** On Auto, a turn made while an insight is open runs at
+  `medium` or above, since the router would read a short edit request as
+  `low` and its 90 s budget cannot fit a rewrite. A tier picked by hand is
+  never overridden.
+- **After a timeout.** Every budget wrap-up offers the Workforce. The next
+  turn does not get the whole-document tools (`propose_insight_create`,
+  `propose_insight_edit`, `replace_insight_document`), and it is told to hand
+  off a document request rather than retry it.
+
 #### Scheduled refresh
 
 - An insight can be refreshed on a schedule (also listed under AI Workforce →

@@ -45,8 +45,8 @@ function outlineOf(html: string, truncationHint: string): string {
   return outline || '(no readable sections found)';
 }
 
-function tooLargeSentence(what: string, chars: number): string {
-  return `${what} is ${fmt(chars)} characters — over the ${fmt(CHAT_INLINE_DOCUMENT_MAX_CHARS)} characters chat can write in one turn — so it is too large to build in chat. Its HTML is not included here, only an outline of its sections.`;
+function tooLargeSentence(what: string, chars: number, verb = 'build'): string {
+  return `${what} is ${fmt(chars)} characters — over the ${fmt(CHAT_INLINE_DOCUMENT_MAX_CHARS)} characters chat can write in one turn — so it is too large to ${verb} in chat. Its HTML is not included here, only an outline of its sections.`;
 }
 
 interface TemplateBlockInput {
@@ -202,5 +202,46 @@ export function formatLargeHtmlAttachmentBlock(fileName: string, html: string): 
     outlineOf(html, FILE_OUTLINE_HINT),
     '</document_outline>',
     '</large_document>',
+  ].join('\n');
+}
+
+const INSIGHT_OUTLINE_HINT =
+  'The Workforce reads the full insight with get_insight.';
+
+/**
+ * The hard instruction a chat turn gets for an insight too large to edit in
+ * chat. `propose_insight_edit` carries the whole document, so one edit of a
+ * document this size cannot be written inside a chat turn's budget.
+ */
+export function largeInsightEditHandoffInstruction(insightId: string): string[] {
+  return [
+    'To change this insight — a hard rule, not a suggestion:',
+    `- Do NOT call propose_insight_edit (or any other tool that writes a whole document) for it. One tool call cannot carry a document this size inside the turn's time budget; the turn would time out with nothing to show.`,
+    `- Call propose_workforce_handoff with the user's full requested change as the instruction. Put "insight_id ${insightId}" in the instruction, and copy the selected section key or element path from the user's message (or read_page_context) into it verbatim, so the Workforce changes exactly that part. The Workforce reads the whole document and applies the edit directly as a new version; the previous version stays in the insight's history and can be restored.`,
+    '- For a question about the insight, answer from this outline — say that you read only its outline.',
+  ];
+}
+
+interface LargeInsightInput {
+  id: string;
+  name: string;
+  html: string;
+}
+
+/**
+ * What a chat `get_insight` read returns for an insight over
+ * CHAT_INLINE_DOCUMENT_MAX_CHARS: its size, an outline of its sections and
+ * the hard instruction to hand the edit to the Workforce — never its HTML.
+ * The caller writes the header lines (name, id, version, kind) above it.
+ */
+export function formatLargeInsightForChat(insight: LargeInsightInput): string {
+  return [
+    tooLargeSentence('This insight', insight.html.length, 'edit'),
+    '',
+    ...largeInsightEditHandoffInstruction(insight.id),
+    '',
+    '<insight_outline>',
+    outlineOf(insight.html, INSIGHT_OUTLINE_HINT),
+    '</insight_outline>',
   ].join('\n');
 }

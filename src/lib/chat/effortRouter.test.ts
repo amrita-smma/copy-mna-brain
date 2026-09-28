@@ -16,6 +16,7 @@ import {
   parseRoutedEffort,
   routeEffort,
   shouldRoute,
+  OPEN_INSIGHT_EFFORT_FLOOR,
   resolveTurnEffort,
   ROUTER_FALLBACK,
 } from './effortRouter';
@@ -141,5 +142,23 @@ describe('resolveTurnEffort', () => {
 
   it('falls back to stored tier when routing fails on an existing thread', () => {
     expect(resolveTurnEffort({ stored: 'low', routed: null })).toBe('low');
+  });
+
+  it('raises an Auto turn to the floor, from the routed or the stored tier', () => {
+    expect(resolveTurnEffort({ routed: 'low', floor: OPEN_INSIGHT_EFFORT_FLOOR })).toBe('medium');
+    expect(resolveTurnEffort({ stored: 'low', routed: null, floor: 'medium' })).toBe('medium');
+  });
+
+  it('never lowers a tier that is already above the floor', () => {
+    expect(resolveTurnEffort({ stored: 'high', floor: 'medium' })).toBe('high');
+    expect(resolveTurnEffort({ routed: 'deep', floor: 'medium' })).toBe('deep');
+  });
+
+  it('never overrides a tier the user picked by hand', () => {
+    expect(resolveTurnEffort({ requested: 'low', stored: 'low', floor: 'medium' })).toBe('low');
+  });
+
+  it('sets the open-insight floor to medium, the tier the chat document cap was sized for', () => {
+    expect(OPEN_INSIGHT_EFFORT_FLOOR).toBe('medium');
   });
 });

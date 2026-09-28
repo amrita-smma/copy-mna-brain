@@ -120,21 +120,37 @@ export function shouldRoute(
 }
 
 /**
+ * The lowest tier Auto runs a turn made on an open insight at.
+ *
+ * The router reads only the prompt text, and an edit request is short ("remove
+ * this sidebar"), so it reads as a formatting tweak and picks `low`. But an
+ * edit rewrites the whole document in one `propose_insight_edit` call: a
+ * document at the chat cap (CHAT_INLINE_DOCUMENT_MAX_CHARS) needs about a
+ * minute of output, which `low`'s 90 s budget cannot hold once thinking and
+ * the reads are added. `medium` is the tier that cap was sized for.
+ */
+export const OPEN_INSIGHT_EFFORT_FLOOR: EffortChoice = 'medium';
+
+/**
  * Resolves the effort tier for a turn:
  * - An explicit user choice (`requested`) takes precedence.
  * - Otherwise takes the routed tier (or fallback) clamped against stored tier
- *   so a thread may escalate, never de-escalate.
+ *   so a thread may escalate, never de-escalate, and then raised to `floor`
+ *   when one applies. The floor binds Auto only — a tier the user picked by
+ *   hand is never overridden.
  */
 export function resolveTurnEffort(input: {
   requested?: EffortChoice | null;
   stored?: EffortChoice | null;
   routed?: EffortChoice | null;
+  floor?: EffortChoice | null;
 }): EffortChoice {
   if (input.requested) {
     return input.requested;
   }
   const candidate = input.routed ?? input.stored ?? ROUTER_FALLBACK;
-  return input.stored ? maxEffort(input.stored, candidate) : candidate;
+  const effort = input.stored ? maxEffort(input.stored, candidate) : candidate;
+  return input.floor ? maxEffort(effort, input.floor) : effort;
 }
 
 /**
