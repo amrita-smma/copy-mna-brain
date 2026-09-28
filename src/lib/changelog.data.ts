@@ -94,6 +94,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "90651251210cce9caaa31fd7a618d10808a3efa0",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "be093fa913ed2ada370043dbb99039073a2f810a",
     "date": "2026-09-26",
     "subject": "Company detail dialog now displays correct data without flashing previous content",
