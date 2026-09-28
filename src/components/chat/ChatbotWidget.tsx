@@ -292,7 +292,11 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
                           {isUser ? (
                             <p>{content}</p>
                           ) : (
-                            <MarkdownRenderer content={content || '…'} className="text-sm" />
+                            <MarkdownRenderer
+                              content={content || '…'}
+                              linkSurface="widget"
+                              className="text-sm"
+                            />
                           )}
                         </div>
                       </div>

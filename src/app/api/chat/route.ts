@@ -20,6 +20,9 @@ import { chatCacheEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { flushLangfuse } from '@/lib/langfuse';
 import { generateChatTitle } from '@/lib/chat/title';
 import { sanitizePageContext } from '@/lib/chat/pageContext';
+import { stripComposerMarkup } from '@/lib/chat/composerMarkup';
+import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { CHAT_MESSAGE_SENT, chatMessageSentProperties } from '@/lib/posthog-chat';
 
 /** Allow long Anthropic pptx-skill runs inside send_email (up to ~10 min). */
 export const maxDuration = 600;
@@ -220,6 +223,31 @@ export async function POST(req: NextRequest) {
 
     await copilotChatsService.touchLastActive(chat.id);
 
+    // `chat_message_sent` — one event per user turn, captured here rather than
+    // in the composer for the reason given on `captureUserEvent`: a server
+    // capture is the only kind an ad blocker cannot drop, and this is the
+    // headline engagement metric. Emitted after the turn is fully validated
+    // (auth, chat ownership, attachment access, agent availability) so the
+    // count means "a turn actually ran", not "a request arrived".
+    captureWorkspaceEvent({
+      workspaceId,
+      distinctId: userId,
+      event: CHAT_MESSAGE_SENT,
+      properties: chatMessageSentProperties({
+        chatId: chat.id,
+        isNewChat: !requestedChatId,
+        effort,
+        attachmentCount: attachments.length,
+        // The user's own words, not the `📎 Attached: …` lines the composer
+        // appends — otherwise an attachment-only turn records a non-zero
+        // length and a long filename inflates a short prompt.
+        messageLength: stripComposerMarkup(firstUserText).length,
+        copilotAgent,
+        hasPageContext: Boolean(pageContext),
+        pageContextTab: pageContext?.tabSlug ?? null,
+      }),
+    });
+
     // Prior turns' persisted `file` blocks reference Anthropic uploads we
     // already deleted, so replaying the thread would 404. Repoint them at this
     // turn's fresh uploads (or neutralize them when nothing is attached) before
@@ -267,10 +295,7 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     let titlePromise: Promise<string | null> | null = null;
     if (shouldGenerateTitle && apiKey) {
-      let titlePromptText = firstUserText
-        .replace(/\n*📎 Attached: (.*)$/gm, '')
-        .replace(/\n*<!-- attach_id: (.*?) -->/g, '')
-        .trim();
+      let titlePromptText = stripComposerMarkup(firstUserText);
       if (!titlePromptText) titlePromptText = "Attached file(s)";
       
       titlePromise = generateAndSaveTitle({

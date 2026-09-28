@@ -6,6 +6,8 @@ import { WorkspaceLink } from '@/components/WorkspaceLink';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { companyDetailPath, companyLinkId, type CompanyRef } from '@/lib/navigation/companyPath';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
+import posthog from 'posthog-js';
+import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from '@/lib/posthog-chat';
 import { cn } from '@/lib/utils';
 
 /**
@@ -48,10 +50,23 @@ export function CompanyChip({
     );
   }
 
+  const href = companyDetailPath(companyId);
+
   return (
     <WorkspaceLink
-      href={companyDetailPath(companyId)}
-      onClick={revealConsole}
+      href={href}
+      onClick={() => {
+        posthog.capture(
+          CHAT_NAVIGATION_CLICKED,
+          chatNavigationProperties({
+            source: 'company_chip',
+            path: href,
+            companyId,
+            label,
+          }),
+        );
+        revealConsole();
+      }}
       // The whole chip is one link rather than a label with a nested button:
       // a bigger click target, and one tab stop instead of two.
       aria-label={`Open ${label}`}
@@ -103,13 +118,24 @@ export function CompanyNavigateButton({
 }) {
   const { revealConsole } = useLayoutControl();
 
+  const href = companyDetailPath(companyId);
+
   return (
     <WorkspaceLink
-      href={companyDetailPath(companyId)}
+      href={href}
       aria-label={`Open ${label}`}
       title={`Open ${label}`}
       onClick={(event) => {
         event.stopPropagation();
+        posthog.capture(
+          CHAT_NAVIGATION_CLICKED,
+          chatNavigationProperties({
+            source: 'bulk_card',
+            path: href,
+            companyId,
+            label,
+          }),
+        );
         revealConsole();
       }}
       className={cn(

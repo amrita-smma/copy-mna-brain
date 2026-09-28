@@ -2,15 +2,34 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import posthog from 'posthog-js';
 import { cn } from '@/lib/utils';
+import {
+  CHAT_LINK_CLICKED,
+  chatLinkProperties,
+  linkTextOf,
+  type ChatSurface,
+} from '@/lib/posthog-chat';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
   variant?: 'chat' | 'card';
+  /**
+   * Set this when the markdown is a chat message, and links inside it will
+   * emit `chat_link_clicked`. Left unset (the default) nothing is captured —
+   * the same renderer draws company cards and dashboard blurbs, and a link
+   * clicked there is not a chat interaction.
+   */
+  linkSurface?: ChatSurface;
 }
 
-export function MarkdownRenderer({ content, className, variant = 'chat' }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className,
+  variant = 'chat',
+  linkSurface,
+}: MarkdownRendererProps) {
   const isCard = variant === 'card';
 
   return (
@@ -117,6 +136,20 @@ export function MarkdownRenderer({ content, className, variant = 'chat' }: Markd
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline break-all"
+              onClick={() => {
+                if (!linkSurface) return;
+                // Fires on the click rather than on navigation: the link opens
+                // in a new tab, so there is no unload to race, and a capture
+                // here still lands if the user cancels the popup.
+                posthog.capture(
+                  CHAT_LINK_CLICKED,
+                  chatLinkProperties({
+                    href,
+                    surface: linkSurface,
+                    linkText: linkTextOf(children),
+                  }),
+                );
+              }}
             >
               {children}
             </a>

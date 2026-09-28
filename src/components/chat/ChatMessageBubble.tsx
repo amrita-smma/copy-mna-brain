@@ -217,6 +217,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
           <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
             <MarkdownRenderer
               content={textContent}
+              linkSurface="copilot"
               className="prose-invert [&_*]:text-primary-foreground"
             />
           </div>
@@ -608,6 +609,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                       <div className="text-xs text-muted-foreground">
                         <MarkdownRenderer
                           content={displayContent}
+                          linkSurface="copilot"
                           className="prose-xs [&_*]:text-xs"
                         />
                       </div>
@@ -652,6 +654,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                 <div className="text-sm">
                   <MarkdownRenderer
                     content={thinkingText}
+                    linkSurface="copilot"
                     className="prose-sm [&_*]:text-muted-foreground"
                   />
                 </div>
@@ -683,6 +686,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                   <span className="font-semibold">Warning! </span>
                   <MarkdownRenderer
                     content={w}
+                    linkSurface="copilot"
                     className="inline prose-sm [&_p]:inline [&_p]:m-0 [&_*]:text-amber-900 dark:[&_*]:text-amber-200"
                   />
                 </div>
@@ -695,7 +699,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
             with no card/bubble, flat against the background. */}
         {hasResponseContent && (
           <div className="w-full min-w-0 overflow-auto break-words">
-            <MarkdownRenderer content={responseText} />
+            <MarkdownRenderer content={responseText} linkSurface="copilot" />
           </div>
         )}
 

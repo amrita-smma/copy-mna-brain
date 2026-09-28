@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/api/client";
 import { EffortSelector } from "@/components/chat/EffortSelector";
 import { WorkspaceLink } from "@/components/WorkspaceLink";
+import posthog from "posthog-js";
+import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from "@/lib/posthog-chat";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import type { EffortChoice } from "@/lib/agents/analysis";
 
@@ -170,7 +172,17 @@ export function WorkforceHandoffCard({
             >
               <WorkspaceLink
                 href={workforceLink(queueId).href}
-                onClick={revealConsole}
+                onClick={() => {
+                  posthog.capture(
+                    CHAT_NAVIGATION_CLICKED,
+                    chatNavigationProperties({
+                      source: "workforce_handoff",
+                      path: workforceLink(queueId).href,
+                      label: workforceLink(queueId).label,
+                    }),
+                  );
+                  revealConsole();
+                }}
               >
                 {workforceLink(queueId).label}
                 <ArrowUpRight className="h-4 w-4 ml-1.5" />

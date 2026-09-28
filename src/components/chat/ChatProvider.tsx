@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
 import { getPageContext } from "@/lib/chat/pageContextStore";
+import posthog from "posthog-js";
+import { CHAT_ATTACHMENT_UPLOADED, chatAttachmentProperties } from "@/lib/posthog-chat";
 import type { EffortChoice } from "@/lib/agents/analysis";
 
 export type ChatEffortChoice = 'auto' | EffortChoice;
@@ -642,6 +644,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setAttachments((prev) =>
               prev.map((a) => (a.localId === localId ? { ...a, key, status: 'ready' } : a)),
             );
+            // `chat_attachment_uploaded` — one event per file, emitted only
+            // once the object is actually in S3. Captured here rather than in
+            // `POST /api/chat` because a file can be attached and then removed
+            // before the turn is sent, and "how many documents do people bring
+            // to the copilot" is the question the dashboard asks.
+            //
+            // In its own try: posthog-js does not swallow a throw from
+            // `before_send`, and this sits after the PUT already succeeded.
+            // Letting it reach the outer catch would mark a file that is
+            // sitting in S3 as failed and block the user from sending it.
+            try {
+              posthog.capture(
+                CHAT_ATTACHMENT_UPLOADED,
+                chatAttachmentProperties({
+                  fileName: file.name,
+                  contentType,
+                  sizeBytes: file.size,
+                  surface: 'copilot',
+                }),
+              );
+            } catch (err) {
+              console.error('[chat] attachment telemetry failed:', err);
+            }
           } catch (err) {
             console.error('[chat] attachment upload failed:', err);
             toast.error('Failed to upload attachment', { description: file.name });
