@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "930ce34a90831e295573a079f54a956af7804bf4",
+    "date": "2026-09-29",
+    "subject": "Alert mailbox custodians when PDF documents are added to Smart Files",
+    "category": "improvement"
+  },
+  {
     "hash": "d333087012ec9944db94130b36a18d98a7058e36",
     "date": "2026-09-28",
     "subject": "Record copilot usage in PostHog so engagement survives ad blockers.",
@@ -123,6 +129,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "d11626a429843a6f2569d36e2af3d30ec2a410d4",
+    "date": "2026-09-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "85322b06f5f87e7e89a4f2b946fdbfc755f936c8",
     "date": "2026-09-28",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
