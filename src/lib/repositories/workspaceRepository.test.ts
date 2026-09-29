@@ -11,6 +11,7 @@ interface MockDb {
   returning: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
+  orderBy: ReturnType<typeof vi.fn>;
 }
 
 /** A soft-deleted row, for the archive-aware lookups. */
@@ -31,8 +32,25 @@ describe('WorkspaceRepository', () => {
       returning: vi.fn(),
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
+      orderBy: vi.fn(),
     };
     repo = new WorkspaceRepository(mockDb as never);
+  });
+
+  it('findActiveByIds returns [] without hitting the DB when the id list is empty', async () => {
+    await expect(repo.findActiveByIds([])).resolves.toEqual([]);
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('findActiveByIds fetches every requested workspace in one query', async () => {
+    const rows = [
+      { id: 'w1', name: 'MNA', slug: 'mna', deleted_at: null },
+      { id: 'w2', name: 'Ventures', slug: 'ventures', deleted_at: null },
+    ];
+    mockDb.orderBy.mockResolvedValueOnce(rows);
+    await expect(repo.findActiveByIds(['w1', 'w2'])).resolves.toEqual(rows);
+    expect(mockDb.select).toHaveBeenCalledTimes(1);
+    expect(mockDb.where).toHaveBeenCalledTimes(1);
   });
 
   it('findAll filters out soft-deleted workspaces', async () => {

@@ -1,4 +1,4 @@
-import { eq, isNull, sql, and } from 'drizzle-orm';
+import { eq, inArray, isNull, sql, and } from 'drizzle-orm';
 import { workspaces } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
@@ -29,6 +29,21 @@ export class WorkspaceRepository {
   async findById(id: string): Promise<Tables<'workspaces'> | undefined> {
     const [row] = await this.db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1);
     return row;
+  }
+
+  /**
+   * Batched counterpart to {@link findActiveById}. Callers resolving names for
+   * a set of workspace ids (e.g. the email-ingest fan-out) must use this
+   * rather than looping the single-id lookup, which would fan out one query
+   * per id. Soft-deleted rows read as missing, same as `findActiveById`.
+   */
+  async findActiveByIds(ids: string[]): Promise<Tables<'workspaces'>[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .select()
+      .from(workspaces)
+      .where(and(inArray(workspaces.id, ids), isNull(workspaces.deleted_at)))
+      .orderBy(workspaces.created_at);
   }
 
   /** Same as `findById`, but a soft-deleted workspace reads as missing. */

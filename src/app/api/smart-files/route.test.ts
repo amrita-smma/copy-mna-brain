@@ -86,7 +86,55 @@ describe('POST /api/smart-files', () => {
       undefined,
       undefined,
       'user-1',
+      undefined,
     );
+  });
+
+  it('forwards the pipeline email_context to processUpload', async () => {
+    authMock.mockResolvedValueOnce({ user: { id: 'user-1' } });
+    processUploadMock.mockResolvedValueOnce({ id: 'file-9' });
+
+    await POST(
+      makeRequest({
+        key: 'uploads/teaser.pdf',
+        fileName: 'teaser.pdf',
+        contentType: 'application/pdf',
+        email_context: {
+          senderName: '  John Banker  ',
+          senderEmail: 'john@bank.com',
+          subject: 'Project Atlas',
+          receivedAt: '2026-09-28T14:32:00.000Z',
+          unexpected: 'dropped',
+        },
+      }),
+    );
+
+    expect(processUploadMock.mock.calls[0][9]).toEqual({
+      senderName: 'John Banker',
+      senderEmail: 'john@bank.com',
+      subject: 'Project Atlas',
+      receivedAt: '2026-09-28T14:32:00.000Z',
+    });
+  });
+
+  it('passes no email_context when the pipeline omits it or sends only blanks', async () => {
+    authMock.mockResolvedValue({ user: { id: 'user-1' } });
+    processUploadMock.mockResolvedValue({ id: 'file-9' });
+
+    await POST(
+      makeRequest({ key: 'uploads/a.pdf', fileName: 'a.pdf', contentType: 'application/pdf' }),
+    );
+    expect(processUploadMock.mock.calls[0][9]).toBeUndefined();
+
+    await POST(
+      makeRequest({
+        key: 'uploads/b.pdf',
+        fileName: 'b.pdf',
+        contentType: 'application/pdf',
+        email_context: { subject: '   ', senderEmail: null },
+      }),
+    );
+    expect(processUploadMock.mock.calls[1][9]).toBeUndefined();
   });
 
   it('returns HTTP 200 when processUpload extracts synchronously without jobId', async () => {

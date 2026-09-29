@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
-import { asyncJobId } from '@/lib/services/fileService';
+import { asyncJobId, type EmailIngestContext } from '@/lib/services/fileService';
 import { auth } from '@/auth';
 import {
   UserWorkspaceRepository,
@@ -38,6 +38,26 @@ function parsePositiveInt(value: string | null, fallback: number, max: number): 
   return Math.min(parsed, max);
 }
 
+function trimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Narrow the pipeline's `email_context` blob to the four header fields the
+ * ingest notification renders. Anything else on the object is discarded.
+ */
+function parseEmailContext(value: unknown): EmailIngestContext | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const context: EmailIngestContext = {
+    senderName: trimmedString(raw.senderName),
+    senderEmail: trimmedString(raw.senderEmail),
+    subject: trimmedString(raw.subject),
+    receivedAt: trimmedString(raw.receivedAt),
+  };
+  return Object.values(context).some(Boolean) ? context : undefined;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -51,6 +71,10 @@ export async function POST(request: NextRequest) {
       // For MBOX pipeline: custodian email address to resolve to a user UUID.
       entered_by: rawEnteredByEmail,
       workspace_id: rawWorkspaceId,
+      // For MBOX pipeline: headers of the email the attachment arrived on.
+      // Used only to describe the file in the custodian's ingest notification;
+      // never persisted.
+      email_context: rawEmailContext,
     } = await request.json();
 
     if (!key || !fileName) {
@@ -68,6 +92,7 @@ export async function POST(request: NextRequest) {
     const enteredByEmail = typeof rawEnteredByEmail === 'string' && rawEnteredByEmail.trim()
       ? rawEnteredByEmail.trim()
       : undefined;
+    const emailContext = parseEmailContext(rawEmailContext);
     const requestedWorkspaceId =
       typeof rawWorkspaceId === 'string' && rawWorkspaceId.trim()
         ? rawWorkspaceId.trim()
@@ -110,6 +135,7 @@ export async function POST(request: NextRequest) {
       bankerSource,
       enteredByEmail,
       uploaderUserId,
+      emailContext,
     );
 
     const isAsync = Boolean(asyncJobId(data));

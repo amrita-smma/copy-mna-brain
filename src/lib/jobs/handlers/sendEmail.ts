@@ -99,6 +99,25 @@ export type SendEmailPayload =
       voteUrl: string;
     }
   | {
+      kind: 'email_pdf_ingested';
+      to: string;
+      fileName: string;
+      workspaceName: string;
+      recipientName?: string;
+      additionalWorkspaces?: string[];
+      fileTypeLabel?: string;
+      fileSizeLabel?: string;
+      bankerSource?: string;
+      emailSender?: string;
+      emailSubject?: string;
+      emailReceivedLabel?: string;
+      fileDateLabel?: string;
+      matchedCompanies?: string[];
+      tags?: string[];
+      awaitingReview?: boolean;
+      fileUrl?: string;
+    }
+  | {
       kind: 'deal_resurfaced';
       to: string;
       companyName: string;
@@ -300,6 +319,33 @@ export async function runSendEmail(
         insightUrl: payload.insightUrl,
       });
       return { kind: 'insight_refreshed', to: payload.to, messageId };
+    }
+    case 'email_pdf_ingested': {
+      if (!payload.fileName) {
+        throw new Error('send_email[email_pdf_ingested]: `fileName` is required');
+      }
+      if (!payload.workspaceName) {
+        throw new Error('send_email[email_pdf_ingested]: `workspaceName` is required');
+      }
+      const { messageId } = await emailService.sendEmailPdfIngestedEmail({
+        email: payload.to,
+        fileName: payload.fileName,
+        workspaceName: payload.workspaceName,
+        recipientName: payload.recipientName,
+        additionalWorkspaces: payload.additionalWorkspaces,
+        fileTypeLabel: payload.fileTypeLabel,
+        fileSizeLabel: payload.fileSizeLabel,
+        bankerSource: payload.bankerSource,
+        emailSender: payload.emailSender,
+        emailSubject: payload.emailSubject,
+        emailReceivedLabel: payload.emailReceivedLabel,
+        fileDateLabel: payload.fileDateLabel,
+        matchedCompanies: payload.matchedCompanies,
+        tags: payload.tags,
+        awaitingReview: payload.awaitingReview,
+        fileUrl: payload.fileUrl,
+      });
+      return { kind: 'email_pdf_ingested', to: payload.to, messageId };
     }
     default: {
       // Exhaustiveness check — adding a new `kind` without a case here is a

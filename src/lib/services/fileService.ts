@@ -40,6 +40,7 @@ import {
   type Tables,
   type TablesInsert,
   type UserWorkspaceRepository,
+  type WorkspaceRepository,
 } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
@@ -153,6 +154,86 @@ function isExcelUpload(fileName: string, contentType: string): boolean {
     contentType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
     contentType === 'application/vnd.ms-excel.sheet.macroenabled.12'
   );
+}
+
+/**
+ * Headers of the email an MBOX-ingested attachment arrived on. Supplied by the
+ * data pipeline and used only to describe the document in the custodian's
+ * ingest notification — deliberately not persisted on the `files` row.
+ */
+export interface EmailIngestContext {
+  senderName?: string;
+  senderEmail?: string;
+  subject?: string;
+  receivedAt?: string;
+}
+
+/** Processing states that mean the file is genuinely in Brain. */
+const NOTIFIABLE_STATUSES = new Set(['completed', 'awaiting_review']);
+
+function isPdfUpload(fileName: string, contentType: string): boolean {
+  return contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+}
+
+/** Base URL for deep links in outbound email. */
+function resolveAppUrl(): string {
+  return (
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXTAUTH_URL ??
+    'http://localhost:3000'
+  ).replace(/\/+$/, '');
+}
+
+/** `financial_statement` -> `Financial statement`, for human-facing email copy. */
+function humanizeFileType(fileType: string | null | undefined): string | undefined {
+  const raw = fileType?.trim();
+  if (!raw) return undefined;
+  const words = raw.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** `Jane Doe <jane@bank.com>`, or whichever half of that we actually have. */
+function formatEmailSender(context?: EmailIngestContext): string | undefined {
+  const name = context?.senderName?.trim();
+  const email = context?.senderEmail?.trim();
+  if (name && email) return `${name} <${email}>`;
+  return name || email || undefined;
+}
+
+const MONTH_ABBREVIATIONS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/**
+ * RFC-2822 / ISO date to `28 Sep 2026, 14:32 UTC`; undefined if unparseable.
+ * Built from UTC parts rather than `toLocaleString` so the rendered string
+ * doesn't drift with the host's ICU data (`Sep` vs `Sept`).
+ */
+function formatReceivedAt(receivedAt?: string): string | undefined {
+  if (!receivedAt) return undefined;
+  const parsed = new Date(receivedAt);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${parsed.getUTCDate()} ${MONTH_ABBREVIATIONS[parsed.getUTCMonth()]} ` +
+    `${parsed.getUTCFullYear()}, ${pad(parsed.getUTCHours())}:${pad(parsed.getUTCMinutes())} UTC`
+  );
+}
+
+/** Byte count as a short human-readable size, e.g. `1.4 MB`. */
+function formatFileSize(bytes: number): string | undefined {
+  if (!Number.isFinite(bytes) || bytes <= 0) return undefined;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
 type IngestStructuredResult =
@@ -392,6 +473,7 @@ const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
 export class FileService {
   private crmService?: CRMService;
   private fundUpdateApplyService?: FundUpdateApplyService;
+  private workspaceRepo?: WorkspaceRepository;
 
   constructor(
     private readonly db: DbClient,
@@ -413,6 +495,15 @@ export class FileService {
     private readonly enqueueEmail: typeof enqueueSendEmail = enqueueSendEmail,
     private jobDispatcher?: JobDispatcher,
   ) {}
+
+  /**
+   * Resolves workspace display names for the email-ingest notification.
+   * Late-wired (like the CRM and job-dispatcher deps) so the long positional
+   * constructor doesn't grow another optional tail argument.
+   */
+  setWorkspaceRepo(workspaceRepo: WorkspaceRepository) {
+    this.workspaceRepo = workspaceRepo;
+  }
 
   setCRMService(crmService: CRMService) {
     this.crmService = crmService;
@@ -496,6 +587,9 @@ export class FileService {
     enteredByEmail?: string,
     /** For manual Smart Files uploads: the authenticated session user's UUID. */
     uploaderUserId?: string | null,
+    /** For the MBOX email pipeline: headers of the source email, used only to
+     *  describe the file in the custodian's ingest notification. */
+    emailContext?: EmailIngestContext,
   ) {
     // Dedup gate: a file with this name was already uploaded — return the
     // existing record instead of inserting and processing a duplicate. The
@@ -590,7 +684,7 @@ export class FileService {
     let matched_companies: unknown[] = [];
 
     try {
-      const isPdf = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      const isPdf = isPdfUpload(fileName, fileType);
       const isExplicitExcelFundUpdate = fileTypeOverride === 'fund_updates' && isExcelUpload(fileName, fileType);
       if (!isPdf && !isExplicitExcelFundUpdate) {
         rawText = await extractTextFromFile(buffer, fileType, fileName);
@@ -864,7 +958,95 @@ export class FileService {
         });
     }
 
+    // Email-pipeline PDFs only: tell the mailbox custodian their attachment
+    // landed in Brain. Manual UI uploads never notify (the uploader added the
+    // file themselves), and non-PDF attachments are out of scope. Dropped and
+    // duplicate files returned earlier, so they never reach here.
+    if (originEmail && enteredByEmail && isPdfUpload(fileName, fileType)) {
+      await this.notifyPdfIngested({
+        custodianEmail: enteredByEmail,
+        file: updatedData,
+        fileSizeBytes: buffer.length,
+        primaryWorkspaceId,
+        secondaryWorkspaceIds,
+        bankerSource,
+        emailContext,
+      });
+    }
+
     return { ...updatedData, signed_url: signedUrl };
+  }
+
+  /**
+   * Enqueue the `email_pdf_ingested` notification for a PDF crawled out of the
+   * custodian's mailbox. Best-effort: any failure is logged and never fails the
+   * upload, matching {@link notifyCompaniesAssigned}.
+   *
+   * Recipient is the crawled mailbox address itself, so a custodian without a
+   * `users` row still hears about their own attachment; the greeting name is
+   * filled in only when the address resolves to a user.
+   */
+  private async notifyPdfIngested(opts: {
+    custodianEmail: string;
+    file: Tables<'files'>;
+    fileSizeBytes: number;
+    primaryWorkspaceId: string;
+    secondaryWorkspaceIds: string[];
+    bankerSource?: string;
+    emailContext?: EmailIngestContext;
+  }): Promise<void> {
+    try {
+      // Only a file that actually landed is "added to Brain". The dropped and
+      // duplicate paths already return before this, so this is defence in
+      // depth against a future branch reaching here with a non-final status.
+      if (!NOTIFIABLE_STATUSES.has(opts.file.processing_status ?? '')) return;
+
+      const workspaceIds = [opts.primaryWorkspaceId, ...opts.secondaryWorkspaceIds];
+      const workspaces = (await this.workspaceRepo?.findActiveByIds(workspaceIds)) ?? [];
+      const byId = new Map(workspaces.map((w) => [w.id, w]));
+      const primary = byId.get(opts.primaryWorkspaceId);
+      // Without a resolvable workspace name the email has nothing meaningful to
+      // say about where the file landed — skip rather than send "undefined".
+      if (!primary) {
+        console.warn(
+          `[fileService] skipping email_pdf_ingested for file ${opts.file.id}: workspace ${opts.primaryWorkspaceId} not resolvable`,
+        );
+        return;
+      }
+
+      const custodian = await this.userRepo?.findByEmail(opts.custodianEmail);
+      const appUrl = resolveAppUrl();
+      const matchedCompanies = (opts.file.matched_companies ?? [])
+        .map((c) => c?.target || c?.name)
+        .filter((n): n is string => Boolean(n));
+
+      await this.enqueueEmail({
+        kind: 'email_pdf_ingested',
+        to: opts.custodianEmail,
+        recipientName: custodian?.name || undefined,
+        fileName: opts.file.file_name,
+        workspaceName: primary.name,
+        additionalWorkspaces: opts.secondaryWorkspaceIds
+          .map((id) => byId.get(id)?.name)
+          .filter((n): n is string => Boolean(n)),
+        fileTypeLabel: humanizeFileType(opts.file.file_type),
+        fileSizeLabel: formatFileSize(opts.fileSizeBytes),
+        bankerSource: opts.bankerSource,
+        emailSender: formatEmailSender(opts.emailContext),
+        emailSubject: opts.emailContext?.subject,
+        emailReceivedLabel: formatReceivedAt(opts.emailContext?.receivedAt),
+        fileDateLabel: opts.file.file_date ?? undefined,
+        matchedCompanies,
+        tags: opts.file.tags ?? [],
+        awaitingReview: opts.file.processing_status === 'awaiting_review',
+        fileUrl: `${appUrl}/w/${primary.slug}/smart-files`,
+      });
+    } catch (err) {
+      console.error(
+        `[fileService] Failed to enqueue email_pdf_ingested email for file ${opts.file.id}:`,
+        err,
+      );
+    }
   }
 
   /**
@@ -902,7 +1084,7 @@ export class FileService {
       const routingOverride: FileTypeOverride | undefined =
         existingFileType === 'fund_updates' ? 'fund_updates' : override;
 
-      const isPdf = contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      const isPdf = isPdfUpload(fileName, contentType);
       const isExplicitExcelFundUpdate = routingOverride === 'fund_updates' && isExcelUpload(fileName, contentType);
       if (!isPdf && !isExplicitExcelFundUpdate) {
         rawText = await extractTextFromFile(buffer, contentType, fileName);
@@ -3347,12 +3529,7 @@ function isEntityDecisionRemapped(
     companies: Tables<'companies'>[],
     bankerSource?: string,
   ): Promise<void> {
-    const appUrl = (
-      process.env.APP_URL ??
-      process.env.NEXT_PUBLIC_APP_URL ??
-      process.env.NEXTAUTH_URL ??
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
+    const appUrl = resolveAppUrl();
 
     for (const company of companies) {
       const companyName = company.target ?? company.project_name;

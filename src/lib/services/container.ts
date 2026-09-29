@@ -309,6 +309,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackMatchingService,
     userRepo,
   );
+  fileService.setWorkspaceRepo(workspaceRepo);
 
   const employerRepo = new EmployerRepository(db);
   const correspondentRepo = new CorrespondentRepository(db);

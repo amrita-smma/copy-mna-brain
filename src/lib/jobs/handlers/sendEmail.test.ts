@@ -264,6 +264,79 @@ describe('runSendEmail', () => {
     });
   });
 
+  it('delegates email_pdf_ingested to EmailService.sendEmailPdfIngestedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm9' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendEmailPdfIngestedEmail');
+
+    const result = await runSendEmail(
+      {
+        kind: 'email_pdf_ingested',
+        to: 'jane@corp.com',
+        recipientName: 'Jane',
+        fileName: 'Teaser.pdf',
+        workspaceName: 'MNA',
+        additionalWorkspaces: ['Ventures'],
+        fileTypeLabel: 'Prospectus',
+        fileSizeLabel: '1.4 MB',
+        bankerSource: 'Goldman Sachs',
+        emailSender: 'Jane Doe <jane@bank.com>',
+        emailSubject: 'Project Atlas',
+        emailReceivedLabel: '28 Sep 2026, 14:32 UTC',
+        fileDateLabel: '2026-09-01',
+        matchedCompanies: ['Acme Corp'],
+        tags: ['teaser'],
+        awaitingReview: true,
+        fileUrl: 'https://app.example.com/w/mna/smart-files',
+      },
+      { emailService },
+    );
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'jane@corp.com',
+      recipientName: 'Jane',
+      fileName: 'Teaser.pdf',
+      workspaceName: 'MNA',
+      additionalWorkspaces: ['Ventures'],
+      fileTypeLabel: 'Prospectus',
+      fileSizeLabel: '1.4 MB',
+      bankerSource: 'Goldman Sachs',
+      emailSender: 'Jane Doe <jane@bank.com>',
+      emailSubject: 'Project Atlas',
+      emailReceivedLabel: '28 Sep 2026, 14:32 UTC',
+      fileDateLabel: '2026-09-01',
+      matchedCompanies: ['Acme Corp'],
+      tags: ['teaser'],
+      awaitingReview: true,
+      fileUrl: 'https://app.example.com/w/mna/smart-files',
+    });
+    expect(result).toEqual({
+      kind: 'email_pdf_ingested',
+      to: 'jane@corp.com',
+      messageId: 'm9',
+    });
+  });
+
+  it('throws when email_pdf_ingested payload is missing fileName or workspaceName', async () => {
+    await expect(
+      runSendEmail({
+        kind: 'email_pdf_ingested',
+        to: 'jane@corp.com',
+        fileName: '',
+        workspaceName: 'MNA',
+      }),
+    ).rejects.toThrow('`fileName` is required');
+    await expect(
+      runSendEmail({
+        kind: 'email_pdf_ingested',
+        to: 'jane@corp.com',
+        fileName: 'Teaser.pdf',
+        workspaceName: '',
+      }),
+    ).rejects.toThrow('`workspaceName` is required');
+  });
+
   it('delegates company_assigned to EmailService.sendCompanyAssignedEmail', async () => {
     const emailService = new EmailService(
       vi.fn().mockResolvedValue({ messageId: 'm5' }),

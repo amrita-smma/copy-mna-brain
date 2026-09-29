@@ -755,6 +755,119 @@ export function renderCompanyAssignedEmail(input: {
   return { subject, html, text };
 }
 
+export interface EmailPdfIngestedRow {
+  label: string;
+  value: string;
+}
+
+export interface EmailPdfIngestedEmailInput {
+  email: string;
+  /** Display name of the mailbox custodian whose email was crawled. */
+  recipientName?: string;
+  /** Original attachment file name, e.g. "Project Atlas - Teaser.pdf". */
+  fileName: string;
+  /** Workspace the file landed in (display name). */
+  workspaceName: string;
+  /** Extra workspaces the same file fanned out to, when the mailbox is
+   *  watched by more than one workspace. */
+  additionalWorkspaces?: string[];
+  /** Classified document type, already humanised (e.g. "Prospectus"). */
+  fileTypeLabel?: string;
+  /** Human-readable size, e.g. "1.4 MB". */
+  fileSizeLabel?: string;
+  /** Bank / sender the crawled email came from. */
+  bankerSource?: string;
+  /** Sender of the email the attachment arrived on, e.g. `Jane Doe <j@bank.com>`. */
+  emailSender?: string;
+  /** Subject line of that email. */
+  emailSubject?: string;
+  /** Pre-formatted receipt time, e.g. `28 Sep 2026, 14:32 UTC`. */
+  emailReceivedLabel?: string;
+  /** Document date extracted by the classifier (ISO or display string). */
+  fileDateLabel?: string;
+  /** Companies the file was matched to or auto-created for. */
+  matchedCompanies?: string[];
+  /** Classifier tags. */
+  tags?: string[];
+  /** True when the file landed in the HITL review queue rather than completing. */
+  awaitingReview?: boolean;
+  /** Deep link to the file in Smart Files. */
+  fileUrl?: string;
+}
+
+/**
+ * Notify the mailbox custodian that a PDF attachment crawled from their email
+ * was ingested into Brain. Sent once per ingested PDF, listing the file's
+ * metadata and the workspace it landed in so the custodian can spot a
+ * misrouted or unexpected document straight away.
+ */
+export function renderEmailPdfIngestedEmail(
+  input: EmailPdfIngestedEmailInput,
+): { subject: string; html: string; text: string } {
+  const subject = `📄 ${input.fileName} added to ${input.workspaceName}`;
+
+  const rows: EmailPdfIngestedRow[] = [{ label: 'File', value: input.fileName }];
+  if (input.fileTypeLabel) rows.push({ label: 'Document type', value: input.fileTypeLabel });
+  if (input.fileSizeLabel) rows.push({ label: 'Size', value: input.fileSizeLabel });
+  if (input.fileDateLabel) rows.push({ label: 'Document date', value: input.fileDateLabel });
+  if (input.emailSender) rows.push({ label: 'From', value: input.emailSender });
+  else if (input.bankerSource) rows.push({ label: 'From', value: input.bankerSource });
+  if (input.emailSubject) rows.push({ label: 'Email subject', value: input.emailSubject });
+  if (input.emailReceivedLabel) {
+    rows.push({ label: 'Received', value: input.emailReceivedLabel });
+  }
+  rows.push({ label: 'Workspace', value: input.workspaceName });
+  if (input.additionalWorkspaces && input.additionalWorkspaces.length > 0) {
+    rows.push({
+      label: 'Also added to',
+      value: input.additionalWorkspaces.join(', '),
+    });
+  }
+  if (input.matchedCompanies && input.matchedCompanies.length > 0) {
+    rows.push({ label: 'Companies', value: input.matchedCompanies.join(', ') });
+  }
+  if (input.tags && input.tags.length > 0) {
+    rows.push({ label: 'Tags', value: input.tags.join(', ') });
+  }
+  rows.push({
+    label: 'Status',
+    value: input.awaitingReview ? 'Awaiting your review' : 'Processed',
+  });
+
+  const greeting = input.recipientName
+    ? `<p style="margin:0 0 8px; color:#52525b; font-size:15px;">Hey, ${escapeHtml(input.recipientName)},</p>`
+    : '';
+  const reviewNote = input.awaitingReview
+    ? '<p style="margin:16px 0 0; line-height:1.6; color:#374151; font-size:15px;">This document needs a human review before its extracted data is applied.</p>'
+    : '';
+
+  const html = renderNotificationShell({
+    bannerTitle: '📄 New Document Added',
+    accent: '#0ea5e9',
+    accentDark: '#0369a1',
+    bodyHtml: `${greeting}
+      <h1 style="margin:0 0 12px; font-size:24px; line-height:1.25;">${escapeHtml(input.fileName)}</h1>
+      <p style="margin:0 0 4px; line-height:1.6; color:#374151; font-size:15px;">A PDF attached to your email was scanned and added to <strong>${escapeHtml(input.workspaceName)}</strong> in Investment Brain.</p>
+      ${sectionLabel('DETAILS')}
+      ${kvTable(rows.map((r) => kvRow(r.label, r.value)).join(''))}
+      ${reviewNote}`,
+    ctaUrl: input.fileUrl,
+    ctaLabel: 'View Document →',
+    footer:
+      'Sent by Investment Brain because this document arrived in a mailbox synced to your account.',
+  });
+
+  const text = [
+    ...(input.recipientName ? [`Hey, ${input.recipientName},`, ''] : []),
+    `A PDF attached to your email was scanned and added to ${input.workspaceName} in Investment Brain.`,
+    '',
+    ...rows.map((r) => `${r.label}: ${r.value}`),
+    ...(input.fileUrl ? ['', `View the document: ${input.fileUrl}`] : []),
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface AgentEmailInput {
   /** Recipient address. Callers (the send_email tool) must have already
    * validated this against the platform user whitelist. */
@@ -1471,6 +1584,25 @@ export class EmailService {
       throw new Error('sendCompanyAssignedEmail: companyName is required');
     }
     const { subject, html, text } = renderCompanyAssignedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /**
+   * Tell a mailbox custodian that a PDF crawled from their email landed in
+   * Brain. Fired only for the email (MBOX) ingest path — manual Smart Files
+   * uploads never notify, since the uploader added the file themselves.
+   */
+  async sendEmailPdfIngestedEmail(
+    input: EmailPdfIngestedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendEmailPdfIngestedEmail: email is required');
+    if (!input.fileName) {
+      throw new Error('sendEmailPdfIngestedEmail: fileName is required');
+    }
+    if (!input.workspaceName) {
+      throw new Error('sendEmailPdfIngestedEmail: workspaceName is required');
+    }
+    const { subject, html, text } = renderEmailPdfIngestedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

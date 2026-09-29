@@ -526,6 +526,19 @@ export async function persistHardFailure(opts: {
   return nextFailCount;
 }
 
+/**
+ * Headers of the message the attachment came from. Forwarded to Smart Files
+ * purely so the ingest notification sent back to the custodian can name the
+ * email the document arrived on. Never persisted — the `/api/smart-files`
+ * route passes it straight through to the outbound email and drops it.
+ */
+export interface SmartFileEmailContext {
+  senderName?: string;
+  senderEmail?: string;
+  subject?: string;
+  receivedAt?: string;
+}
+
 async function uploadBytesToSmartFiles(opts: {
   bytes: Buffer;
   fileName: string;
@@ -533,6 +546,7 @@ async function uploadBytesToSmartFiles(opts: {
   enteredBy: string;
   workspaceId: string;
   fileTypeOverride?: SmartFileTypeOverride;
+  emailContext?: SmartFileEmailContext;
 }): Promise<{ dropped: boolean }> {
   const base = process.env.INTERNAL_API_URL ?? 'http://localhost:3000';
   const secret = process.env.ADMIN_SECRET ?? '';
@@ -569,6 +583,7 @@ async function uploadBytesToSmartFiles(opts: {
       ...(opts.fileTypeOverride
         ? { file_type_override: opts.fileTypeOverride }
         : {}),
+      ...(opts.emailContext ? { email_context: opts.emailContext } : {}),
     }),
   });
   if (!notify.ok) throw new Error(`Smart Files notify ${notify.status}`);
@@ -1211,6 +1226,12 @@ export async function processMboxSource(
               enteredBy: custodianEmail,
               workspaceId: primaryWorkspaceId,
               fileTypeOverride: upload.fileTypeOverride,
+              emailContext: {
+                senderName: item.parsed.sender?.name ?? undefined,
+                senderEmail: item.parsed.sender?.email ?? undefined,
+                subject: item.parsed.subject ?? undefined,
+                receivedAt: item.parsed.date ?? undefined,
+              },
             });
             uploadedDigests.add(upload.digest);
             // Persist immediately so a crash between attachments still skips

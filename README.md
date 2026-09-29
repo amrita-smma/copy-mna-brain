@@ -103,6 +103,30 @@ Deal-target file types — **prospectus** and **shopping_list** — can describe
 
 Other file types (financial statements, legal documents, MoMs, buyer/sponsor/advisor material) never auto-create companies — they describe counterparties or process, not companies on sale.
 
+### Email-ingest notifications
+
+Every **PDF** the MBOX pipeline crawls out of a mailbox and lands in Smart Files
+sends an `email_pdf_ingested` email to that mailbox's custodian — the person
+whose email was scanned — over the existing `send-email` Vercel Queues topic.
+The message names the file, the workspace it was added to, and the metadata
+resolved during processing: document type, size, document date, matched
+companies, classifier tags, and whether the file needs review. The pipeline also
+forwards the source email's `From`, `Subject` and received time (`email_context`
+on the `/api/smart-files` POST body) so the custodian can tell at a glance which
+message the attachment came from; that context is used only to render the email
+and is deliberately never persisted on the `files` row.
+
+Notification rules:
+
+- **Email-origin PDFs only.** Manual Smart Files uploads never notify (the
+  uploader added the file themselves), and non-PDF attachments are out of scope.
+- **Skipped for files that never landed** — duplicates, files auto-dropped as
+  `other`, and failed processing all return before the notification.
+- **One email per ingested PDF.** When a mailbox is watched by several
+  workspaces, the primary workspace is named as the destination and the rest are
+  listed under "Also added to" rather than sending one email per workspace.
+- **Best-effort** — a queue failure is logged and never fails the upload.
+
 ### Fund updates extraction (async jobs)
 
 Smart Files fund reporting workbooks and updates (`fund_updates`) are extracted via deterministic parsers (e.g. STARTECH master sheets) or dispatched as background jobs (`jobs.type = fund_update_extraction`). Async jobs return HTTP 202 and the client polls until extraction reaches `awaiting_review` or `failed`. Both upload (`/api/smart-files`) and reprocess (`/api/smart-files/[id]/reprocess`) routes configure `export const maxDuration = 600` to match the 10-minute extraction job timeout.

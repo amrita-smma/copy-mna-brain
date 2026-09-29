@@ -11,6 +11,7 @@ import {
   renderTaskProgressEmail,
   renderTaskInsightEmail,
   renderCompanyAssignedEmail,
+  renderEmailPdfIngestedEmail,
   renderDealResurfacedEmail,
   renderFeedbackSubmittedEmail,
   renderConsentRecordedEmail,
@@ -725,6 +726,112 @@ describe('renderCompanyAssignedEmail', () => {
   });
 });
 
+describe('renderEmailPdfIngestedEmail', () => {
+  const base = {
+    email: 'jane@corp.com',
+    fileName: 'Project Atlas - Teaser.pdf',
+    workspaceName: 'MNA',
+  };
+
+  it('names the file and the workspace it landed in', () => {
+    const out = renderEmailPdfIngestedEmail(base);
+    expect(out.subject).toBe('📄 Project Atlas - Teaser.pdf added to MNA');
+    expect(out.html).toContain('Project Atlas - Teaser.pdf');
+    expect(out.html).toContain('<strong>MNA</strong>');
+    expect(out.text).toContain(
+      'A PDF attached to your email was scanned and added to MNA in Investment Brain.',
+    );
+    expect(out.text).toContain('Workspace: MNA');
+  });
+
+  it('greets the custodian by name only when one is known', () => {
+    expect(renderEmailPdfIngestedEmail({ ...base, recipientName: 'Jane' }).html).toContain(
+      'Hey, Jane,',
+    );
+    expect(renderEmailPdfIngestedEmail(base).html).not.toContain('Hey,');
+  });
+
+  it('renders the source email headers when the pipeline supplies them', () => {
+    const out = renderEmailPdfIngestedEmail({
+      ...base,
+      emailSender: 'Jane Doe <jane@bank.com>',
+      emailSubject: 'Project Atlas — teaser attached',
+      emailReceivedLabel: '28 Sep 2026, 14:32 UTC',
+    });
+    expect(out.text).toContain('From: Jane Doe <jane@bank.com>');
+    expect(out.text).toContain('Email subject: Project Atlas — teaser attached');
+    expect(out.text).toContain('Received: 28 Sep 2026, 14:32 UTC');
+  });
+
+  it('falls back to the banker source when no sender header is available', () => {
+    const out = renderEmailPdfIngestedEmail({ ...base, bankerSource: 'Goldman Sachs' });
+    expect(out.text).toContain('From: Goldman Sachs');
+  });
+
+  it('prefers the sender header over the banker source', () => {
+    const out = renderEmailPdfIngestedEmail({
+      ...base,
+      bankerSource: 'Goldman Sachs',
+      emailSender: 'Jane Doe <jane@bank.com>',
+    });
+    expect(out.text).toContain('From: Jane Doe <jane@bank.com>');
+    expect(out.text).not.toContain('Goldman Sachs');
+  });
+
+  it('lists optional metadata rows only when populated', () => {
+    const full = renderEmailPdfIngestedEmail({
+      ...base,
+      fileTypeLabel: 'Prospectus',
+      fileSizeLabel: '1.4 MB',
+      fileDateLabel: '2026-09-01',
+      matchedCompanies: ['Acme Corp', 'Beta Ltd'],
+      tags: ['teaser', 'energy'],
+      additionalWorkspaces: ['Ventures'],
+    });
+    expect(full.text).toContain('Document type: Prospectus');
+    expect(full.text).toContain('Size: 1.4 MB');
+    expect(full.text).toContain('Document date: 2026-09-01');
+    expect(full.text).toContain('Companies: Acme Corp, Beta Ltd');
+    expect(full.text).toContain('Tags: teaser, energy');
+    expect(full.text).toContain('Also added to: Ventures');
+
+    const sparse = renderEmailPdfIngestedEmail(base);
+    expect(sparse.text).not.toContain('Document type:');
+    expect(sparse.text).not.toContain('Companies:');
+    expect(sparse.text).not.toContain('Also added to:');
+  });
+
+  it('reports the review status', () => {
+    expect(renderEmailPdfIngestedEmail(base).text).toContain('Status: Processed');
+    const review = renderEmailPdfIngestedEmail({ ...base, awaitingReview: true });
+    expect(review.text).toContain('Status: Awaiting your review');
+    expect(review.html).toContain('needs a human review');
+  });
+
+  it('renders a view CTA only when a file URL is provided', () => {
+    const withUrl = renderEmailPdfIngestedEmail({
+      ...base,
+      fileUrl: 'https://app.example.com/w/mna/smart-files',
+    });
+    expect(withUrl.html).toContain('https://app.example.com/w/mna/smart-files');
+    expect(withUrl.text).toContain(
+      'View the document: https://app.example.com/w/mna/smart-files',
+    );
+    expect(renderEmailPdfIngestedEmail(base).text).not.toContain('View the document:');
+  });
+
+  it('escapes HTML in user-supplied values', () => {
+    const out = renderEmailPdfIngestedEmail({
+      ...base,
+      fileName: '<script>alert(1)</script>.pdf',
+      emailSubject: '<img src=x onerror=1>',
+    });
+    expect(out.html).not.toContain('<script>alert(1)</script>');
+    expect(out.html).toContain('&lt;script&gt;');
+    expect(out.html).not.toContain('<img src=x');
+  });
+});
+
 describe('EmailService notification methods', () => {
   it('sendTaskCompletedEmail delegates to the sender with the rendered email', async () => {
     const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
@@ -742,6 +849,31 @@ describe('EmailService notification methods', () => {
     await expect(
       svc.sendTaskWaitingApprovalEmail({ email: 'u@e.com', action: '' }),
     ).rejects.toThrow(/action is required/);
+  });
+
+  it('sendEmailPdfIngestedEmail delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm' });
+    const svc = new EmailService(sender as EmailSender);
+    await svc.sendEmailPdfIngestedEmail({
+      email: 'jane@corp.com',
+      fileName: 'Teaser.pdf',
+      workspaceName: 'MNA',
+    });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'jane@corp.com',
+      subject: '📄 Teaser.pdf added to MNA',
+    });
+  });
+
+  it('sendEmailPdfIngestedEmail throws without a fileName or workspaceName', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(
+      svc.sendEmailPdfIngestedEmail({ email: 'u@e.com', fileName: '', workspaceName: 'MNA' }),
+    ).rejects.toThrow(/fileName is required/);
+    await expect(
+      svc.sendEmailPdfIngestedEmail({ email: 'u@e.com', fileName: 'a.pdf', workspaceName: '' }),
+    ).rejects.toThrow(/workspaceName is required/);
   });
 
   it('sendCompanyAssignedEmail delegates to the sender with the rendered email', async () => {

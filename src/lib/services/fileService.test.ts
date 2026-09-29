@@ -7102,3 +7102,346 @@ describe('FileService.processUpload — telemetry', () => {
     expect(uploads).toHaveLength(1);
   });
 });
+
+/**
+ * Minimal chainable Drizzle stub: enough for the real `FileRepository`
+ * instances that `processUpload` builds for secondary fan-out workspaces.
+ */
+function makeChainableDb(): DbClient {
+  const chain: any = {
+    insert: vi.fn(() => chain),
+    update: vi.fn(() => chain),
+    select: vi.fn(() => chain),
+    values: vi.fn(() => chain),
+    set: vi.fn(() => chain),
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
+    returning: vi.fn().mockResolvedValue([{ id: 'file-secondary' }]),
+    transaction: async (cb: (tx: any) => Promise<any>) => cb(chain),
+    execute: vi.fn().mockResolvedValue([]),
+  };
+  return chain as unknown as DbClient;
+}
+
+describe('FileService.processUpload email-ingest notification', () => {
+  const CUSTODIAN = 'jane@corp.com';
+
+  function makeWorkspace(id: string, name: string, slug: string) {
+    return { id, name, slug, deleted_at: null } as unknown as Tables<'workspaces'>;
+  }
+
+  function setup(
+    opts: {
+      file?: Partial<FileRow>;
+      workspaces?: Tables<'workspaces'>[];
+      workspaceIds?: string[];
+      user?: Partial<Tables<'users'>> | null;
+      withWorkspaceRepo?: boolean;
+      classified?: Record<string, unknown>;
+    } = {},
+  ) {
+    const fileRepo = makeFileRepoStub();
+    const enqueueEmail = vi.fn().mockResolvedValue({ messageId: 'm1' });
+    const findActiveByIds = vi
+      .fn()
+      .mockResolvedValue(opts.workspaces ?? [makeWorkspace('workspace-1', 'MNA', 'mna')]);
+    const userRepo = {
+      findByEmail: vi
+        .fn()
+        .mockResolvedValue(
+          opts.user === null ? undefined : { id: 'user-1', name: 'Jane', ...opts.user },
+        ),
+    };
+    const userWorkspaceRepo = {
+      findWorkspaceIdsBySyncedEmail: vi
+        .fn()
+        .mockResolvedValue(opts.workspaceIds ?? ['workspace-1']),
+    } as unknown as UserWorkspaceRepository;
+
+    const service = new FileService(
+      // The multi-workspace fan-out builds a real FileRepository per secondary
+      // workspace straight off this client, so it needs the Drizzle chain.
+      makeChainableDb(),
+      'workspace-1',
+      fileRepo,
+      makeCompanyAnalysisServiceStub(),
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      makeCompanyFinancialRepoStub(),
+      makeCompanyServiceStub(),
+      makeCompanyFxAdjustmentRepoStub(),
+      userWorkspaceRepo,
+      undefined,
+      userRepo as never,
+      enqueueEmail,
+    );
+    if (opts.withWorkspaceRepo !== false) {
+      service.setWorkspaceRepo({ findActiveByIds } as never);
+    }
+
+    vi.mocked(downloadFile).mockResolvedValue(Buffer.from('a'.repeat(2048)));
+    vi.mocked(getSignedUrl).mockResolvedValue('https://signed-url');
+    vi.mocked(fileRepo.insert).mockResolvedValue(
+      makeFile({ id: 'file-1', processing_status: 'processing' }),
+    );
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        file_name: 'Teaser.pdf',
+        file_type: 'prospectus',
+        processing_status: 'completed',
+        ...opts.file,
+      }),
+    );
+    // Anything but `other` — an email-origin file classified `other` is
+    // auto-dropped and returns before the notification.
+    vi.mocked(processFileContent).mockResolvedValue(
+      (opts.classified ?? { file_type: 'prospectus' }) as never,
+    );
+    vi.mocked(deleteFile).mockResolvedValue(undefined as never);
+
+    return { service, enqueueEmail, findActiveByIds, userRepo, fileRepo };
+  }
+
+  const EMAIL_CONTEXT = {
+    senderName: 'John Banker',
+    senderEmail: 'john@bank.com',
+    subject: 'Project Atlas — teaser attached',
+    receivedAt: '2026-09-28T14:32:00.000Z',
+  };
+
+  it('enqueues an email_pdf_ingested notification to the crawled mailbox', async () => {
+    const { service, enqueueEmail } = setup();
+
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+      null,
+      EMAIL_CONTEXT,
+    );
+
+    expect(enqueueEmail).toHaveBeenCalledTimes(1);
+    expect(enqueueEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'email_pdf_ingested',
+        to: CUSTODIAN,
+        recipientName: 'Jane',
+        fileName: 'Teaser.pdf',
+        workspaceName: 'MNA',
+        fileTypeLabel: 'Prospectus',
+        fileSizeLabel: '2.0 KB',
+        emailSender: 'John Banker <john@bank.com>',
+        emailSubject: 'Project Atlas — teaser attached',
+        emailReceivedLabel: '28 Sep 2026, 14:32 UTC',
+        awaitingReview: false,
+        additionalWorkspaces: [],
+      }),
+    );
+    expect(enqueueEmail.mock.calls[0][0].fileUrl).toMatch(/\/w\/mna\/smart-files$/);
+  });
+
+  it('does not notify for manual (non-email) uploads', async () => {
+    const { service, enqueueEmail } = setup();
+    await service.processUpload('uploads/Teaser.pdf', 'Teaser.pdf', 'application/pdf');
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not notify for non-PDF email attachments', async () => {
+    const { service, enqueueEmail } = setup({ file: { file_name: 'model.xlsx' } });
+    await service.processUpload(
+      'uploads/model.xlsx',
+      'model.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when the attachment duplicates an existing file', async () => {
+    const { service, enqueueEmail, fileRepo } = setup();
+    vi.mocked(fileRepo.findFirstByName).mockResolvedValue(
+      makeFile({ id: 'file-existing', file_name: 'Teaser.pdf', processing_status: 'completed' }),
+    );
+
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not notify for an email file auto-dropped as `other`', async () => {
+    const { service, enqueueEmail } = setup({
+      classified: { file_type: 'other' },
+      file: { processing_status: 'dropped', drop_reason: 'afd_classified_other' },
+    });
+    await service.processUpload(
+      'uploads/Receipt.pdf',
+      'Receipt.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when processing failed', async () => {
+    const { service, enqueueEmail } = setup({ file: { processing_status: 'failed' } });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+  });
+
+  it('flags a file that landed in the review queue', async () => {
+    const { service, enqueueEmail } = setup({
+      file: { processing_status: 'awaiting_review' },
+    });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ awaitingReview: true }),
+    );
+  });
+
+  it('names every workspace the mailbox fanned the file out to', async () => {
+    const { service, enqueueEmail } = setup({
+      workspaceIds: ['workspace-1', 'workspace-2'],
+      workspaces: [
+        makeWorkspace('workspace-1', 'MNA', 'mna'),
+        makeWorkspace('workspace-2', 'Ventures', 'ventures'),
+      ],
+    });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceName: 'MNA',
+        additionalWorkspaces: ['Ventures'],
+      }),
+    );
+  });
+
+  it('resolves workspace names in a single batched query', async () => {
+    const { service, findActiveByIds } = setup({
+      workspaceIds: ['workspace-1', 'workspace-2'],
+      workspaces: [
+        makeWorkspace('workspace-1', 'MNA', 'mna'),
+        makeWorkspace('workspace-2', 'Ventures', 'ventures'),
+      ],
+    });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(findActiveByIds).toHaveBeenCalledTimes(1);
+    expect(findActiveByIds).toHaveBeenCalledWith(['workspace-1', 'workspace-2']);
+  });
+
+  it('still notifies the mailbox when the custodian has no user row', async () => {
+    const { service, enqueueEmail } = setup({ user: null });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: CUSTODIAN, recipientName: undefined }),
+    );
+  });
+
+  it('skips the notification when the workspace name cannot be resolved', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { service, enqueueEmail } = setup({ workspaces: [] });
+    await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+    expect(enqueueEmail).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('never fails the upload when enqueueing the notification throws', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { service, enqueueEmail } = setup();
+    enqueueEmail.mockRejectedValue(new Error('queue down'));
+
+    const result = await service.processUpload(
+      'uploads/Teaser.pdf',
+      'Teaser.pdf',
+      'application/pdf',
+      undefined,
+      undefined,
+      true,
+      undefined,
+      CUSTODIAN,
+    );
+
+    expect(result).toMatchObject({ id: 'file-1' });
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+});
