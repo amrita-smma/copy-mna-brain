@@ -500,6 +500,55 @@ describe('EmailService.sendComposedEmail', () => {
     expect(arg.from).toMatch(/Investment Brain/);
     expect(arg.html).toContain('Both attached.');
   });
+
+  it("shows a reformatted document inside the shell, under the agent's note", async () => {
+    const document = '<div class="brain-doc"><h1>Q3 &amp; beyond</h1></div>';
+    await service.sendComposedEmail({
+      email: 'user@example.com',
+      subject: 'Q3 deck',
+      body: 'The attached page.',
+      documentHtml: document,
+    });
+    const arg = vi.mocked(sender).mock.calls[0][0];
+    expect(arg.html).toContain(document);
+    // Still the branded shell: banner, note and disclaimer all survive.
+    expect(arg.html).toContain('Investment Brain');
+    expect(arg.html).toContain('The attached page.');
+    expect(arg.html).toContain('auto-generated using BRAIN');
+    // Wider than a notification, so the document is not squeezed.
+    expect(arg.html).toContain('max-width:900px');
+    // The plain-text alternative says where the page went.
+    expect(arg.text).toContain('The attached page.');
+    expect(arg.text).toContain('HTML version of this email');
+    expect(arg.from).toMatch(/Investment Brain/);
+  });
+
+  it('keeps the document when attachments ride along too', async () => {
+    const document = '<div class="brain-doc">page</div>';
+    await service.sendComposedEmail({
+      email: 'user@example.com',
+      subject: 'Q3 deck',
+      body: 'Page + numbers.',
+      documentHtml: document,
+      attachments: [
+        { filename: 'export.xlsx', content: Buffer.from('PK'), contentType: 'application/xlsx' },
+      ],
+    });
+    const arg = vi.mocked(attachmentSender).mock.calls[0][0];
+    expect(arg.html).toContain(document);
+    expect(arg.attachments).toHaveLength(1);
+  });
+
+  it('keeps the notification width when there is no document', async () => {
+    await service.sendComposedEmail({
+      email: 'user@example.com',
+      subject: 'Heads up',
+      body: 'A quick note.',
+    });
+    const arg = vi.mocked(sender).mock.calls[0][0];
+    expect(arg.html).toContain('max-width:600px');
+    expect(arg.text).not.toContain('HTML version of this email');
+  });
 });
 
 // ── Notification renderers (MB-90) ───────────────────────────────────────────

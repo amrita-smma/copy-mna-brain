@@ -197,6 +197,7 @@ export function formatLargeHtmlAttachmentBlock(fileName: string, html: string): 
     '- Do NOT call propose_insight_create or any other tool that writes a whole document from it. One tool call cannot carry a document this size inside the turn\'s time budget; the turn would time out with nothing to show.',
     `- Call propose_workforce_handoff with the user's full request as the instruction, and refer to the attached file "${fileName}" by name. The file travels with the handoff: the Workforce receives it in full and builds the document section by section, with no time limit.`,
     '- For a quick question about the file, you may answer from this outline — say that you read only its outline.',
+    `- To EMAIL this file, no handoff is needed: call send_email with attached_html.file_name "${escapeAttr(fileName)}". It reads the stored file, reformats it for email and sends it as the body, so the outline below is irrelevant — never retype the document into the email body.`,
     '',
     '<document_outline>',
     outlineOf(html, FILE_OUTLINE_HINT),

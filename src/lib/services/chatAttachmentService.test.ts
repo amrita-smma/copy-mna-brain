@@ -68,6 +68,22 @@ describe('ChatAttachmentService.createUploadTarget', () => {
   });
 });
 
+describe('ChatAttachmentService.download', () => {
+  it('returns the stored bytes for a key that belongs to the workspace', async () => {
+    mocks.downloadFile.mockResolvedValue(Buffer.from('<h1>hi</h1>'));
+    const bytes = await makeService().download(`${PREFIX}deck.html`);
+    expect(mocks.downloadFile).toHaveBeenCalledWith(`${PREFIX}deck.html`);
+    expect(bytes.toString('utf-8')).toBe('<h1>hi</h1>');
+  });
+
+  it('rejects a key from another workspace without hitting S3', async () => {
+    await expect(
+      makeService().download('chat-attachments/other-ws/deck.html'),
+    ).rejects.toBeInstanceOf(ChatAttachmentForbiddenError);
+    expect(mocks.downloadFile).not.toHaveBeenCalled();
+  });
+});
+
 describe('ChatAttachmentService.delete', () => {
   it('deletes a key that belongs to the workspace', async () => {
     await makeService().delete(`${PREFIX}mine.pdf`);

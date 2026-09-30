@@ -182,6 +182,62 @@ describe('sendEmailWithAttachment (CC handling)', () => {
     expect(raw).toContain(`Cc: ${ALWAYS_CC_EMAIL}`);
   });
 
+  it('keeps a plain-ASCII HTML body inline on 7bit', async () => {
+    await sendEmailWithAttachment({
+      to: 'a@b.com',
+      subject: 's',
+      html: '<p>plain</p>',
+      text: 'plain',
+      attachments: [
+        { filename: 'f.txt', content: Buffer.from('hi'), contentType: 'text/plain' },
+      ],
+    });
+
+    const raw = (lastCommandInput().Content.Raw.Data as Buffer).toString('utf-8');
+    expect(raw).toContain('Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit');
+    expect(raw).toContain('<p>plain</p>');
+  });
+
+  it('base64-encodes an HTML body with non-ASCII characters so nothing is mangled', async () => {
+    // An uploaded document sent as-is (send_email's attached_html) routinely
+    // carries non-ASCII text, which 7bit does not cover.
+    const html = '<p>Ringkasan — Rp 1.250 miliar · 40% ↑</p>';
+    await sendEmailWithAttachment({
+      to: 'a@b.com',
+      subject: 's',
+      html,
+      text: 'x',
+      attachments: [
+        { filename: 'f.txt', content: Buffer.from('hi'), contentType: 'text/plain' },
+      ],
+    });
+
+    const raw = (lastCommandInput().Content.Raw.Data as Buffer).toString('utf-8');
+    expect(raw).toContain('Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64');
+    expect(raw).toContain(Buffer.from(html, 'utf-8').toString('base64'));
+  });
+
+  it('base64-encodes an HTML body whose lines exceed the SMTP line limit', async () => {
+    // Minified HTML is one very long line; over 998 octets a relay may fold it.
+    const html = `<p>${'a'.repeat(1200)}</p>`;
+    await sendEmailWithAttachment({
+      to: 'a@b.com',
+      subject: 's',
+      html,
+      text: 'x',
+      attachments: [
+        { filename: 'f.txt', content: Buffer.from('hi'), contentType: 'text/plain' },
+      ],
+    });
+
+    const raw = (lastCommandInput().Content.Raw.Data as Buffer).toString('utf-8');
+    expect(raw).toContain('Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64');
+    expect(raw).not.toContain(html);
+    // Every line stays within the 76-character base64 wrap.
+    const longest = Math.max(...raw.split('\r\n').map((line) => line.length));
+    expect(longest).toBeLessThanOrEqual(998);
+  });
+
   it('strips CR/LF from the Subject header to prevent MIME header injection', async () => {
     await sendEmailWithAttachment({
       to: 'a@b.com',

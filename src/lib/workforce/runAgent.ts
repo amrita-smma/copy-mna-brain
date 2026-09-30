@@ -333,6 +333,9 @@ export async function invokeAgent(
   const toolConfig = {
     thread_id: threadId,
     agentRole: 'workforce' as const,
+    // The run's files, so send_email's `attached_html` can send an uploaded
+    // HTML document as-is here too — a handed-off file keeps that ability.
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(userEmail ? { userEmail } : {}),
     triggered_by_user_id: triggered_by_user_id ?? null,
     run_id: runId,

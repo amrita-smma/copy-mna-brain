@@ -3,9 +3,17 @@ import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { UserRepository } from '@/lib/repositories';
 import { EmailService } from '@/lib/services/emailService';
+import { ChatAttachmentService } from '@/lib/services/chatAttachmentService';
 import type { EmailAttachment } from '@/lib/ses';
+import {
+  attachedHtmlSpecSchema,
+  prepareAttachedHtml,
+  resolveHtmlAttachment,
+  turnAttachmentRefs,
+} from './attachedHtml';
 import {
   companyExcelSpecSchema,
   researchSummarySpecSchema,
@@ -28,6 +36,13 @@ import { COMPANY_FILTER_DOC } from './companyFilters';
  *   - the Company Card deck (`company_card`) — the "L0 → L1 Submission" card
  *     from the company detail view, rendered slide-for-slide, and/or
  *   - a flexible PowerPoint deck (`presentation`) — Workforce only.
+ *
+ * It can also send an HTML file the user uploaded in chat (`attached_html`) as
+ * the email's body: the bytes are read back from S3 and reformatted into the
+ * static subset mail clients render (`toEmailSafeHtml`), then shown inside the
+ * branded shell. The model names the file; it never retypes it. A page that
+ * only draws itself once its JavaScript runs is refused rather than mailed
+ * blank.
  *
  * This is the single send path for everything the agent assembles: instead of
  * firing a separate email for the spreadsheet, another for the PDF, and a third
@@ -74,6 +89,11 @@ const argsSchema = z.object({
     .describe(
       'Optional: attach a flexible PowerPoint (.pptx) built from title + brief (+ optional company_names). Same self-service path as Excel/PDF — may take several minutes.',
     ),
+  attached_html: attachedHtmlSpecSchema
+    .optional()
+    .describe(
+      "Optional: send an HTML file the user uploaded in this chat as the email's body. Pass the file's name in file_name (omit it when only one HTML file is attached). Use this whenever the user asks to send/forward an attached HTML page — never retype the document yourself.",
+    ),
   company_card: companyCardSpecSchema
     .optional()
     .describe(
@@ -95,7 +115,7 @@ export const sendEmailTool = tool(
         args.company_excel,
       )}, pdf=${Boolean(args.research_summary)}, pptx=${Boolean(args.presentation)}, card=${Boolean(
         args.company_card,
-      )})`,
+      )}, html=${Boolean(args.attached_html)})`,
     );
 
     const subject = args.subject?.trim();
@@ -149,15 +169,54 @@ export const sendEmailTool = tool(
         recipients.push(match ?? { email: signedIn, name: '' });
       }
 
-      // ── Build attachments (shared by every recipient). ──
-      // SES raw messages are ~10MB; keep total attachment bytes under ~5.5MB
-      // so base64 (~4/3) + MIME headers still fit.
+      // SES raw messages are ~10MB; keep the total payload under ~5.5MB so
+      // base64 (~4/3) + MIME headers still fit. An uploaded HTML body counts
+      // against the same budget — it rides in the same message.
       const SES_SAFE_ATTACHMENT_BYTES = 5_500_000;
+
+      // ── Optional: an uploaded HTML file sent as the email body. ──
+      // Read back from S3 rather than from anything the model wrote: a large
+      // file only ever reached the model as an outline, so only the stored
+      // bytes are the document the user uploaded. It is then reformatted into
+      // the static subset mail clients render — a page that needs JavaScript
+      // would otherwise arrive blank. Resolved before the attachment builders
+      // below so a wrong or unsendable file fails fast, before a deck render
+      // pays for a headless browser.
+      let documentHtml: string | undefined;
+      let documentName: string | undefined;
+      let documentNote: string | null = null;
+      if (args.attached_html) {
+        const resolved = resolveHtmlAttachment(
+          turnAttachmentRefs(runtime?.configurable),
+          args.attached_html,
+        );
+        if (!resolved.ref) {
+          return `**Error:** ${resolved.error}`;
+        }
+        const chatAttachments = new ChatAttachmentService(await getActiveWorkspaceId());
+        const buffer = await chatAttachments.download(resolved.ref.key);
+        if (buffer.length > SES_SAFE_ATTACHMENT_BYTES) {
+          return `**Error:** "${resolved.ref.fileName}" is too large to send as an email body (~5.5MB limit). Ask the user for a smaller file.`;
+        }
+        const prepared = prepareAttachedHtml(buffer, resolved.ref.fileName);
+        if (!prepared.html) {
+          return `**Error:** ${prepared.error}`;
+        }
+        if (Buffer.byteLength(prepared.html, 'utf-8') > SES_SAFE_ATTACHMENT_BYTES) {
+          return `**Error:** "${resolved.ref.fileName}" is too large to send as an email body (~5.5MB limit). Ask the user for a smaller file.`;
+        }
+        documentHtml = prepared.html;
+        documentName = resolved.ref.fileName;
+        documentNote = prepared.note;
+      }
+      const documentBytes = documentHtml ? Buffer.byteLength(documentHtml, 'utf-8') : 0;
+
+      // ── Build attachments (shared by every recipient). ──
       const attachments: EmailAttachment[] = [];
       const attachmentLabels: string[] = [];
       const notes: string[] = [];
       const attachmentBytes = () =>
-        attachments.reduce((sum, a) => sum + a.content.length, 0);
+        documentBytes + attachments.reduce((sum, a) => sum + a.content.length, 0);
 
       if (args.research_summary) {
         const artifact = await buildResearchSummaryAttachment(
@@ -234,10 +293,13 @@ export const sendEmailTool = tool(
             subject,
             body,
             attachments,
+            documentHtml,
           });
           sent.push(r.email);
           logger.info(
-            `📧 send_email → ${r.email} (${attachments.length} attachment(s), messageId=${messageId || 'n/a'})`,
+            `📧 send_email → ${r.email} (${attachments.length} attachment(s)${
+              documentName ? `, body=${documentName}` : ''
+            }, messageId=${messageId || 'n/a'})`,
           );
         } catch (err) {
           failed.push(r.email);
@@ -245,11 +307,16 @@ export const sendEmailTool = tool(
         }
       }
 
+      if (documentNote) notes.push(`The page was ${documentNote}.`);
+
       const parts: string[] = [];
       if (sent.length > 0) {
         const withPart =
           attachmentLabels.length > 0 ? ` with ${attachmentLabels.join(' + ')}` : '';
-        parts.push(`Sent to ${sent.length} platform user(s)${withPart}: ${sent.join(', ')}.`);
+        const bodyPart = documentName ? ` using "${documentName}" as the email body` : '';
+        parts.push(
+          `Sent to ${sent.length} platform user(s)${bodyPart}${withPart}: ${sent.join(', ')}.`,
+        );
       }
       if (notes.length > 0) parts.push(notes.join(' '));
       if (rejected.length > 0) {
@@ -310,6 +377,18 @@ ${COMPANY_FILTER_DOC}
 
 - \`presentation\` — Attach a flexible PowerPoint (.pptx) via the Anthropic pptx skill. Pass \`title\`, free-form \`brief\` (outline/facts — slide count is flexible, NOT a fixed 7-slide template), and optional \`company_names\` to pull pipeline context. May take several minutes.
 
+## Sending an uploaded HTML file
+
+\`attached_html\` sends an HTML file the user uploaded in this chat as the email's **body**. Pass \`file_name\` (the name shown on the attachment chip); omit it only when a single HTML file is attached. The file is read from storage, so this works even when you only received an outline of it, and it needs NO Workforce handoff: emailing the file is not writing a document.
+
+The file is not forwarded untouched — mail clients run no JavaScript and strip most of what a modern page is built from, so the tool first rewrites the document into the static subset they render (scripts, embedded frames, chart canvases, form controls and unreachable images come out; text, tables, styling and loadable images stay) and shows the result inside the Investment Brain email shell. The tool result says what was removed; pass that on to the user in your confirmation sentence.
+
+Rules:
+- Do NOT retype, summarize or re-author the document into \`body\` — that produces a reconstruction, not the user's file. Name the file and let the tool do the reformatting.
+- \`body\` is still required: it is the note above the page, and the plain-text alternative for clients that do not render HTML. One or two sentences is enough.
+- If the tool answers that the page builds its content with JavaScript, nothing was sent — that covers a file that only shows a loading screen ("Unpacking…", a logo and a spinner) until its bundle runs. Tell the user what the tool said the page renders, and offer to send it as a PDF or to work from a version whose content is in the HTML itself. Do NOT retry the same file.
+- Works alongside the attachments above (e.g. the uploaded page as the body plus an Excel attached), and the file stays available on later turns of the same chat.
+
 ## Usage
 
 - Plain note to a colleague → just \`to\` + \`subject\` + \`body\`.
@@ -318,6 +397,7 @@ ${COMPANY_FILTER_DOC}
 - "Email me a summary and the L1 companies" → \`query_companies\` (stage="L1"), then \`body\` + \`research_summary\` + \`company_excel\` with those \`company_ids\` — ONE email, both attached.
 - "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`query_companies\` (name="X"), then \`body\` + \`company_card\` with \`company_ids: ["<X's id>"]\`. Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
 - "Email me a PowerPoint about X" (a NEW deck, free-form topic) → \`body\` + \`presentation\` (omit \`to\`).
+- "Send this HTML to X", "forward the attached page", "email me this file" (an .html file is attached) → \`lookup_user\` if a person is named, then \`body\` (a one-line note) + \`attached_html\` with \`file_name: "<the attached file>"\`.
 - Mix attachments in ONE call when asked (excel + pdf + pptx + company card).
 
 After the tool returns, write ONE short sentence confirming, or surface its **Error:** verbatim.
@@ -325,7 +405,8 @@ After the tool returns, write ONE short sentence confirming, or surface its **Er
 Args:
     to: Optional. Recipient email addresses (each a registered platform user). Omit to send to the signed-in user.
     subject: Required. The email subject line.
-    body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "Investment Brain".
+    body: Required. Plain-text body (Markdown is NOT rendered). Sign off as "Investment Brain". With attached_html it is only the plain-text alternative.
+    attached_html: Optional. file_name of an HTML file uploaded in this chat; it is reformatted for email and becomes the email's body.
     company_excel: Optional. company_ids from query_companies and/or filters (+ title) for an attached Excel workbook.
     research_summary: Optional. Title + sections (+ references) for an attached PDF.
     presentation: Optional. Title + brief (+ company_names) for an attached PowerPoint.

@@ -179,6 +179,14 @@ describe('formatLargeHtmlAttachmentBlock', () => {
     expect(block).not.toContain('<style>');
     expect(block).not.toContain('9'.repeat(400));
   });
+
+  it('carves out emailing the file, which needs no handoff', () => {
+    const block = formatLargeHtmlAttachmentBlock('brief.html', bigTemplate(80_000));
+
+    expect(block).toContain('send_email with attached_html.file_name "brief.html"');
+    expect(block).toContain('reformats it for email');
+    expect(block).toContain('never retype the document');
+  });
 });
 
 describe('formatLargeInsightForChat', () => {

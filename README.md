@@ -1355,6 +1355,49 @@ Lifecycle:
 - **Remove → S3 delete.** Removing a chip (`DELETE /api/chat/attachments`) or
   starting a new chat deletes the S3 object. This is the only thing that removes
   the durable file.
+- **Email an uploaded HTML file.** `send_email`'s `attached_html` mails an
+  attached `.html` file **as the email's body**. The model names the file
+  (`file_name`, optional when only one HTML file is attached) and never retypes
+  it: the bytes are read back from S3 (`ChatAttachmentService.download`, same
+  workspace-prefix guard as every other key), so this works even for a file
+  that only reached the model as an outline. The file is resolved from the
+  turn's `attachments` (or the thread's most recent earlier ones) on
+  `configurable`, so "email me that page" works on a later turn too, and a
+  handed-off Workforce run gets the same refs on its tool config.
+
+  The file is **not** forwarded untouched. Mail clients run no JavaScript and
+  strip most of what a modern page is built from, so a client-rendered page
+  sent verbatim arrives as its `<noscript>` apology — *"This page requires
+  JavaScript to display"*. `toEmailSafeHtml` (`src/lib/email/emailSafeHtml.ts`,
+  parsing with `node-html-parser`) rewrites the document into the subset that
+  does render: `<script>`, `<noscript>`, frames, `<canvas>`, media and form
+  controls are dropped, `on*` handlers and `javascript:` URLs with them, images
+  whose `src` cannot resolve from an inbox (relative paths, `blob:`) are removed
+  rather than left as broken icons, and the document's own `<style>` rules are
+  kept with bare `html`/`body` selectors re-rooted onto the `.brain-doc` wrapper
+  so they cannot repaint the surrounding email. The result rides inside the
+  branded shell under the agent's note (`renderAgentEmail`'s `documentHtml`, at
+  900px instead of the 600px notification width); `body` stays the note and the
+  plain-text alternative.
+
+  Nothing executes the page, so a document whose content exists only after its
+  scripts run has nothing left to send. That is **refused**, not mailed: the
+  tool returns an error naming the file and quoting what the page does render,
+  and the agent is told to offer a PDF instead. The detection is deliberately
+  not just "is there any text" — a single-page-app export shows a logo and a
+  spinner, which is text. `meaningfulText` discounts loading boilerplate
+  ("Unpacking…", "Loading", "Memuat", "requires JavaScript"), and a document
+  that carries scripts is refused when what is left is under 15 characters (the
+  floor that needs no phrase list, since plenty of shells animate a CSS ring
+  and write nothing), under 40 with loading copy, under 200 while carrying 20KB+
+  of script, or under 200 with an app mount point (`#root`, `#app`, `#__next`,
+  `[data-reactroot]`) still empty. The bundle test measures script bytes rather
+  than file size, so a report that inlines a large `data:` image is not
+  mistaken for an app; a picture with no caption is still a document, and a
+  short memo carrying an analytics snippet still sends. What the
+  rewrite removed is reported back so the confirmation sentence can say so. Bodies go out base64-encoded in the MIME part
+  (`ses.ts`), since a real document carries non-ASCII text and lines past the
+  SMTP limit that `7bit` cannot carry intact.
 
 Layering follows the handler → service convention: both route handlers and
 `/api/chat` delegate to `ChatAttachmentService`

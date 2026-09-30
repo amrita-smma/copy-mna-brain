@@ -328,10 +328,17 @@ function renderNotificationShell(input: {
   ctaUrl?: string;
   ctaLabel?: string;
   footer?: string;
+  /**
+   * Card width. The 600px default is the notification width; an email that
+   * carries a whole document widens so the document's own layout is not
+   * squeezed into a notification column.
+   */
+  maxWidthPx?: number;
 }): string {
   const { bannerTitle, bodyHtml, accent } = input;
   const accentDark = input.accentDark ?? accent;
   const footer = input.footer ?? 'Sent by Investment Brain.';
+  const maxWidth = input.maxWidthPx ?? 600;
   const cta =
     input.ctaUrl && input.ctaLabel
       ? `<div style="text-align:center; margin:28px 0 4px;">
@@ -341,7 +348,7 @@ function renderNotificationShell(input: {
   return `<!DOCTYPE html>
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f4f4f8; padding:24px; color:#111; margin:0;">
-    <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:16px; overflow:hidden; border:1px solid #e4e4e7;">
+    <div style="max-width:${maxWidth}px; margin:0 auto; background:#fff; border-radius:16px; overflow:hidden; border:1px solid #e4e4e7;">
       <div style="background-color:${accent}; background-image:linear-gradient(135deg, ${accent}, ${accentDark}); padding:30px 32px; text-align:center;">
         <div style="color:rgba(255,255,255,0.88); font-size:13px;">Investment Brain — M&amp;A Intelligence</div>
         <div style="color:#fff; font-size:23px; font-weight:700; margin-top:8px;">${escapeHtml(bannerTitle)}</div>
@@ -889,6 +896,14 @@ export interface ComposedEmailInput {
    * PDF), all delivered in this SINGLE email. When empty, a plain email is sent.
    */
   attachments?: EmailAttachment[];
+  /**
+   * An uploaded HTML document, already reformatted by `toEmailSafeHtml` into
+   * the static subset mail clients render. Set by the `send_email` tool when
+   * the user uploaded an HTML file in chat and asked for it to be sent. It is
+   * shown under the note inside the branded shell; `body` stays the
+   * plain-text alternative.
+   */
+  documentHtml?: string;
 }
 
 /**
@@ -921,24 +936,39 @@ export function buildAgentFromAddress(defaultFrom: string): string {
 export function renderAgentEmail(input: {
   subject: string;
   body: string;
+  /**
+   * An uploaded document, already reformatted into the email-safe subset by
+   * `toEmailSafeHtml`. It is inserted under the note, inside the branded
+   * shell — never escaped, because the rewriter has already removed
+   * everything a mail client must not be handed.
+   */
+  documentHtml?: string;
 }): { subject: string; html: string; text: string } {
   const safeBody = escapeHtml(input.body).replace(/\n/g, '<br />');
   const safeUrl = escapeHtml(APP_URL);
   const disclaimerHtml = `<p style="margin:24px 0 0; padding-top:16px; border-top:1px solid #efeff2; color:#a1a1aa; font-size:12px; font-style:italic; line-height:1.5;">${escapeHtml(
     AGENT_EMAIL_DISCLAIMER,
   )}<br />Open the app: <a href="${safeUrl}" style="color:#6d5ef5;">${safeUrl}</a></p>`;
+  const documentHtml = input.documentHtml
+    ? `<div style="margin:24px 0 0; padding-top:24px; border-top:1px solid #efeff2;">${input.documentHtml}</div>`
+    : '';
   const html = renderNotificationShell({
     bannerTitle: AGENT_EMAIL_SENDER_NAME,
     accent: '#6d5ef5',
     accentDark: '#5a4bd6',
     bodyHtml: `<h1 style="margin:0 0 16px; font-size:22px; line-height:1.25;">${escapeHtml(input.subject)}</h1>
       <div style="margin:0; line-height:1.6; color:#374151; font-size:15px;">${safeBody}</div>
+      ${documentHtml}
       ${disclaimerHtml}`,
     ctaUrl: APP_URL,
     ctaLabel: 'Open Investment Brain',
     footer: `Sent on behalf of ${AGENT_EMAIL_SENDER_NAME}.`,
+    maxWidthPx: input.documentHtml ? 900 : undefined,
   });
-  const text = `${input.body}\n\n—\n${AGENT_EMAIL_DISCLAIMER}\nOpen the app: ${APP_URL}`;
+  const documentNote = input.documentHtml
+    ? '\n\n[The attached page is shown in the HTML version of this email.]'
+    : '';
+  const text = `${input.body}${documentNote}\n\n—\n${AGENT_EMAIL_DISCLAIMER}\nOpen the app: ${APP_URL}`;
   return { subject: input.subject, html, text };
 }
 
@@ -1745,6 +1775,7 @@ export class EmailService {
     const { subject, html, text } = renderAgentEmail({
       subject: input.subject,
       body: input.body,
+      documentHtml: input.documentHtml,
     });
     const from = buildAgentFromAddress(DEFAULT_FROM_EMAIL);
     const attachments = input.attachments ?? [];

@@ -947,6 +947,22 @@ describe('runAgent — attachments, effort tiers, and user attribution', () => {
     expect(deleteFromAnthropicMock).toHaveBeenCalledWith(['file-mock']);
   });
 
+  it("puts the run's files on the tool config so send_email can send one as-is", async () => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, attachments } }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).configurable.attachments).toEqual(attachments);
+  });
+
+  it('leaves attachments off the tool config when the run carries none', async () => {
+    findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT } }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).configurable).not.toHaveProperty('attachments');
+  });
+
   it('prepares attachments inside the invokeAgent step, not during loadAndHeartbeat', async () => {
     findById.mockResolvedValueOnce(makeRow({ input: { prompt: PROMPT, attachments } }));
     // A null graph fails invokeAgent before it reaches prepareForMessage.

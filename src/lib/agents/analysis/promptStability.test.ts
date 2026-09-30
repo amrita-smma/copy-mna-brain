@@ -81,20 +81,19 @@ function lastSystemPrompt(): string {
   return (calls[calls.length - 1]?.[0] as { systemPrompt: string }).systemPrompt;
 }
 
-// The four chat prompts changed on purpose: a template (or HTML file) over
-// the 20,000-character chat cap arrives as an outline and goes to the
-// Workforce; a template request is pointed at Upload Template / Save as
-// template; a handoff carries the most recent earlier attachments.
+// The four chat prompts changed on purpose: send_email's `attached_html`
+// sends an HTML file uploaded in the chat as the email body — reformatted for
+// email, since mail clients run no JavaScript — and the agent must name the
+// file instead of retyping the document.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '327438c2bda070b73050e7d4ae33c58470bbdf51b3f15d4b1e7402c8ce66d3be',
-  investment: '25100581b858fe40caf4db513565dd89491c0f9fc9a6c1c315afa44f129cd737',
-  combined: '86b4d84a0d9fde72895635187d2fdb22be6dc69d52595b13b588d46886a757d9',
-  vc: '641fb87cb67fdb4c7083262d44ce20133ebb4f0cb6e0d7f60a21c6da6bba57ca',
+  mna: 'be67fcb68e3f27118f41f7f8f481ef6ea52d5da45521946bd5257c02d9cbe035',
+  investment: '2ee9361b9c1bf4a44379a5bf352bfa26abcbdf5c9a90d14346cad8773f590f08',
+  combined: '98fcc2e0179e30b2c141466bee74b16a2afa432784739c6ee80981a800a3d7af',
+  vc: 'b4787cb7fdd8bd9e5f0b46adb1d4322681dfb38e30da378e0f6f2816ab593d8e',
 };
-// The Workforce prompt changed on purpose: get_insight_template returns a
-// template in parts, and the Workforce reads every part before building it
-// section by section.
-const EXPECTED_WORKFORCE_HASH = 'f6c930116c666eee60a4ba7cc9a99bc0fd4c7ae6442c1ffcf0b5d8b60540e2df';
+// The Workforce prompt changed on purpose, for the same reason: a file handed
+// off with the task can be emailed with `attached_html`.
+const EXPECTED_WORKFORCE_HASH = '42ee5b840efbd6303d70202fdb5393677499ac771408c6c2408bb61b7dca354c';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

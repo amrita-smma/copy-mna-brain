@@ -6,7 +6,8 @@ import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { CompanyRepository } from "@/lib/repositories";
-import { isChatAttachmentRef, type ChatAttachmentRef } from "@/lib/services/chatAttachmentService";
+import { type ChatAttachmentRef } from "@/lib/services/chatAttachmentService";
+import { turnAttachmentRefs } from "./attachedHtml";
 
 /**
  * Marker used by the chat UI ([ChatMessageBubble]) to detect a workforce
@@ -33,24 +34,19 @@ export interface WorkforceHandoffPayload {
   attachments?: ChatAttachmentRef[];
 }
 
-function validRefs(value: unknown): ChatAttachmentRef[] {
-  return Array.isArray(value) ? value.filter(isChatAttachmentRef) : [];
-}
-
 /**
  * The files the handoff carries: this turn's attachments, or — when this turn
  * has none — those of the thread's most recent user turn that had any
  * (`priorAttachments`, resolved and ownership-checked by the chat route). A
  * user who attaches a document on one turn and agrees to hand it off on a
- * later one still sends the Workforce the file.
+ * later one still sends the Workforce the file. `undefined` (not `[]`) when
+ * there is nothing to carry, so the payload omits the field entirely.
  */
 export function handoffAttachments(
   configurable: Record<string, unknown> | undefined,
 ): ChatAttachmentRef[] | undefined {
-  const current = validRefs(configurable?.attachments);
-  if (current.length > 0) return current;
-  const prior = validRefs(configurable?.priorAttachments);
-  return prior.length > 0 ? prior : undefined;
+  const refs = turnAttachmentRefs(configurable);
+  return refs.length > 0 ? refs : undefined;
 }
 
 export const proposeWorkforceHandoff = tool(

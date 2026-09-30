@@ -164,6 +164,16 @@ export class ChatAttachmentService {
     return { uploadUrl, key };
   }
 
+  /**
+   * The raw bytes of a chat attachment, straight from S3 — no extraction, no
+   * conversion. Used by `send_email` to put an uploaded HTML file on the wire
+   * exactly as the user uploaded it. Ownership-checked like every other key.
+   */
+  async download(key: string): Promise<Buffer> {
+    this.assertOwned(key);
+    return downloadFile(key);
+  }
+
   /** Delete a chat attachment from S3 (e.g. user removed the chip / new chat). */
   async delete(key: string): Promise<void> {
     this.assertOwned(key);

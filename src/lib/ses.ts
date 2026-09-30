@@ -133,6 +133,39 @@ function sanitizeMimeHeaderValue(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').trim();
 }
 
+/** Break base64 into the 76-character lines MIME requires. */
+function wrapBase64(base64: string): string {
+  return base64.match(/.{1,76}/g)?.join('\r\n') ?? base64;
+}
+
+/** The SMTP line-length ceiling (RFC 5321) minus room for the CRLF. */
+const MAX_MIME_LINE_OCTETS = 990;
+
+/**
+ * The header + body lines for one MIME body part, choosing a transfer encoding
+ * the content actually survives. `7bit` is only legal for short, pure-ASCII
+ * lines; a user-uploaded HTML document sent as the email body (send_email's
+ * `attached_html`) routinely breaks both rules — non-ASCII characters and
+ * minified lines far past the SMTP limit — and a relay is free to mangle such a
+ * part. Anything outside 7bit's guarantees goes out base64 instead, so the
+ * bytes arrive exactly as uploaded. Plain ASCII keeps the readable encoding.
+ */
+function encodeBodyPart(contentType: string, body: string): string[] {
+  const nonAscii = /[^\x09\x0A\x0D\x20-\x7E]/.test(body);
+  const overlong = body
+    .split(/\r?\n/)
+    .some((line) => Buffer.byteLength(line, 'utf-8') > MAX_MIME_LINE_OCTETS);
+  if (!nonAscii && !overlong) {
+    return [`Content-Type: ${contentType}`, 'Content-Transfer-Encoding: 7bit', '', body];
+  }
+  return [
+    `Content-Type: ${contentType}`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrapBase64(Buffer.from(body, 'utf-8').toString('base64')),
+  ];
+}
+
 function buildRawMimeMessage(
   input: SendEmailInput & { attachments?: EmailAttachment[] },
 ): Buffer {
@@ -165,24 +198,17 @@ function buildRawMimeMessage(
     `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
     '',
     `--${altBoundary}`,
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: 7bit',
-    '',
-    input.text,
+    ...encodeBodyPart('text/plain; charset=UTF-8', input.text),
     '',
     `--${altBoundary}`,
-    'Content-Type: text/html; charset=UTF-8',
-    'Content-Transfer-Encoding: 7bit',
-    '',
-    input.html,
+    ...encodeBodyPart('text/html; charset=UTF-8', input.html),
     '',
     `--${altBoundary}--`,
     '',
   ];
 
   for (const attachment of attachments) {
-    const base64 = attachment.content.toString('base64');
-    const wrapped = base64.match(/.{1,76}/g)?.join('\r\n') ?? base64;
+    const wrapped = wrapBase64(attachment.content.toString('base64'));
     parts.push(
       `--${boundary}`,
       `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
