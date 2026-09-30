@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "1870c9380ac9b417faad4b153bb65dd11af31e8f",
+    "date": "2026-09-30",
+    "subject": "User data now isolated by workspace to prevent cross-workspace access",
+    "category": "improvement"
+  },
+  {
+    "hash": "3173df1e4670890a60e2f74ea54a2a07cca03a9b",
+    "date": "2026-09-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "930ce34a90831e295573a079f54a956af7804bf4",
     "date": "2026-09-29",
     "subject": "Alert mailbox custodians when PDF documents are added to Smart Files",
