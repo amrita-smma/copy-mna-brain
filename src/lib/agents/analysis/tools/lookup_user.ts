@@ -2,15 +2,19 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
+import { getActiveWorkspaceId } from '@/lib/workspace';
 import { UserRepository } from '@/lib/repositories';
 
 /**
  * lookup_user — resolve a platform user by a name or email fragment.
  *
- * Returns ONLY the matching users' name and email — never ids, roles, or any
- * other profile field. Its purpose is to let the agent turn a natural-language
- * reference ("send an email to nico ...") into the concrete email address that
- * `send_email` needs, without exposing anything else about the user record.
+ * Scoped to the active workspace: only members of the caller's own workspace
+ * are searchable, so the agent can never surface (or email) someone from
+ * another tenant. Returns ONLY the matching users' name and email — never
+ * ids, roles, or any other profile field. Its purpose is to let the agent
+ * turn a natural-language reference ("send an email to nico ...") into the
+ * concrete email address that `send_email` needs, without exposing anything
+ * else about the user record.
  */
 
 const MAX_RESULTS = 10;
@@ -25,8 +29,9 @@ export const lookupUser = tool(
     }
 
     try {
+      const workspaceId = await getActiveWorkspaceId();
       const userRepo = new UserRepository(createDb());
-      const users = await userRepo.findAll();
+      const users = await userRepo.findAllInWorkspace(workspaceId);
 
       const matches = users
         .filter((u) => {
@@ -39,7 +44,7 @@ export const lookupUser = tool(
         .filter((u) => u.email.length > 0);
 
       if (matches.length === 0) {
-        return `No platform user found matching "${query.trim()}".`;
+        return `No user in this workspace found matching "${query.trim()}".`;
       }
 
       const shown = matches.slice(0, MAX_RESULTS);
@@ -61,7 +66,7 @@ export const lookupUser = tool(
   },
   {
     name: 'lookup_user',
-    description: `Look up registered platform users by a name or email fragment. Returns ONLY each match's name and email — no ids, roles, or other fields.
+    description: `Look up users in the current workspace by a name or email fragment. Only members of the active workspace are searchable — users outside it are never returned. Returns ONLY each match's name and email — no ids, roles, or other fields.
 
 Use this to resolve a person referenced by name into their email address before calling send_email. For example, when the user says "send an email to nico with ...", call lookup_user(query: "nico") to get nico's email, then pass that address to send_email's \`to\`.
 
@@ -69,7 +74,7 @@ Args:
     query: Required. A name or email fragment (case-insensitive, partial match against both name and email).
 
 Returns:
-    A markdown table of matching users (name, email), or a message when nothing matches.`,
+    A markdown table of matching workspace users (name, email), or a message when nothing matches.`,
     schema: z.object({
       query: z
         .string()

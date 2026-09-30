@@ -443,7 +443,7 @@ export function getToolDescriptions(): string {
     {
       name: "lookup_user",
       description:
-        "Resolve a platform user by a name or email fragment, returning only their name and email — used to find a recipient's address before sending email",
+        "Resolve a user in the active workspace by a name or email fragment, returning only their name and email — used to find a recipient's address before sending email",
     },
     {
       name: "send_email",

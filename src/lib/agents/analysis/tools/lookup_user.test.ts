@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { findAll } = vi.hoisted(() => ({ findAll: vi.fn() }));
+const { findAllInWorkspace, getActiveWorkspaceId } = vi.hoisted(() => ({
+  findAllInWorkspace: vi.fn(),
+  getActiveWorkspaceId: vi.fn(),
+}));
 
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 
+vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId }));
+
 vi.mock('@/lib/repositories', () => ({
   UserRepository: class {
-    findAll = findAll;
+    findAllInWorkspace = findAllInWorkspace;
   },
 }));
 
@@ -24,13 +29,27 @@ const USERS = [
 
 describe('lookup_user', () => {
   beforeEach(() => {
-    findAll.mockReset();
-    findAll.mockResolvedValue(USERS);
+    findAllInWorkspace.mockReset();
+    findAllInWorkspace.mockResolvedValue(USERS);
+    getActiveWorkspaceId.mockReset();
+    getActiveWorkspaceId.mockResolvedValue('ws-1');
   });
 
   it('requires a non-blank query', async () => {
     expect(String(await invoke({ query: '   ' }))).toMatch(/query is required/i);
-    expect(findAll).not.toHaveBeenCalled();
+    expect(findAllInWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('only searches members of the active workspace', async () => {
+    await invoke({ query: 'nico' });
+    expect(findAllInWorkspace).toHaveBeenCalledWith('ws-1');
+  });
+
+  it('returns nothing when the active workspace has no members', async () => {
+    findAllInWorkspace.mockResolvedValue([]);
+    const result = String(await invoke({ query: 'nico' }));
+    expect(result).toMatch(/No user in this workspace found/i);
+    expect(result).not.toMatch(/nico@e\.com/);
   });
 
   it('matches by name fragment (case-insensitive) and returns only name + email', async () => {
@@ -52,11 +71,11 @@ describe('lookup_user', () => {
 
   it('excludes users without an email', async () => {
     const result = String(await invoke({ query: 'no email' }));
-    expect(result).toMatch(/No platform user found/i);
+    expect(result).toMatch(/No user in this workspace found/i);
   });
 
   it('reports when nothing matches', async () => {
     const result = String(await invoke({ query: 'zzz' }));
-    expect(result).toMatch(/No platform user found/i);
+    expect(result).toMatch(/No user in this workspace found/i);
   });
 });
