@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
+    "date": "2026-09-30",
+    "subject": "Uploaded documents now format correctly when sent via email",
+    "category": "improvement"
+  },
+  {
     "hash": "930ce34a90831e295573a079f54a956af7804bf4",
     "date": "2026-09-29",
     "subject": "Alert mailbox custodians when PDF documents are added to Smart Files",
     "category": "improvement"
+  },
+  {
+    "hash": "0e7602159eb6a98a65596c1cc0f63fdc89845ff3",
+    "date": "2026-09-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "d333087012ec9944db94130b36a18d98a7058e36",
