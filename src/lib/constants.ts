@@ -41,6 +41,64 @@ export function stageMoveDirection(
 }
 
 /**
+ * The pre-pipeline bucket a deal sits in before anyone has triaged it — the
+ * Pipeline's "Inbound Pending Review" sub-tab. Demoting out of L0 sends a deal
+ * back here rather than nowhere (L0 is the first committed pipeline stage, so
+ * there is no L-minus-one to step back to).
+ */
+export const UNREVIEWED_STAGE: DealStage = 'unreviewed';
+
+/**
+ * Stage a deal moves to when promoted one step, or `null` when there is
+ * nowhere further to go (L5, or a stage outside the promote/demote ladder).
+ *
+ * `unreviewed` sits one rung below L0, so a pending-review deal promotes into
+ * L0 — not into L1, which is what reading the *table's* stage instead of the
+ * *row's* stage would suggest.
+ */
+export function promoteTargetForStage(
+  stage: string | undefined | null,
+): DealStage | null {
+  if (stage === UNREVIEWED_STAGE) return PIPELINE_STAGES[0];
+  const index = stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
+  if (index < 0 || index >= PIPELINE_STAGES.length - 1) return null;
+  return PIPELINE_STAGES[index + 1];
+}
+
+/**
+ * Stage a deal moves to when demoted one step, or `null` when there is nowhere
+ * to fall back to.
+ *
+ * L0 demotes out of the committed pipeline and back to `unreviewed` ("Inbound
+ * Pending Review"). That only makes sense for inbound-sourced deals — the
+ * Pending Review section is inbound-only, so an outbound deal demoted out of
+ * L0 would have no visible home. Outbound callers pass
+ * `demoteL0ToReview: false` and get `null` at L0, i.e. no demote action.
+ */
+export function demoteTargetForStage(
+  stage: string | undefined | null,
+  opts?: { demoteL0ToReview?: boolean },
+): DealStage | null {
+  const index = stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
+  if (index < 0) return null;
+  if (index === 0) {
+    return opts?.demoteL0ToReview ? UNREVIEWED_STAGE : null;
+  }
+  return PIPELINE_STAGES[index - 1];
+}
+
+/**
+ * How a stage is named in promote/demote copy ("Demote to ..."). Pipeline
+ * stages are referred to by their bare L-code everywhere in that flow; only
+ * `unreviewed` needs spelling out, since "Demote to unreviewed" doesn't point
+ * at the section the deal actually lands in.
+ */
+export function stageMoveLabel(stage: string | undefined | null): string {
+  if (!stage) return '';
+  return stage === UNREVIEWED_STAGE ? 'Inbound Pending Review' : stage;
+}
+
+/**
  * Stage given to companies the relationship-graph tooling auto-creates as one
  * side of an edge. They sit outside the L0–L5 pipeline and get their own
  * Master Data section.

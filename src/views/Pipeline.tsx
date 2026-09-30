@@ -77,7 +77,11 @@ import TrackMultiSelect, {
   UNASSIGNED_TRACK_ID,
 } from "@/components/pipeline/TrackMultiSelect";
 import { resolveTrackIds, effectiveDealLead } from "@/lib/tracks/matchTracks";
-import { DOC_TYPE_OPTIONS } from "@/lib/constants";
+import {
+  DOC_TYPE_OPTIONS,
+  demoteTargetForStage,
+  promoteTargetForStage,
+} from "@/lib/constants";
 import {
   DEFAULT_INBOUND_STATUS_OPTIONS,
   DEFAULT_OUTBOUND_STATUS_OPTIONS,
@@ -1104,6 +1108,19 @@ export default function Pipeline() {
       toast.error("Failed to promote company");
     }
   };
+
+  // Stage the promote/demote dialog will move `promotingCompany` to. Mirrors
+  // the row-menu logic in the Inbound/Outbound tables — including the
+  // inbound-only fallback out of L0 into Inbound Pending Review — so the
+  // dialog can never target a stage the menu that opened it wouldn't offer.
+  // `null` (nothing to move to) keeps the dialog unmounted entirely.
+  const stageMoveTarget: DealStage | null = promotingCompany
+    ? dialogMode === "demote"
+      ? demoteTargetForStage(promotingCompany.pipeline_stage, {
+        demoteL0ToReview: promotingCompany.source === "inbound",
+      })
+      : promoteTargetForStage(promotingCompany.pipeline_stage)
+    : null;
 
   const stageCount = (stage: DealStage) =>
     companies.filter((c) => c.pipeline_stage === stage && isActive(c)).length;
@@ -2135,22 +2152,14 @@ export default function Pipeline() {
           }}
         />
 
-        {promotingCompany && (
+        {promotingCompany && stageMoveTarget && (
           <PromoteDialog
             open={promoteDialogOpen}
             onOpenChange={setPromoteDialogOpen}
             dealId={promotingCompany.id}
             companyName={companyDisplayName(promotingCompany, "this company")}
             currentStage={promotingCompany.pipeline_stage}
-            nextStage={
-              dialogMode === "demote"
-                ? (STAGES[
-                  STAGES.indexOf(promotingCompany.pipeline_stage) - 1
-                ] as DealStage)
-                : (STAGES[
-                  STAGES.indexOf(promotingCompany.pipeline_stage) + 1
-                ] as DealStage)
-            }
+            nextStage={stageMoveTarget}
             onSuccess={() => {
               setPromotingCompany(null);
               fetchCompanies();

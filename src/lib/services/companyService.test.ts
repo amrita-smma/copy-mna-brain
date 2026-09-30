@@ -449,6 +449,75 @@ describe("CompanyService.promote", () => {
   });
 });
 
+describe("CompanyService.promote — demoting out of L0", () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+  const trackSvc = { dispatch: vi.fn(), runSync: vi.fn().mockResolvedValue({ matchedTrackIds: [] }) };
+
+  beforeEach(() => {
+    repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L0", target: "Acme Corp" }),
+    );
+    service = buildService(repos, trackSvc as never);
+    vi.mocked(repos.companyRepo.update).mockResolvedValue([makeCompany()]);
+  });
+
+  it("moves the company back to the unreviewed (Inbound Pending Review) bucket", async () => {
+    await service.promote("company-1", "L0", "unreviewed");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ pipeline_stage: "unreviewed" }),
+    );
+  });
+
+  it("does not apply the L0 requirements gate when leaving L0", async () => {
+    // The gate only fires on *entry* to L0 — a company missing required fields
+    // must still be able to fall back out of the pipeline.
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ pipeline_stage: "L0", entered_by: null, geography: null, banker: null }),
+    );
+    await expect(service.promote("company-1", "L0", "unreviewed")).resolves.toBeUndefined();
+  });
+
+  it("does not run track matching on the way out of L0", async () => {
+    await service.promote("company-1", "L0", "unreviewed");
+    expect(trackSvc.runSync).not.toHaveBeenCalled();
+  });
+
+  it("logs the move and records the optional reason as a stage note", async () => {
+    await service.promote("company-1", "L0", "unreviewed", "Needs re-triage");
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PROMOTED_FROM_L0_TO_unreviewed" }),
+    );
+    expect(repos.dealNoteRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Needs re-triage", stage: "L0" }),
+    );
+  });
+
+  it("captures the move as deal_demoted", async () => {
+    await service.promote("company-1", "L0", "unreviewed");
+    expect(posthogMocks.captureWorkspaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "deal_demoted",
+        properties: expect.objectContaining({ from_stage: "L0", to_stage: "unreviewed" }),
+      }),
+    );
+  });
+
+  it("still regenerates the Company Card, like any other stage move", async () => {
+    const analysis = makeCompanyAnalysisService();
+    const demoteService = buildService(repos, trackSvc as never, analysis);
+
+    await demoteService.promote("company-1", "L0", "unreviewed");
+
+    expect(analysis.regenerate).toHaveBeenCalledWith("company-1", {
+      reason: "stage move L0 -> unreviewed",
+      source: "stage_move",
+    });
+  });
+});
+
 describe("CompanyService.promote (promotion reason)", () => {
   let repos: ReturnType<typeof makeRepos>;
   let service: CompanyService;

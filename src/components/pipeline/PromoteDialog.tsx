@@ -24,6 +24,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { DealStage } from "@/lib/types";
+import { stageMoveLabel } from "@/lib/constants";
 import { promoteCompany } from "@/lib/api/pipeline";
 import { apiRequest } from "@/lib/api/client";
 
@@ -56,6 +57,9 @@ export default function PromoteDialog({
   const [linkTitle, setLinkTitle] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  // `unreviewed` is the demote target out of L0; spell it as the section the
+  // deal actually lands in rather than the raw stage value.
+  const nextStageLabel = stageMoveLabel(nextStage);
 
   const handlePromote = async () => {
     setIsSubmitting(true);
@@ -150,8 +154,8 @@ export default function PromoteDialog({
 
       toast.success(
         mode === "demote"
-          ? `Demoted to ${nextStage}`
-          : `Promoted to ${nextStage}`,
+          ? `Demoted to ${nextStageLabel}`
+          : `Promoted to ${nextStageLabel}`,
       );
       resetForm();
       onOpenChange(false);
@@ -198,20 +202,20 @@ export default function PromoteDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {mode === "demote"
-              ? `Demote to ${nextStage}`
-              : `Promote to ${nextStage}`}
+              ? `Demote to ${nextStageLabel}`
+              : `Promote to ${nextStageLabel}`}
           </DialogTitle>
           <DialogDescription>
             {mode === "demote" ? (
               <>
                 Move <span className="font-medium">{companyName}</span> back
-                from {currentStage} to {nextStage}.
+                from {stageMoveLabel(currentStage)} to {nextStageLabel}.
               </>
             ) : (
               <>
                 Add supporting information before promoting{" "}
                 <span className="font-medium">{companyName}</span> from{" "}
-                {currentStage} to {nextStage}.
+                {stageMoveLabel(currentStage)} to {nextStageLabel}.
               </>
             )}
           </DialogDescription>

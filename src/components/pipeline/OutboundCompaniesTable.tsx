@@ -48,7 +48,11 @@ import { cn } from "@/lib/utils";
 import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
 import type { DealStage } from "@/lib/types";
-import { PIPELINE_STAGES } from "@/lib/constants";
+import {
+  demoteTargetForStage,
+  promoteTargetForStage,
+  stageMoveLabel,
+} from "@/lib/constants";
 import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
@@ -250,13 +254,12 @@ export default function OutboundCompaniesTable({
     );
     focusCopilot();
   };
-  const stageIndex = PIPELINE_STAGES.indexOf(stage);
-  const promoteTarget =
-    stageIndex >= 0 && stageIndex < PIPELINE_STAGES.length - 1
-      ? PIPELINE_STAGES[stageIndex + 1]
-      : null;
-  const demoteTarget =
-    stageIndex > 0 ? PIPELINE_STAGES[stageIndex - 1] : null;
+  // Outbound deals never sit in the inbound Pending Review bucket, so L0 keeps
+  // no demote target here — `demoteL0ToReview` is left off deliberately.
+  const promoteTargetFor = (company: PipelineCompany) =>
+    promoteTargetForStage(company.pipeline_stage ?? stage);
+  const demoteTargetFor = (company: PipelineCompany) =>
+    demoteTargetForStage(company.pipeline_stage ?? stage);
   const picColumnLabel = dealLeadLabel(stage);
 
   // Sort / filter descriptors for a managed column — surfaced in the column's
@@ -643,16 +646,16 @@ export default function OutboundCompaniesTable({
                             <DropdownMenuSeparator />
                           </>
                         )}
-                        {promoteTarget && (
+                        {promoteTargetFor(company) && (
                           <DropdownMenuItem onClick={() => onPromote(company)}>
                             <ArrowRight className="mr-2 h-4 w-4" />
-                            Promote to {promoteTarget}
+                            Promote to {stageMoveLabel(promoteTargetFor(company))}
                           </DropdownMenuItem>
                         )}
-                        {demoteTarget && (
+                        {demoteTargetFor(company) && (
                           <DropdownMenuItem onClick={() => onDemote(company)}>
                             <ArrowLeft className="mr-2 h-4 w-4" />
-                            Demote to {demoteTarget}
+                            Demote to {stageMoveLabel(demoteTargetFor(company))}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => onUpdate(company)}>

@@ -51,7 +51,11 @@ import { cn } from "@/lib/utils";
 import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
 import type { DealStage } from "@/lib/types";
-import { PIPELINE_STAGES } from "@/lib/constants";
+import {
+  demoteTargetForStage,
+  promoteTargetForStage,
+  stageMoveLabel,
+} from "@/lib/constants";
 import type { PipelineCompany } from "@/views/Pipeline";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import { AskAIButton } from "@/components/chat/AskAIButton";
@@ -248,13 +252,17 @@ export default function InboundCompaniesTable({
     );
     focusCopilot();
   };
-  const stageIndex = PIPELINE_STAGES.indexOf(stage);
-  const promoteTarget =
-    stageIndex >= 0 && stageIndex < PIPELINE_STAGES.length - 1
-      ? PIPELINE_STAGES[stageIndex + 1]
-      : null;
-  const demoteTarget =
-    stageIndex > 0 ? PIPELINE_STAGES[stageIndex - 1] : null;
+  // Targets are resolved per row, not from the table's `stage` prop: the L0
+  // inbound table renders both the Pending Review (`unreviewed`) and the
+  // reviewed (`L0`) sections, so the two groups move in different directions.
+  // An L0 row demotes back to Pending Review; an `unreviewed` row has nowhere
+  // further back to go.
+  const promoteTargetFor = (company: PipelineCompany) =>
+    promoteTargetForStage(company.pipeline_stage ?? stage);
+  const demoteTargetFor = (company: PipelineCompany) =>
+    demoteTargetForStage(company.pipeline_stage ?? stage, {
+      demoteL0ToReview: true,
+    });
 
   const picColumnLabel = dealLeadLabel(stage);
 
@@ -851,16 +859,16 @@ export default function InboundCompaniesTable({
                             <DropdownMenuSeparator />
                           </>
                         )}
-                        {promoteTarget && (
+                        {promoteTargetFor(company) && (
                           <DropdownMenuItem onClick={() => onPromote(company)}>
                             <ArrowRight className="mr-2 h-4 w-4" />
-                            Promote to {promoteTarget}
+                            Promote to {stageMoveLabel(promoteTargetFor(company))}
                           </DropdownMenuItem>
                         )}
-                        {demoteTarget && (
+                        {demoteTargetFor(company) && (
                           <DropdownMenuItem onClick={() => onDemote(company)}>
                             <ArrowLeft className="mr-2 h-4 w-4" />
-                            Demote to {demoteTarget}
+                            Demote to {stageMoveLabel(demoteTargetFor(company))}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => onUpdate(company)}>
