@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "8dcc08f06dbbeeacb718a721eedb56e8b57cb3d1",
+    "date": "2026-09-30",
+    "subject": "Allow demoting inbound L0 deals back to Inbound Pending Review",
+    "category": "improvement"
+  },
+  {
+    "hash": "94cd1180de86ec01d23837d90a1d6a0e1de6cc90",
+    "date": "2026-09-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "930ce34a90831e295573a079f54a956af7804bf4",
     "date": "2026-09-29",
     "subject": "Alert mailbox custodians when PDF documents are added to Smart Files",
