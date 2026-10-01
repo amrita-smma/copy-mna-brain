@@ -1018,9 +1018,9 @@ The rule, with a reviewer's checklist, lives in
 `.claude/rules/dialog-open-state.md`; `/review-implementation` and `/pr-review`
 both check diffs against it.
 
-## Copilot flavors (M&A, Investment, Combined, VC)
+## Copilot flavors (M&A, Investment, Combined, VC, Minority Stakes)
 
-The in-app Copilot ships in four selectable flavors, chosen per workspace:
+The in-app Copilot ships in five selectable flavors, chosen per workspace:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
   pipeline analysis, Workforce handoffs, and AlphaSense/Valyu/web search
@@ -1056,12 +1056,27 @@ The in-app Copilot ships in four selectable flavors, chosen per workspace:
   sequence or end-of-turn evaluation. External companies and funds not in
   workspace data are researched seamlessly using cited external search. No schema
   migration or new table is required (persisted via `workspaces.copilot_agent = 'vc'`).
+- **`minority`** — the **Minority Stakes Portfolio Manager**: the Copilot for a
+  firm that holds MANY SMALL, NON-CONTROLLING positions rather than a few control
+  deals (`MINORITY_SYSTEM_PROMPT` + `MINORITY_TOOL_LIST`). It is the one flavor
+  defined by its prompt alone — `MINORITY_TOOL_LIST` is an alias of
+  `DEFAULT_TOOL_LIST`, so it reads exactly the same pipeline, CRM, files and
+  research surface as `mna` and owes the user the same write discipline (no
+  direct writes; Workforce handoffs and the inline bulk cards). What differs is
+  the job: every answer is framed by whether the business is one we can hold
+  passively, what the position does to portfolio concentration and sizing, what
+  minority protections govern it (information and consent rights, tag-along,
+  drag-along, pre-emption, preference), and how we ever get liquid. The shared
+  pipeline mechanics live in one constant, `MNA_PIPELINE_OPERATIONS_GUIDE`, which
+  the `mna` and `minority` prompts both interpolate so the two can't drift;
+  `promptStability.test.ts` pins both assembled prompts' hashes. Persisted via
+  `workspaces.copilot_agent = 'minority'` — no migration needed.
 
 ### AlphaSense research (`alphasense_search`)
 
 `alphasense_search` (`src/lib/agents/analysis/tools/alphasense_search.ts`) is the
 one tool registered for **every** agent flavor — M&A chat, AI Workforce,
-investment, combined, and VC. It lives in the shared read-only base list
+investment, combined, VC, and minority stakes. It lives in the shared read-only base list
 (`tools` in `src/lib/agents/analysis/tools/index.ts`) plus `investmentTools` and
 `vcTools`, so any agent can reach the firm's AlphaSense subscription: sell-side /
 broker research, SEC and global filings, earnings-call and expert-call
@@ -2509,8 +2524,8 @@ clean import reports **256 imported**, not 263.
 - **RAG:** the `search_news` agent tool runs hybrid search (pgvector cosine
   similarity + trigram `ILIKE`, merged and re-ranked in
   `DataNavigatorService.searchNews`) over the lake. It's registered on the
-  base `tools` list, so it reaches the **`mna` chat, AI Workforce, and
-  `combined`** Copilot flavors; the **`investment`** and **`vc`** flavors
+  base `tools` list, so it reaches the **`mna` chat, AI Workforce,
+  `combined` and `minority`** Copilot flavors; the **`investment`** and **`vc`** flavors
   enumerate their own tool lists in `src/lib/agents/analysis/tools/index.ts`
   and do **not** include it.
 - **Feed admin:** `X-Api-Secret`-gated routes under `/api/auth/rss-feeds`

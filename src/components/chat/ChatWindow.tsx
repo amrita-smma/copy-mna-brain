@@ -74,9 +74,28 @@ const COMBINED_WELCOME_MESSAGE = `# Hello! I'm your M&A + Investment assistant. 
 • "Find semiconductor companies and compare them to our fund holdings"
 • "Which deals have been stalled the longest?"`;
 
+const MINORITY_WELCOME_MESSAGE = `# Hello! I'm your Minority Stakes Portfolio Manager. I can help you with
+
+---
+
+📊 **Pipeline Management** - Deal flow, stage progress, stalled deals, drop and promote calls
+🔍 **Stake Screening** - Passive-holder diligence on pipeline names and new opportunities
+🧩 **Portfolio Construction** - Concentration, diversification, and position sizing
+🛡️ **Protections & Exits** - Governance, information rights, tag/drag, and routes to liquidity
+
+---
+
+💡 **Try asking:**
+• "Summarize the active pipeline — which names work as minority stakes?"
+• "How would a $15M stake in this company change our sector exposure?"
+• "Which deals have been stalled the longest, and should we hold or drop them?"
+• "Screen the L0 candidates as minority positions"
+• "What protections do we have on Acme, and what's unverified?"`;
+
 function welcomeText(agentType: ReturnType<typeof useCopilotAgent>): string {
   if (agentType === "investment") return INVESTMENT_WELCOME_MESSAGE;
   if (agentType === "combined") return COMBINED_WELCOME_MESSAGE;
+  if (agentType === "minority") return MINORITY_WELCOME_MESSAGE;
   return MNA_WELCOME_MESSAGE;
 }
 

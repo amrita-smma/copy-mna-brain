@@ -435,6 +435,76 @@ describe('getAgentGraph flavor selection', () => {
     expect(await getAgentGraph('vc', 'high')).toBe(high);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
   });
+
+  // The Minority Stakes Portfolio Manager is the one flavor defined by its
+  // prompt alone: same tools as M&A, a different job.
+  it('gives the minority flavor the SAME tool list as mna', async () => {
+    await getAgentGraph('mna');
+    await getAgentGraph('minority');
+
+    const mnaTools = (mocks.createAgent.mock.calls[0][0].tools as Array<{ name: string }>).map(
+      (t) => t.name,
+    );
+    const minorityTools = (
+      mocks.createAgent.mock.calls[1][0].tools as Array<{ name: string }>
+    ).map((t) => t.name);
+
+    expect(minorityTools).toEqual(mnaTools);
+  });
+
+  it('builds the minority flavor with its own portfolio-manager prompt', async () => {
+    await getAgentGraph('minority');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('Minority Stakes Portfolio Manager');
+    // Its three framing questions: passive ownership, portfolio impact, exit.
+    expect(prompt).toMatch(/good business we can live with passively/i);
+    expect(prompt).toMatch(/What does this do to the PORTFOLIO\?/);
+    expect(prompt).toMatch(/How do we get out/i);
+    // The judgment lenses that distinguish it from the control-deal flavors.
+    expect(prompt).toContain('## Portfolio Manager Judgment');
+    expect(prompt).toMatch(/Position sizing before conviction/);
+    expect(prompt).toMatch(/Marginal portfolio impact, not standalone merit/);
+    expect(prompt).toMatch(/Minority protections are the downside case/);
+    expect(prompt).toMatch(/Exit path, named and dated/);
+    // It is not the M&A prompt wearing a new name.
+    expect(prompt).not.toContain('intelligent M&A Data Analysis Assistant');
+  });
+
+  it('shares the M&A pipeline-operations mechanics with the minority flavor', async () => {
+    await getAgentGraph('mna');
+    await getAgentGraph('minority');
+
+    const mnaPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const minorityPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
+
+    // Same tools means the same write discipline: no direct writes, handoffs
+    // and the inline bulk cards, verbatim in both prompts.
+    for (const heading of [
+      '## Emailing the User (one email, whatever they asked for)',
+      '## Editing a Company Card Section',
+      '## Delegating to the Workforce',
+      '## Adding a New Company (Chat-Initiated)',
+      '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
+      '## Promoting Companies from L0 to L1',
+    ]) {
+      expect(mnaPrompt).toContain(heading);
+      expect(minorityPrompt).toContain(heading);
+    }
+    expect(minorityPrompt).toContain('**You have NO direct write tools.**');
+  });
+
+  it('memoizes the minority flavor independently from mna', async () => {
+    const mna = await getAgentGraph('mna');
+    const minority = await getAgentGraph('minority');
+
+    expect(minority).not.toBe(mna);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    expect(await getAgentGraph('minority')).toBe(minority);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
 });
 
 // The four chat flavors used to carry their own, mutually inconsistent search
@@ -453,12 +523,12 @@ describe('external evidence grounding (chat flavors)', () => {
     vi.clearAllMocks();
   });
 
-  const promptFor = async (flavor: 'mna' | 'investment' | 'combined' | 'vc') => {
+  const promptFor = async (flavor: 'mna' | 'investment' | 'combined' | 'vc' | 'minority') => {
     await getAgentGraph(flavor);
     return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
   };
 
-  const FLAVORS = ['mna', 'investment', 'combined', 'vc'] as const;
+  const FLAVORS = ['mna', 'investment', 'combined', 'vc', 'minority'] as const;
 
   it.each(FLAVORS)('gives the %s flavor the shared grounding section', async (flavor) => {
     const prompt = await promptFor(flavor);
@@ -489,7 +559,7 @@ describe('external evidence grounding (chat flavors)', () => {
 
   // Only the M&A and combined tool lists carry search_news, so only those two
   // prompts may mention the lake.
-  it.each(['mna', 'combined'] as const)(
+  it.each(['mna', 'combined', 'minority'] as const)(
     'treats search_news and the open web as complements in the %s flavor',
     async (flavor) => {
       const prompt = await promptFor(flavor);

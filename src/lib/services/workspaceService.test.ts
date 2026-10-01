@@ -311,6 +311,10 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('vc')).toBe('vc');
   });
 
+  it('accepts the minority-stakes portfolio manager flavor', () => {
+    expect(normalizeCopilotAgent('minority')).toBe('minority');
+  });
+
   it('defaults to mna for null, undefined, or unrecognized values', () => {
     expect(normalizeCopilotAgent(null)).toBe('mna');
     expect(normalizeCopilotAgent(undefined)).toBe('mna');
@@ -318,8 +322,8 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('bogus')).toBe('mna');
   });
 
-  it('exposes exactly the four supported flavors', () => {
-    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment', 'combined', 'vc']);
+  it('exposes exactly the five supported flavors', () => {
+    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment', 'combined', 'vc', 'minority']);
   });
 });
 

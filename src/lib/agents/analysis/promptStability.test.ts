@@ -90,6 +90,10 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   investment: '2ee9361b9c1bf4a44379a5bf352bfa26abcbdf5c9a90d14346cad8773f590f08',
   combined: '98fcc2e0179e30b2c141466bee74b16a2afa432784739c6ee80981a800a3d7af',
   vc: 'b4787cb7fdd8bd9e5f0b46adb1d4322681dfb38e30da378e0f6f2816ab593d8e',
+  // New flavour: the Minority Stakes Portfolio Manager — the M&A chat tool set
+  // under a portfolio-construction prompt (sizing, concentration, minority
+  // protections, exit paths).
+  minority: '7d3d489aa62f181b91f999fe8d21a4db9c3633b0d99d31534b459f56f634f2e3',
 };
 // The Workforce prompt changed on purpose, for the same reason: a file handed
 // off with the task can be emailed with `attached_html`.

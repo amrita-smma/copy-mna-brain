@@ -109,6 +109,7 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'investment', label: 'Funds & Investing' },
   { value: 'combined', label: 'Combined (M&A + Investment)' },
   { value: 'vc', label: 'VC / Growth Equity' },
+  { value: 'minority', label: 'Minority Stakes Portfolio Manager' },
 ];
 
 /** The display currencies, mirrored from the server's WORKSPACE_CURRENCIES. */
@@ -1008,8 +1009,9 @@ export default function AdminPortalPage() {
                       </Select>
                       <p className="text-xs text-muted-foreground">
                         Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
-                        analysis, funds &amp; investing, or a combined assistant with
-                        access to both.
+                        analysis, funds &amp; investing, a combined assistant with access to
+                        both, VC / growth equity, or a portfolio manager running many small
+                        minority stakes.
                       </p>
                     </div>
                     <div className="mt-6 flex h-9 shrink-0 items-center">

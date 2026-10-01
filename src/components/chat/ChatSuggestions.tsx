@@ -96,6 +96,38 @@ const VC_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
+// Minority-stakes flavor: the same pipeline work the M&A flavor opens with —
+// reviewing the pipeline, moving names forward, clearing stalled deals — each
+// asked through the minority lens (sizing, concentration, protections, exit).
+// This flavor reads the M&A tool set, so its suggestions must land on deal flow
+// the pipeline tools can actually answer, not on portfolio theory alone.
+const MINORITY_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Pipeline Review",
+    prompt:
+      "Summarize the active pipeline and tell me which opportunities work as minority stakes — and which only work with control.",
+    icon: TrendingUp,
+  },
+  {
+    label: "Exposure Impact",
+    prompt:
+      "If we took stakes in the companies currently at L1 and above, how would that change our sector and geography concentration?",
+    icon: Briefcase,
+  },
+  {
+    label: "Stake Screening",
+    prompt:
+      "Screen the L0 candidates as minority positions: entry multiple, likely stake size, what protections we'd need, and who else would be on the register.",
+    icon: Target,
+  },
+  {
+    label: "Stalled Deals",
+    prompt:
+      "Which deals have been stalled the longest, and for each one is it worth holding a small position or dropping it?",
+    icon: Timer,
+  },
+];
+
 // Combined flavor: a mix that exercises both the deal pipeline and the fund
 // portfolio so users see the assistant can move between the two.
 const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
@@ -133,7 +165,9 @@ export function ChatSuggestions({ className }: { className?: string }) {
         ? INVESTMENT_SUGGESTIONS
         : agentType === "combined"
           ? COMBINED_SUGGESTIONS
-          : MNA_SUGGESTIONS;
+          : agentType === "minority"
+            ? MINORITY_SUGGESTIONS
+            : MNA_SUGGESTIONS;
   const suggestions = [...baseSuggestions, INSIGHT_TEMPLATE_SUGGESTION];
 
   return (
