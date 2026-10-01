@@ -6,6 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b061173fe311da8f1c571faf22c9d2ea9371fc6d",
+    "date": "2026-10-01",
+    "subject": "Display invested amount by fund on multi-fund assets",
+    "category": "improvement"
+  },
+  {
+    "hash": "4c5d46e93a3abe909bae18f71ee9cd6cbdc20ba2",
+    "date": "2026-10-01",
+    "subject": "Holdings show \"—\" for Unrealized MV and MOIC until they receive their first valuation",
+    "category": "improvement"
+  },
+  {
+    "hash": "bd3ee1c20f15d34ee27b2baf5b5a3f1a785ad4d6",
+    "date": "2026-10-01",
+    "subject": "Managed fund-to-managed fund flows now recorded once from receiving fund's perspective",
+    "category": "improvement"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
@@ -33,6 +51,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "94cd1180de86ec01d23837d90a1d6a0e1de6cc90",
+    "date": "2026-09-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "a99590a7f367f97c094a6783127e1c92597e75ab",
     "date": "2026-09-30",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
