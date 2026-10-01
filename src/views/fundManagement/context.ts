@@ -25,8 +25,11 @@ export interface FundDataCtx {
    * (cascades at the DB level). Rejects on failure so the caller can stop
    * a spinner; a toast is already shown by the provider. */
   deleteFund: (fund: Fund) => Promise<void>;
-  /** Deletes one holding and its ledger. Same failure contract as `deleteFund`. */
+  /** Closes the holding's positions (history is retained). Same failure
+   * contract as `deleteFund`. */
   deleteAsset: (fund: Fund, holding: Holding) => Promise<void>;
+  /** Reopens a closed holding's position. Same failure contract as `deleteFund`. */
+  reopenAsset: (fund: Fund, holding: Holding) => Promise<void>;
   funds: Fund[];
   investorOptions: string[];
   sourceOptions: string[];
@@ -57,6 +60,7 @@ export const FundDataContext = createContext<FundDataCtx>({
   refreshAll: () => Promise.resolve(),
   deleteFund: () => Promise.resolve(),
   deleteAsset: () => Promise.resolve(),
+  reopenAsset: () => Promise.resolve(),
   funds: [],
   investorOptions: [],
   sourceOptions: [],

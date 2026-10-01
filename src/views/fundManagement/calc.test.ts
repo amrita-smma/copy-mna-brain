@@ -345,6 +345,110 @@ describe('mergeHoldingsAcrossFunds', () => {
   });
 });
 
+describe('mergeHoldingsAcrossFunds holderBreakdown', () => {
+  const withPosition = (h: Holding, positionId: string): Holding => ({ ...h, positionId });
+
+  it('lists every holding fund with its invested amount, largest first, summing exactly to the row Invested', () => {
+    const copyA = withPosition(makeHolding({ id: 'a1', cost: 12, fmv: 12 }), 'pos-a');
+    const copyB = withPosition(makeHolding({ id: 'a1', cost: 21, fmv: 21 }), 'pos-b');
+    const copyC = withPosition(makeHolding({ id: 'a1', cost: 0.3, fmv: 0.3 }), 'pos-c');
+
+    const rows = mergeHoldingsAcrossFunds([
+      makeFund('f-a', [copyA]),
+      makeFund('f-c', [copyC]),
+      makeFund('f-b', [copyB]),
+    ]);
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row.holderBreakdown).toEqual([
+      { holderId: 'f-b', name: 'Fund f-b', kind: 'fund', invested: 21, positionIds: ['pos-b'] },
+      { holderId: 'f-a', name: 'Fund f-a', kind: 'fund', invested: 12, positionIds: ['pos-a'] },
+      { holderId: 'f-c', name: 'Fund f-c', kind: 'fund', invested: 0.3, positionIds: ['pos-c'] },
+    ]);
+    const sum = row.holderBreakdown.reduce((s, b) => s + b.invested, 0);
+    expect(sum).toBe(row.h.cost);
+  });
+
+  it('reconciles scoped copies of one co-invested ledger back to the merged Invested', () => {
+    const whole = makeHolding({
+      id: 'a1',
+      cost: 33,
+      txns: [
+        { date: '2024-01-01', type: 'Buy', value: 21, fundId: 'f1' },
+        { date: '2024-02-01', type: 'Buy', value: 12, fundId: 'f2' },
+      ],
+    });
+    const rows = mergeHoldingsAcrossFunds([
+      makeFund('f1', [scopeHoldingToFund(whole, 'f1')]),
+      makeFund('f2', [scopeHoldingToFund(whole, 'f2')]),
+    ]);
+    const [row] = rows;
+    expect(row.holderBreakdown.map((b) => b.holderId)).toEqual(['f1', 'f2']);
+    expect(row.holderBreakdown[0].invested).toBeCloseTo(21);
+    expect(row.holderBreakdown[1].invested).toBeCloseTo(12);
+    expect(row.holderBreakdown.reduce((s, b) => s + b.invested, 0)).toBe(row.h.cost);
+  });
+
+  it('counts a position once even when it appears in two scoped copies', () => {
+    const inFund = withPosition(makeHolding({ id: 'a1', cost: 21 }), 'pos-dup');
+    const sameInEntity = withPosition(makeHolding({ id: 'a1', cost: 21 }), 'pos-dup');
+    const otherFund = withPosition(makeHolding({ id: 'a1', cost: 12 }), 'pos-other');
+
+    const rows = mergeHoldingsAcrossFunds(
+      [makeFund('f1', [inFund]), makeFund('f2', [otherFund])],
+      [makeInvestor('e1', [sameInEntity])],
+    );
+    const [row] = rows;
+    expect(row.h.cost).toBe(33);
+    expect(row.holderBreakdown.map((b) => [b.holderId, b.invested])).toEqual([
+      ['f1', 21],
+      ['f2', 12],
+    ]);
+    expect(row.holderBreakdown.reduce((s, b) => s + b.invested, 0)).toBe(row.h.cost);
+  });
+
+  it('folds one fund\'s several positions in the same asset into a single holder entry', () => {
+    const p1 = withPosition(makeHolding({ id: 'a1', cost: 5 }), 'pos-1');
+    const p2 = withPosition(makeHolding({ id: 'a1', cost: 7 }), 'pos-2');
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [p1, p2])]);
+    const [row] = rows;
+    expect(row.holderBreakdown).toHaveLength(1);
+    expect(row.holderBreakdown[0]).toMatchObject({ holderId: 'f1', kind: 'fund', positionIds: ['pos-2', 'pos-1'] });
+    expect(row.holderBreakdown[0].invested).toBeCloseTo(row.h.cost);
+    expect(row.h.cost).toBeCloseTo(12);
+  });
+
+  it('gives a single-holder asset exactly one breakdown entry equal to its Invested', () => {
+    const h = withPosition(makeHolding({ id: 'a1', cost: 50 }), 'pos-1');
+    const rows = mergeHoldingsAcrossFunds([makeFund('f1', [h])]);
+    expect(rows[0].h).toBe(h);
+    expect(rows[0].holderBreakdown).toEqual([
+      { holderId: 'f1', name: 'Fund f1', kind: 'fund', invested: 50, positionIds: ['pos-1'] },
+    ]);
+  });
+
+  it('marks investor-held (Startech-shaped) holders as entity, never fund', () => {
+    const e1 = withPosition(makeHolding({ id: 'st-1', cost: 40 }), 'pos-e1');
+    const e2 = withPosition(makeHolding({ id: 'st-1', cost: 60 }), 'pos-e2');
+    const rows = mergeHoldingsAcrossFunds(
+      [],
+      [
+        makeInvestor('inv-1', [e1], 'Startech Group', 'Startech Ltd'),
+        makeInvestor('inv-2', [e2], 'Startech Group', 'Startech HK'),
+      ],
+    );
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row.funds).toEqual([]);
+    expect(row.holderBreakdown).toEqual([
+      { holderId: 'inv-2', name: 'Startech HK (Startech Group)', kind: 'entity', invested: 60, positionIds: ['pos-e2'] },
+      { holderId: 'inv-1', name: 'Startech Ltd (Startech Group)', kind: 'entity', invested: 40, positionIds: ['pos-e1'] },
+    ]);
+    expect(row.holderBreakdown.some((b) => b.kind === 'fund')).toBe(false);
+    expect(row.holderBreakdown.reduce((s, b) => s + b.invested, 0)).toBe(row.h.cost);
+  });
+});
+
 describe('holdingsPortfolioTotals', () => {
   it('includes invested capital from assets in the unassigned pseudo-fund', () => {
     const unassignedAsset = makeHolding({

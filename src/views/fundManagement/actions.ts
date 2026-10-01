@@ -97,61 +97,9 @@ export async function executeDeleteAsset(
 }
 
 export interface PositionActionDependencies {
-  closePositionApi?: typeof fundLedgerApi.closePosition;
-  closePositionsApi?: typeof fundLedgerApi.closePositions;
   reopenPositionApi?: typeof fundLedgerApi.reopenPosition;
   reloadAll: () => Promise<void>;
   toast: ToastFn;
-}
-
-export async function executeCloseHolding(
-  fund: { id: string },
-  holding: {
-    id?: string | null;
-    n: string;
-    tp?: string;
-    positionId?: string | null;
-    positionIds?: string[];
-  },
-  deps: PositionActionDependencies,
-): Promise<void> {
-  const explicitIds = holding.positionIds?.length
-    ? holding.positionIds
-    : holding.positionId
-      ? [holding.positionId]
-      : [];
-
-  if (explicitIds.length === 0) {
-    deps.toast({
-      title: 'Failed to close holding',
-      description: 'No position ID found for this holding.',
-      variant: 'destructive',
-    });
-    return;
-  }
-
-  const {
-    closePositionsApi = fundLedgerApi.closePositions,
-    reloadAll,
-    toast,
-  } = deps;
-
-  try {
-    await closePositionsApi(explicitIds);
-    await reloadAll();
-    toast({
-      title: 'Holding closed',
-      description: `"${holding.n}" was closed successfully.`,
-    });
-  } catch (err) {
-    console.error('Failed to close holding', err);
-    toast({
-      title: 'Failed to close holding',
-      description: err instanceof Error ? err.message : `"${holding.n}" was not closed.`,
-      variant: 'destructive',
-    });
-    throw err;
-  }
 }
 
 export async function executeReopenHolding(

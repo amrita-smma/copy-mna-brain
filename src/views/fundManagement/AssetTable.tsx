@@ -14,6 +14,7 @@ import {
   mergeHoldingsAcrossFunds,
   resolveInvestorGroupName,
   sliceHoldingsByTxn,
+  type AssetHolderInvested,
   type HoldingSlice,
 } from './calc';
 import { useFundMoney } from './useFundMoney';
@@ -72,8 +73,125 @@ const ASSET_COLS: { label: string; term?: string }[] = [
 const dpi = (cost: number, real: number) => (cost > 0 ? real / cost : 0);
 
 /** A table row: a holding slice, plus — for a merged co-invested asset — the
- * names of every fund/entity holder holding it (the slice's `f` is the primary fund). */
-type AssetRow = HoldingSlice & { fundNames?: string[]; holderNames?: string[] };
+ * names of every fund/entity holder holding it (the slice's `f` is the primary fund)
+ * and, on ungrouped rows only, each holder's invested share. */
+type AssetRow = HoldingSlice & {
+  fundNames?: string[];
+  holderNames?: string[];
+  holderBreakdown?: AssetHolderInvested[];
+};
+
+/** A holding whose position is closed renders as 'Exited' (see adapters). */
+export function isHoldingClosed(h: Pick<Holding, 'st'>): boolean {
+  const st = h.st?.toLowerCase();
+  return st === 'exited' || st === 'closed';
+}
+
+/** "Held by" panel for a whole-asset row held by at least one fund: each
+ * holder's Invested and its share of the asset's total Invested. A row with no
+ * fund holder never shows it, so investor-held (Startech entity) assets are
+ * unchanged. When it does show, every holder line is listed (an entity
+ * co-holder included) so the lines reconcile to the total, which is the row's
+ * own Invested. */
+function AssetHeldBy({
+  assetKey,
+  breakdown,
+  totalInvested,
+  money,
+  englishByName,
+}: {
+  assetKey: string;
+  breakdown: AssetHolderInvested[] | undefined;
+  totalInvested: number;
+  money: (v: number) => string;
+  englishByName?: Map<string, string>;
+}) {
+  const fundHolders = new Set(
+    (breakdown ?? []).filter((b) => b.kind === 'fund').map((b) => b.holderId),
+  );
+  if (!breakdown || fundHolders.size === 0) return null;
+  const share = (v: number) => (totalInvested > 0 ? (v / totalInvested) * 100 : 0);
+  const pct = (v: number) => (totalInvested > 0 ? `${share(v).toFixed(1)}%` : '—');
+  const allFunds = fundHolders.size === breakdown.length;
+  const headCell = 'border-b px-2.5 pb-1 pt-2.5 text-[11px] uppercase tracking-wide';
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-lg border bg-card"
+      data-testid={`asset-held-by-${assetKey}`}
+    >
+      <table className="w-full table-fixed border-collapse">
+        <colgroup>
+          <col />
+          <col className="w-[34%]" />
+          <col className="w-28" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th className={cn(headCell, 'text-left font-semibold text-accent')}>
+              Held by
+              <span className="ml-1.5 font-medium normal-case tracking-normal text-muted-foreground">
+                · {breakdown.length} {allFunds ? 'fund' : 'holder'}
+                {breakdown.length === 1 ? '' : 's'}
+              </span>
+            </th>
+            <th className={cn(headCell, 'text-right font-medium text-muted-foreground')}>Share</th>
+            <th className={cn(headCell, 'text-right font-medium text-muted-foreground')}>
+              Invested
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {breakdown.map((b) => {
+            const english = englishByName?.get(b.name);
+            return (
+              <tr
+                key={`${b.kind}:${b.holderId}`}
+                className="border-b last:border-b-0"
+                data-testid={`asset-held-by-row-${b.holderId}`}
+              >
+                <td className="px-2.5 py-1.5">
+                  <div className="truncate text-xs text-foreground" title={b.name}>
+                    {b.name}
+                  </div>
+                  {english && (
+                    <div className="truncate text-[11px] text-muted-foreground" title={english}>
+                      {english}
+                    </div>
+                  )}
+                </td>
+                <td className="px-2.5 py-1.5">
+                  <div className="flex items-center justify-end gap-2">
+                    <div className="h-1.5 max-w-[10rem] flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${Math.min(100, share(b.invested))}%` }}
+                      />
+                    </div>
+                    <span className="w-11 text-right text-xs tabular-nums text-muted-foreground">
+                      {pct(b.invested)}
+                    </span>
+                  </div>
+                </td>
+                <td className="whitespace-nowrap px-2.5 py-1.5 text-right text-xs tabular-nums text-foreground">
+                  {money(b.invested)}
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="border-t bg-muted" data-testid={`asset-held-by-total-${assetKey}`}>
+            <td className="px-2.5 py-1.5 text-xs font-semibold text-foreground">Total</td>
+            <td className="px-2.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">
+              {pct(totalInvested)}
+            </td>
+            <td className="whitespace-nowrap px-2.5 py-1.5 text-right text-xs font-semibold tabular-nums text-foreground">
+              {money(totalInvested)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** The row's holder label. A co-invested asset shows its primary holder plus a
  * "+N" count; hovering reveals the full holder list in a read-only tooltip. */
@@ -131,13 +249,18 @@ export function AssetTable({
   funds,
   investors,
   initialGroupBy,
+  initialOpenAssets,
 }: {
   funds: Fund[];
   investors?: Investor[];
   initialGroupBy?: GroupBy;
+  /** Asset rows expanded on first render, as internal row keys
+   * (`${scope}::${hkey}` — `all::<assetId>` for an ungrouped row). */
+  initialOpenAssets?: string[];
 }) {
   const {
     deleteAsset,
+    reopenAsset,
     entityNameById,
     sourceNameById,
     analyzeAiOpinion,
@@ -193,7 +316,9 @@ export function AssetTable({
     focusCopilot();
   };
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const [openAssets, setOpenAssets] = useState<Set<string>>(new Set());
+  const [openAssets, setOpenAssets] = useState<Set<string>>(
+    () => new Set(initialOpenAssets ?? []),
+  );
   const [page, setPage] = useState(1);
 
   // Grouping mode changes what a "row" is (assets vs. groups), so restart
@@ -248,7 +373,7 @@ export function AssetTable({
   // copies are merged back into one row carrying the asset totals and every
   // holding fund/entity's name (largest share first).
   const flat: AssetRow[] = mergeHoldingsAcrossFunds(visibleFunds, visibleInvestors).map(
-    ({ key, h, funds: held, holders, holderNames }) => {
+    ({ key, h, funds: held, holders, holderNames, holderBreakdown }) => {
       const primaryHolder = holders?.[0];
       const primaryFund =
         held[0] ??
@@ -266,6 +391,7 @@ export function AssetTable({
         moic: h.moic,
         fundNames: held.length > 1 ? held.map((x) => x.n) : undefined,
         holderNames,
+        holderBreakdown,
       };
     },
   );
@@ -444,7 +570,7 @@ export function AssetTable({
     const out: ReactNode[] = [];
     [...items]
       .sort((x, y) => (y.fmv ?? 0) - (x.fmv ?? 0))
-      .forEach(({ h, f, hkey, cost, fmv, real, moic, fundNames, holderNames }) => {
+      .forEach(({ h, f, hkey, cost, fmv, real, moic, fundNames, holderNames, holderBreakdown }) => {
         const isDisplayOnly = Boolean(h.displayOnly || f?.displayOnly);
         const disclosure = h.disclosure ?? f?.disclosure;
         const rowKey = `${scope}::${hkey}`;
@@ -491,7 +617,18 @@ export function AssetTable({
                     </div>
                   </div>
                 </div>
-                {!isDisplayOnly && h.id && (
+                {!isDisplayOnly && h.id && (isHoldingClosed(h) ? (
+                  <DeleteRowMenu
+                    tone="restore"
+                    label="Reopen holding"
+                    title={`Reopen "${getAssetDisplayName(h)}"?`}
+                    description="This reopens the holding's position so it can receive new transactions and valuations again. A holding linked to more than one position cannot be reopened."
+                    confirmLabel="Reopen holding"
+                    onConfirm={async () => {
+                      await reopenAsset(f, h);
+                    }}
+                  />
+                ) : (
                   <DeleteRowMenu
                     label="Close holding"
                     title={`Close "${getAssetDisplayName(h)}"?`}
@@ -501,7 +638,7 @@ export function AssetTable({
                       await deleteAsset(f, h);
                     }}
                   />
-                )}
+                ))}
               </div>
             </td>
             <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
@@ -522,7 +659,7 @@ export function AssetTable({
             <td className="px-3 py-2 align-middle">
               <Pill>{h.st}</Pill>
             </td>
-            <td className="min-w-[300px] max-w-[390px] px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
+            <td className="min-w-[260px] max-w-[390px] px-3 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
               <FundAiOpinionCell
                 holding={h}
                 analyzing={h.id ? analyzingAiOpinionIds.has(h.id) : false}
@@ -536,7 +673,19 @@ export function AssetTable({
           out.push(
             <tr key={`d${rowKey}`} className="border-b">
               <td colSpan={8} className="bg-background px-3 pb-3.5 pt-2">
-                <HoldingDetail fund={f} holding={h} />
+                <HoldingDetail
+                  fund={f}
+                  holding={h}
+                  footer={
+                    <AssetHeldBy
+                      assetKey={hkey}
+                      breakdown={holderBreakdown}
+                      totalInvested={cost}
+                      money={money}
+                      englishByName={englishNameByName}
+                    />
+                  }
+                />
               </td>
             </tr>,
           );
@@ -567,7 +716,7 @@ export function AssetTable({
       </div>
 
       <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[1120px] border-collapse">
+        <table className="w-full min-w-[1040px] border-collapse">
           <thead>
             <tr>
               {hasInvestorGroups && (
@@ -587,7 +736,7 @@ export function AssetTable({
               <th className="whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Status
               </th>
-              <th className="min-w-[300px] max-w-[390px] whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <th className="min-w-[260px] max-w-[390px] whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="cursor-help border-b border-dotted border-muted-foreground/50">

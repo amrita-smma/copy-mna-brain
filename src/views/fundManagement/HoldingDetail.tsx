@@ -1,22 +1,10 @@
 'use client';
 
 import { useRef, useState, type ReactNode } from 'react';
-import { Loader2, Lock, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatPercentage } from '@/lib/numberFormat';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -63,7 +51,6 @@ import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
 import { toLocalISODate } from './adapters';
 import { FieldKey, GlossaryTerm, InlineEdit, type InlineKind, MiniSpark, Pill } from './parts';
 import { CURRENCIES, CurrencyInput, MoneyInlineEdit, normalizeCurrency, type Currency } from './CurrencyInput';
-import { executeCloseHolding, executeReopenHolding } from './actions';
 
 // Money domain values are in millions; the currency editors work in raw units.
 const M = 1_000_000;
@@ -2002,153 +1989,17 @@ function TabbedDetail({ tabs }: { tabs: { id: string; label: string; body: React
   );
 }
 
-/** Header row showing current position status and providing manual Close / Reopen actions. */
-export function HoldingPositionHeader({ fund, holding }: { fund: Fund; holding: Holding }) {
-  const { refreshHolding, refreshAll } = useFundData();
-  const { toast } = useToast();
-  const [busy, setBusy] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
-
-  const explicitIds = holding.positionIds?.length
-    ? holding.positionIds
-    : holding.positionId
-      ? [holding.positionId]
-      : [];
-
-  const isClosed =
-    holding.st?.toLowerCase() === 'exited' ||
-    holding.st?.toLowerCase() === 'closed';
-
-  const hasPosition = explicitIds.length > 0;
-  const isMulti = explicitIds.length > 1;
-
-  const handleAction = async () => {
-    if (!hasPosition) return;
-    setBusy(true);
-    try {
-      const action = isClosed ? executeReopenHolding : executeCloseHolding;
-      await action(fund, holding, { reloadAll: refreshAll, toast });
-      refreshHolding(fund, holding);
-    } catch {
-      // The shared action already reports the failure through the standard toast.
-    } finally {
-      setBusy(false);
-      setOpenDialog(false);
-    }
-  };
-
-  return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Position Status
-        </span>
-        <Pill
-          className={cn(
-            isClosed
-              ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-          )}
-        >
-          {holding.st || (isClosed ? 'Exited' : 'Active')}
-        </Pill>
-        {isMulti ? (
-          <span className="text-xs text-muted-foreground" title={explicitIds.join(', ')}>
-            ({explicitIds.length} linked positions: <code className="text-[11px]">{explicitIds.join(', ')}</code>)
-          </span>
-        ) : hasPosition ? (
-          <span className="text-xs text-muted-foreground">
-            (Position ID: <code className="font-mono text-[11px]">{explicitIds[0]}</code>)
-          </span>
-        ) : (
-          <span className="text-xs text-amber-600 dark:text-amber-400">
-            (No linked position ID)
-          </span>
-        )}
-      </div>
-
-      <div>
-        <AlertDialog open={openDialog} onOpenChange={setOpenDialog}>
-          <AlertDialogTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy || !hasPosition || (isClosed && isMulti)}
-              title={
-                isClosed && isMulti
-                  ? 'Reopening multiple linked positions is disabled because it cannot be atomic.'
-                  : undefined
-              }
-              className={cn(
-                'h-7 px-2.5 text-xs',
-                isClosed
-                  ? 'border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400'
-                  : 'border-amber-500/40 text-amber-600 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-400',
-              )}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                  {isClosed ? 'Reopening…' : 'Closing…'}
-                </>
-              ) : isClosed ? (
-                <>
-                  <RotateCcw className="mr-1.5 h-3 w-3" />
-                  Reopen holding
-                </>
-              ) : (
-                <>
-                  <Lock className="mr-1.5 h-3 w-3" />
-                  Close holding
-                </>
-              )}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {isClosed ? `Reopen "${holding.n}"?` : `Close "${holding.n}"?`}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {isClosed
-                  ? isMulti
-                    ? `This will reopen all ${explicitIds.length} linked positions (${explicitIds.join(', ')}) and restore their status to open.`
-                    : `This will reopen position ${explicitIds[0]} and restore its status to open.`
-                  : isMulti
-                    ? `This will close all ${explicitIds.length} linked positions (${explicitIds.join(', ')}) in batch. Active positions must have zero remaining quantity and zero unfunded commitment to close.`
-                    : `This will close position ${explicitIds[0]}. Active positions must have zero remaining quantity and zero unfunded commitment to close.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={busy}
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleAction();
-                }}
-                className={cn(
-                  isClosed
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                    : 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-                )}
-              >
-                {busy ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {isClosed ? 'Reopen holding' : 'Close holding'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </div>
-  );
-}
-
 /** Section: the expanded detail panel for one holding (equity / FoF / other). */
-export function HoldingDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
+export function HoldingDetail({
+  fund,
+  holding,
+  footer,
+}: {
+  fund: Fund;
+  holding: Holding;
+  /** Rendered below the type-specific detail. */
+  footer?: ReactNode;
+}) {
   let content: ReactNode;
   if (holding.tp === 'Equity' && holding.inv) {
     content = <EquityDetail fund={fund} holding={holding} />;
@@ -2166,8 +2017,8 @@ export function HoldingDetail({ fund, holding }: { fund: Fund; holding: Holding 
 
   return (
     <div className="pl-4 sm:pl-10">
-      <HoldingPositionHeader fund={fund} holding={holding} />
       {content}
+      {footer}
     </div>
   );
 }

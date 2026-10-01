@@ -42,6 +42,7 @@ import {
   executeDeleteInvestor,
   executeDeleteFundingSource,
   executeDeleteAsset,
+  executeReopenHolding,
 } from './fundManagement/actions';
 import {
   CurrencyInput,
@@ -991,6 +992,9 @@ export default function FundManagement() {
       },
       deleteAsset: async (fund: Fund, holding: (typeof fund.h)[number]) => {
         await executeDeleteAsset(fund, holding, { reloadAll, toast });
+      },
+      reopenAsset: async (fund: Fund, holding: (typeof fund.h)[number]) => {
+        await executeReopenHolding(fund, holding, { reloadAll, toast });
       },
       funds: funds ?? [],
       investorOptions: comboboxEntityOptions,

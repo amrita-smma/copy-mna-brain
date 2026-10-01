@@ -1311,6 +1311,19 @@ export function getPositionKeys(h: Holding): string[] {
   return keys;
 }
 
+/** One holder's share of a whole-asset row: what that fund/entity invested,
+ * and which of its positions that figure covers. */
+export interface AssetHolderInvested {
+  holderId: string;
+  name: string;
+  /** `'entity'` is an investor-held position (e.g. Startech). */
+  kind: AssetHolderIdentity['kind'];
+  /** The holder's summed scoped `cost` — the same figures `mergeScopedCopies`
+   * adds into the row's Invested, so the breakdown reconciles to it. */
+  invested: number;
+  positionIds: string[];
+}
+
 /** One ungrouped Asset-tab row: the whole asset rebuilt from its per-fund
  * and per-entity scoped copies, plus every holder (largest invested share first). */
 export interface WholeAssetRow {
@@ -1321,6 +1334,37 @@ export interface WholeAssetRow {
   funds: Fund[];
   holders?: AssetHolderIdentity[];
   holderNames?: string[];
+  /** Per-holder Invested, one entry per distinct holder (a holder with several
+   * positions in the asset is summed), largest first. Sums to `h.cost`. */
+  holderBreakdown: AssetHolderInvested[];
+}
+
+/** Folds an asset's (already deduplicated) scoped copies into one entry per
+ * holder, preserving first-seen order, then stable-sorts by invested desc. */
+function buildHolderBreakdown(
+  copies: { h: Holding; holder: AssetHolderIdentity }[],
+): AssetHolderInvested[] {
+  const byHolder = new Map<string, AssetHolderInvested>();
+  copies.forEach(({ h, holder }) => {
+    const mapKey = `${holder.kind}:${holder.id}`;
+    const existing = byHolder.get(mapKey);
+    const positionIds = getPositionKeys(h);
+    if (existing) {
+      existing.invested += h.cost;
+      positionIds.forEach((pid) => {
+        if (!existing.positionIds.includes(pid)) existing.positionIds.push(pid);
+      });
+    } else {
+      byHolder.set(mapKey, {
+        holderId: holder.id,
+        name: holder.name,
+        kind: holder.kind,
+        invested: h.cost,
+        positionIds,
+      });
+    }
+  });
+  return [...byHolder.values()].sort((a, b) => b.invested - a.invested);
 }
 
 /** Inverse of `scopeHoldingToFund` for one asset's scoped copies: re-sums the
@@ -1457,6 +1501,7 @@ export function mergeHoldingsAcrossFunds(
         funds: c.holder.kind === 'fund' && c.holder.fund ? [c.holder.fund] : [],
         holders: [c.holder],
         holderNames: [c.holder.name],
+        holderBreakdown: buildHolderBreakdown(copies),
       };
     }
     const sorted = [...copies].sort((a, b) => b.h.cost - a.h.cost);
@@ -1470,6 +1515,7 @@ export function mergeHoldingsAcrossFunds(
       funds: sortedFunds,
       holders: sortedHolders,
       holderNames: sortedHolders.map((hd) => hd.name),
+      holderBreakdown: buildHolderBreakdown(sorted),
     };
   });
 }

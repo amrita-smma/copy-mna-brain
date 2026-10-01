@@ -1,7 +1,7 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { FolderInput, Loader2, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { FolderInput, Loader2, MoreVertical, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { GlossaryTerm as SharedGlossaryTerm } from '@/components/common/GlossaryTerm';
@@ -42,6 +42,7 @@ export function DeleteRowMenu({
   onMove,
   moveLabel = 'Move to group…',
   confirmLabel,
+  tone = 'destructive',
 }: {
   label: string;
   title: string;
@@ -54,15 +55,22 @@ export function DeleteRowMenu({
   onMove?: () => void;
   moveLabel?: string;
   confirmLabel?: string;
+  /** `restore` renders the action as a non-destructive undo (e.g. reopening a
+   * closed holding) instead of a red delete. */
+  tone?: 'destructive' | 'restore';
 }) {
   const [busy, setBusy] = useState(false);
+  const restore = tone === 'restore';
 
   const confirm = async () => {
     setBusy(true);
     try {
       await onConfirm();
     } catch {
-      // Failure is already toasted by the context provider — just stop spinning.
+      // Failure is already toasted by the context provider.
+    } finally {
+      // The row can survive the action (a closed holding stays listed), so
+      // always stop spinning rather than relying on the row unmounting.
       setBusy(false);
     }
   };
@@ -108,9 +116,17 @@ export function DeleteRowMenu({
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
               onClick={(e) => e.stopPropagation()}
-              className="text-destructive focus:text-destructive"
+              className={cn(
+                restore
+                  ? 'text-emerald-600 focus:text-emerald-700 dark:text-emerald-400'
+                  : 'text-destructive focus:text-destructive',
+              )}
             >
-              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              {restore ? (
+                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+              ) : (
+                <Trash2 className="mr-2 h-3.5 w-3.5" />
+              )}
               {label}
             </DropdownMenuItem>
           </AlertDialogTrigger>
@@ -124,7 +140,11 @@ export function DeleteRowMenu({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className={cn(
+              restore
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+            )}
             onClick={confirm}
           >
             {confirmLabel ?? 'Delete'}

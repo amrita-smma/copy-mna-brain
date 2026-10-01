@@ -4,7 +4,6 @@ import {
   executeDeleteInvestor,
   executeDeleteFundingSource,
   executeDeleteAsset,
-  executeCloseHolding,
   executeReopenHolding,
   type ToastFn,
 } from './actions';
@@ -206,95 +205,6 @@ describe('FundManagement actions: executeDeleteInvestor, executeDeleteFundingSou
       expect(toastMock).toHaveBeenCalledWith({
         title: 'Failed to close holding',
         description: expect.stringContaining('nonzero remaining quantity'),
-        variant: 'destructive',
-      });
-    });
-  });
-
-  describe('executeCloseHolding', () => {
-    it('closes holding with single positionId and reloads state', async () => {
-      closePositionsApiMock.mockResolvedValueOnce([{ id: 'pos-1', status: 'closed' }]);
-
-      await executeCloseHolding(
-        { id: 'fund-1' },
-        { id: 'asset-1', n: 'Acme Corp', positionId: 'pos-1' },
-        {
-          reloadAll: reloadAllMock,
-          toast: toastMock,
-        },
-      );
-
-      expect(closePositionsApiMock).toHaveBeenCalledWith(['pos-1']);
-      expect(reloadAllMock).toHaveBeenCalledTimes(1);
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Holding closed',
-        description: '"Acme Corp" was closed successfully.',
-      });
-    });
-
-    it('closes holding with multiple positionIds deliberately via batch-close', async () => {
-      closePositionsApiMock.mockResolvedValueOnce([
-        { id: 'pos-1', status: 'closed' },
-        { id: 'pos-2', status: 'closed' },
-      ]);
-
-      await executeCloseHolding(
-        { id: 'fund-1' },
-        { id: 'asset-1', n: 'Acme Corp', positionIds: ['pos-1', 'pos-2'] },
-        {
-          reloadAll: reloadAllMock,
-          toast: toastMock,
-        },
-      );
-
-      expect(closePositionsApiMock).toHaveBeenCalledWith(['pos-1', 'pos-2']);
-      expect(reloadAllMock).toHaveBeenCalledTimes(1);
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Holding closed',
-        description: '"Acme Corp" was closed successfully.',
-      });
-    });
-
-    it('toasts error and returns early when positionId and positionIds are missing', async () => {
-      await executeCloseHolding(
-        { id: 'fund-1' },
-        { id: 'asset-1', n: 'Acme Corp' },
-        {
-          reloadAll: reloadAllMock,
-          toast: toastMock,
-        },
-      );
-
-      expect(closePositionsApiMock).not.toHaveBeenCalled();
-      expect(reloadAllMock).not.toHaveBeenCalled();
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Failed to close holding',
-        description: 'No position ID found for this holding.',
-        variant: 'destructive',
-      });
-    });
-
-    it('surfaces error and rethrows when close fails', async () => {
-      closePositionsApiMock.mockRejectedValueOnce(
-        new Error('Position has unsettled cash'),
-      );
-
-      await expect(
-        executeCloseHolding(
-          { id: 'fund-1' },
-          { id: 'asset-1', n: 'Acme Corp', positionId: 'pos-1' },
-          {
-            reloadAll: reloadAllMock,
-            toast: toastMock,
-          },
-        ),
-      ).rejects.toThrow('Position has unsettled cash');
-
-      expect(closePositionsApiMock).toHaveBeenCalledWith(['pos-1']);
-      expect(reloadAllMock).not.toHaveBeenCalled();
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Failed to close holding',
-        description: 'Position has unsettled cash',
         variant: 'destructive',
       });
     });
