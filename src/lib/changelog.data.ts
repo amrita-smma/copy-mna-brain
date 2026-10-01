@@ -74,6 +74,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7e84f33ce996963a43ea23318934f5d77546ff03",
+    "date": "2026-10-01",
+    "subject": "Users can now upload HTML files as new Insights for deal tracking",
+    "category": "feature"
+  },
+  {
+    "hash": "314ac180167ec811f2b5a26a98d869f7bf74d621",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
