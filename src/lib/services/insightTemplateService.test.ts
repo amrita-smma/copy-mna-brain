@@ -20,7 +20,7 @@ import {
   SAVE_AS_TEMPLATE_TOO_LARGE_HINT,
 } from './insightTemplateService';
 import type { InsightTemplateRepository } from '@/lib/repositories';
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 import {
   CHAT_INLINE_DOCUMENT_MAX_CHARS,
   INSIGHT_TEMPLATE_MAX_CHARS,

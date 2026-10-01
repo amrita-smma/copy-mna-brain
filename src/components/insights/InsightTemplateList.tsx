@@ -106,15 +106,29 @@ const stopPropagation = (e: React.SyntheticEvent) => e.stopPropagation();
 
 export interface InsightTemplateListProps {
   onUseTemplate?: (tpl: { id: string; name: string }) => void;
+  /**
+   * A file dropped on the page while this tab is open. Each drop is a new
+   * object, so dropping the same file twice still reopens the dialog.
+   */
+  droppedFile?: { file: File } | null;
 }
 
-export function InsightTemplateList({ onUseTemplate }: InsightTemplateListProps) {
+export function InsightTemplateList({ onUseTemplate, droppedFile = null }: InsightTemplateListProps) {
   const [templates, setTemplates] = useState<InsightTemplateSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TemplateSort>('newest');
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [seenDrop, setSeenDrop] = useState(droppedFile);
+  if (droppedFile !== seenDrop) {
+    setSeenDrop(droppedFile);
+    if (droppedFile) {
+      setUploadFile(droppedFile.file);
+      setUploadOpen(true);
+    }
+  }
   const [editingTemplate, setEditingTemplate] =
     useState<InsightTemplateSummary | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
@@ -555,8 +569,12 @@ export function InsightTemplateList({ onUseTemplate }: InsightTemplateListProps)
 
       <InsightTemplateUploadDialog
         open={uploadOpen}
-        onOpenChange={setUploadOpen}
+        onOpenChange={(next) => {
+          setUploadOpen(next);
+          if (!next) setUploadFile(null);
+        }}
         onUploaded={fetchTemplates}
+        initialFile={uploadFile}
       />
 
       <InsightTemplateEditDialog

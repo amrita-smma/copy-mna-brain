@@ -743,6 +743,12 @@ itself unless you edit or refresh it.
 - **Create and edit from chat.** Ask the Copilot to write or change an insight.
   It shows a preview card first, and nothing is saved until you approve it. An
   edit card shows what changed.
+- **Upload an HTML file.** *New insight → Upload HTML file*
+  (`/w/<ws>/insight/upload`) saves an HTML file as a new insight without the
+  Copilot. You see a sandboxed preview, plus warnings for anything the frame will
+  block (scripts off the CDN allowlist, linked images). The file goes as multipart
+  form-data to `POST /api/insights/upload` and is stored exactly as uploaded,
+  version 1 with trigger `upload`. Insights are capped at 4 MB for every writer.
 - **Point at a section.** On an open insight you can select sections and ask the
   Copilot to change just those.
 - **Reports.** A report is planned with you before it is written, and must
@@ -754,7 +760,11 @@ itself unless you edit or refresh it.
 - **List.** The insight list can be searched, filtered by agent or owner,
   archived and restored. One insight per workspace can be featured.
 - **Safety.** Insight HTML only ever renders inside a sandboxed iframe
-  (`InsightFrame`); never render it anywhere else.
+  (`InsightFrame`); never render it anywhere else. `buildInsightSrcDoc` opens
+  every document with the host's own doctype and `<head>`, with the CSP first.
+  It never searches the author's markup for a `<head>` to inject into, because
+  a `<head>` inside a comment or attribute would leave scripts outside the
+  policy.
 
 #### Insight templates
 

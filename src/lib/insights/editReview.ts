@@ -52,6 +52,7 @@ export function versionTriggerPhrase(trigger: string): string {
     case 'rollback':
       return 'a rollback';
     case 'copilot_create':
+    case 'upload':
     case 'duplicate':
       return 'a new version';
     default:

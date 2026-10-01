@@ -18,6 +18,7 @@ import type {
 } from '@/lib/repositories/insightRunDraftRepository';
 import type { DbClient } from '@/lib/repositories/types';
 import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
+import { TOO_DEEPLY_NESTED_MESSAGE } from '@/lib/insights/parseHtml';
 import { createSectorRegistry } from '@/lib/agents/sector/registry';
 import {
   sourceRefHtml,
@@ -492,6 +493,107 @@ describe('InsightService', () => {
       await expect(create({ html: 'x'.repeat(MAX_INSIGHT_BYTES + 10) })).rejects.toThrow(
         InsightPayloadTooLargeError,
       );
+    });
+
+    it('rejects html nested too deeply for the chat outline to walk', async () => {
+      await expect(create({ html: '<span>x'.repeat(1_000) })).rejects.toThrow(TOO_DEEPLY_NESTED_MESSAGE);
+    });
+  });
+
+  describe('InsightService.uploadDocument', () => {
+    const upload = (over: Partial<Parameters<InsightService['uploadDocument']>[0]> = {}) =>
+      service.uploadDocument({
+        workspaceId: WS,
+        fileName: 'Q3 review.html',
+        html: '<!DOCTYPE html><html><head><title>Q3 Review</title></head><body><p>x</p></body></html>',
+        ...over,
+      });
+    const refusal = (over: Parameters<typeof upload>[0]) =>
+      upload(over).then(
+        () => { throw new Error('expected the upload to be refused'); },
+        (e: unknown) => e as Error,
+      );
+
+    it('creates a document insight whose version 1 has trigger upload, stored verbatim', async () => {
+      const html = '<html><body><script>draw()</script><p>chart</p></body></html>';
+      const detail = await upload({ html, name: 'Board pack', description: 'For the board', userId: 'user-1' });
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(detail).toMatchObject({
+        name: 'Board pack',
+        description: 'For the board',
+        kind: 'document',
+        version_no: 1,
+        html,
+        source_template_name: null,
+      });
+      expect(detail.versions[0].trigger).toBe('upload');
+      expect(versionRepo.versions[0]).toMatchObject({
+        trigger: 'upload',
+        created_by: 'user-1',
+        agent_key: null,
+        content_hash: insightContentHash(html),
+      });
+      expect(row(detail.id).source_template_id).toBeNull();
+    });
+
+    it.each([
+      ['no name', undefined],
+      ['a blank name', '   '],
+    ])('names the insight after the document <title> when given %s', async (_label, name) => {
+      expect((await upload({ name })).name).toBe('Q3 Review');
+    });
+
+    it('falls back to the file name without its extension when there is no <title>', async () => {
+      expect((await upload({ html: '<p>x</p>', name: null })).name).toBe('Q3 review');
+    });
+
+    it.each([
+      ['a non-HTML file', { fileName: 'notes.txt' }, /Only HTML files/],
+      ['an empty file', { html: '  \n ' }, /The file is empty/],
+    ])('refuses %s without writing anything', async (_label, over, message) => {
+      await expect(upload(over)).rejects.toThrow(InsightValidationError);
+      await expect(upload(over)).rejects.toThrow(message);
+      expect(insightRepo.insights).toHaveLength(0);
+    });
+
+    it('refuses a file over the size cap with a size the person can read', async () => {
+      const html = '<p>' + 'x'.repeat(MAX_INSIGHT_BYTES) + '</p>';
+      await expect(upload({ html })).rejects.toThrow(InsightPayloadTooLargeError);
+      await expect(upload({ html })).rejects.toThrow(/insights are limited to 4 MB/);
+    });
+
+    it('refuses malformed source markers in words for the uploader, not the model', async () => {
+      const html = '<p><span data-source-ref="first">a</span><span data-source-ref="second">b</span></p>';
+      const err = await refusal({ html });
+
+      expect(err).toBeInstanceOf(InsightValidationError);
+      expect(err).not.toBeInstanceOf(InsightEvidenceMarkerError);
+      expect(err.message).toMatch(/^This file has 2 source markers that can't be read, so it wasn't saved:/);
+      expect(err.message).toContain('data-source-ref must name a source id');
+      expect(err.message).toContain('then upload it again.');
+      expect(err.message).not.toContain('the part you changed');
+      expect(insightRepo.insights).toHaveLength(0);
+    });
+
+    it('refuses a document nested too deeply to outline, before writing anything', async () => {
+      const err = await refusal({ html: '<div>'.repeat(1_000) });
+      expect(err).toBeInstanceOf(InsightValidationError);
+      expect(err.message).toBe(TOO_DEEPLY_NESTED_MESSAGE);
+      expect(insightRepo.insights).toHaveLength(0);
+    });
+
+    it('refuses an unterminated tag too long to scan, without throwing a RangeError', async () => {
+      const err = await refusal({ html: '<a ' + 'b=c '.repeat(1_048_000) });
+      expect(err).toBeInstanceOf(InsightValidationError);
+      expect(err.message).toMatch(/too long to read/);
+    });
+
+    it('lists at most five marker problems and summarises the rest', async () => {
+      const html = Array.from({ length: 7 }, (_, i) => `<span data-source-ref="bad${i}">x</span>`).join('');
+      const err = await refusal({ html });
+      expect(err.message.split('\n').filter((l) => l.startsWith('- <'))).toHaveLength(5);
+      expect(err.message).toContain('- …and 2 more.');
     });
   });
 

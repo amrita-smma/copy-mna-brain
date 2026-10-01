@@ -7,6 +7,8 @@ import {
   INSIGHT_SECTIONS_MESSAGE,
   INSIGHT_SELECT_MODE_MESSAGE,
   INSIGHT_PICK_MESSAGE,
+  MAX_INSIGHT_BYTES,
+  buildInsightDownloadDoc,
   buildInsightPrimerSrcDoc,
   buildInsightSrcDoc,
   isInsightFrameReadyMessage,
@@ -16,6 +18,14 @@ import {
 } from './srcdoc';
 
 const CSP = 'Content-Security-Policy';
+
+describe('MAX_INSIGHT_BYTES', () => {
+  it('fits a whole document, with its upload envelope, under the 4.5 MB request-body limit', () => {
+    expect(MAX_INSIGHT_BYTES).toBe(4 * 1024 * 1024);
+    // Vercel rejects a larger request body before the route runs.
+    expect(MAX_INSIGHT_BYTES + 64 * 1024).toBeLessThan(4_500_000);
+  });
+});
 
 describe('INSIGHT_SANDBOX', () => {
   it('grants scripts but never same-origin, navigation or popups', () => {
@@ -55,6 +65,31 @@ describe('buildInsightSrcDoc', () => {
     expect(out.indexOf(CSP)).toBeGreaterThan(-1);
     // A policy declared after a <script> would not cover it.
     expect(out.indexOf(CSP)).toBeLessThan(out.indexOf(marker));
+  });
+
+  it.each([
+    ['a <head> inside a leading comment', '<!-- <head> --><script>steal()</script><html><head></head><body>x</body></html>'],
+    ['a <head> inside a script string', '<script>var s = "<head>"; steal()</script><html><head></head><body>x</body></html>'],
+    ['a <head> inside an attribute value', '<div title="<head>"></div><script>steal()</script>'],
+    ['a <html> inside a comment and no real head', '<!-- <html> --><script>steal()</script><p>x</p>'],
+    ['a script ahead of the real <head>', '<!DOCTYPE html><script>steal()</script><html><head></head><body>x</body></html>'],
+  ])('puts the policy ahead of every author byte when the document has %s', (_, html) => {
+    const out = buildInsightSrcDoc(html);
+    const policyAt = out.indexOf(CSP);
+    expect(policyAt).toBeGreaterThan(-1);
+    // The author's first byte comes straight after the host prelude closes.
+    const preludeEnd = out.indexOf('</style>') + '</style>'.length;
+    expect(policyAt).toBeLessThan(preludeEnd);
+    expect(out.slice(preludeEnd).startsWith(html.slice(0, 16))).toBe(true);
+    expect(policyAt).toBeLessThan(out.indexOf('steal()'));
+  });
+
+  it('opens with the host doctype and head even when the author wrote a full document', () => {
+    const html = '<!DOCTYPE html><html lang="id"><head><title>T</title></head><body>x</body></html>';
+    const out = buildInsightSrcDoc(html);
+    expect(out.startsWith('<!DOCTYPE html><html><head><meta charset="utf-8">')).toBe(true);
+    // The author's markup follows untouched; the parser merges it into the host's head.
+    expect(out).toContain(html.slice(0, html.indexOf('</body>')));
   });
 
   it('wraps a bare fragment in a document with the policy and the picker', () => {
@@ -266,5 +301,22 @@ describe('isInsightPickMessage', () => {
     ['a string count', pick({ count: '2' })],
   ])('rejects %s', (_, data) => {
     expect(isInsightPickMessage(ev(data), frame)).toBe(false);
+  });
+});
+
+describe('buildInsightDownloadDoc', () => {
+  it('opens the saved file with UTF-8 and the insight CSP ahead of every author byte', () => {
+    const html = '<!-- <head> --><script>steal()</script><html><body>x</body></html>';
+    const out = buildInsightDownloadDoc(html);
+    expect(out.startsWith('<!DOCTYPE html><html><head><meta charset="utf-8">')).toBe(true);
+    expect(out.indexOf(INSIGHT_CSP)).toBeLessThan(out.indexOf('steal()'));
+    expect(out.endsWith(html)).toBe(true);
+  });
+
+  it("leaves out the frame's theme styles and host scripts", () => {
+    const out = buildInsightDownloadDoc('<p>x</p>');
+    expect(out).not.toContain(INSIGHT_HEIGHT_MESSAGE);
+    expect(out).not.toContain(INSIGHT_SECTIONS_MESSAGE);
+    expect(out).not.toContain('<style>');
   });
 });

@@ -35,7 +35,8 @@
  * Server-only in practice (node-html-parser); client code imports the
  * `InsightChatContext` type from `./types` and fetches the outline instead.
  */
-import { parse, NodeType, type HTMLElement, type Node } from 'node-html-parser';
+import { NodeType, type HTMLElement, type Node } from 'node-html-parser';
+import { isTooDeeplyNested, parseInsightHtml } from '@/lib/insights/parseHtml';
 import { INSIGHT_SECTION_ATTR } from '@/lib/insights/srcdoc';
 
 /**
@@ -148,6 +149,17 @@ function tagOf(el: HTMLElement): string {
 
 function isElement(node: Node): node is HTMLElement {
   return node.nodeType === NodeType.ELEMENT_NODE;
+}
+
+/**
+ * Appends `section`'s `<tr>` rows to `rows`. A loop, not push(...spread):
+ * a section with hundreds of thousands of rows exceeds the engine's argument
+ * limit.
+ */
+function pushRows(rows: HTMLElement[], section: HTMLElement): void {
+  for (const row of childElements(section)) {
+    if (tagOf(row) === 'tr') rows.push(row);
+  }
 }
 
 function childElements(el: HTMLElement): HTMLElement[] {
@@ -468,8 +480,8 @@ class OutlineWalker {
     for (const child of childElements(table)) {
       const tag = tagOf(child);
       if (tag === 'caption') caption = child;
-      else if (tag === 'thead') header.push(...childElements(child).filter((r) => tagOf(r) === 'tr'));
-      else if (tag === 'tbody' || tag === 'tfoot') body.push(...childElements(child).filter((r) => tagOf(r) === 'tr'));
+      else if (tag === 'thead') pushRows(header, child);
+      else if (tag === 'tbody' || tag === 'tfoot') pushRows(body, child);
       else if (tag === 'tr') body.push(child);
     }
     // Without a <thead>, leading rows made only of <th> cells are the header.
@@ -588,15 +600,22 @@ export function buildInsightChatOutline(
 ): InsightChatOutline {
   const maxChars = Math.max(0, Math.floor(options.maxChars ?? INSIGHT_CHAT_OUTLINE_MAX_CHARS));
   const hint = options.truncationHint ?? DEFAULT_OUTLINE_TRUNCATION_HINT;
-  const root = parse(html ?? '');
+  const root = parseInsightHtml(html ?? '');
+  const header = headerLine(options);
+  const headLines = header ? [header] : [];
+  // Walking a tree this deep overflows the stack; writes refuse one, but an
+  // older version may still hold it.
+  if (isTooDeeplyNested(root)) {
+    return {
+      outline: [...headLines, '(This document is nested too deeply to outline.)'].join('\n'),
+      truncated: false,
+    };
+  }
   const body = root.querySelector('body') ?? root;
 
   const walker = new OutlineWalker();
   walker.walk(body);
   const lines = walker.lines;
-
-  const header = headerLine(options);
-  const headLines = header ? [header] : [];
 
   const render = (dropped: Set<number>, droppedCount: Map<string, number>): string[] => {
     const out = [...headLines];

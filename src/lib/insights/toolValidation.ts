@@ -7,8 +7,8 @@ import {
 } from '@/lib/insights/structuralCheck';
 import { sanitizePageContext } from '@/lib/chat/pageContext';
 import { isUuid } from '@/lib/uuid';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 
-export const MAX_INSIGHT_NAME_LENGTH = 120;
 
 export const insightKindSchema = z
   .enum(['document', 'report'])

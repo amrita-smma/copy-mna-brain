@@ -8,6 +8,14 @@ import {
   validateTemplateFile,
 } from '@/lib/api/insightTemplates';
 import { checkTemplateHtml, type TemplateCheckResult } from '@/lib/insights/templateCheck';
+import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
+import {
+  ALLOWED_INSIGHT_UPLOAD_EXTENSIONS,
+  INVALID_INSIGHT_UPLOAD_TYPE_MESSAGE,
+  checkInsightUploadHtml,
+  isValidInsightUploadExtension,
+  readInsightUploadFile,
+} from '@/lib/insights/upload';
 import { AlertTriangle, CloudUpload, FileText, X, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -26,23 +34,79 @@ export function canSaveTemplateSelection(
   return selection !== null && selection.html !== null && selection.check.errors.length === 0;
 }
 
+/** What a drop zone accepts and how it reads and checks a picked file. */
+export interface FileDropRules {
+  /** The file input's `accept`. */
+  accept: string;
+  isValidExtension: (fileName: string) => boolean;
+  invalidTypeMessage: string;
+  /** Reads the file: `html` is null when it failed the upload rules. */
+  inspect: (file: File) => Promise<Omit<TemplateFileSelection, 'file'>>;
+  /** The size hint under the button. */
+  caption: string;
+}
+
+/** Insight templates: `.html` within the template character cap. */
+export const TEMPLATE_FILE_RULES: FileDropRules = {
+  accept: '.html',
+  isValidExtension: isValidTemplateExtension,
+  invalidTypeMessage: 'Invalid file type. Only HTML files are supported.',
+  inspect: async (file) => {
+    const result = await validateTemplateFile(file);
+    if ('error' in result) return { html: null, check: { errors: [result.error], warnings: [] } };
+    return { html: result.html, check: checkTemplateHtml(result.html) };
+  },
+  caption: `HTML up to ${MAX_TEMPLATE_CHARS.toLocaleString('en-US')} characters`,
+};
+
+/** New insights uploaded as HTML: `.html`/`.htm` within the insight byte cap. */
+export const INSIGHT_UPLOAD_FILE_RULES: FileDropRules = {
+  accept: ALLOWED_INSIGHT_UPLOAD_EXTENSIONS.join(','),
+  isValidExtension: isValidInsightUploadExtension,
+  invalidTypeMessage: INVALID_INSIGHT_UPLOAD_TYPE_MESSAGE,
+  inspect: async (file) => {
+    const result = await readInsightUploadFile(file);
+    if ('error' in result) return { html: null, check: { errors: [result.error], warnings: [] } };
+    return { html: result.html, check: checkInsightUploadHtml(result.html) };
+  },
+  caption: `HTML (.html, .htm) up to ${MAX_INSIGHT_BYTES / (1024 * 1024)} MB`,
+};
+
+/**
+ * Reads and checks a picked or dropped file under `rules`. A file of the wrong
+ * type is refused with a toast and gives null.
+ */
+export async function inspectFileForDrop(
+  file: File,
+  rules: FileDropRules,
+): Promise<TemplateFileSelection | null> {
+  if (!rules.isValidExtension(file.name)) {
+    toast.error(rules.invalidTypeMessage);
+    return null;
+  }
+  return { file, ...(await rules.inspect(file)) };
+}
+
 export interface InsightTemplateFileDropProps {
   selection: TemplateFileSelection | null;
   onSelectionChange: (selection: TemplateFileSelection | null) => void;
   disabled?: boolean;
   testIdPrefix?: string;
+  /** Defaults to the template rules. */
+  rules?: FileDropRules;
 }
 
 /**
- * The template file drop zone shared by upload and Replace HTML. A picked
- * file is read and checked before anything is saved: errors (wrong size,
- * empty) block the save, structure warnings are shown but don't.
+ * The HTML file drop zone shared by template upload, Replace HTML and insight
+ * upload. A picked file is read and checked before anything is saved: errors
+ * (wrong size, empty) block the save, warnings are shown but don't.
  */
 export function InsightTemplateFileDrop({
   selection,
   onSelectionChange,
   disabled,
   testIdPrefix = 'template-file',
+  rules = TEMPLATE_FILE_RULES,
 }: InsightTemplateFileDropProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,16 +124,8 @@ export function InsightTemplateFileDrop({
 
   const handleFile = async (file: File | undefined | null) => {
     if (!file) return;
-    if (!isValidTemplateExtension(file.name)) {
-      toast.error('Invalid file type. Only HTML files are supported.');
-      return;
-    }
-    const result = await validateTemplateFile(file);
-    if ('error' in result) {
-      onSelectionChange({ file, html: null, check: { errors: [result.error], warnings: [] } });
-      return;
-    }
-    onSelectionChange({ file, html: result.html, check: checkTemplateHtml(result.html) });
+    const next = await inspectFileForDrop(file, rules);
+    if (next) onSelectionChange(next);
   };
 
   const stop = (e: React.DragEvent) => {
@@ -112,14 +168,12 @@ export function InsightTemplateFileDrop({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".html"
+          accept={rules.accept}
           className="hidden"
           data-testid={`${testIdPrefix}-input`}
           onChange={(e) => void handleFile(e.target.files?.[0])}
         />
-        <div className="text-xs text-muted-foreground mt-2">
-          HTML up to {MAX_TEMPLATE_CHARS.toLocaleString('en-US')} characters
-        </div>
+        <div className="text-xs text-muted-foreground mt-2">{rules.caption}</div>
 
         {selection && (
           <div className="mt-4 p-2.5 rounded-lg bg-card border border-border flex items-center justify-between text-left">

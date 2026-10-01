@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { rejectInvalidInsightDocument } from './documentGuard';
+import { TOO_DEEPLY_NESTED_MESSAGE } from './parseHtml';
 import { rejectPlaceholderDocument } from './documentGuard';
 
 describe('rejectPlaceholderDocument', () => {
@@ -23,5 +25,15 @@ describe('rejectPlaceholderDocument', () => {
 
   it('does not mistake a stray angle bracket in prose for a tag', () => {
     expect(rejectPlaceholderDocument('revenue > 10m, margin < 5%')).not.toBeNull();
+  });
+});
+
+describe('rejectInvalidInsightDocument', () => {
+  it('refuses a document nested too deeply for the outline to walk', () => {
+    expect(rejectInvalidInsightDocument('<div>'.repeat(1_000))).toBe(TOO_DEEPLY_NESTED_MESSAGE);
+  });
+
+  it('passes an ordinary document', () => {
+    expect(rejectInvalidInsightDocument('<section data-section="a"><p>x</p></section>')).toBeNull();
   });
 });

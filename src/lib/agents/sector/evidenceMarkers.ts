@@ -348,6 +348,29 @@ function readAttributes(source: string): Map<string, string> {
   return attrs;
 }
 
+/** Reported when a start tag is too long to scan, so its markers can't be checked. */
+const UNREADABLE_TAG_PROBLEM: EvidenceMarkerProblem = {
+  tag: '(document)',
+  reason:
+    'a tag is too long to read, usually a "<" whose tag never ends with ">". Close or remove it so its markers can be checked.',
+};
+
+/**
+ * START_TAG_RE's matches in `source`. A single start tag megabytes long (an
+ * unterminated `<a b=c b=c …`) overflows the regex engine's stack. That stops
+ * the scan, and the document is reported unreadable rather than throwing.
+ */
+function startTagMatches(source: string): { matches: RegExpExecArray[]; unreadable: boolean } {
+  const matches: RegExpExecArray[] = [];
+  try {
+    for (const match of source.matchAll(START_TAG_RE)) matches.push(match);
+  } catch (err) {
+    if (err instanceof RangeError) return { matches, unreadable: true };
+    throw err;
+  }
+  return { matches, unreadable: false };
+}
+
 function shortTag(tag: string): string {
   // Drop the long inline style so the correction message shows what matters.
   const compact = tag.replace(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i, '');
@@ -363,7 +386,9 @@ function shortTag(tag: string): string {
 export function findEvidenceMarkerProblems(html: string): EvidenceMarkerProblem[] {
   const problems: EvidenceMarkerProblem[] = [];
   const source = html.replace(/<!--[\s\S]*?-->/g, '');
-  for (const match of source.matchAll(START_TAG_RE)) {
+  const { matches, unreadable } = startTagMatches(source);
+  if (unreadable) problems.push(UNREADABLE_TAG_PROBLEM);
+  for (const match of matches) {
     const attrs = readAttributes(match[2]);
     if (!attrs.has(EVIDENCE_ATTR)) continue;
     const tag = shortTag(match[0]);
@@ -451,9 +476,16 @@ export function isRetrievedDate(value: unknown): boolean {
 }
 
 /** The visible text between a start tag and the first close tag of the same name. */
+/**
+ * How far past an unavailable cell's start tag its closing tag is looked for.
+ * The cell holds one word; an unbounded search per cell is quadratic on a
+ * document of unclosed cells.
+ */
+const INNER_TEXT_WINDOW = 4096;
+
 function innerText(source: string, tagName: string, from: number): string {
   const closeRe = new RegExp(`</${tagName}\\s*>`, 'i');
-  const rest = source.slice(from);
+  const rest = source.slice(from, from + INNER_TEXT_WINDOW);
   const close = closeRe.exec(rest);
   const inner = close ? rest.slice(0, close.index) : '';
   return inner
@@ -480,7 +512,9 @@ export function findSourceMarkerProblems(
   const ids = new Set<string>();
   const reportedDuplicates = new Set<string>();
 
-  for (const match of source.matchAll(START_TAG_RE)) {
+  const { matches, unreadable } = startTagMatches(source);
+  if (unreadable) problems.push(UNREADABLE_TAG_PROBLEM);
+  for (const match of matches) {
     const attrs = readAttributes(match[2]);
     const hasRef = attrs.has(SOURCE_REF_ATTR);
     const hasId = attrs.has(SOURCE_ID_ATTR);

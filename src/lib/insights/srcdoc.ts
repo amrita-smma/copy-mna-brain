@@ -147,8 +147,17 @@ export const INSIGHT_PICK_MESSAGE = 'insight:pick';
 /** The attribute a selectable block carries, e.g. `<section data-section="risk">`. */
 export const INSIGHT_SECTION_ATTR = 'data-section';
 
-/** Largest document we accept. Generous — inline CSS, JS and data URIs add up. */
-export const MAX_INSIGHT_BYTES = 1024 * 1024;
+/**
+ * Largest document we accept, for every writer. Generous — inline CSS, JS and
+ * data URIs add up, and an uploaded export routinely embeds its images. One
+ * cap for all writers, so a large upload can still take later versions. It
+ * sits under Vercel's 4.5 MB request-body limit with room for the multipart
+ * envelope of `POST /api/insights/upload`.
+ */
+export const MAX_INSIGHT_BYTES = 4 * 1024 * 1024;
+
+/** Longest insight (and template) name, in characters. */
+export const MAX_INSIGHT_NAME_LENGTH = 120;
 
 export type InsightTheme = 'light' | 'dark';
 
@@ -1048,29 +1057,51 @@ function headPrelude(theme: InsightTheme): string {
   );
 }
 
+/** Any sign the author wrote a whole document rather than a body fragment. */
+const DOCUMENT_SHAPE_RE = /<!doctype\b|<html\b|<head\b|<body\b/i;
+
 /**
  * Builds the `srcdoc` for an insight.
  *
- * The prelude is placed ahead of every byte the author wrote, in all three
- * shapes a document can arrive in — with a `<head>`, with `<html>` but no head,
- * or as a bare fragment. That ordering is what makes the CSP binding: a policy
- * declared after a `<script>` would not cover it.
+ * The prelude is the very first thing the parser sees, ahead of every byte the
+ * author wrote. That ordering is what makes the CSP binding: a policy declared
+ * after a `<script>` would not cover it. The author's document is never
+ * searched for its own `<head>` to inject into — a `<head>` inside a comment,
+ * a script string or an attribute would land the policy in inert text and
+ * leave the document with none. Instead the host opens the document itself,
+ * and the HTML parser folds the author's markup into it: a second doctype and
+ * `<head>` are dropped, `<html>` attributes (`lang`, `class`) merge onto the
+ * root, and head content (`<style>`, `<link>`, `<script>`) joins the host's
+ * head after the policy.
  */
 export function buildInsightSrcDoc(
   html: string,
   { theme = 'light' }: BuildSrcDocOptions = {},
 ): string {
   const doc = html ?? '';
-  const prelude = headPrelude(theme);
+  const opening = `<!DOCTYPE html><html><head>${headPrelude(theme)}`;
 
-  const match = doc.match(/<head\b[^>]*>/i) ?? doc.match(/<html\b[^>]*>/i);
-  if (match?.index !== undefined) {
-    const at = match.index + match[0].length;
-    return withHostScripts(doc.slice(0, at) + prelude + doc.slice(at));
+  if (DOCUMENT_SHAPE_RE.test(doc)) {
+    return withHostScripts(opening + doc);
   }
 
-  return withHostScripts(
-    `<!DOCTYPE html><html><head>${prelude}</head><body>${doc}</body></html>`,
+  return withHostScripts(`${opening}</head><body>${doc}</body></html>`);
+}
+
+/**
+ * The file "Download HTML" saves: the author's document opened, like the
+ * srcdoc, with a head that declares UTF-8 and the insight CSP first. A
+ * downloaded insight is opened from disk outside the sandbox, so without the
+ * policy its scripts could reach the network. With it, fetch and image beacons
+ * stay blocked and only the CDN allowlist loads. The theme styles and the
+ * host's resizer and picker scripts are left out: they serve the app's frame,
+ * not a page opened on its own.
+ */
+export function buildInsightDownloadDoc(html: string): string {
+  return (
+    `<!DOCTYPE html><html><head><meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="${INSIGHT_CSP}">` +
+    (html ?? '')
   );
 }
 

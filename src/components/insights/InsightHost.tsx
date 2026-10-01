@@ -2,17 +2,24 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useWorkspacePush } from '@/hooks/useWorkspaceHref';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { INSIGHT_TEMPLATE_TRIGGER } from '@/lib/insights/insightSlashCommand';
 import { InsightView } from './InsightView';
 import { InsightEmptyState } from './InsightEmptyState';
 import { InsightList, type InsightListTab } from './InsightList';
-import { Plus, LayoutList } from 'lucide-react';
+import { InsightUpload } from './InsightUpload';
+import { ChevronDown, LayoutList, Plus, Sparkles, Upload } from 'lucide-react';
 
 export interface InsightHostProps {
   insightId?: string;
-  view?: 'document' | 'list';
+  view?: 'document' | 'list' | 'upload';
   /** The list view's open tab, from the `?tab=` query. */
   listTab?: InsightListTab;
 }
@@ -40,10 +47,11 @@ export function InsightHost({
     push('/insight/list');
   };
 
-  // Insight creation now happens in Copilot, not a dedicated page: hand off
-  // to the chat composer via the `/insight-template` slash command instead
-  // of navigating to a route. Both start a fresh chat first — otherwise the
-  // request lands in whatever unrelated thread the provider still holds.
+  // "Create with Copilot" hands off to the chat composer via the
+  // `/insight-template` slash command; "Upload HTML file" is the one creation
+  // path with its own page (`/insight/upload`). Both chat paths start a fresh
+  // chat first — otherwise the request lands in whatever unrelated thread the
+  // provider still holds.
   const handleNewInsight = () => {
     newChat();
     push('/chat');
@@ -78,21 +86,47 @@ export function InsightHost({
             <LayoutList className="h-4 w-4" />
             All insights
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleNewInsight}
-            className="h-8 gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            New insight
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 gap-1.5"
+                data-testid="insight-new-menu"
+              >
+                <Plus className="h-4 w-4" />
+                New insight
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuItem
+                onSelect={handleNewInsight}
+                data-testid="insight-new-copilot"
+                className="cursor-pointer hover:bg-muted focus:bg-muted"
+              >
+                <Sparkles className="h-4 w-4 mr-2 text-muted-foreground" />
+                Create with Copilot
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => push('/insight/upload')}
+                data-testid="insight-new-upload"
+                className="cursor-pointer hover:bg-muted focus:bg-muted"
+              >
+                <Upload className="h-4 w-4 mr-2 text-muted-foreground" />
+                Upload HTML file
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {/* ── Page Body ── */}
-      <div className="flex-1">
-        {view === 'document' ? (
+      {/* A column, so the list's file drop target can fill the page height. */}
+      <div className="flex-1 flex flex-col">
+        {view === 'upload' ? (
+          <InsightUpload />
+        ) : view === 'document' ? (
           // Each view loads its own data: the document its insight, the list
           // its pages of rows.
           insightId ? (

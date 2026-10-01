@@ -6,6 +6,7 @@
 
 import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
 import { validateReportStructure } from '@/lib/insights/reportStructure';
+import { rejectTooDeeplyNested } from '@/lib/insights/parseHtml';
 import type { InsightKind } from '@/lib/insights/types';
 
 /** The first `<tag`, `</tag`, `<!doctype` or `<!--` in the document. */
@@ -47,6 +48,9 @@ export function rejectInvalidInsightDocument(
 
   const placeholder = rejectPlaceholderDocument(html);
   if (placeholder) return placeholder;
+
+  const tooDeep = rejectTooDeeplyNested(html);
+  if (tooDeep) return tooDeep;
 
   if (kind === 'report') return validateReportStructure(html);
 

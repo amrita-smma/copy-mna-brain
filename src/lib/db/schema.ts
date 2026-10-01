@@ -4195,8 +4195,8 @@ export const insightVersions = pgTable(
     // The complete document. Rendered inside a sandboxed iframe, never injected
     // into the app origin — which is why it is stored exactly as authored.
     html: text().notNull(),
-    // Plain text, not a pg enum: seed | copilot_create | copilot_edit |
-    // rollback | duplicate | routine | workforce
+    // Plain text, not a pg enum: seed | copilot_create | upload |
+    // copilot_edit | rollback | duplicate | routine | workforce
     trigger: text().notNull(),
     label: text(),
     created_by: uuid().references(() => users.id, { onDelete: "set null" }),

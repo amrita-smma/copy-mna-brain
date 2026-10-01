@@ -75,6 +75,7 @@ import { useWorkspaceHref, useWorkspacePush } from '@/hooks/useWorkspaceHref';
 import {
   INSIGHT_PRIME_TIMEOUT_MS,
   INSIGHT_SANDBOX,
+  buildInsightDownloadDoc,
   buildInsightPrimerSrcDoc,
   isInsightFrameReadyMessage,
 } from '@/lib/insights/srcdoc';
@@ -427,10 +428,13 @@ export function InsightView({
     primeTimer = setTimeout(loadPrintDoc, INSIGHT_PRIME_TIMEOUT_MS);
   };
 
-  // The current version's HTML as a file, named after the insight.
+  // The current version's HTML as a file, named after the insight, behind the
+  // insight CSP: opened from disk it runs outside the sandbox.
   const handleDownloadHtml = () => {
     if (!detail) return;
-    const url = URL.createObjectURL(new Blob([detail.html], { type: 'text/html;charset=utf-8' }));
+    const url = URL.createObjectURL(
+      new Blob([buildInsightDownloadDoc(detail.html)], { type: 'text/html;charset=utf-8' }),
+    );
     const link = document.createElement('a');
     link.href = url;
     link.download = insightHtmlFileName(detail.name);

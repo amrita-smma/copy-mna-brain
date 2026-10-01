@@ -349,3 +349,25 @@ describe('insightMarkerRefusal', () => {
     expect(insightMarkerRefusal(unavailableMarkerHtml('Not public'), 'dikti')).toBeNull();
   });
 });
+
+describe('findInsightMarkerProblems on hostile documents', () => {
+  it('reports a start tag too long to scan instead of overflowing the stack', () => {
+    // An unterminated tag megabytes long overflowed the regex engine's stack.
+    const html = '<a ' + 'b=c '.repeat(1_048_000);
+    const problems = findInsightMarkerProblems(html, 'dikti');
+    expect(problems.sources).toEqual([
+      expect.objectContaining({ tag: '(document)', reason: expect.stringMatching(/too long to read/) }),
+    ]);
+    expect(problems.evidence).toEqual([
+      expect.objectContaining({ tag: '(document)' }),
+    ]);
+  });
+
+  it('checks many unclosed unavailable cells in linear time', () => {
+    const html = '<td data-evidence="unavailable">x'.repeat(50_000);
+    const started = performance.now();
+    const problems = findInsightMarkerProblems(html, null);
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(problems.sources.length).toBeGreaterThan(0);
+  });
+});

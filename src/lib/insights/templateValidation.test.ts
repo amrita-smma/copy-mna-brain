@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TOO_DEEPLY_NESTED_MESSAGE } from '@/lib/insights/parseHtml';
 import {
   INVALID_TEMPLATE_ICON_MESSAGE,
   TEMPLATE_HTML_REQUIRED_MESSAGE,
@@ -8,7 +9,7 @@ import {
   templateIconError,
   templateNameError,
 } from './templateValidation';
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 import { INSIGHT_TEMPLATE_MAX_CHARS } from '@/lib/insights/templateAttachment';
 
 describe('templateNameError', () => {
@@ -55,6 +56,12 @@ describe('templateHtmlError', () => {
     expect(templateHtmlError('x'.repeat(285_000))).toBe(
       'Template is 285,000 characters; templates are limited to 250,000.',
     );
+  });
+});
+
+describe('templateHtmlError on deep nesting', () => {
+  it('refuses template HTML nested too deeply for the outline to walk', () => {
+    expect(templateHtmlError('<span>x'.repeat(1_000))).toBe(TOO_DEEPLY_NESTED_MESSAGE);
   });
 });
 

@@ -343,3 +343,12 @@ describe('insightAttributionRules', () => {
     expect(rules).toContain('call `propose_insight_refresh`');
   });
 });
+
+describe('buildInsightChatOutline on a hostile document', () => {
+  it('says the document is too deep to outline instead of hanging or overflowing', () => {
+    const started = performance.now();
+    const { outline } = buildInsightChatOutline('<div>'.repeat(100_000), { maxChars: 6_000 });
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(outline).toContain('(This document is nested too deeply to outline.)');
+  });
+});

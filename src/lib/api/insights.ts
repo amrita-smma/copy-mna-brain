@@ -162,6 +162,25 @@ export async function createInsightFromDocument(
   });
 }
 
+export interface UploadInsightFileParams {
+  file: File;
+  /** Blank lets the server name it after the document's <title> or the file. */
+  name?: string;
+  description?: string;
+}
+
+/**
+ * Create an insight from an HTML file (MB-635). Sent as multipart form-data:
+ * a JSON-escaped document near the 4 MB cap would exceed the request limit.
+ */
+export async function uploadInsightFile(params: UploadInsightFileParams): Promise<InsightDetail> {
+  const form = new FormData();
+  form.append('file', params.file);
+  if (params.name?.trim()) form.append('name', params.name.trim());
+  if (params.description?.trim()) form.append('description', params.description.trim());
+  return apiRequest<InsightDetail>('/api/insights/upload', { method: 'POST', body: form });
+}
+
 /**
  * Rename an existing insight.
  */

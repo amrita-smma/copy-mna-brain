@@ -7,7 +7,12 @@
  * Errors block the save; warnings are shown but the user may save anyway.
  */
 
-import { parse, NodeType } from 'node-html-parser';
+import { NodeType, type HTMLElement } from 'node-html-parser';
+import {
+  TOO_DEEPLY_NESTED_MESSAGE,
+  isTooDeeplyNested,
+  parseInsightHtml,
+} from '@/lib/insights/parseHtml';
 import {
   INSIGHT_TEMPLATE_MAX_CHARS,
   formatTemplateTooLargeMessage,
@@ -30,7 +35,7 @@ const COMPLETE_STYLE_RE = /<style\b[\s\S]*?<\/style\s*>/gi;
  * `<html>`/`<body>` or an empty body. Tags are counted in the raw source
  * because node-html-parser auto-closes them.
  */
-function structureWarnings(html: string, root: ReturnType<typeof parse>): string[] {
+export function structureWarnings(html: string, root: HTMLElement): string[] {
   const stripped = html
     .replace(COMPLETE_COMMENTS_RE, '')
     .replace(COMPLETE_SCRIPT_RE, '')
@@ -47,7 +52,7 @@ function structureWarnings(html: string, root: ReturnType<typeof parse>): string
   const target = root.querySelector('body') ?? root;
   const hasElement = target.childNodes.some((node) => node.nodeType === NodeType.ELEMENT_NODE);
   if (!hasElement && target.text.trim().length === 0) {
-    warnings.push('The document body is empty, so the template renders blank.');
+    warnings.push('The document body is empty, so it renders blank.');
   }
   return warnings;
 }
@@ -60,7 +65,10 @@ export function checkTemplateHtml(html: string): TemplateCheckResult {
     return { errors: [formatTemplateTooLargeMessage(html.length)], warnings: [] };
   }
 
-  const root = parse(html);
+  const root = parseInsightHtml(html);
+  if (isTooDeeplyNested(root)) {
+    return { errors: [TOO_DEEPLY_NESTED_MESSAGE], warnings: [] };
+  }
   const warnings = structureWarnings(html, root);
   if (!root.querySelector('[data-section]')) {
     warnings.push(NO_SECTIONS_WARNING);

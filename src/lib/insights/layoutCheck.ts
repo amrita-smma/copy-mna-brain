@@ -18,7 +18,8 @@
  * then grows past its ratio when the content is taller.
  */
 
-import { parse, NodeType, type HTMLElement } from 'node-html-parser';
+import { NodeType, type HTMLElement } from 'node-html-parser';
+import { isTooDeeplyNested, parseInsightHtml } from '@/lib/insights/parseHtml';
 import type { CandidateAudience } from '@/lib/insights/structuralCheck';
 
 /** Elements that never render a box, so they don't count as page content. */
@@ -62,7 +63,9 @@ interface Computed {
  */
 export function checkInsightLayout(html: string): string | null {
   if (!html) return null;
-  const root = parse(html, { comment: false });
+  const root = parseInsightHtml(html, { comment: false });
+  // Too deep to walk; the write path refuses it with its own message.
+  if (isTooDeeplyNested(root)) return null;
   const elements = pageLevelElements(root);
   if (elements.length === 0) return null;
 
@@ -154,7 +157,9 @@ function pageLevelElements(root: HTMLElement): PageElement[] {
 
   let level = renderedChildren(bodyEl ?? root);
   while (level.length > 0) {
-    out.push(...level.map(describeElement));
+    // A loop, not push(...spread): a page with hundreds of thousands of
+    // top-level elements exceeds the engine's argument limit.
+    for (const el of level) out.push(describeElement(el));
     level = level.length === 1 ? renderedChildren(level[0]) : [];
   }
   return out;
@@ -236,7 +241,7 @@ function parseCss(css: string): CssRule[] {
     const head = prelude.slice(prelude.lastIndexOf(';') + 1).trim();
     if (head.startsWith('@')) {
       if (/^@(media|supports|container|layer|document)\b/i.test(head)) {
-        rules.push(...parseCss(body));
+        for (const rule of parseCss(body)) rules.push(rule);
       }
       continue;
     }

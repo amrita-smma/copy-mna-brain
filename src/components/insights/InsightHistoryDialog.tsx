@@ -184,6 +184,8 @@ export function InsightHistoryDialog({
         return 'Workforce';
       case 'copilot_create':
         return 'Initial creation';
+      case 'upload':
+        return 'Uploaded file';
       case 'copilot_edit':
         return 'CoPilot edit';
       case 'rollback':

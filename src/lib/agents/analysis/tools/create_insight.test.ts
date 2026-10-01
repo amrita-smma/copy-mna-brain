@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 
 const { mockCreateFromDocument, mockGetActiveWorkspaceIdOrThrow } = vi.hoisted(() => ({
   mockCreateFromDocument: vi.fn(),

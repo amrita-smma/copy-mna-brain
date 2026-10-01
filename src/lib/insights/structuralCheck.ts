@@ -4,7 +4,12 @@
  * node-html-parser auto-closes tags, so the parsed tree cannot show truncation.
  */
 
-import { parse, NodeType } from 'node-html-parser';
+import { NodeType } from 'node-html-parser';
+import {
+  TOO_DEEPLY_NESTED_MESSAGE,
+  isTooDeeplyNested,
+  parseInsightHtml,
+} from '@/lib/insights/parseHtml';
 import { rejectInvalidInsightDocument } from '@/lib/insights/documentGuard';
 import type { InsightKind } from '@/lib/insights/types';
 
@@ -62,7 +67,8 @@ export function checkInsightTruncation(html: string): string | null {
   }
 
   // 5. Parse with node-html-parser: verify body or root is not empty.
-  const root = parse(html);
+  const root = parseInsightHtml(html);
+  if (isTooDeeplyNested(root)) return TOO_DEEPLY_NESTED_MESSAGE;
   const target = root.querySelector('body') ?? root;
   const hasElementChildren = target.childNodes.some(
     (node) => node.nodeType === NodeType.ELEMENT_NODE,

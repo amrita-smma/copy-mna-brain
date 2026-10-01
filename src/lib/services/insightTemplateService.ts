@@ -5,7 +5,7 @@ import type {
 } from '@/lib/repositories';
 import type { InsightRepository } from '@/lib/repositories/insightRepository';
 import { duplicateInsightName } from '@/lib/insights/duplicateName';
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 import { isInsightTemplateIcon } from '@/lib/insights/templateIcons';
 import {
   formatMissingInsightTemplateBlock,

@@ -23,12 +23,19 @@ import type {
   InsightSummary,
   InsightVersionSummary,
 } from '@/lib/insights/types';
-import { MAX_INSIGHT_BYTES } from '@/lib/insights/srcdoc';
+import { MAX_INSIGHT_BYTES, MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
+import {
+  EMPTY_INSIGHT_UPLOAD_MESSAGE,
+  INVALID_INSIGHT_UPLOAD_TYPE_MESSAGE,
+  insightUploadTooLargeMessage,
+  isValidInsightUploadExtension,
+  suggestInsightUploadName,
+} from '@/lib/insights/upload';
 import { INSIGHT_LIST_DEFAULT_LIMIT } from '@/lib/insights/listQuery';
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
 import { duplicateInsightName } from '@/lib/insights/duplicateName';
 import { replaceInsightSection } from '@/lib/insights/sectionEdit';
 import { rejectInvalidInsightDocument } from '@/lib/insights/documentGuard';
+import { rejectTooDeeplyNested } from '@/lib/insights/parseHtml';
 import { checkInsightStructure } from '@/lib/insights/structuralCheck';
 import {
   buildInsightChatOutline,
@@ -44,6 +51,7 @@ import {
   findInsightMarkerProblems,
   hasInsightMarkerProblems,
   insightMarkerCorrection,
+  type EvidenceMarkerProblem,
 } from '@/lib/agents/sector/evidenceMarkers';
 // The LangChain-free registry only: InsightService runs inside the workforce
 // body, where the agent stack (sector/graph, <agent>/tools) must not load.
@@ -212,6 +220,18 @@ export interface CreateInsightFromDocumentInput {
   templateId?: string | null;
 }
 
+export interface UploadInsightDocumentInput {
+  workspaceId: string;
+  /** The uploaded file's name; it must end in .html or .htm. */
+  fileName: string;
+  /** The file's text, stored exactly as uploaded. */
+  html: string;
+  /** Blank falls back to the document's <title>, then the file name. */
+  name?: string | null;
+  description?: string | null;
+  userId?: string | null;
+}
+
 export interface PublishInsightVersionInput {
   workspaceId: string;
   insightId: string;
@@ -309,6 +329,23 @@ function assertInsightMarkers(html: string, stamp: InsightAgentStamp | null | un
   }
 }
 
+/** Most marker problems an upload refusal lists before summarising the rest. */
+const UPLOAD_MARKER_PROBLEMS_SHOWN = 5;
+
+/** An upload's marker refusal, worded for the person who picked the file. */
+function uploadMarkerMessage(problems: EvidenceMarkerProblem[]): string {
+  const shown = problems
+    .slice(0, UPLOAD_MARKER_PROBLEMS_SHOWN)
+    .map((p) => `- ${p.tag}: ${p.reason}`);
+  const rest = problems.length - shown.length;
+  return [
+    `This file has ${problems.length === 1 ? 'a source marker' : `${problems.length} source markers`} that can't be read, so it wasn't saved:`,
+    ...shown,
+    ...(rest > 0 ? [`- …and ${rest} more.`] : []),
+    'Fix them in the file, or remove those data-source and data-evidence attributes, then upload it again.',
+  ].join('\n');
+}
+
 function validateHtml(html: string): void {
   if (typeof html !== 'string') {
     throw new InsightValidationError('Insight HTML must be a string');
@@ -319,6 +356,9 @@ function validateHtml(html: string): void {
       `Insight HTML exceeds maximum allowed size of ${MAX_INSIGHT_BYTES} bytes (received ${bytes} bytes)`,
     );
   }
+  // A tree this deep can't be walked by the outline and checks that read it later.
+  const tooDeep = rejectTooDeeplyNested(html);
+  if (tooDeep) throw new InsightValidationError(tooDeep);
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -747,6 +787,62 @@ export class InsightService {
       input.templateId,
     );
 
+    return this.createWithFirstVersion(
+      { ...input, name, kind },
+      'copilot_create',
+      sourceTemplate,
+    );
+  }
+
+  /**
+   * Creates an insight from an HTML file a person uploaded (MB-635): version 1
+   * with trigger 'upload', no agent stamp and no source template. The file is
+   * stored exactly as uploaded. Its source markers are still checked, since a
+   * malformed one breaks the Sources rendering. The refusal is worded for the
+   * person who uploaded the file, not for the model.
+   */
+  async uploadDocument(input: UploadInsightDocumentInput): Promise<InsightDetail> {
+    if (!isValidInsightUploadExtension(input.fileName)) {
+      throw new InsightValidationError(INVALID_INSIGHT_UPLOAD_TYPE_MESSAGE);
+    }
+    if (input.html.trim().length === 0) {
+      throw new InsightValidationError(EMPTY_INSIGHT_UPLOAD_MESSAGE);
+    }
+    const bytes = Buffer.byteLength(input.html, 'utf8');
+    if (bytes > MAX_INSIGHT_BYTES) {
+      throw new InsightPayloadTooLargeError(insightUploadTooLargeMessage(bytes));
+    }
+    validateHtml(input.html);
+    const name = validateName(
+      input.name?.trim() || suggestInsightUploadName(input.fileName, input.html),
+    );
+    const problems = findInsightMarkerProblems(input.html, null);
+    if (hasInsightMarkerProblems(problems)) {
+      throw new InsightValidationError(uploadMarkerMessage(problems.sources));
+    }
+
+    return this.createWithFirstVersion(
+      { ...input, name, kind: 'document', agentStamp: null },
+      'upload',
+      null,
+    );
+  }
+
+  /** The insight row and its version 1, in one transaction. Inputs are validated. */
+  private createWithFirstVersion(
+    input: {
+      workspaceId: string;
+      name: string;
+      description?: string | null;
+      html: string;
+      userId?: string | null;
+      kind: InsightKind;
+      agentStamp?: InsightAgentStamp | null;
+    },
+    trigger: 'copilot_create' | 'upload',
+    sourceTemplate: { id: string; name: string } | null,
+  ): Promise<InsightDetail> {
+    const { name, kind } = input;
     return this.withTransaction(async (tx) => {
       const insight = await this.insightRepo.create(
         {
@@ -768,7 +864,7 @@ export class InsightService {
           insight_id: insight.id,
           version_no: 1,
           html: input.html,
-          trigger: 'copilot_create',
+          trigger,
           label: null,
           created_by: input.userId ?? null,
           content_hash: insightContentHash(input.html),

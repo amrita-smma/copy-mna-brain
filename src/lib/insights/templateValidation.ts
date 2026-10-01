@@ -5,12 +5,13 @@
  * value passes; the service turns a message into its typed error.
  */
 
-import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/toolValidation';
+import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
 import { isInsightTemplateIcon } from '@/lib/insights/templateIcons';
 import {
   INSIGHT_TEMPLATE_MAX_CHARS,
   formatTemplateTooLargeMessage,
 } from '@/lib/insights/templateAttachment';
+import { rejectTooDeeplyNested } from '@/lib/insights/parseHtml';
 
 export const TEMPLATE_NAME_REQUIRED_MESSAGE = 'Template name is required';
 export const TEMPLATE_HTML_REQUIRED_MESSAGE = 'Template HTML is required';
@@ -32,13 +33,14 @@ export function isTemplateHtmlTooLarge(html: unknown): html is string {
 }
 
 /**
- * Why template HTML fails, or null: blank, or over the character cap
- * (`html.length`, with the shared size message).
+ * Why template HTML fails, or null: blank, over the character cap
+ * (`html.length`, with the shared size message), or nested too deeply for the
+ * chat outline to walk.
  */
 export function templateHtmlError(html: unknown): string | null {
   if (typeof html !== 'string' || !html.trim()) return TEMPLATE_HTML_REQUIRED_MESSAGE;
   if (isTemplateHtmlTooLarge(html)) return formatTemplateTooLargeMessage(html.length);
-  return null;
+  return rejectTooDeeplyNested(html);
 }
 
 /**

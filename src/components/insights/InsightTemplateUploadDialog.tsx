@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,9 @@ import { uploadInsightTemplate } from '@/lib/api/insightTemplates';
 import { InsightTemplateIconSelect } from './InsightTemplateIconSelect';
 import {
   InsightTemplateFileDrop,
+  TEMPLATE_FILE_RULES,
   canSaveTemplateSelection,
+  inspectFileForDrop,
   type TemplateFileSelection,
 } from './InsightTemplateFileDrop';
 import { Loader2 } from 'lucide-react';
@@ -26,12 +28,15 @@ export interface InsightTemplateUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUploaded?: () => void;
+  /** A file dropped on the template list, picked as the dialog opens. */
+  initialFile?: File | null;
 }
 
 export function InsightTemplateUploadDialog({
   open,
   onOpenChange,
   onUploaded,
+  initialFile = null,
 }: InsightTemplateUploadDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -63,6 +68,21 @@ export function InsightTemplateUploadDialog({
       if (baseName) setName(baseName);
     }
   };
+
+  // Opened by a drop on the template list: read and check that file. A later
+  // close (or another drop) cancels a read still in flight.
+  useEffect(() => {
+    if (!open || !initialFile) return;
+    let cancelled = false;
+    void inspectFileForDrop(initialFile, TEMPLATE_FILE_RULES).then((next) => {
+      if (!cancelled && next) handleSelectionChange(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Re-run only for a new drop or a reopen, not for each name keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialFile]);
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();

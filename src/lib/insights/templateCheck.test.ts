@@ -75,7 +75,7 @@ describe('checkTemplateHtml', () => {
     const result = checkTemplateHtml('<html><head><style>p{}</style></head><body>  </body></html>');
     expect(result.errors).toEqual([]);
     expect(result.warnings).toEqual([
-      'The document body is empty, so the template renders blank.',
+      'The document body is empty, so it renders blank.',
       NO_SECTIONS_WARNING,
     ]);
   });

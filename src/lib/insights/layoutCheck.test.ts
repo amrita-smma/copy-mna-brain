@@ -112,3 +112,9 @@ describe('insightLayoutNote', () => {
     expect(insightLayoutNote(trapped, 'workforce-section', trapped)).toBeNull();
   });
 });
+
+describe('checkInsightLayout on a hostile document', () => {
+  it('handles hundreds of thousands of top-level elements without a RangeError', () => {
+    expect(() => checkInsightLayout('<p>x</p>'.repeat(300_000))).not.toThrow();
+  });
+});

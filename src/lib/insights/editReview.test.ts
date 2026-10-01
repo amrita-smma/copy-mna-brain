@@ -68,6 +68,7 @@ describe('versionTriggerPhrase', () => {
     expect(versionTriggerPhrase('routine')).toBe('a scheduled refresh');
     expect(versionTriggerPhrase('copilot_edit')).toBe('another approved CoPilot edit');
     expect(versionTriggerPhrase('rollback')).toBe('a rollback');
+    expect(versionTriggerPhrase('upload')).toBe('a new version');
   });
 });
 

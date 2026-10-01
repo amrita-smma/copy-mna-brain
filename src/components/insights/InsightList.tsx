@@ -20,6 +20,10 @@ import { useWorkspaceHref, useWorkspacePush } from '@/hooks/useWorkspaceHref';
 import { InsightEmptyState } from './InsightEmptyState';
 import { InsightManageDialog } from './InsightManageDialog';
 import { InsightTemplateList } from './InsightTemplateList';
+import { InsightRowDescription } from './InsightRowDescription';
+import { INSIGHT_UPLOAD_FILE_RULES, TEMPLATE_FILE_RULES } from './InsightTemplateFileDrop';
+import { useFileDropTarget } from './useFileDropTarget';
+import { setPendingInsightUpload } from './pendingInsightUpload';
 import { HtmlHoverPreview } from './HtmlHoverPreview';
 import { INSIGHT_FEATURED_HELP } from './featuredHelp';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -54,6 +58,7 @@ import {
   Star,
   StarOff,
   Trash2,
+  Upload,
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -143,6 +148,11 @@ export function InsightList({
   const push = useWorkspacePush();
   const router = useRouter();
   const listHref = useWorkspaceHref('/insight/list');
+
+  // An HTML file dropped anywhere on the list: on Insight List it opens the
+  // upload page with the file chosen, on Template List the template upload
+  // dialog. A new object per drop, so the same file dropped twice reopens it.
+  const [droppedTemplate, setDroppedTemplate] = useState<{ file: File } | null>(null);
 
   // The open tab is state, kept in the URL (`?tab=templates`; the default is
   // left out) so a refresh or back lands on it. A new `initialTab` — a "View
@@ -408,11 +418,10 @@ export function InsightList({
                     <span className="block truncate font-medium text-foreground">
                       {insight.name}
                     </span>
-                    {insight.description ? (
-                      <p className="text-xs text-muted-foreground line-clamp-1">
-                        {insight.description}
-                      </p>
-                    ) : null}
+                    <InsightRowDescription
+                      description={insight.description}
+                      testId={`insight-list-description-${insight.id}`}
+                    />
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
@@ -485,11 +494,10 @@ export function InsightList({
                             </span>
                           )}
                         </div>
-                        {insight.description ? (
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {insight.description}
-                          </p>
-                        ) : null}
+                        <InsightRowDescription
+                          description={insight.description}
+                          testId={`insight-list-description-${insight.id}`}
+                        />
                       </div>
                     </div>
 
@@ -605,120 +613,159 @@ export function InsightList({
     );
   };
 
+  const fileDrop = useFileDropTarget((file, extraFiles) => {
+    const rules = tab === 'templates' ? TEMPLATE_FILE_RULES : INSIGHT_UPLOAD_FILE_RULES;
+    if (!rules.isValidExtension(file.name)) {
+      toast.error(rules.invalidTypeMessage);
+      return;
+    }
+    if (extraFiles > 0) toast.info(`One file at a time: using ${file.name}.`);
+    if (tab === 'templates') {
+      setDroppedTemplate({ file });
+    } else {
+      setPendingInsightUpload(file);
+      push('/insight/upload');
+    }
+  });
+
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="insights">Insight List</TabsTrigger>
-          <TabsTrigger value="templates">Template List</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="insights">
-          {/* ── Controls: always shown, so a filter that matches nothing can be undone ── */}
-          <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="insight-list-controls">
-            <div
-              className="inline-flex rounded-md border border-border bg-card p-0.5"
-              role="group"
-              aria-label="Show active or archived insights"
-            >
-              {([
-                ['active', 'Active'],
-                ['archived', 'Archived'],
-              ] as const).map(([value, label]) => {
-                const selected = (value === 'archived') === archived;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setArchived(value === 'archived')}
-                    className={cn(
-                      'h-7 rounded px-3 text-xs font-medium transition-colors',
-                      selected
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                    data-testid={`insight-list-view-${value}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="relative flex-1 min-w-[12rem]">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search name or description"
-                aria-label="Search insights"
-                className="h-8 pl-8 bg-card"
-                data-testid="insight-list-search"
-              />
-            </div>
-
-            <Select value={agent} onValueChange={setAgent}>
-              <SelectTrigger
-                className="h-8 w-48 bg-card text-xs"
-                aria-label="Filter by agent"
-                data-testid="insight-list-agent-filter"
-              >
-                <SelectValue placeholder="All agents" />
-              </SelectTrigger>
-              <SelectContent className="bg-card">
-                <SelectItem value={ALL_AGENTS}>All agents</SelectItem>
-                <SelectItem value={INSIGHT_LIST_GENERAL_AGENT}>General CoPilot</SelectItem>
-                {agentOptions.map((a) => (
-                  <SelectItem key={a.key} value={a.key}>
-                    {a.handle} · {a.name}
-                    {a.deprecated ? ' (deprecated)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-pressed={mine}
-              onClick={() => setMine((on) => !on)}
-              className={cn(
-                'h-8 gap-1.5 border-border',
-                mine ? 'bg-muted text-primary' : 'bg-card hover:bg-muted text-foreground',
-              )}
-              data-testid="insight-list-mine"
-            >
-              <UserRound className="h-4 w-4" />
-              Created by me
-            </Button>
+    <div
+      className="relative flex-1"
+      data-testid="insight-list-drop-target"
+      {...fileDrop.bind}
+    >
+      {fileDrop.active && (
+        // A genuine overlay (the one place a translucent fill is allowed),
+        // covering the list while a file is dragged over it.
+        <div
+          className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/80 p-6"
+          data-testid="insight-list-drop-overlay"
+        >
+          <div className="sticky top-24 mt-16 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-card px-10 py-8 text-center shadow-lg">
+            <Upload className="h-8 w-8 text-primary" />
+            <p className="text-base font-semibold text-foreground">
+              {tab === 'templates' ? 'Drop to upload a template' : 'Drop to upload as a new insight'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {tab === 'templates' ? TEMPLATE_FILE_RULES.caption : INSIGHT_UPLOAD_FILE_RULES.caption}
+            </p>
           </div>
-
-          {renderBody()}
-        </TabsContent>
-
-        <TabsContent value="templates">
-          <InsightTemplateList onUseTemplate={onUseTemplate} />
-        </TabsContent>
-      </Tabs>
-
-      {manageState && (
-        <InsightManageDialog
-          insightId={manageState.insight.id}
-          insightName={manageState.insight.name}
-          mode={manageState.mode}
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) setManageState(null);
-          }}
-          onDone={() => {
-            setManageState(null);
-            onChanged();
-          }}
-        />
+        </div>
       )}
+      <div className="mx-auto max-w-4xl p-6">
+        <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="insights">Insight List</TabsTrigger>
+            <TabsTrigger value="templates">Template List</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="insights">
+            {/* ── Controls: always shown, so a filter that matches nothing can be undone ── */}
+            <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="insight-list-controls">
+              <div
+                className="inline-flex rounded-md border border-border bg-card p-0.5"
+                role="group"
+                aria-label="Show active or archived insights"
+              >
+                {([
+                  ['active', 'Active'],
+                  ['archived', 'Archived'],
+                ] as const).map(([value, label]) => {
+                  const selected = (value === 'archived') === archived;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setArchived(value === 'archived')}
+                      className={cn(
+                        'h-7 rounded px-3 text-xs font-medium transition-colors',
+                        selected
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
+                      )}
+                      data-testid={`insight-list-view-${value}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="relative flex-1 min-w-[12rem]">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search name or description"
+                  aria-label="Search insights"
+                  className="h-8 pl-8 bg-card"
+                  data-testid="insight-list-search"
+                />
+              </div>
+
+              <Select value={agent} onValueChange={setAgent}>
+                <SelectTrigger
+                  className="h-8 w-48 bg-card text-xs"
+                  aria-label="Filter by agent"
+                  data-testid="insight-list-agent-filter"
+                >
+                  <SelectValue placeholder="All agents" />
+                </SelectTrigger>
+                <SelectContent className="bg-card">
+                  <SelectItem value={ALL_AGENTS}>All agents</SelectItem>
+                  <SelectItem value={INSIGHT_LIST_GENERAL_AGENT}>General CoPilot</SelectItem>
+                  {agentOptions.map((a) => (
+                    <SelectItem key={a.key} value={a.key}>
+                      {a.handle} · {a.name}
+                      {a.deprecated ? ' (deprecated)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-pressed={mine}
+                onClick={() => setMine((on) => !on)}
+                className={cn(
+                  'h-8 gap-1.5 border-border',
+                  mine ? 'bg-muted text-primary' : 'bg-card hover:bg-muted text-foreground',
+                )}
+                data-testid="insight-list-mine"
+              >
+                <UserRound className="h-4 w-4" />
+                Created by me
+              </Button>
+            </div>
+
+            {renderBody()}
+          </TabsContent>
+
+          <TabsContent value="templates">
+            <InsightTemplateList onUseTemplate={onUseTemplate} droppedFile={droppedTemplate} />
+          </TabsContent>
+        </Tabs>
+
+        {manageState && (
+          <InsightManageDialog
+            insightId={manageState.insight.id}
+            insightName={manageState.insight.name}
+            mode={manageState.mode}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setManageState(null);
+            }}
+            onDone={() => {
+              setManageState(null);
+              onChanged();
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
