@@ -2137,3 +2137,68 @@ describe("CompanyService.promoteMany — telemetry", () => {
     expect(posthogMocks.captureWorkspaceEvent).not.toHaveBeenCalled();
   });
 });
+
+describe("CompanyService.countByStage", () => {
+  function buildWithRows(
+    rows: Array<{
+      stage: string | null;
+      source: string | null;
+      watchlist_status: string | null;
+      count: number;
+    }>,
+  ) {
+    const repos = makeRepos();
+    (repos.companyRepo as unknown as {
+      countByStageAndSource: ReturnType<typeof vi.fn>;
+    }).countByStageAndSource = vi.fn().mockResolvedValue(rows);
+    return { service: buildService(repos), repos };
+  }
+
+  it("sums each stage from a single grouped query", async () => {
+    const { service, repos } = buildWithRows([
+      { stage: "L0", source: "inbound", watchlist_status: null, count: 5 },
+      { stage: "L0", source: "outbound", watchlist_status: null, count: 3 },
+      { stage: "L2", source: "outbound", watchlist_status: null, count: 4 },
+    ]);
+
+    const result = await service.countByStage({ excludeDropped: true });
+
+    expect(
+      (repos.companyRepo as unknown as { countByStageAndSource: ReturnType<typeof vi.fn> })
+        .countByStageAndSource,
+    ).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { stage: "L0", count: 8, inbound: 5, outbound: 3 },
+      { stage: "L2", count: 4, inbound: 0, outbound: 4 },
+    ]);
+  });
+
+  it("falls back to watchlist_status when source is unset", async () => {
+    const { service } = buildWithRows([
+      { stage: "L1", source: null, watchlist_status: "active", count: 2 },
+      { stage: "L1", source: null, watchlist_status: "Inbound lead", count: 1 },
+      { stage: "L1", source: null, watchlist_status: "cold outreach", count: 6 },
+      { stage: "L1", source: null, watchlist_status: null, count: 4 },
+    ]);
+
+    await expect(service.countByStage()).resolves.toEqual([
+      { stage: "L1", count: 13, inbound: 3, outbound: 10 },
+    ]);
+  });
+
+  it("buckets a company with no stage under L0, matching the dashboard", async () => {
+    const { service } = buildWithRows([
+      { stage: null, source: "inbound", watchlist_status: null, count: 2 },
+      { stage: "L0", source: "inbound", watchlist_status: null, count: 1 },
+    ]);
+
+    await expect(service.countByStage()).resolves.toEqual([
+      { stage: "L0", count: 3, inbound: 3, outbound: 0 },
+    ]);
+  });
+
+  it("returns [] when the workspace has no companies", async () => {
+    const { service } = buildWithRows([]);
+    await expect(service.countByStage()).resolves.toEqual([]);
+  });
+});

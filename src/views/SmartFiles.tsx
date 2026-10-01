@@ -93,7 +93,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
-import { getCompanies } from "@/lib/api/pipeline";
+import { getCompanies, getCompaniesLite } from "@/lib/api/pipeline";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
 import { MatchedCompaniesCell } from "@/components/Files/MatchedCompaniesCell";
 import { useChatContext } from "@/components/chat/ChatProvider";
@@ -116,6 +116,14 @@ import {
 const AUTO = COMBOBOX_AUTO;
 
 type CompanyOption = ComboboxOption;
+
+/**
+ * Ceiling on the company picker's list. The filename auto-matcher compares
+ * against every entry client-side, so this caller asks for the whole list
+ * rather than a page — the cap is what keeps "whole list" bounded. Mirrors the
+ * `lite` clamp in `/api/companies`.
+ */
+const COMPANY_PICKER_LIMIT = 2000;
 
 /**
  * Lowercase, replace any non-alphanumeric characters with a single space, and
@@ -1421,19 +1429,22 @@ export default function SmartFiles({
   }, []);
 
   // Companies for the Matched Company / Project Name dropdowns + the
-  // filename auto-matcher. Each row in `companies` carries both `target`
-  // (company name) and `project_name` (codename) — the two columns label
-  // their dropdowns from those fields respectively, but a single pick
-  // resolves to the same company id. `apiRequest` already unwraps the
-  // `{ data }` envelope, so `getCompanies` returns the array directly.
+  // filename auto-matcher. Each row carries both `target` (company name) and
+  // `project_name` (codename) — the two columns label their dropdowns from
+  // those fields respectively, but a single pick resolves to the same company
+  // id.
+  //
+  // Uses the lite endpoint: it returns exactly these three columns, already
+  // ordered by target, and skips the DTO's joins entirely. The full
+  // `getCompanies` call this replaced fetched every column of every company
+  // and then threw all but three away.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const result = (await getCompanies({
-          orderBy: "target",
-          orderDir: "asc",
-        })) as
+        // The auto-matcher compares filenames against the whole list, so this
+        // one caller genuinely wants every company rather than a page.
+        const result = (await getCompaniesLite({ limit: COMPANY_PICKER_LIMIT })) as
           | {
               id: string;
               target: string | null;
@@ -1442,6 +1453,13 @@ export default function SmartFiles({
           | null;
         if (cancelled) return;
         const rows = Array.isArray(result) ? result : [];
+        if (rows.length >= COMPANY_PICKER_LIMIT) {
+          // Say so rather than silently matching against a truncated list — a
+          // workspace this large needs server-side matching instead.
+          console.warn(
+            `Company picker hit its ${COMPANY_PICKER_LIMIT}-row ceiling; filename auto-matching may miss companies beyond it.`,
+          );
+        }
         const options = rows
           .filter((r) => r.id && r.target)
           .map((r) => ({

@@ -291,25 +291,6 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     void fetchRoutines();
   }, [fetchQueue, fetchRoutines]);
 
-  // Poll the queue + routines while the tab is foregrounded. Without this,
-  // a routine that fires at 15:12 only shows up after a manual page reload;
-  // 5s is short enough that new runs appear "instantly" to the user and
-  // long enough that an idle dashboard stays cheap. We gate on
-  // `document.visibilityState` so a backgrounded tab doesn't keep pinging
-  // — Page Visibility API fires `visibilitychange` when the user returns,
-  // which the effect picks up via re-render of the interval below if we
-  // ever wire it; for now a simple skip is good enough.
-  useEffect(() => {
-    const POLL_MS = 5000;
-    const tick = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      void fetchQueue();
-      void fetchRoutines();
-    };
-    const intervalId = window.setInterval(tick, POLL_MS);
-    return () => window.clearInterval(intervalId);
-  }, [fetchQueue, fetchRoutines]);
-
   const runCountByRoutine = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of items) {
@@ -368,12 +349,17 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     [fetchRoutines],
   );
 
-  // Poll the queue every 10s so users see status changes (HITL pauses,
-  // completions, the next claim) without manually refreshing. Pauses when
-  // the tab is backgrounded and while a drag is in progress, and fires an
-  // immediate catch-up fetch when the tab becomes visible again. Read
-  // `draggingId` through a ref so we don't tear down and rebuild the
-  // interval every time the drag state changes.
+  // Poll the queue and routines every 5s so users see status changes (HITL
+  // pauses, completions, the next claim) and newly fired routines without
+  // manually refreshing. Pauses when the tab is backgrounded and while a drag
+  // is in progress, and fires an immediate catch-up fetch when the tab becomes
+  // visible again. Read `draggingId` through a ref so we don't tear down and
+  // rebuild the interval every time the drag state changes.
+  //
+  // This is the only poller on this screen. A second one used to run at 5s
+  // refetching the same queue, so the two stacked to ~18 queue requests a
+  // minute on an idle tab — and it lacked the drag gate, so it could refetch
+  // mid-drag.
   const draggingIdRef = useRef(draggingId);
   useEffect(() => {
     draggingIdRef.current = draggingId;
@@ -382,7 +368,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const POLL_INTERVAL_MS = 10_000;
+    const POLL_INTERVAL_MS = 5_000;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const start = () => {
@@ -393,6 +379,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           draggingIdRef.current === null
         ) {
           void fetchQueue();
+          void fetchRoutines();
         }
       }, POLL_INTERVAL_MS);
     };
@@ -406,6 +393,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         void fetchQueue();
+        void fetchRoutines();
         start();
       } else {
         stop();
@@ -419,7 +407,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fetchQueue]);
+  }, [fetchQueue, fetchRoutines]);
 
   const inProgressItems = useMemo(
     () =>

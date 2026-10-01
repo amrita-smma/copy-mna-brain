@@ -89,6 +89,20 @@ export async function getCompanyTimeline(companyId: string): Promise<FeedEvent[]
   );
 }
 
+/**
+ * The same timelines for a batch of companies, keyed by company id — one
+ * request for a whole page of feed carousels instead of one per card.
+ */
+export async function getCompanyTimelines(
+  companyIds: string[],
+): Promise<Record<string, FeedEvent[]>> {
+  if (companyIds.length === 0) return {};
+  const search = new URLSearchParams({ ids: companyIds.join(',') });
+  return apiRequest<Record<string, FeedEvent[]>>(
+    `/api/dashboard/company-timeline?${search.toString()}`,
+  );
+}
+
 /** Fetch the aggregated Insights dashboard (funnel, breakdowns, AI throughput). */
 export async function getDashboardInsights(params: {
   from: Date;

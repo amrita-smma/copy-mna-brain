@@ -97,18 +97,13 @@ export default function ScreeningProgressPanel({
     }
   };
 
+  // Refetch on mount and whenever the parent bumps `refreshTrigger`, which it
+  // does from the `/api/screenings/stream` SSE subscription. That stream is the
+  // live-update mechanism; this panel used to run its own unconditional 5s poll
+  // alongside it.
   useEffect(() => {
     fetchScreenings();
   }, [refreshTrigger]);
-
-  // Poll every 5 seconds as fallback for real-time updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchScreenings();
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
 
   // Group screenings by (company, track): a company matched to N tracks shows N
   // entries, one per track, each with its own criteria progress.

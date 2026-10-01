@@ -455,6 +455,48 @@ export class CompanyRepository {
     return this.count({});
   }
 
+  /**
+   * Per-stage headcount, further split by the two columns the dashboard's
+   * inbound/outbound rule reads (`source`, falling back to `watchlist_status`).
+   *
+   * Grouping on all three keeps the bucketing rule itself in the service rather
+   * than duplicating it as SQL, while still returning a bounded aggregate —
+   * stages x sources x statuses — instead of the whole companies table, which
+   * is what the dashboard used to download just to count rows client-side.
+   */
+  async countByStageAndSource(
+    filters: Omit<CompanyFilters, "orderBy" | "orderDir" | "limit"> = {},
+  ): Promise<
+    Array<{
+      stage: string | null;
+      source: string | null;
+      watchlist_status: string | null;
+      count: number;
+    }>
+  > {
+    const where = buildFilterWhere(filters, this.workspaceId);
+    const rows = await this.db
+      .select({
+        stage: companies.pipeline_stage,
+        source: companies.source,
+        watchlist_status: companies.watchlist_status,
+        count: drizzleCount(),
+      })
+      .from(companies)
+      .where(where)
+      .groupBy(
+        companies.pipeline_stage,
+        companies.source,
+        companies.watchlist_status,
+      );
+    return rows.map((r) => ({
+      stage: r.stage === null ? null : String(r.stage),
+      source: r.source === null ? null : String(r.source),
+      watchlist_status: r.watchlist_status ?? null,
+      count: Number(r.count),
+    }));
+  }
+
   async findTargetNames(): Promise<string[]> {
     const rows = await this.db
       .select({ target: companies.target })

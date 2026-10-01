@@ -989,6 +989,10 @@ export default function Pipeline() {
         pendingIds.forEach((id) => next.delete(id));
         return next.size === prev.size ? prev : next;
       });
+      // Drive the progress panel off this same stream. It used to poll every
+      // 5s on its own, forever, even with nothing running — this refetches it
+      // exactly when a screening actually changed state.
+      setScreeningProgressRefresh((n) => n + 1);
     },
   );
 

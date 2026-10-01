@@ -65,6 +65,28 @@ export async function getCompaniesCount(params: {
 }
 
 /**
+ * Per-stage company totals with the inbound/outbound split, aggregated
+ * server-side. Replaces fetching every company just to tally stages in the
+ * browser.
+ */
+export async function getCompanyStageCounts(params: {
+  excludeDropped?: boolean;
+  stageNotNull?: boolean;
+  excludeStage?: string;
+} = {}): Promise<
+  Array<{ stage: string; count: number; inbound: number; outbound: number }>
+> {
+  const search = new URLSearchParams();
+  search.set('countBy', 'stage');
+  if (params.excludeDropped) search.set('excludeDropped', 'true');
+  if (params.stageNotNull) search.set('stageNotNull', 'true');
+  if (params.excludeStage) search.set('excludeStage', params.excludeStage);
+  return apiRequest<
+    Array<{ stage: string; count: number; inbound: number; outbound: number }>
+  >(`/api/companies?${search.toString()}`);
+}
+
+/**
  * Enqueue an AI Opinion workforce run for a company. The run writes a firm
  * pass/fail/tentative verdict + ≤50-word rationale back onto the company; the
  * pipeline polls the companies list to surface it in the AI Opinion column.

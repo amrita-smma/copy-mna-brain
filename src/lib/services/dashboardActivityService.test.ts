@@ -696,6 +696,87 @@ describe('DashboardActivityService.getCompanyTimeline', () => {
   });
 });
 
+describe('DashboardActivityService.getCompanyTimelines', () => {
+  let repo: MockRepo;
+  let service: DashboardActivityService;
+
+  beforeEach(() => {
+    repo = new MockRepo();
+    repo.getNewL0Companies.mockResolvedValue([]);
+    repo.getPipelineMoves.mockResolvedValue([]);
+    repo.getDroppedDeals.mockResolvedValue([]);
+    repo.getNotesUpdated.mockResolvedValue([]);
+    repo.getDiscoveredCompanies.mockResolvedValue([]);
+    service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+    );
+  });
+
+  it('returns {} without hitting the DB when the id list is empty', async () => {
+    await expect(service.getCompanyTimelines([])).resolves.toEqual({});
+    expect(repo.getNewL0Companies).not.toHaveBeenCalled();
+  });
+
+  it('queries every source once for the whole batch, not once per company', async () => {
+    await service.getCompanyTimelines(['co-1', 'co-2', 'co-3']);
+
+    for (const fn of [
+      repo.getNewL0Companies,
+      repo.getPipelineMoves,
+      repo.getDroppedDeals,
+      repo.getNotesUpdated,
+      repo.getDiscoveredCompanies,
+    ]) {
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(fn).toHaveBeenCalledWith(
+        expect.any(Date),
+        expect.any(Date),
+        undefined,
+        ['co-1', 'co-2', 'co-3'],
+      );
+    }
+  });
+
+  it('de-duplicates repeated ids before querying', async () => {
+    await service.getCompanyTimelines(['co-1', 'co-1', 'co-2']);
+
+    expect(repo.getNewL0Companies).toHaveBeenCalledWith(
+      expect.any(Date),
+      expect.any(Date),
+      undefined,
+      ['co-1', 'co-2'],
+    );
+  });
+
+  it('partitions events by company, newest-first within each', async () => {
+    repo.getNewL0Companies.mockResolvedValue([
+      newDealRow('co-1', '2026-01-01T00:00:00.000Z'),
+      newDealRow('co-2', '2026-01-05T00:00:00.000Z'),
+    ]);
+    // moveRow/noteRow derive `company_id` as `co-${id}`, so '1' targets co-1.
+    repo.getPipelineMoves.mockResolvedValue([moveRow('1', '2026-03-01T00:00:00.000Z')]);
+    repo.getNotesUpdated.mockResolvedValue([noteRow('1', '2026-02-01T00:00:00.000Z')]);
+
+    const result = await service.getCompanyTimelines(['co-1', 'co-2']);
+
+    expect(result['co-1'].map((e) => e.type)).toEqual([
+      'stage_move',
+      'note_updated',
+      'new_deal',
+    ]);
+    expect(result['co-2'].map((e) => e.type)).toEqual(['new_deal']);
+  });
+
+  it('gives a company with no activity an empty array rather than omitting it', async () => {
+    repo.getNewL0Companies.mockResolvedValue([newDealRow('co-1', '2026-01-01T00:00:00.000Z')]);
+
+    const result = await service.getCompanyTimelines(['co-1', 'co-quiet']);
+
+    expect(result['co-quiet']).toEqual([]);
+    expect(Object.keys(result).sort()).toEqual(['co-1', 'co-quiet']);
+  });
+});
+
 describe('DashboardActivityService.getAddedCohort', () => {
   let repo: MockRepo;
   let service: DashboardActivityService;

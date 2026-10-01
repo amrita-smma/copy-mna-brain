@@ -415,6 +415,52 @@ export class DashboardActivityService {
       discoveredCompanies,
     });
   }
+
+  /**
+   * {@link getCompanyTimeline} for a batch of companies, keyed by company id.
+   *
+   * The dashboard feed renders a carousel per company, and fetching each one
+   * separately meant one HTTP request and five queries per visible card. This
+   * runs the same five queries once for the whole page of cards and groups the
+   * result in memory.
+   *
+   * Companies with no events still get an entry (an empty array), so callers
+   * can read the map directly without re-checking membership.
+   */
+  async getCompanyTimelines(companyIds: string[]): Promise<Record<string, FeedEvent[]>> {
+    if (companyIds.length === 0) return {};
+    // De-duplicate so a company repeated in the request doesn't widen the
+    // `IN` list for no reason.
+    const ids = [...new Set(companyIds)];
+
+    const from = new Date(0);
+    const to = new Date('9999-12-31T23:59:59.999Z');
+
+    const [newL0Companies, pipelineMoves, droppedDeals, notesUpdated, discoveredCompanies] =
+      await Promise.all([
+        this.repo.getNewL0Companies(from, to, undefined, ids),
+        this.repo.getPipelineMoves(from, to, undefined, ids),
+        this.repo.getDroppedDeals(from, to, undefined, ids),
+        this.repo.getNotesUpdated(from, to, undefined, ids),
+        this.repo.getDiscoveredCompanies(from, to, undefined, ids),
+      ]);
+
+    const byCompany: Record<string, FeedEvent[]> = Object.fromEntries(
+      ids.map((id) => [id, [] as FeedEvent[]]),
+    );
+    // `buildFeedEvents` already sorts newest-first, and partitioning preserves
+    // that order within each company.
+    for (const event of buildFeedEvents({
+      newL0Companies,
+      pipelineMoves,
+      droppedDeals,
+      notesUpdated,
+      discoveredCompanies,
+    })) {
+      byCompany[event.company_id]?.push(event);
+    }
+    return byCompany;
+  }
 }
 
 /**

@@ -41,6 +41,33 @@ const POST_L0_STAGES: ReadonlySet<string> = new Set(['L1', 'L2', 'L3', 'L4', 'L5
 // pipeline (L0–L5) require human approval; pre-pipeline companies auto-accept.
 export const IN_PIPELINE_STAGES: ReadonlySet<string> = new Set([L0_STAGE, ...POST_L0_STAGES]);
 
+/** One pipeline stage's headcount, split by deal origin. */
+export interface StageCount {
+  stage: string;
+  count: number;
+  inbound: number;
+  outbound: number;
+}
+
+/**
+ * Whether a company counts as inbound for the dashboard's pipeline bar.
+ *
+ * `source` is authoritative when set. Older rows predate that column, so the
+ * free-text `watchlist_status` stands in: "active" or anything containing
+ * "inbound" reads as inbound. Everything else — including an unset status —
+ * is outbound.
+ */
+function isInboundCompany(row: {
+  source: string | null;
+  watchlist_status: string | null;
+}): boolean {
+  const source = row.source?.toLowerCase();
+  if (source === 'inbound') return true;
+  if (source === 'outbound') return false;
+  const status = row.watchlist_status?.toLowerCase() ?? '';
+  return status.includes('inbound') || status === 'active';
+}
+
 export interface FinancialUpsertInput {
   fiscal_year: number;
   revenue_usd_mn?: number | null;
@@ -262,6 +289,34 @@ export class CompanyService {
 
   count(filters: Pick<CompanyFilters, 'id' | 'stage' | 'stageIn' | 'excludeStage' | 'stageNotNull' | 'excludeDropped' | 'createdAfter'>) {
     return this.companyRepo.count(filters);
+  }
+
+  /**
+   * Per-stage totals with the inbound/outbound split the dashboard's pipeline
+   * bar renders.
+   *
+   * A company counts as inbound when `source` says so; when `source` is unset
+   * the `watchlist_status` stands in ("inbound" or "active"), and anything else
+   * is outbound. That rule used to live in the Dashboard view, which downloaded
+   * every company just to apply it — this computes the same numbers from a
+   * single grouped query.
+   */
+  async countByStage(
+    filters: Pick<CompanyFilters, 'id' | 'stage' | 'stageIn' | 'excludeStage' | 'stageNotNull' | 'excludeDropped' | 'createdAfter'> = {},
+  ): Promise<StageCount[]> {
+    const rows = await this.companyRepo.countByStageAndSource(filters);
+    const byStage = new Map<string, StageCount>();
+    for (const row of rows) {
+      // Mirrors the view's own fallback: a company with no stage was bucketed
+      // under L0.
+      const stage = row.stage ?? 'L0';
+      const entry = byStage.get(stage) ?? { stage, count: 0, inbound: 0, outbound: 0 };
+      entry.count += row.count;
+      if (isInboundCompany(row)) entry.inbound += row.count;
+      else entry.outbound += row.count;
+      byStage.set(stage, entry);
+    }
+    return [...byStage.values()];
   }
 
   /**

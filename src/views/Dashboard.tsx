@@ -27,9 +27,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { getCompanies } from "@/lib/api/pipeline";
+import { getCompanies, getCompanyStageCounts } from "@/lib/api/pipeline";
 import {
-  getCompanyTimeline,
+  getCompanyTimelines,
   getDailyPulse,
   refreshDailyPulse,
   getDashboardActivity,
@@ -687,8 +687,6 @@ export default function Dashboard({
 }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [activityInitialising, setActivityInitialising] = useState(true);
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [totalCompanies, setTotalCompanies] = useState(0);
   const [stageCounts, setStageCounts] = useState<StageCounts[]>([]);
   const [activity, setActivity] = useState<DashboardActivity | null>(null);
   // Cohort snapshot backing the tally sections (Total Companies Added, Recap,
@@ -771,63 +769,24 @@ export default function Dashboard({
 
   const fetchPipelineData = useCallback(async () => {
     try {
-      const companiesData = await getCompanies({
-        excludeDropped: true,
-        orderBy: "updated_at",
-        orderDir: "desc",
-      });
+      // One grouped query, not the whole companies table. This used to pull
+      // every company as a full DTO purely to tally these few numbers in the
+      // browser — by far the heaviest request on the dashboard's first load.
+      const stageTotals = await getCompanyStageCounts({ excludeDropped: true });
+      const byStage = new Map(stageTotals.map((s) => [s.stage, s]));
 
-      if (companiesData) {
-        setCompanies(companiesData);
-        setTotalCompanies(companiesData.length);
-
-        const stageMap = new Map<
-          string,
-          { count: number; inbound: number; outbound: number }
-        >();
-        PIPELINE_STAGES.forEach(({ stage }) => {
-          stageMap.set(stage, { count: 0, inbound: 0, outbound: 0 });
-        });
-
-        companiesData.forEach((company: any) => {
-          const stage = company.pipeline_stage || "L0";
-          const current = stageMap.get(stage) || {
-            count: 0,
-            inbound: 0,
-            outbound: 0,
+      setStageCounts(
+        PIPELINE_STAGES.map(({ stage, label }) => {
+          const data = byStage.get(stage);
+          return {
+            stage,
+            label,
+            count: data?.count ?? 0,
+            inbound: data?.inbound ?? 0,
+            outbound: data?.outbound ?? 0,
           };
-          current.count += 1;
-          const src = company.source?.toLowerCase();
-          if (src === "inbound") current.inbound += 1;
-          else if (src === "outbound") current.outbound += 1;
-          else {
-            const status = company.watchlist_status?.toLowerCase() || "";
-            if (status.includes("inbound") || status === "active")
-              current.inbound += 1;
-            else current.outbound += 1;
-          }
-          stageMap.set(stage, current);
-        });
-
-        const counts: StageCounts[] = PIPELINE_STAGES.map(
-          ({ stage, label }) => {
-            const data = stageMap.get(stage) || {
-              count: 0,
-              inbound: 0,
-              outbound: 0,
-            };
-            return {
-              stage,
-              label,
-              count: data.count,
-              inbound: data.inbound,
-              outbound: data.outbound,
-            };
-          },
-        );
-
-        setStageCounts(counts);
-      }
+        }),
+      );
     } catch (error) {
       console.error("Error fetching pipeline data:", error);
     } finally {
@@ -895,15 +854,11 @@ export default function Dashboard({
         return;
       }
       activeCompanyRequestIdRef.current = id;
-      const cached = companies.find((c: any) => c.id === id);
-      if (cached) {
-        setSelectedCompany(cached as CompanyData);
-        return;
-      }
       try {
         // `getCompanies({ id })` hits the single-company endpoint, which returns
-        // one DTO object (not an array). Dropped companies are excluded from the
-        // cached `companies` list, so they always take this path.
+        // one DTO object (not an array). This is the only path now — the
+        // dashboard no longer holds a list of companies to read from, and
+        // dropped companies always took this route anyway.
         const company = await getCompanies({ id });
         // A later click already superseded this one — dropping the response
         // keeps a slow earlier fetch from replacing the company the user
@@ -916,7 +871,7 @@ export default function Dashboard({
         console.error("Failed to load company details", err);
       }
     },
-    [companies, isMobile, router, pipelineHref, dashboardHref],
+    [isMobile, router, pipelineHref, dashboardHref],
   );
 
   useEffect(() => {
@@ -2515,6 +2470,51 @@ function FeedEventRow({
 
 const companyTimelineCache = new Map<string, FeedEvent[]>();
 
+// The feed renders one carousel per company, and each used to fetch its own
+// timeline — ten requests on first paint, ten more per "Show More". These
+// coalesce instead: every request made in the same tick is collected and sent
+// as one batched call, so a page of cards costs a single round trip no matter
+// how many cards it holds.
+let pendingTimelineIds: string[] = [];
+let pendingTimelineBatch: Promise<Record<string, FeedEvent[]>> | null = null;
+
+// Matches the server's per-request cap; batches above it are split rather than
+// rejected.
+const TIMELINE_BATCH_LIMIT = 100;
+
+async function fetchTimelineBatch(ids: string[]): Promise<Record<string, FeedEvent[]>> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += TIMELINE_BATCH_LIMIT) {
+    chunks.push(ids.slice(i, i + TIMELINE_BATCH_LIMIT));
+  }
+  const results = await Promise.all(chunks.map((chunk) => getCompanyTimelines(chunk)));
+  return Object.assign({}, ...results);
+}
+
+function loadCompanyTimeline(companyId: string): Promise<FeedEvent[]> {
+  const cached = companyTimelineCache.get(companyId);
+  if (cached) return Promise.resolve(cached);
+
+  if (!pendingTimelineIds.includes(companyId)) pendingTimelineIds.push(companyId);
+  if (!pendingTimelineBatch) {
+    // Resolved promise, not a timer: the batch closes at the end of the current
+    // microtask queue, which is after every card mounted in this render has
+    // registered its id.
+    pendingTimelineBatch = Promise.resolve().then(() => {
+      const ids = pendingTimelineIds;
+      pendingTimelineIds = [];
+      pendingTimelineBatch = null;
+      return fetchTimelineBatch(ids);
+    });
+  }
+
+  return pendingTimelineBatch.then((byCompany) => {
+    const events = byCompany[companyId] ?? [];
+    companyTimelineCache.set(companyId, events);
+    return events;
+  });
+}
+
 // The slide a carousel opens on, given events in oldest → newest order. With a
 // filter active we default to the LATEST event of the matching type (the reason
 // the company is in this filtered view); otherwise the latest event overall.
@@ -2566,9 +2566,8 @@ function CompanyFeedCarousel({
       return;
     }
     let cancelled = false;
-    getCompanyTimeline(company.company_id)
+    loadCompanyTimeline(company.company_id)
       .then((events) => {
-        companyTimelineCache.set(company.company_id, events);
         if (!cancelled) setTimeline(events);
       })
       .catch((err) => {

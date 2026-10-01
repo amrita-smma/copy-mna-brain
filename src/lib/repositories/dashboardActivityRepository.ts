@@ -49,11 +49,28 @@ type FeedFinancials = {
  */
 export type FeedCurrentStatus = 'new_deal' | 'stage_move' | 'dropped';
 
+/** One company, or a batch of them, as accepted by the timeline queries. */
+export type CompanyScope = string | readonly string[];
+
 export class DashboardActivityRepository {
   constructor(
     private db: DbClient,
     private readonly workspaceId: string,
   ) {}
+
+  /**
+   * Narrows a feed query to one company or a batch of them.
+   *
+   * `undefined` means "no company filter" (the dashboard-wide feed). An empty
+   * batch fails closed to a never-true predicate rather than falling through to
+   * no filter at all, which would quietly widen the query to every company.
+   */
+  private companyScope(scope?: CompanyScope) {
+    if (scope === undefined) return undefined;
+    if (typeof scope === 'string') return eq(companies.id, scope);
+    if (scope.length === 0) return sql`false`;
+    return inArray(companies.id, [...scope]);
+  }
 
   /**
    * Join condition that attaches the company's MOST RECENT financials row
@@ -112,7 +129,7 @@ export class DashboardActivityRepository {
     )`;
   }
 
-  async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: string, currentStatus?: FeedCurrentStatus): Promise<
+  async getNewL0Companies(from: Date, to: Date, limit?: number, companyId?: CompanyScope, currentStatus?: FeedCurrentStatus): Promise<
     ({ id: string; target: string | null; project_name: string | null; source: string | null; segment: string | null; geography: string | null; remarks: string | null; thesis_content: string | null; logo_url: string | null; deal_sponsor_name: string | null; entered_by: string | null; entered_by_name: string | null; status: 'active' | 'dropped'; pipeline_stage: string | null; event_at: string; reason: 'created' | 'demoted' } & FeedFinancials)[]
   > {
     const fromIso = from.toISOString();
@@ -152,7 +169,7 @@ export class DashboardActivityRepository {
           eq(companies.pipeline_stage, 'L0'),
           gte(companies.created_at, fromIso),
           lte(companies.created_at, toIso),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
           this.currentStatusWhere(currentStatus),
         ),
       )
@@ -190,7 +207,7 @@ export class DashboardActivityRepository {
           eq(companies.workspace_id, this.workspaceId),
           like(companyLogs.action, '%_TO_L0'),
           logDateInRange(fromIso, toIso),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
           this.currentStatusWhere(currentStatus),
         ),
       )
@@ -285,7 +302,7 @@ export class DashboardActivityRepository {
    * activity feed can show an event whenever one is added. Relationship-graph
    * auto-created `discovered` companies are intentionally excluded.
    */
-  async getDiscoveredCompanies(from: Date, to: Date, limit?: number, companyId?: string) {
+  async getDiscoveredCompanies(from: Date, to: Date, limit?: number, companyId?: CompanyScope) {
     const query = this.db
       .select({
         id: companies.id,
@@ -311,7 +328,7 @@ export class DashboardActivityRepository {
           eq(companies.pipeline_stage, 'market_screening'),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
         ),
       )
       .orderBy(desc(companies.created_at));
@@ -341,7 +358,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(companies.updated_at));
   }
 
-  async getPipelineMoves(from: Date, to: Date, limit?: number, companyId?: string, currentStatus?: FeedCurrentStatus) {
+  async getPipelineMoves(from: Date, to: Date, limit?: number, companyId?: CompanyScope, currentStatus?: FeedCurrentStatus) {
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
     const query = this.db
@@ -379,7 +396,7 @@ export class DashboardActivityRepository {
           eq(companies.workspace_id, this.workspaceId),
           like(companyLogs.action, 'PROMOTED_%'),
           logDateInRange(fromIso, toIso),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
           this.currentStatusWhere(currentStatus),
         ),
       )
@@ -409,7 +426,7 @@ export class DashboardActivityRepository {
       .orderBy(desc(companySlides.created_at));
   }
 
-  async getDroppedDeals(from: Date, to: Date, limit?: number, companyId?: string) {
+  async getDroppedDeals(from: Date, to: Date, limit?: number, companyId?: CompanyScope) {
     const query = this.db
       .select({
         id: companies.id,
@@ -443,14 +460,14 @@ export class DashboardActivityRepository {
           eq(companies.status, 'dropped'),
           gte(companies.dropped_at, from.toISOString()),
           lte(companies.dropped_at, to.toISOString()),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
         ),
       )
       .orderBy(desc(companies.dropped_at));
     return limit != null ? query.limit(limit) : query;
   }
 
-  async getNotesUpdated(from: Date, to: Date, limit?: number, companyId?: string) {
+  async getNotesUpdated(from: Date, to: Date, limit?: number, companyId?: CompanyScope) {
     const query = this.db
       .select({
         id: dealNotes.id,
@@ -481,7 +498,7 @@ export class DashboardActivityRepository {
           eq(companies.workspace_id, this.workspaceId),
           gte(dealNotes.created_at, from.toISOString()),
           lte(dealNotes.created_at, to.toISOString()),
-          companyId ? eq(companies.id, companyId) : undefined,
+          this.companyScope(companyId),
         ),
       )
       .orderBy(desc(dealNotes.created_at));

@@ -794,3 +794,52 @@ describe('CompanyRepository.findIdAndNameByIds', () => {
     expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'workspace-1']));
   });
 });
+
+/** Build a db whose `select().from().where().groupBy()` resolves to `rows`. */
+function makeGroupedDb(
+  rows: Array<{
+    stage: string | null;
+    source: string | null;
+    watchlist_status: string | null;
+    count: number | string;
+  }>,
+) {
+  const groupBy = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ groupBy });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never, select, from, where, groupBy };
+}
+
+describe('CompanyRepository.countByStageAndSource', () => {
+  it('groups by stage, source and watchlist_status in one workspace-scoped query', async () => {
+    const { db, select, where, groupBy } = makeGroupedDb([
+      { stage: 'L0', source: 'inbound', watchlist_status: null, count: '7' },
+      { stage: 'L1', source: null, watchlist_status: 'active', count: 2 },
+    ]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    const result = await repo.countByStageAndSource({ excludeDropped: true });
+
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(groupBy).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { stage: 'L0', source: 'inbound', watchlist_status: null, count: 7 },
+      { stage: 'L1', source: null, watchlist_status: 'active', count: 2 },
+    ]);
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.params).toContain('workspace-1');
+  });
+
+  it('coerces a null stage rather than dropping the row', async () => {
+    const { db } = makeGroupedDb([
+      { stage: null, source: null, watchlist_status: null, count: '3' },
+    ]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await expect(repo.countByStageAndSource()).resolves.toEqual([
+      { stage: null, source: null, watchlist_status: null, count: 3 },
+    ]);
+  });
+});

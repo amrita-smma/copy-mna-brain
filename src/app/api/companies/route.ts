@@ -43,6 +43,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data });
     }
 
+    if (params.get("countBy") === "stage") {
+      // Per-stage totals with the inbound/outbound split, computed in one
+      // grouped query. The dashboard used to fetch every company and count
+      // them client-side.
+      const data = await companyService.countByStage({
+        stage,
+        stageIn,
+        excludeStage,
+        stageNotNull,
+        excludeDropped,
+        createdAfter,
+      });
+      return NextResponse.json({ data });
+    }
+
     if (countOnly) {
       const count = await companyService.count({
         id,
@@ -65,9 +80,14 @@ export async function GET(req: NextRequest) {
       // Lightweight paginated lookup for combobox use: returns only
       // `id` + `target`, supports server-side ILIKE search via `q`,
       // offset/limit pagination. Skips DTO joins entirely so each call
-      // is cheap. The page size is clamped so a misbehaving caller can't
-      // pull the entire `companies` table in one go.
-      const liteLimit = Math.min(Math.max(limit ?? 50, 1), 100);
+      // is cheap.
+      //
+      // Comboboxes page 50 at a time; the ceiling is high enough for the few
+      // callers that need the whole list in memory (Smart Files matches
+      // filenames against every company client-side) and still bounds the
+      // response. Three columns, no joins — cheap even at the ceiling,
+      // unlike the full DTO path below.
+      const liteLimit = Math.min(Math.max(limit ?? 50, 1), 2000);
       const data = await companyService.listIdAndTargetPage({
         limit: liteLimit,
         offset,
