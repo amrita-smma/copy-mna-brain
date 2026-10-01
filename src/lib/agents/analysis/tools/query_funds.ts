@@ -6,6 +6,7 @@ import { createContainer } from "@/lib/services";
 import { computeFundCashSummary, type FundCashSummary } from "@/lib/fundLedger/fundCashSummary";
 import { FlInvestorRepository, type Tables } from "@/lib/repositories";
 import { flAdd, flDiv, flIsPositive, toDecimalString } from "@/lib/services/flDecimal";
+import { isFundLpPosition } from "@/lib/fundLedger/lpPositions";
 import { logger } from "../../logger";
 
 const fmtAmount = (val: string | null | undefined) => {
@@ -156,7 +157,8 @@ export const queryFunds = tool(
       const realizedByEntityId = new Map<string, string>();
 
       for (const pos of portfolio.positions ?? []) {
-        if (pos.fund_id && pos.holder_investor_id != null && managedFundIds.has(pos.fund_id)) {
+        // A managed fund's LPs: outside investors and the managed funds holding it.
+        if (pos.fund_id && managedFundIds.has(pos.fund_id) && isFundLpPosition(pos, { id: pos.fund_id, managed: true })) {
           const committed = String(pos.balance?.commitment ?? pos.balance?.committed ?? '0');
           const called = String(pos.balance?.drawn_commitment ?? pos.balance?.contributed ?? '0');
           commitmentByEntityId.set(

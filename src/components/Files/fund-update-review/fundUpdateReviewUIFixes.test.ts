@@ -541,6 +541,58 @@ describe("MB-513 Fund Update Review UI Fixes", () => {
       expect(feedback.warningDetail).toBeUndefined();
     });
 
+    it("leads with posting differences and counts the ones review already flagged, without failing the approval", () => {
+      const reviewDifference = {
+        fund: "Fund D",
+        metric: "commitment" as const,
+        kind: "review" as const,
+        ledgerValue: 75,
+        rowsValue: 75,
+        catalogValue: 84,
+        diff: -9,
+      };
+      const result = makeApplyResult({
+        commitment_events_inserted: 4,
+        outcomes: [
+          { submittedId: "c1", family: "commitment_event", disposition: "posted", reason: null },
+        ],
+        catalog_check: {
+          checked_funds: 3,
+          differences: [reviewDifference],
+          skipped_funds: ["Fund E"],
+          missing_funds: [],
+          warnings: ["Fund A: ledger paid-in CNY 76 vs rows CNY 47 (diff +29).", "Fund B: second", "Fund C: third"],
+          notes: ["Fund D: review note", "Fund E: not checked"],
+        },
+      });
+
+      const feedback = formatApprovalFeedback(result);
+      expect(feedback.type).toBe("success");
+      expect(feedback.warningDetail).toBe(
+        "3 posting differences in the written ledger: Fund A: ledger paid-in CNY 76 vs rows CNY 47 (diff +29). · Fund B: second (+1 more)" +
+          " · 1 difference against 基金汇总 already flagged in review · 1 fund not checked (partial import)",
+      );
+    });
+
+    it("adds nothing when the post-import catalog check found no differences", () => {
+      const result = makeApplyResult({
+        commitment_events_inserted: 1,
+        outcomes: [
+          { submittedId: "c1", family: "commitment_event", disposition: "posted", reason: null },
+        ],
+        catalog_check: {
+          checked_funds: 3,
+          differences: [],
+          skipped_funds: [],
+          missing_funds: [],
+          warnings: [],
+          notes: [],
+        },
+      });
+
+      expect(formatApprovalFeedback(result).warningDetail).toBeUndefined();
+    });
+
     it("returns success with warning detail when partial rows are skipped", () => {
       const result = makeApplyResult({
         applied: 1,
@@ -778,6 +830,45 @@ describe("MB-513 Fund Update Review UI Fixes", () => {
       expect(editableHtml).not.toContain("inline-flex flex-col");
       // The trigger keeps its compact sizing and an opaque surface.
       expect(editableHtml).toContain("h-6 w-[148px] bg-card text-[10px] font-sans py-0 px-2 shrink-0");
+    });
+  });
+
+  describe("MB-569: non-blocking review note", () => {
+    it("shows a review note in the reason column of a selectable row", () => {
+      const note = "Recorded from 淮安熙和创业投资基金合伙企业（有限合伙）'s paid-in rows; this row posts no ledger entry.";
+      const html = renderToStaticMarkup(
+        React.createElement(TransactionsTable, {
+          transactions: [
+            {
+              id: "txn:NJ-yue-hua:0:2024-09-09:contribution",
+              sheetRow: 1,
+              date: "2024-09-09",
+              fromKey: "fund:FUND-EN",
+              toKey: "fund:FUND-EN",
+              srcKey: null,
+              type: "buy",
+              subType: "Initial Investment",
+              commitDelta: null,
+              quantityDelta: null,
+              pricePerShare: null,
+              cashDelta: -29000000,
+              currency: "CNY",
+              positionRef: "new",
+              status: "actionable",
+              blockReason: null,
+              reviewNote: note,
+              selected: true,
+              isTransfer: false,
+            },
+          ],
+          entityOptions: sampleEntityOptions,
+          sourceOptions: [],
+          onToggleSelect: () => {},
+          onUpdateTxn: () => {},
+        }),
+      );
+      expect(html).toContain("淮安熙和创业投资基金合伙企业（有限合伙）&#x27;s paid-in rows");
+      expect(html).not.toContain(">blocked<");
     });
   });
 });

@@ -151,6 +151,11 @@ export interface FundCatalogItem {
   subscribedAmount: number | null;
   paidInAmount: number | null;
   investedAmount: number | null;
+  /**
+   * The summary's own net cash flow (基金净现金流 = 实缴 + 退出 − 投资 − 分配), in CNY.
+   * Absent on proposals parsed before the post-import catalog check existed.
+   */
+  netCashFlowAmount?: number | null;
 }
 
 export type NanjingFundCatalogItem = FundCatalogItem;
@@ -427,6 +432,12 @@ export interface FundUpdateFullReview {
   reconciliation?: ReconciliationResult[];
   review_items?: ReviewProposalItem[];
   commitment_event_statuses?: Record<number, 'actionable' | 'duplicate'>;
+  /**
+   * Canonical names of the managed funds (catalog, holder funds, and managed funds
+   * already in the workspace). A managed fund party on a commitment-path row is a
+   * fund holder, not an investor.
+   */
+  managed_fund_keys?: string[];
   two_step_review?: FundUpdateTwoStepReview;
 }
 
@@ -566,6 +577,12 @@ export interface ReviewTransaction {
   assetCode?: string;
   originalKey?: string;
   notes?: string | null;
+  /**
+   * Non-blocking review annotation shown in the reason column. Review annotates,
+   * apply decides: e.g. a managed fund's 投资 into another managed fund stays
+   * selectable and is noted as recorded from the target fund's paid-in rows.
+   */
+  reviewNote?: string | null;
   subTypeLabel?: string | null;
   /**
    * Effective sell proceeds destination for divestment rows. When the source left

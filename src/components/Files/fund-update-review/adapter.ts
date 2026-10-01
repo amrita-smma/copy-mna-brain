@@ -276,6 +276,32 @@ export function formatApprovalFeedback(result: FundUpdateApplyResult): ApprovalF
     }
   }
 
+  // Post-import check of the written ledger (advisory). Posting differences
+  // lead; differences the review step already flagged are only counted.
+  const catalogWarnings = result.catalog_check?.warnings ?? [];
+  const catalogDetails: string[] = [];
+  if (catalogWarnings.length > 0) {
+    const more = catalogWarnings.length > 2 ? ` (+${catalogWarnings.length - 2} more)` : "";
+    catalogDetails.push(
+      `${catalogWarnings.length} posting difference${catalogWarnings.length === 1 ? "" : "s"} in the written ledger: ${catalogWarnings.slice(0, 2).join(" · ")}${more}`,
+    );
+  }
+  const flaggedInReview =
+    result.catalog_check?.differences?.filter((d) => d.kind === "review").length ?? 0;
+  if (flaggedInReview > 0) {
+    catalogDetails.push(
+      `${flaggedInReview} difference${flaggedInReview === 1 ? "" : "s"} against 基金汇总 already flagged in review`,
+    );
+  }
+  const uncheckedFunds = result.catalog_check?.skipped_funds?.length ?? 0;
+  if (uncheckedFunds > 0) {
+    catalogDetails.push(`${uncheckedFunds} fund${uncheckedFunds === 1 ? "" : "s"} not checked (partial import)`);
+  }
+  if (catalogDetails.length > 0) {
+    const catalogDetail = catalogDetails.join(" · ");
+    warningDetail = warningDetail ? `${warningDetail} · ${catalogDetail}` : catalogDetail;
+  }
+
   return {
     type: "success",
     message: parts.length > 0 ? parts.join(" · ") : "Fund update approved",

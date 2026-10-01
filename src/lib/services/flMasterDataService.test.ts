@@ -5,8 +5,10 @@ import {
   InvalidCurrencyError,
   InvalidEntryShapeError,
   InvalidMasterDataError,
+  ManagedFundInvestorConflictError,
   WorkspaceMismatchError,
 } from './flErrors';
+import { normalizeCanonicalName } from '@/lib/fundLedger/normalizeIdentity';
 import { FlMasterDataService, getCashAssetCurrency } from './flMasterDataService';
 
 describe('FlMasterDataService', () => {
@@ -1015,6 +1017,169 @@ describe('FlMasterDataService', () => {
           );
         });
       });
+    });
+  });
+
+  describe('managed fund / investor name conflict', () => {
+    const fundName = '南京月升星繁创业投资合伙企业（有限合伙）';
+    const fundCanonical = normalizeCanonicalName(fundName);
+    const managedFund = { id: 'fund-ys', name: fundName, canonical_name: fundCanonical, managed: true };
+    const investorRow = { id: 'inv-ys', name: fundName, canonical_name: fundCanonical, english_name: null };
+
+    it('createInvestor rejects a name that is a managed fund and writes nothing', async () => {
+      mockFundRepo.findByCanonicalName.mockResolvedValue(managedFund);
+
+      await expect(
+        service.createInvestor(workspaceId, { name: fundName, investor_type: 'institution' }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockInvestorRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('createInvestor accepts a name that is only an unmanaged fund', async () => {
+      mockFundRepo.findByCanonicalName.mockResolvedValue({ ...managedFund, managed: false });
+
+      await service.createInvestor(workspaceId, { name: fundName, investor_type: 'institution' });
+      expect(mockInvestorRepo.create).toHaveBeenCalled();
+    });
+
+    it('createInvestor accepts the management company of a managed fund (exact canonical match only)', async () => {
+      mockFundRepo.findByCanonicalName.mockImplementation(async (_ws: string, canonical: string) =>
+        canonical === fundCanonical ? managedFund : undefined,
+      );
+
+      await service.createInvestor(workspaceId, {
+        name: '南京金光紫金创业投资管理有限公司',
+        investor_type: 'institution',
+      });
+      expect(mockInvestorRepo.create).toHaveBeenCalled();
+    });
+
+    it('createInvestor looks the fund up on the caller executor', async () => {
+      await service.createInvestor(
+        workspaceId,
+        { name: 'LP Gamma', investor_type: 'institution' },
+        sentinelExecutor,
+      );
+      expect(mockFundRepo.findByCanonicalName).toHaveBeenCalledWith(
+        workspaceId,
+        expect.any(String),
+        sentinelExecutor,
+      );
+    });
+
+    it('getOrCreateInvestor rejects creating an investor named after a managed fund', async () => {
+      mockFundRepo.findByCanonicalName.mockResolvedValue(managedFund);
+
+      await expect(
+        service.getOrCreateInvestor(workspaceId, { name: fundName, investor_type: 'institution' }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockInvestorRepo.insertOnConflictDoNothing).not.toHaveBeenCalled();
+    });
+
+    it('getOrCreateInvestor still returns an existing same-named investor without throwing', async () => {
+      mockFundRepo.findByCanonicalName.mockResolvedValue(managedFund);
+      mockInvestorRepo.findByWorkspaceId.mockResolvedValue([investorRow]);
+
+      const result = await service.getOrCreateInvestor(workspaceId, {
+        name: fundName,
+        investor_type: 'institution',
+      });
+      expect(result.id).toBe('inv-ys');
+      expect(mockFundRepo.findByCanonicalName).not.toHaveBeenCalled();
+    });
+
+    it('updateInvestor rejects renaming an investor to a managed fund name', async () => {
+      mockInvestorRepo.findById.mockResolvedValue({ id: 'inv-1', name: 'LP Alpha', canonical_name: normalizeCanonicalName('LP Alpha') });
+      mockFundRepo.findByCanonicalName.mockResolvedValue(managedFund);
+
+      await expect(
+        service.updateInvestor(workspaceId, 'inv-1', { name: fundName }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockInvestorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('updateInvestor leaves an existing same-named investor editable when its name is unchanged', async () => {
+      mockInvestorRepo.findById.mockResolvedValue(investorRow);
+      mockFundRepo.findByCanonicalName.mockResolvedValue(managedFund);
+
+      await service.updateInvestor(workspaceId, 'inv-ys', { name: fundName, notes: 'legacy row' });
+      expect(mockInvestorRepo.update).toHaveBeenCalled();
+    });
+
+    it('createFund rejects a managed fund named after an existing investor', async () => {
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await expect(
+        service.createFund(workspaceId, { name: fundName, ownership_basis: 'commitment', managed: true }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockFundRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('createFund accepts an unmanaged fund named after an existing investor', async () => {
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await service.createFund(workspaceId, { name: fundName, ownership_basis: 'commitment' });
+      expect(mockFundRepo.create).toHaveBeenCalled();
+      expect(mockInvestorRepo.findByCanonicalName).not.toHaveBeenCalled();
+    });
+
+    it('getOrCreateFund rejects inserting a managed fund named after an existing investor', async () => {
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await expect(
+        service.getOrCreateFund(workspaceId, { name: fundName, ownership_basis: 'commitment', managed: true }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockFundRepo.insertOnConflictDoNothing).not.toHaveBeenCalled();
+    });
+
+    it('getOrCreateFund still returns an existing managed fund when a same-named investor exists', async () => {
+      mockFundRepo.findByWorkspaceId.mockResolvedValue([managedFund]);
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      const result = await service.getOrCreateFund(workspaceId, {
+        name: fundName,
+        ownership_basis: 'commitment',
+        managed: true,
+      });
+      expect(result.id).toBe('fund-ys');
+      expect(mockInvestorRepo.findByCanonicalName).not.toHaveBeenCalled();
+    });
+
+    it('updateFund rejects marking a fund managed while a same-named investor exists', async () => {
+      mockFundRepo.findById.mockResolvedValue({ ...managedFund, managed: false });
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await expect(
+        service.updateFund(workspaceId, 'fund-ys', { managed: true }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockFundRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('updateFund rejects renaming a managed fund to an existing investor name', async () => {
+      mockFundRepo.findById.mockResolvedValue({ id: 'fund-1', name: 'Fund A', canonical_name: normalizeCanonicalName('Fund A'), managed: true });
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await expect(
+        service.updateFund(workspaceId, 'fund-1', { name: fundName }),
+      ).rejects.toThrow(ManagedFundInvestorConflictError);
+      expect(mockFundRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('updateFund leaves an already-managed fund editable when its name is unchanged', async () => {
+      mockFundRepo.findById.mockResolvedValue(managedFund);
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await service.updateFund(workspaceId, 'fund-ys', { managed: true, status: 'harvesting' });
+      expect(mockFundRepo.update).toHaveBeenCalled();
+      expect(mockInvestorRepo.findByCanonicalName).not.toHaveBeenCalled();
+    });
+
+    it('updateFund allows unmarking managed regardless of investors', async () => {
+      mockFundRepo.findById.mockResolvedValue(managedFund);
+      mockInvestorRepo.findByCanonicalName.mockResolvedValue(investorRow);
+
+      await service.updateFund(workspaceId, 'fund-ys', { managed: false });
+      expect(mockFundRepo.update).toHaveBeenCalled();
     });
   });
 });

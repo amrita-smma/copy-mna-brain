@@ -13,6 +13,7 @@ import {
   InvalidCurrencyError,
   InvalidEntryShapeError,
   InvalidMasterDataError,
+  ManagedFundInvestorConflictError,
   WorkspaceMismatchError,
 } from './flErrors';
 
@@ -185,6 +186,41 @@ export class FlMasterDataService {
     });
   }
 
+  /**
+   * A managed fund never doubles as an investor: its LP stakes are positions held
+   * by the fund. Exact canonical-name match only, the same rule the fund-update
+   * import uses (a fund's management company is a different entity).
+   */
+  private async assertNotManagedFundName(
+    workspaceId: string,
+    name: string,
+    exec: DbClient,
+  ): Promise<void> {
+    const canonicalName = normalizeCanonicalName(name);
+    if (!canonicalName) return;
+    const fund = await this.fundRepo.findByCanonicalName(workspaceId, canonicalName, exec);
+    if (fund?.managed) {
+      throw new ManagedFundInvestorConflictError(
+        `"${name.trim()}" is a managed fund in workspace ${workspaceId}; record its stakes as positions held by the fund, not as an investor`,
+      );
+    }
+  }
+
+  private async assertNoInvestorNamed(
+    workspaceId: string,
+    name: string,
+    exec: DbClient,
+  ): Promise<void> {
+    const canonicalName = normalizeCanonicalName(name);
+    if (!canonicalName) return;
+    const investor = await this.investorRepo.findByCanonicalName(workspaceId, canonicalName, exec);
+    if (investor) {
+      throw new ManagedFundInvestorConflictError(
+        `"${name.trim()}" is an investor in workspace ${workspaceId}; a managed fund cannot share its name — remove the investor so the fund's stakes are held by the fund`,
+      );
+    }
+  }
+
   // ===== Investors =====
 
   async listInvestors(
@@ -229,6 +265,8 @@ export class FlMasterDataService {
           `Investor "${input.name}" already exists in workspace ${workspaceId}`,
         );
       }
+
+      await this.assertNotManagedFundName(workspaceId, input.name, exec);
 
       if (input.parent_investor_id) {
         const parent = await this.investorRepo.findById(
@@ -300,6 +338,8 @@ export class FlMasterDataService {
         }
         return existing;
       }
+
+      await this.assertNotManagedFundName(workspaceId, input.name, exec);
 
       if (input.parent_investor_id) {
         const parent = await this.investorRepo.findById(
@@ -462,6 +502,10 @@ export class FlMasterDataService {
         );
       }
 
+      if (input.managed) {
+        await this.assertNoInvestorNamed(workspaceId, input.name, exec);
+      }
+
       return this.fundRepo.create(
         {
           id: input.id,
@@ -561,6 +605,10 @@ export class FlMasterDataService {
           return updated ?? existing;
         }
         return existing;
+      }
+
+      if (input.managed) {
+        await this.assertNoInvestorNamed(workspaceId, input.name, exec);
       }
 
       const inserted = await this.fundRepo.insertOnConflictDoNothing(
@@ -1053,6 +1101,9 @@ export class FlMasterDataService {
             `Investor "${cleanName}" already exists in workspace ${workspaceId}`,
           );
         }
+        if (normalizeCanonicalName(cleanName) !== existing.canonical_name) {
+          await this.assertNotManagedFundName(workspaceId, cleanName, exec);
+        }
       }
 
       if (input.investor_type !== undefined) {
@@ -1210,6 +1261,15 @@ export class FlMasterDataService {
             `Fund "${cleanName}" already exists in workspace ${workspaceId}`,
           );
         }
+      }
+
+      // Becoming managed, or a managed fund taking a new name, must not collide
+      // with an investor. An unchanged name on an already-managed fund is left alone.
+      const nextName = input.name?.trim() ?? existing.name;
+      const renamed = normalizeCanonicalName(nextName) !== existing.canonical_name;
+      const becomesManaged = input.managed === true && !existing.managed;
+      if ((input.managed ?? existing.managed) && (becomesManaged || renamed)) {
+        await this.assertNoInvestorNamed(workspaceId, nextName, exec);
       }
       if (input.ownership_basis !== undefined) {
         const validBasis = ['units', 'commitment', 'capital_account'];

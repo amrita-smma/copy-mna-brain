@@ -419,4 +419,45 @@ describe('queryFunds', () => {
     expect(result).toContain('Investor Alpha');
     expect(result).toContain('Investor Beta');
   });
+
+  it('counts a managed fund held by another managed fund as an LP of the target without double counting the holder', async () => {
+    getPortfolioMock.mockResolvedValue({
+      managed_funds: [
+        { id: 'f-hua', name: 'Huaian Xihe', vintage_year: 2024, status: 'investing' },
+        { id: 'f-yue', name: 'Yuesheng Xingfan', vintage_year: 2024, status: 'investing' },
+      ],
+      positions: [
+        // Outside LP of Huaian
+        {
+          id: 'lp-out',
+          fund_id: 'f-hua',
+          holder_investor_id: 'inv-1',
+          holder_fund_id: null,
+          asset_id: null,
+          current_value: '0',
+          balance: { commitment: '75000000.00', drawn_commitment: '14000000.00' },
+        },
+        // Yuesheng's fund-held position in Huaian: Huaian's LP, Yuesheng's holding
+        {
+          id: 'fof-yue-hua',
+          fund_id: 'f-hua',
+          holder_investor_id: null,
+          holder_fund_id: 'f-yue',
+          asset_id: null,
+          current_value: '29000000.00',
+          balance: { commitment: '95500000.00', drawn_commitment: '29000000.00' },
+        },
+      ],
+    });
+
+    const result = (await queryFunds.invoke({})) as string;
+    const huaianRow = result.split('\n').find((line) => line.startsWith('| Huaian Xihe'))!;
+    const yueshengRow = result.split('\n').find((line) => line.startsWith('| Yuesheng Xingfan'))!;
+
+    expect(huaianRow).toContain('170,500,000'); // 75M + 95.5M commitment
+    expect(huaianRow).toContain('43,000,000'); // 14M + 29M called
+    // The holder carries the position as a holding (FMV), never as its own LP commitment.
+    expect(yueshengRow).toContain('29,000,000');
+    expect(yueshengRow).not.toContain('95,500,000');
+  });
 });

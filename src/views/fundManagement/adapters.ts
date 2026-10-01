@@ -1,4 +1,5 @@
 import { isPaidInAdjustment, paidInAdjustmentDelta } from '@/lib/fundLedger/paidInAdjustment';
+import { isFundLpPosition } from '@/lib/fundLedger/lpPositions';
 // Explicit field-by-field mapping between backend rows (v2 Fund Ledger
 // /api/fund-ledger) and the UI's domain types (./types.ts).
 // Kept as one file so a dropped/renamed field on either side is easy to spot.
@@ -816,10 +817,9 @@ export function buildFundFromPortfolio(
   cashSummaryInput?: FundCashSummary,
   disclosure?: DisclosureReason | null,
 ): Fund {
-  // LP positions under this fund
-  const lpPositions = allPositions.filter(
-    (p) => p.fund_id === fundRow.id && p.holder_investor_id != null,
-  );
+  // LP positions under this fund: outside investors and, for a managed fund, the
+  // managed funds that hold it (their fund-held position is its LP commitment).
+  const lpPositions = allPositions.filter((p) => isFundLpPosition(p, fundRow));
   const totalCommittedStr = flSum(
     lpPositions.map((p) =>
       p.balance?.commitment != null ? String(p.balance.commitment) : '0.00000000',
@@ -1215,6 +1215,53 @@ export function buildEntityFromPortfolio(
     fxStatus: 'available',
     reportingTotalAvailable: true,
   };
+}
+
+/**
+ * The funds that are LPs of managed funds, shaped as `Investor` rows for a
+ * fund's LP list. Each fund-held position {holder_fund_id, fund_id} in a managed
+ * target becomes a stake of the holder fund in that target, in millions like the
+ * investor stakes. The holder fund's own holdings are unaffected: this only lists
+ * it on the target's LP side.
+ */
+export function buildFundLpHolders(
+  allPositions: FlPortfolioPosition[],
+  allFunds: Array<Pick<Tables<'fl_funds'>, 'id' | 'name' | 'english_name' | 'legal_name' | 'managed'>>,
+): Investor[] {
+  const fundById = new Map<string, Pick<Tables<'fl_funds'>, 'id' | 'name' | 'english_name' | 'legal_name' | 'managed'>>(
+    allFunds.map((f) => [f.id, f]),
+  );
+  const holders = new Map<string, Investor>();
+  for (const pos of allPositions) {
+    if (!pos.holder_fund_id || !pos.fund_id) continue;
+    const target = fundById.get(pos.fund_id) ?? pos.fund;
+    if (!target || !isFundLpPosition(pos, { id: pos.fund_id, managed: target.managed })) continue;
+    const holderFund = fundById.get(pos.holder_fund_id) ?? pos.holder_fund;
+    let row = holders.get(pos.holder_fund_id);
+    if (!row) {
+      row = {
+        id: pos.holder_fund_id,
+        n: holderFund?.name ?? pos.holder_fund_id,
+        englishName: holderFund?.english_name ?? undefined,
+        legalName: holderFund?.legal_name ?? undefined,
+        type: 'fund',
+        stakes: {},
+        invested: {},
+        distributed: {},
+      };
+      holders.set(pos.holder_fund_id, row);
+    }
+    const fundId = pos.fund_id;
+    const committedM = Number(pos.balance?.commitment ?? 0) / 1_000_000;
+    if (committedM > 0) row.stakes[fundId] = (row.stakes[fundId] ?? 0) + committedM;
+    const invested = row.invested ?? {};
+    const distributed = row.distributed ?? {};
+    invested[fundId] = (invested[fundId] ?? 0) + Number(pos.balance?.drawn_commitment ?? 0) / 1_000_000;
+    distributed[fundId] = (distributed[fundId] ?? 0) + Number(pos.balance?.distributed_capital ?? 0) / 1_000_000;
+    row.invested = invested;
+    row.distributed = distributed;
+  }
+  return [...holders.values()];
 }
 
 /**

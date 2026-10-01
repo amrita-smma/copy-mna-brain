@@ -49,6 +49,15 @@ import {
 } from "@/lib/fund_updates";
 import { earliestFundUpdatePositionDate, normalizeParsedAssets } from "@/lib/fund_updates/normalizeParsedAsset";
 import { classifyFundUpdateTxn } from "@/lib/fund_updates/canonicalEvent";
+import {
+  buildManagedFundNameKeys,
+  crossBookFlowKindForTxn,
+  formatWan,
+  isManagedFundCrossBookAsset,
+  isManagedFundName,
+  managedFundCrossBookNote,
+  type CrossBookFlowKind,
+} from "@/lib/fund_updates/managedFundCrossBook";
 import type { FlMasterDataService } from "./flMasterDataService";
 import type { FlPositionService } from "./flPositionService";
 import { type FlLedgerService, type FlEntryType, type FlLedgerEntryInput } from "./flLedgerService";
@@ -56,6 +65,7 @@ import type { FlValuationService, FlValuationMethod, UpdateValuationInput } from
 import { FundUpdateValidationError } from "./flErrors";
 import { flAbs, flAdd, flEq, flGt, flIsZero, flNeg, safeExactDecimalString, toDecimalString, toExactDecimalString } from "./flDecimal";
 import { isPersistableFundUpdateValuation } from "@/lib/fund_updates/normalizeParsedAsset";
+import type { CatalogLedgerCheckResult } from "@/lib/fund_updates/catalogLedgerCheck";
 import {
   SUB_TYPE_DIVESTMENT_CASH_IN_FUND,
   SUB_TYPE_DIVESTMENT_DISTRIBUTED_TO_INVESTOR,
@@ -561,6 +571,8 @@ export interface FundUpdateFullReview {
   reconciliation?: ReconciliationResult[];
   review_items?: ReviewProposalItem[];
   commitment_event_statuses?: Record<number, 'actionable' | 'duplicate'>;
+  /** Canonical managed fund names; see the shared FundUpdateFullReview type. */
+  managed_fund_keys?: string[];
   two_step_review?: FundUpdateTwoStepReview;
 }
 
@@ -584,6 +596,8 @@ export interface FundUpdateApplyResult {
   review_items_skipped_unresolved?: number;
   commitment_event_warnings?: string[];
   catalog_warnings?: string[];
+  /** Post-import comparison of the written ledger with 基金汇总 (MB-642). */
+  catalog_check?: CatalogLedgerCheckResult;
   outcomes?: SubmittedRowOutcome[];
 }
 
@@ -659,6 +673,12 @@ export interface FundUpdateApplyOptions {
   sourceRemaps?: Record<string, string> | Map<string, string>;
   investorRemaps?: Record<string, string> | Map<string, string>;
   fundRemaps?: Record<string, string> | Map<string, string>;
+  /**
+   * Commitment events applied in the same approval. A managed fund's 投资/退出
+   * row into another managed fund posts nothing and is recorded from the target
+   * fund's 实缴/分配 rows; these events tell apply whether that happens in this run.
+   */
+  commitmentEvents?: ParsedCommitmentEvent[];
   executor?: DbClient;
 }
 
@@ -975,11 +995,12 @@ export class FundUpdateApplyService {
       if (lower && !fundSourceByName.has(lower)) fundSourceByName.set(lower, s);
     }
 
-    const managedNames = new Set([
+    const managedNames = buildManagedFundNameKeys([
       ...(options?.fundCatalog ?? options?.proposal?.fund_catalog ?? []),
       ...proposedAssets.filter((a) => a.holderKind !== "investor").map((a) => a.fund),
       ...(commitmentEvents ?? []).map((e) => e.fund),
-    ].filter(Boolean).map(normalizeCanonicalName));
+      ...existingFunds.filter((f) => f.managed === true).map((f) => f.name),
+    ]);
     const targetKindFor = (proposed: ParsedAsset): "fund" | "asset" => {
       const knownFund =
         fofBySheet.get(proposed.code.toLowerCase()) ??
@@ -1481,12 +1502,16 @@ export class FundUpdateApplyService {
 
     if (eventsToClassify.length > 0) {
       for (const ev of eventsToClassify) {
-        const matched = matchCatalog(ev.investorName, investorByName);
+        // A managed fund party is a fund holder, never an investor to create.
+        const matched = isManagedFundName(ev.investorName, managedNames)
+          ? null
+          : matchCatalog(ev.investorName, investorByName);
         if (matched) upsertUnique(uniqueInvestors, matched);
 
         if (
           ev.intent === "transfer_in" &&
           ev.transferPairing?.transferorName &&
+          !isManagedFundName(ev.transferPairing.transferorName, managedNames) &&
           ev.transferPairing.eligibleForTransferOut &&
           !ev.transferPairing.requiresReview
         ) {
@@ -1507,6 +1532,7 @@ export class FundUpdateApplyService {
       eventsToClassify,
       existingFunds,
       existingInvestors,
+      managedNames,
     );
 
     const baseReview: FundUpdateFullReview = {
@@ -1518,6 +1544,7 @@ export class FundUpdateApplyService {
       ...(options?.reconciliation ? { reconciliation: options.reconciliation } : {}),
       ...(options?.review_items ? { review_items: options.review_items } : {}),
       commitment_event_statuses: commitmentEventStatuses,
+      managed_fund_keys: [...managedNames],
     };
 
     const effectiveProposal: FundUpdateProposal | undefined =
@@ -1550,6 +1577,7 @@ export class FundUpdateApplyService {
     events: ParsedCommitmentEvent[],
     existingFunds: Tables<"fl_funds">[],
     existingInvestors: Tables<"fl_investors">[],
+    managedFundKeys: ReadonlySet<string>,
   ): Promise<Record<number, "actionable" | "duplicate">> {
     if (events.length === 0) return {};
 
@@ -1592,37 +1620,61 @@ export class FundUpdateApplyService {
       );
     };
 
+    // A party is a managed fund (fund-held position) or an outside investor.
+    type PartyRef = { kind: "fund" | "investor"; id: string };
+    const findParty = (name: string | null | undefined): PartyRef | undefined => {
+      if (isManagedFundName(name, managedFundKeys)) {
+        const fund = findFund(name);
+        return fund ? { kind: "fund", id: fund.id } : undefined;
+      }
+      const investor = findInvestor(name);
+      return investor ? { kind: "investor", id: investor.id } : undefined;
+    };
+    const partyKey = (party: PartyRef) => `${party.kind}:${party.id}`;
+    const syntheticPartyKey = (party: PartyRef | undefined, name: string) =>
+      party ? partyKey(party) : `${isManagedFundName(name, managedFundKeys) ? "fund" : "investor"}:${normalizeInvestorName(name)}`;
+
     const referencedInvestorIds = new Set<string>();
+    const referencedHolderFundIds = new Set<string>();
     const referencedFundIds = new Set<string>();
+    const referenceParty = (party: PartyRef | undefined) => {
+      if (party?.kind === "investor") referencedInvestorIds.add(party.id);
+      if (party?.kind === "fund") referencedHolderFundIds.add(party.id);
+    };
 
     for (const ev of events) {
       const fund = findFund(ev.fund);
       if (fund) referencedFundIds.add(fund.id);
 
-      const transferee = findInvestor(ev.investorName);
-      if (transferee) referencedInvestorIds.add(transferee.id);
+      referenceParty(findParty(ev.investorName));
 
       if (ev.intent === "transfer_in") {
         const transferorName = ev.transferPairing?.transferorName ?? ev.counterpartyName;
-        const transferor = findInvestor(transferorName);
-        if (transferor) referencedInvestorIds.add(transferor.id);
+        referenceParty(findParty(transferorName));
       }
     }
 
     const investorIds = Array.from(referencedInvestorIds);
-    const existingPositions =
+    const holderFundIds = Array.from(referencedHolderFundIds);
+    const [investorPositions, fundHeldPositions] = await Promise.all([
       investorIds.length > 0
-        ? await this.flPositionRepo.findByHolderInvestorIds(this.workspaceId, investorIds)
-        : [];
+        ? this.flPositionRepo.findByHolderInvestorIds(this.workspaceId, investorIds)
+        : Promise.resolve([] as Tables<"fl_positions">[]),
+      holderFundIds.length > 0
+        ? this.flPositionRepo.findByHolderFundIds(this.workspaceId, holderFundIds)
+        : Promise.resolve([] as Tables<"fl_positions">[]),
+    ]);
 
-    const relevantPositions = existingPositions.filter(
-      (p) => p.fund_id && referencedFundIds.has(p.fund_id),
+    const relevantPositions = [...investorPositions, ...fundHeldPositions].filter(
+      (p) => p.fund_id && !p.asset_id && referencedFundIds.has(p.fund_id),
     );
 
-    const positionByInvestorAndFund = new Map<string, Tables<"fl_positions">>();
+    const positionByPartyAndFund = new Map<string, Tables<"fl_positions">>();
     for (const pos of relevantPositions) {
       if (pos.holder_investor_id && pos.fund_id) {
-        positionByInvestorAndFund.set(`${pos.holder_investor_id}:::${pos.fund_id}`, pos);
+        positionByPartyAndFund.set(`investor:${pos.holder_investor_id}:::${pos.fund_id}`, pos);
+      } else if (pos.holder_fund_id && pos.fund_id) {
+        positionByPartyAndFund.set(`fund:${pos.holder_fund_id}:::${pos.fund_id}`, pos);
       }
     }
 
@@ -1711,22 +1763,22 @@ export class FundUpdateApplyService {
           continue;
         }
 
-        const transferee = findInvestor(transfereeName);
-        const transferor = findInvestor(transferorName);
+        const transferee = findParty(transfereeName);
+        const transferor = findParty(transferorName);
 
         const transfereePos = transferee && fund
-          ? positionByInvestorAndFund.get(`${transferee.id}:::${fund.id}`)
+          ? positionByPartyAndFund.get(`${partyKey(transferee)}:::${fund.id}`)
           : undefined;
         const transferorPos = transferor && fund
-          ? positionByInvestorAndFund.get(`${transferor.id}:::${fund.id}`)
+          ? positionByPartyAndFund.get(`${partyKey(transferor)}:::${fund.id}`)
           : undefined;
 
         const transfereePosKey = transfereePos
           ? transfereePos.id
-          : `synthetic:${transferee?.id ?? normalizeInvestorName(transfereeName)}:::${fundKey}`;
+          : `synthetic:${syntheticPartyKey(transferee, transfereeName)}:::${fundKey}`;
         const transferorPosKey = transferorPos
           ? transferorPos.id
-          : `synthetic:${transferor?.id ?? normalizeInvestorName(transferorName)}:::${fundKey}`;
+          : `synthetic:${syntheticPartyKey(transferor, transferorName)}:::${fundKey}`;
 
         const transferDedupKey = buildCommitmentTransferDedupKey(
           event.date,
@@ -1745,14 +1797,14 @@ export class FundUpdateApplyService {
       }
 
       // One-sided commitment events (increase, decrease, paid_in, distribution)
-      const transferee = findInvestor(event.investorName);
+      const transferee = findParty(event.investorName);
       const pos = transferee && fund
-        ? positionByInvestorAndFund.get(`${transferee.id}:::${fund.id}`)
+        ? positionByPartyAndFund.get(`${partyKey(transferee)}:::${fund.id}`)
         : undefined;
 
       const posKey = pos
         ? pos.id
-        : `synthetic:${transferee?.id ?? normalizeInvestorName(event.investorName)}:::${fundKey}`;
+        : `synthetic:${syntheticPartyKey(transferee, event.investorName)}:::${fundKey}`;
 
       const key = buildCommitmentEventDedupKey(event.intent, event.date, event.amount);
 
@@ -2055,12 +2107,20 @@ export class FundUpdateApplyService {
         }
       }
 
+      // Managed funds for the cross-book rule: the catalog, every holder fund in the
+      // proposal, and every managed fund already in the workspace.
+      const crossBookManagedKeys = new Set([
+        ...managedTargetNames,
+        ...buildManagedFundNameKeys(allFunds.filter((f) => f.managed === true).map((f) => f.name)),
+      ]);
+
       if (catalogSelections?.investors) {
         for (const rawName of catalogSelections.investors) {
           const clean = rawName?.trim();
           if (!clean) continue;
           const key = clean.toLowerCase();
           const normKey = normalizeCanonicalName(clean);
+          if (isManagedFundName(clean, crossBookManagedKeys)) continue;
           if (investorMap.has(key) || investorMap.has(normKey)) continue;
           const created = await this.flMasterDataService.getOrCreateInvestor(
             this.workspaceId,
@@ -2095,12 +2155,77 @@ export class FundUpdateApplyService {
 
       for (const item of review) {
         const selection = selectionByCode.get(item.code);
-        const candidateTxns = selection?.txns ?? (item.status === "new" ? item.proposed.txns : item.missing_txns);
-        const txns = candidateTxns.filter((t) => !isZeroEffectFundUpdateTxn(t));
+        const proposedCandidateTxns = selection?.txns ?? (item.status === "new" ? item.proposed.txns : item.missing_txns);
         const selectedValuations = selection?.valuations ?? (
           item.status === "new" ? item.proposed.valuations : item.missing_valuations
         );
         const valuations = selectedValuations.filter(isPersistableFundUpdateValuation);
+
+        // A managed fund's 投资/退出 into another managed fund is recorded from the
+        // target fund's 实缴/分配 rows (fund-held position, both cash legs). The
+        // payer-side rows post nothing; each gets an annotated outcome.
+        const crossBookTargetName = selection?.remapped_target_name?.trim() || item.proposed.name;
+        const crossBookMatchedTarget = selection?.matched_target_id ? fundById.get(selection.matched_target_id) : undefined;
+        // Only a Nanjing ledger import posts the receiving fund's book (commitment
+        // events); a workbook-fallback (V1) import has no such rows, so its 投资
+        // rows keep posting.
+        const isCrossBook =
+          !options?.isV1 &&
+          proposedCandidateTxns.length > 0 &&
+          (isManagedFundCrossBookAsset(
+            { fund: item.proposed.fund, name: crossBookTargetName, holderKind: item.proposed.holderKind },
+            crossBookManagedKeys,
+          ) ||
+            (crossBookMatchedTarget?.managed === true &&
+              item.proposed.holderKind !== "investor" &&
+              isManagedFundName(item.proposed.fund, crossBookManagedKeys) &&
+              normalizeCanonicalName(crossBookMatchedTarget.name) !== normalizeCanonicalName(item.proposed.fund)));
+        if (isCrossBook) {
+          const targetFundName = crossBookMatchedTarget?.name ?? crossBookTargetName;
+          const crossBookWarnings = await this.crossBookRecordingWarnings(
+            item.proposed.fund,
+            targetFundName,
+            proposedCandidateTxns.filter((t) => t.allowPost !== false && !isZeroEffectFundUpdateTxn(t)),
+            {
+              holderFundId:
+                fundIdByName.get(normalizeCanonicalName(item.proposed.fund)) ??
+                fundIdByName.get(item.proposed.fund.trim().toLowerCase()) ??
+                null,
+              targetFundId:
+                crossBookMatchedTarget?.id ??
+                fofMap.get(normalizeCanonicalName(targetFundName))?.id ??
+                null,
+              commitmentEvents: options?.commitmentEvents ?? [],
+            },
+            tx,
+          );
+          catalogWarnings.push(...crossBookWarnings.all);
+          for (const t of proposedCandidateTxns) {
+            const kind = crossBookFlowKindForTxn(t);
+            const rowWarnings = crossBookWarnings.byKind.get(kind) ?? [];
+            outcomes.push({
+              submittedId: t.submittedId ?? `txn:${item.code}:${t.date}:${t.type}`,
+              family: 'transaction',
+              disposition: 'stale',
+              // The approval summary shows outcome reasons, so a recording gap
+              // replaces the plain note there.
+              reason: isZeroEffectFundUpdateTxn(t)
+                ? 'Skipped: zero-effect placeholder transaction (neither cash nor share movement)'
+                : rowWarnings[0] ?? managedFundCrossBookNote(targetFundName, kind),
+              assetCode: item.code,
+              targetId: crossBookMatchedTarget?.id ?? item.matched_asset_id ?? null,
+              persistedId: null,
+              persistedTable: null,
+              ...(rowWarnings.length > 0 && !isZeroEffectFundUpdateTxn(t) ? { warnings: rowWarnings } : {}),
+            });
+          }
+          if (valuations.length === 0) {
+            skipped += 1;
+            continue;
+          }
+        }
+        const candidateTxns = isCrossBook ? [] : proposedCandidateTxns;
+        const txns = candidateTxns.filter((t) => !isZeroEffectFundUpdateTxn(t));
         const hasPostingWork = txns.some((t) => t.allowPost !== false) || valuations.length > 0;
         const isVerifyOnlyItem = txns.length > 0 && txns.every((t) => t.allowPost === false) && valuations.length === 0;
 
@@ -3160,6 +3285,24 @@ export class FundUpdateApplyService {
         }
       }
 
+      // A managed fund that is a party to a commitment-path row (the LP of another
+      // managed fund, or a transferor/transferee inside one) posts on the
+      // fund-held position {holder_fund_id, fund_id}, never on an fl_investors row.
+      // Exact canonical-name match against the managed catalog only.
+      const workspaceFunds = await this.flFundRepo.findByWorkspaceId(this.workspaceId, tx);
+      const managedFundKeys = buildManagedFundNameKeys([
+        ...(options?.fundCatalog ?? []),
+        ...(options?.fundCatalogItems ?? []).map((ci) => ci.nameZh),
+        ...events.map((e) => e.fund),
+        ...resolutions.map((r) => r.fundName),
+        ...workspaceFunds.filter((f) => f.managed === true).map((f) => f.name),
+      ]);
+      const isManagedParty = (name: string | null | undefined) => isManagedFundName(name, managedFundKeys);
+      const resolveManagedFundId = (name: string): string | undefined =>
+        fundIdByName.get(normalizeCanonicalName(name)) ??
+        fundIdByName.get(name.trim().toLowerCase()) ??
+        fundIdByName.get(name.trim());
+
       const allInvestors = await this.flInvestorRepo.findByWorkspaceId(this.workspaceId, tx);
       const investorMap = new Map<string, { id: string; english_name: string | null }>(
         allInvestors.map((e) => [normalizeInvestorName(e.name), { id: e.id, english_name: e.english_name ?? null }]),
@@ -3169,6 +3312,7 @@ export class FundUpdateApplyService {
         for (const rawName of options.catalogSelections.investors) {
           const clean = rawName?.trim();
           if (!clean) continue;
+          if (isManagedParty(clean)) continue;
           const key = normalizeInvestorName(clean);
           if (investorMap.has(key)) continue;
           const created = await this.flMasterDataService.createInvestor(
@@ -3219,29 +3363,92 @@ export class FundUpdateApplyService {
         return a.sourceRow - b.sourceRow;
       });
 
-      // Ensure all transferee investors (from col 3) exist in master data
+      // Ensure all transferee investors (from col 3) exist in master data.
+      // Managed funds are holders, not investors.
       for (const event of sortedEvents) {
+        if (isManagedParty(event.investorName)) continue;
         await ensureInvestor(event.investorName, event.investorTypeLabel, event.investorEnglishName);
       }
 
+      type CommitmentHolder = { kind: "investor" | "fund"; id: string };
+      /** Resolves (creating an outside investor when needed) the holder a row posts for. */
+      const resolveHolder = async (
+        name: string,
+        typeLabel?: string | null,
+        englishName?: string | null,
+      ): Promise<CommitmentHolder | null> => {
+        if (isManagedParty(name)) {
+          const fundId = resolveManagedFundId(name);
+          return fundId ? { kind: "fund", id: fundId } : null;
+        }
+        return { kind: "investor", id: await ensureInvestor(name, typeLabel, englishName) };
+      };
+      /** Resolves an existing holder without creating anything (transferor lookup). */
+      const findHolder = (name: string): CommitmentHolder | null => {
+        if (isManagedParty(name)) {
+          const fundId = resolveManagedFundId(name);
+          return fundId ? { kind: "fund", id: fundId } : null;
+        }
+        const investorId = investorMap.get(normalizeInvestorName(name))?.id;
+        return investorId ? { kind: "investor", id: investorId } : null;
+      };
+      const unresolvedManagedHolderWarning = (name: string, fundName: string) =>
+        `Cannot post for managed fund "${name.trim()}" in "${fundName.trim()}": the holder fund is not in the fund catalog or was not selected in Step 1.`;
+      const selfHoldingWarning = (name: string) =>
+        `Cannot post a commitment-path row where fund "${name.trim()}" holds itself.`;
+
       const positionCache = new Map<string, Tables<"fl_positions">>();
-      const getPosition = async (investorId: string, fundId: string, eventDate: string) => {
-        const key = `${investorId}:::${fundId}`;
+      const getPosition = async (holder: CommitmentHolder, fundId: string, eventDate: string) => {
+        const key = `${holder.kind}:${holder.id}:::${fundId}`;
         let pos = positionCache.get(key);
         if (!pos) {
           pos = await this.flPositionService.getOrOpenPosition(
             this.workspaceId,
-            {
-              holder_investor_id: investorId,
-              fund_id: fundId,
-              opened_at: eventDate || null,
-            },
+            holder.kind === "fund"
+              ? {
+                  holder_fund_id: holder.id,
+                  fund_id: fundId,
+                  opened_at: eventDate || null,
+                }
+              : {
+                  holder_investor_id: holder.id,
+                  fund_id: fundId,
+                  opened_at: eventDate || null,
+                },
             tx,
           );
           positionCache.set(key, pos);
         }
         return pos;
       };
+
+      // A managed fund can only transfer commitment it holds. When the workbook
+      // has no commitment for it in the target fund (and the ledger has none),
+      // posting the transfer_out would open a fund-held position with only a
+      // negative commitment — a phantom fund-of-funds holding in the transferor.
+      const batchCommitmentKeys = new Set(
+        events
+          .filter((e) => e.intent === "increase" || e.intent === "transfer_in")
+          .map((e) => `${normalizeCanonicalName(e.investorName)}|${normalizeCanonicalName(e.fund)}`),
+      );
+      const fundHolderHasCommitment = async (
+        transferorName: string,
+        holderFundId: string,
+        fundName: string,
+        fundId: string,
+      ): Promise<boolean> => {
+        if (batchCommitmentKeys.has(`${normalizeCanonicalName(transferorName)}|${normalizeCanonicalName(fundName)}`)) {
+          return true;
+        }
+        const heldPositions = await this.flPositionRepo.findByHolderFundIds(this.workspaceId, [holderFundId], tx);
+        const existing = heldPositions.find((p) => p.fund_id === fundId && !p.asset_id);
+        if (!existing) return false;
+        const entries = await getPositionEntries(existing.id);
+        const net = entries.reduce((sum, e) => flAdd(sum, e.commitment_delta ?? "0"), "0.00000000");
+        return flGt(net, "0.00000000");
+      };
+      const phantomTransferWarning = (transferorName: string, fundName: string, date: string) =>
+        `Blocked transfer from managed fund "${transferorName.trim()}" in "${fundName.trim()}" on ${date}: it has no commitment in "${fundName.trim()}" to transfer, so the transfer-out would create a phantom fund-of-funds holding. Record ${transferorName.trim()}'s commitment first or resolve the row manually.`;
 
       const positionEntriesCache = new Map<string, Tables<"fl_ledger_entries">[]>();
       const getPositionEntries = async (positionId: string) => {
@@ -3332,8 +3539,14 @@ export class FundUpdateApplyService {
           }
 
           const fundId = await getFundId(res.fundName);
-          const investorId = await ensureInvestor(res.investorName);
-          const pos = await getPosition(investorId, fundId, res.date);
+          const holder = await resolveHolder(res.investorName);
+          if (!holder) {
+            throw new FundUpdateValidationError(unresolvedManagedHolderWarning(res.investorName, res.fundName));
+          }
+          if (holder.kind === "fund" && holder.id === fundId) {
+            throw new FundUpdateValidationError(selfHoldingWarning(res.investorName));
+          }
+          const pos = await getPosition(holder, fundId, res.date);
 
           const amtStr = toExactDecimalString(res.amount);
           const paidInAdjustmentDelta = res.direction === "addition" ? amtStr : flNeg(amtStr);
@@ -3485,11 +3698,37 @@ export class FundUpdateApplyService {
           }
 
           const fundId = await getFundId(res.fundName);
-          const transfereeId = await ensureInvestor(res.transfereeName);
-          const transferorId = await ensureInvestor(res.transferorName);
+          const transfereeHolder = await resolveHolder(res.transfereeName);
+          const transferorHolder = await resolveHolder(res.transferorName);
+          if (!transfereeHolder || !transferorHolder) {
+            throw new FundUpdateValidationError(
+              unresolvedManagedHolderWarning(!transfereeHolder ? res.transfereeName : res.transferorName, res.fundName),
+            );
+          }
+          for (const [holder, name] of [[transfereeHolder, res.transfereeName], [transferorHolder, res.transferorName]] as const) {
+            if (holder.kind === "fund" && holder.id === fundId) {
+              throw new FundUpdateValidationError(selfHoldingWarning(name));
+            }
+          }
+          if (
+            transferorHolder.kind === "fund" &&
+            !(await fundHolderHasCommitment(res.transferorName, transferorHolder.id, res.fundName, fundId))
+          ) {
+            const warn = phantomTransferWarning(res.transferorName, res.fundName, res.date);
+            events_skipped += 1;
+            warnings.push(warn);
+            outcomes.push({
+              submittedId: res.submittedId ?? `transfer:${res.sourceRow}`,
+              family: 'review_resolution',
+              disposition: 'rejected',
+              reason: warn,
+              assetCode: res.fundName,
+            });
+            continue;
+          }
 
-          const transfereePos = await getPosition(transfereeId, fundId, res.date);
-          const transferorPos = await getPosition(transferorId, fundId, res.date);
+          const transfereePos = await getPosition(transfereeHolder, fundId, res.date);
+          const transferorPos = await getPosition(transferorHolder, fundId, res.date);
 
           const amtStr = toExactDecimalString(res.amount);
           const transferDedupKey = buildCommitmentTransferDedupKey(
@@ -3697,16 +3936,44 @@ export class FundUpdateApplyService {
           }
 
           const fundId = await getFundId(res.fundName);
-          const transfereeId = await ensureInvestor(res.transfereeName);
-          const transfereePos = await getPosition(transfereeId, fundId, res.date);
+          const transfereeHolder = await resolveHolder(res.transfereeName);
+          if (!transfereeHolder) {
+            throw new FundUpdateValidationError(unresolvedManagedHolderWarning(res.transfereeName, res.fundName));
+          }
+          if (transfereeHolder.kind === "fund" && transfereeHolder.id === fundId) {
+            throw new FundUpdateValidationError(selfHoldingWarning(res.transfereeName));
+          }
+          const transfereePos = await getPosition(transfereeHolder, fundId, res.date);
           const transfereeEntries = await getPositionEntries(transfereePos.id);
 
           let splitCompleted = 0;
           const allocOutcomes: SubmittedRowOutcome[] = [];
           for (let aIdx = 0; aIdx < res.allocations.length; aIdx++) {
             const alloc = res.allocations[aIdx];
-            const transferorId = await ensureInvestor(alloc.transferorName);
-            const transferorPos = await getPosition(transferorId, fundId, res.date);
+            const transferorHolder = await resolveHolder(alloc.transferorName);
+            if (!transferorHolder) {
+              throw new FundUpdateValidationError(unresolvedManagedHolderWarning(alloc.transferorName, res.fundName));
+            }
+            if (transferorHolder.kind === "fund" && transferorHolder.id === fundId) {
+              throw new FundUpdateValidationError(selfHoldingWarning(alloc.transferorName));
+            }
+            if (
+              transferorHolder.kind === "fund" &&
+              !(await fundHolderHasCommitment(alloc.transferorName, transferorHolder.id, res.fundName, fundId))
+            ) {
+              const warn = phantomTransferWarning(alloc.transferorName, res.fundName, res.date);
+              warnings.push(warn);
+              allocOutcomes.push({
+                submittedId: res.submittedId ?? `transfer:${res.sourceRow}`,
+                family: 'review_resolution',
+                disposition: 'rejected',
+                reason: warn,
+                assetCode: res.fundName,
+                targetId: transfereePos.id,
+              });
+              continue;
+            }
+            const transferorPos = await getPosition(transferorHolder, fundId, res.date);
             const transferorEntries = await getPositionEntries(transferorPos.id);
 
             const allocAmtStr = toExactDecimalString(alloc.amount);
@@ -3977,8 +4244,23 @@ export class FundUpdateApplyService {
           fundIdByName.set(event.fund.trim(), fundId);
         }
 
-        const transfereeId = await ensureInvestor(event.investorName, event.investorTypeLabel, event.investorEnglishName);
-        const transfereePos = await getPosition(transfereeId, fundId, event.date);
+        const transfereeHolder = await resolveHolder(event.investorName, event.investorTypeLabel, event.investorEnglishName);
+        if (!transfereeHolder || (transfereeHolder.kind === "fund" && transfereeHolder.id === fundId)) {
+          events_skipped += 1;
+          const warn = !transfereeHolder
+            ? unresolvedManagedHolderWarning(event.investorName, event.fund)
+            : selfHoldingWarning(event.investorName);
+          warnings.push(warn);
+          outcomes.push({
+            submittedId: event.submittedId ?? (event.intent === 'transfer_in' ? `transfer:${event.sourceRow}` : `commitment:${event.sourceRow}`),
+            family: 'commitment_event',
+            disposition: 'rejected',
+            reason: warn,
+            assetCode: event.fund,
+          });
+          continue;
+        }
+        const transfereePos = await getPosition(transfereeHolder, fundId, event.date);
 
         // Currency guard on transferee position
         const transfereeEntries = await getPositionEntries(transfereePos.id);
@@ -4078,12 +4360,21 @@ export class FundUpdateApplyService {
           }
 
           if (pairing.eligibleForTransferOut && transferorName) {
-            const transferorKey = normalizeInvestorName(transferorName);
-            const transferorMasterId = investorMap.get(transferorKey)?.id;
+            const transferorHolder = findHolder(transferorName);
+            const transferorBlock = !transferorHolder
+              ? isManagedParty(transferorName)
+                ? unresolvedManagedHolderWarning(transferorName, event.fund)
+                : `Blocked transfer-in: transferor "${transferorName}" not found in master investors (not approved/created) for fund "${event.fund}" on ${event.date}.`
+              : transferorHolder.kind === "fund" && transferorHolder.id === fundId
+                ? selfHoldingWarning(transferorName)
+                : transferorHolder.kind === "fund" &&
+                    !(await fundHolderHasCommitment(transferorName, transferorHolder.id, event.fund, fundId))
+                  ? phantomTransferWarning(transferorName, event.fund, event.date)
+                  : null;
 
-            if (!transferorMasterId) {
+            if (!transferorHolder || transferorBlock) {
               events_skipped += 1;
-              const warn = `Blocked transfer-in: transferor "${transferorName}" not found in master investors (not approved/created) for fund "${event.fund}" on ${event.date}.`;
+              const warn = transferorBlock ?? `Blocked transfer-in for fund "${event.fund}" on ${event.date}.`;
               warnings.push(warn);
               outcomes.push({
                 submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
@@ -4095,7 +4386,7 @@ export class FundUpdateApplyService {
               });
               continue;
             } else {
-              const transferorPos = await getPosition(transferorMasterId, fundId, event.date);
+              const transferorPos = await getPosition(transferorHolder, fundId, event.date);
 
               // Check currency guard on transferor position
               const transferorEntries = await getPositionEntries(transferorPos.id);
@@ -4288,6 +4579,9 @@ export class FundUpdateApplyService {
               : {
                   position_id: transfereePos.id,
                   entry_type: "distribution",
+                  // A managed holder fund retains the proceeds: state the treatment on
+                  // the row so it is persisted, not only resolved at cash-leg derivation.
+                  ...(transfereeHolder.kind === "fund" ? { sub_type: SUB_TYPE_DIVESTMENT_CASH_IN_FUND } : {}),
                   cash_delta: eventAmtStr,
                   currency: "CNY",
                   notes: event.notes ?? null,
@@ -4359,6 +4653,76 @@ export class FundUpdateApplyService {
         outcomes,
       };
     });
+  }
+
+  /**
+   * For a managed → managed 投资/退出 proposal, confirms the money is recorded from
+   * the target fund's book: the target's 实缴/分配 rows from the holder, in this
+   * approval or already in the ledger. Totals are compared, never single rows.
+   */
+  private async crossBookRecordingWarnings(
+    holderFundName: string,
+    targetFundName: string,
+    payerTxns: ParsedTxn[],
+    context: {
+      holderFundId: string | null;
+      targetFundId: string | null;
+      commitmentEvents: ParsedCommitmentEvent[];
+    },
+    executor: DbClient,
+  ): Promise<{ all: string[]; byKind: Map<CrossBookFlowKind, string[]> }> {
+    const payerTotals = new Map<CrossBookFlowKind, number>();
+    for (const t of payerTxns) {
+      if (t.type !== "contribution" && t.type !== "divestment") continue;
+      const kind = crossBookFlowKindForTxn(t);
+      payerTotals.set(kind, (payerTotals.get(kind) ?? 0) + Math.abs(t.valueAmount ?? 0));
+    }
+    const byKind = new Map<CrossBookFlowKind, string[]>();
+    if (payerTotals.size === 0) return { all: [], byKind };
+
+    // Receiver-side amounts keyed by the commitment dedup key, so a row that is
+    // both in this approval and already in the ledger counts once.
+    const recorded = new Map<CrossBookFlowKind, Map<string, number>>();
+    const record = (kind: CrossBookFlowKind, key: string, amount: number) => {
+      const map = recorded.get(kind) ?? new Map<string, number>();
+      map.set(key, amount);
+      recorded.set(kind, map);
+    };
+    const holderKey = normalizeCanonicalName(holderFundName);
+    const targetKey = normalizeCanonicalName(targetFundName);
+    for (const ev of context.commitmentEvents) {
+      if (ev.intent !== "paid_in" && ev.intent !== "distribution") continue;
+      if (normalizeCanonicalName(ev.investorName) !== holderKey || normalizeCanonicalName(ev.fund) !== targetKey) continue;
+      record(ev.intent, buildCommitmentEventDedupKey(ev.intent, ev.date, ev.amount), Math.abs(ev.amount));
+    }
+    if (context.holderFundId && context.targetFundId) {
+      const held = await this.flPositionRepo.findByHolderFundIds(this.workspaceId, [context.holderFundId], executor);
+      const positionIds = held.filter((p) => p.fund_id === context.targetFundId && !p.asset_id).map((p) => p.id);
+      const entries = positionIds.length > 0
+        ? await this.flLedgerEntryRepo.findAllByPositionIds(this.workspaceId, positionIds, executor)
+        : [];
+      for (const e of entries) {
+        if (e.entry_type !== "paid_in" && e.entry_type !== "distribution") continue;
+        record(e.entry_type, buildLedgerEntryCommitmentDedupKey(e), Math.abs(Number(e.cash_delta ?? 0)));
+      }
+    }
+
+    const all: string[] = [];
+    for (const [kind, payerTotal] of payerTotals) {
+      const receiverLabel = kind === "paid_in" ? "paid-in" : "distribution";
+      const recordedTotal = [...(recorded.get(kind)?.values() ?? [])].reduce((sum, v) => sum + v, 0);
+      let warning: string | null = null;
+      if (recordedTotal === 0) {
+        warning = `${holderFundName} → ${targetFundName} ${formatWan(payerTotal)}: recorded from ${targetFundName}'s ${receiverLabel} rows, which are not part of this import. Nothing is posted for this money until they are.`;
+      } else if (Math.abs(recordedTotal - payerTotal) >= 0.01) {
+        warning = `${holderFundName} → ${targetFundName}: ${formatWan(payerTotal)} in ${holderFundName}'s book but ${formatWan(recordedTotal)} in ${targetFundName}'s ${receiverLabel} rows (this import plus the ledger); ${targetFundName}'s book is posted.`;
+      }
+      if (warning) {
+        all.push(warning);
+        byKind.set(kind, [warning]);
+      }
+    }
+    return { all, byKind };
   }
 
   private matchExisting(

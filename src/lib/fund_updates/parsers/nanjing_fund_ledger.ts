@@ -15,6 +15,11 @@ import type {
   TxnTypeEnum,
 } from './startech_quarterly';
 import { normalizeParsedAsset } from '../normalizeParsedAsset';
+import {
+  buildManagedFundNameKeys,
+  managedFundCrossBookWarnings,
+  summarizeManagedFundCrossBook,
+} from '../managedFundCrossBook';
 import type {
   FundCatalogItem,
   FundUpdateStructuredResult,
@@ -359,6 +364,7 @@ export interface NanjingFundCatalogItem {
   subscribedAmount: number | null;
   paidInAmount: number | null;
   investedAmount: number | null;
+  netCashFlowAmount?: number | null;
 }
 
 /**
@@ -402,6 +408,46 @@ export function parseFundCatalog(wb: ExcelJS.Workbook): NanjingFundCatalogItem[]
   }
 
   return funds;
+}
+
+// 基金汇总 col L: 基金净现金流 = 实缴流入 + 退出回款 − 投资支出 − 向投资人分配.
+const NET_CASH_FLOW_SIGN_BY_ACTION: Record<string, 1 | -1> = {
+  实缴: 1,
+  退出: 1,
+  投资: -1,
+  分配: -1,
+};
+
+/**
+ * Evaluates the `基金汇总` net cash-flow column per book fund (col 12 of
+ * `基金流水明细`). The summary's SUMIFS columns are saved without cached values,
+ * so they are re-derived from the rows they sum. Keyed by normalized fund name;
+ * 万元 -> CNY.
+ */
+export function parseCatalogNetCashFlows(wb: ExcelJS.Workbook): Map<string, number> {
+  const out = new Map<string, number>();
+  const ws = wb.getWorksheet('基金流水明细');
+  if (!ws) return out;
+
+  for (let r = 3; r <= ws.rowCount; r++) {
+    const orderVal = asString(cellValue(ws.getCell(r, 1)));
+    if (!orderVal) break;
+
+    const actionRaw = asString(cellValue(ws.getCell(r, 5)))?.trim() ?? '';
+    const sign = NET_CASH_FLOW_SIGN_BY_ACTION[actionRaw];
+    if (!sign) continue;
+    const amountVal = asNumber(cellValue(ws.getCell(r, 9)));
+    if (amountVal == null) continue;
+    const { zh: fundZh } = splitBilingual(asSourceString(cellValue(ws.getCell(r, 12))) ?? '');
+    const key = normalizeInvestorName(fundZh);
+    if (!key) continue;
+
+    out.set(key, (out.get(key) ?? 0) + sign * amountVal * 10_000);
+  }
+
+  // Summing float 万元 amounts drifts below a fen; state the totals to the fen.
+  for (const [key, value] of out) out.set(key, Math.round(value * 100) / 100);
+  return out;
 }
 
 // ---- Portfolio Ledger Parsing ----
@@ -1157,6 +1203,45 @@ export function reconcileNanjingFundLedger(
     });
   }
 
+  // 4. Managed fund -> managed fund flows: the payer's 投资/退出 total against the
+  // receiver's 实缴/分配 total. Only the receiver's rows post, so a gap here is
+  // money that one book records and the other does not.
+  const managedKeys = buildManagedFundNameKeys([
+    ...catalogItems.map((c) => c.nameZh),
+    ...assets.filter((a) => a.holderKind !== 'investor').map((a) => a.fund),
+    ...commitmentEvents.map((e) => e.fund),
+    ...reviewItems.map((r) => r.fund),
+  ]);
+  for (const pair of summarizeManagedFundCrossBook(assets, commitmentEvents, managedKeys)) {
+    const warnings = managedFundCrossBookWarnings(pair);
+    const diff = pair.receiverTotal - pair.payerTotal;
+    results.push({
+      metricName:
+        pair.kind === 'paid_in'
+          ? 'Managed Fund Investment (投资 vs 实缴)'
+          : 'Managed Fund Exit (退出 vs 分配)',
+      fund: pair.targetFund,
+      targetEventType: pair.kind,
+      sourceValue: pair.payerTotal,
+      calculatedValue: pair.receiverTotal,
+      diff,
+      diffPct:
+        pair.payerTotal !== 0
+          ? Math.round(Math.abs(diff / pair.payerTotal) * 10_000) / 100
+          : diff === 0
+            ? 0
+            : 100,
+      currency: 'CNY',
+      unit: 'CNY',
+      isReconciled: warnings.length === 0,
+      sheet: '基金流水明细',
+      notes:
+        warnings.length > 0
+          ? warnings.join(' ')
+          : `${pair.holderFund} → ${pair.targetFund}: ${pair.kind === 'paid_in' ? '投资' : '退出'} and ${pair.kind === 'paid_in' ? '实缴' : '分配'} totals agree; posted once from ${pair.targetFund}'s book.`,
+    });
+  }
+
   return results;
 }
 
@@ -1214,6 +1299,7 @@ export async function parseNanjingWorkbookForIngestion(
   // Full fund catalog items including any ledger-only funds
   const fundCatalogItems: FundCatalogItem[] = [];
   const catalogItemMap = new Map(catalogItems.map((c) => [normalizeInvestorName(c.nameZh), c]));
+  const netCashFlows = parseCatalogNetCashFlows(wb);
   for (const f of fundCatalog) {
     const key = normalizeInvestorName(f);
     const existing = catalogItemMap.get(key);
@@ -1222,6 +1308,7 @@ export async function parseNanjingWorkbookForIngestion(
         ...existing,
         nameZh: f,
         nameEn: existing.nameEn ?? fundEnMap.get(key) ?? null,
+        netCashFlowAmount: netCashFlows.get(key) ?? 0,
       });
     } else {
       fundCatalogItems.push({

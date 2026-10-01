@@ -518,9 +518,9 @@ export function TransactionsTable({
                       )}
                     </td>
 
-                    {/* Blocked / skipped reason */}
+                    {/* Blocked / skipped reason, or a non-blocking review note */}
                     <td className="px-3 py-1.5">
-                      <ReasonCell reason={txn.blockReason} />
+                      <ReasonCell reason={txn.blockReason ?? txn.reviewNote} />
                     </td>
                   </tr>
 

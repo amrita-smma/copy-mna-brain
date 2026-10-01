@@ -2188,3 +2188,111 @@ describe('twoStepReview — Canonical Two-Step Normalization & Dependency Engine
   });
 });
 
+describe('buildNormalizedTwoStepReview — managed fund → managed fund (MB-569)', () => {
+  const YUESHENG = '南京月升星繁创业投资合伙企业（有限合伙）';
+  const HUAIAN = '淮安熙和创业投资基金合伙企业（有限合伙）';
+  const TONGDE = '南京桐德股权投资合伙企业（有限合伙）';
+  const OUTSIDE = '金湖国金股权投资基金合伙企业（有限合伙）';
+
+  const fofAsset = sampleAsset({
+    code: 'NJ-yue-hua',
+    name: HUAIAN,
+    legalName: HUAIAN,
+    assetType: 'fund_of_funds',
+    investmentTypeLabel: 'Fund of Funds',
+    fund: YUESHENG,
+    entity: null,
+    fundingSource: null,
+    fundingSourceRaw: null,
+    currency: 'CNY',
+    txns: [sampleTxn({ date: '2024-09-09', valueAmount: 29_000_000, shareCount: null, pricePerShare: null, currency: 'CNY', sourceRow: 185 })],
+  });
+  const paidIn = sampleCommitmentEvent({ fund: HUAIAN, investorName: YUESHENG, intent: 'paid_in', actionRaw: '实缴', amount: 29_000_000, sourceRow: 196 });
+  const outsidePaidIn = sampleCommitmentEvent({ fund: HUAIAN, investorName: OUTSIDE, intent: 'paid_in', actionRaw: '实缴', amount: 14_000_000, sourceRow: 199 });
+  const phantomTransfer = sampleCommitmentEvent({
+    fund: HUAIAN,
+    investorName: '海南荣鑫同创科技发展有限公司',
+    intent: 'transfer_in',
+    amount: 4_000_000,
+    counterpartyName: TONGDE,
+    sourceRow: 202,
+    transferPairing: {
+      status: 'paired',
+      transferorName: TONGDE,
+      counterpartyRaw: TONGDE,
+      matchedReductionSourceRow: null,
+      eligibleForTransferOut: true,
+      requiresReview: false,
+    },
+  });
+
+  const build = () => {
+    const fullReview: FundUpdateFullReview = {
+      assets: [sampleAssetReview({ proposed: fofAsset, target_kind: 'fund' })],
+      funds: [
+        { name: YUESHENG, status: 'new', matched_id: null },
+        { name: HUAIAN, status: 'new', matched_id: null },
+        { name: TONGDE, status: 'new', matched_id: null },
+      ],
+      investors: [
+        { name: OUTSIDE, status: 'new', matched_id: null },
+        { name: '海南荣鑫同创科技发展有限公司', status: 'new', matched_id: null },
+      ],
+      sources: [],
+    };
+    const proposal: LegacyAssetProposal = {
+      template_id: 'nanjing_fund_ledger_v1',
+      stats: {
+        asset_count: 1,
+        direct_count: 0,
+        fund_of_funds_count: 1,
+        transaction_count: 1,
+        valuation_count: 0,
+        commitment_event_count: 3,
+      },
+      assets: [fofAsset],
+      fund_catalog: [YUESHENG, HUAIAN, TONGDE],
+      commitment_events: [paidIn, outsidePaidIn, phantomTransfer],
+    };
+    return buildNormalizedTwoStepReview(fullReview, proposal);
+  };
+
+  it("routes a managed fund's 实缴 from its Fund-tab entity, and an outside LP's from its investor entity", () => {
+    const review = build();
+    const managedRow = review.transactions.find((t) => t.id === 'commitment:196')!;
+    const outsideRow = review.transactions.find((t) => t.id === 'commitment:199')!;
+    expect(managedRow.fromKey).toBe(`fund:${YUESHENG}`);
+    expect(managedRow.toKey).toBe(`fund:${HUAIAN}`);
+    expect(outsideRow.fromKey).toBe(`investor:${OUTSIDE}`);
+    expect(review.entities.some((e) => e.key === `investor:${YUESHENG}`)).toBe(false);
+  });
+
+  it('passes dependency validation with the managed fund staged as a fund, not an investor', () => {
+    const review = build();
+    const validation = validateTwoStepDependencies({
+      stagedEntities: review.entities,
+      transactions: review.transactions.filter((t) => t.id === 'commitment:196'),
+      valuations: [],
+    });
+    expect(validation.errors).toEqual([]);
+    expect(validation.isValid).toBe(true);
+  });
+
+  it("keeps the payer's 投资 row selectable and annotates that it is recorded from the target's book", () => {
+    const review = build();
+    const investRow = review.transactions.find((t) => t.assetCode === 'NJ-yue-hua')!;
+    expect(investRow.status).toBe('actionable');
+    expect(investRow.selected).toBe(true);
+    expect(investRow.reviewNote).toBe(`Recorded from ${HUAIAN}'s paid-in rows; this row posts no ledger entry.`);
+    expect(investRow.notes).toBeNull();
+    expect(investRow.blockReason).toBeNull();
+  });
+
+  it('flags a transfer out of a managed fund that holds no commitment in the target (row #200)', () => {
+    const review = build();
+    const transfer = review.transactions.find((t) => t.id === 'transfer:202')!;
+    expect(transfer.fromKey).toBe(`fund:${TONGDE}`);
+    expect(transfer.reviewNote).toContain('no commitment in');
+    expect(transfer.reviewNote).toContain('phantom fund-of-funds holding');
+  });
+});

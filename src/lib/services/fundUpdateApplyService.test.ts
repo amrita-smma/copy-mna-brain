@@ -18,6 +18,7 @@ import { isUnresolvedDivestmentToken } from "@/lib/fundLedger/proceedsTreatment"
 import { isEligibleCashHolder, type CashHolderCandidate } from "@/lib/fundLedger/cashOwnership";
 import {
   fundUpdateTxnKey,
+  normalizeCanonicalName,
   UNATTRIBUTED_ENTITY,
   type ParsedAsset,
   type ParsedCommitmentEvent,
@@ -7327,6 +7328,494 @@ describe("FundUpdateApplyService", () => {
           expect(reviewTxn?.sellProceedsDestination).toBe("cash_in_fund");
         });
       });
+    });
+  });
+});
+
+describe("FundUpdateApplyService managed fund → managed fund (MB-569)", () => {
+  const TX = { __isTx: true };
+  const YUESHENG = "南京月升星繁创业投资合伙企业（有限合伙）";
+  const HUAIAN = "淮安熙和创业投资基金合伙企业（有限合伙）";
+  const TONGDE = "南京桐德股权投资合伙企业（有限合伙）";
+  const MGMT_CO = "南京金光紫金创业投资管理有限公司";
+  const JINGUANG_FUND = "南京金光紫金股权投资基金（有限合伙企业）";
+  const CATALOG = [YUESHENG, HUAIAN, TONGDE, JINGUANG_FUND];
+
+  class FundRepoMock {
+    rows: Array<{ id: string; name: string; managed: boolean; english_name?: string | null }> = [
+      { id: "f-yue", name: YUESHENG, managed: true },
+      { id: "f-hua", name: HUAIAN, managed: true },
+      { id: "f-tong", name: TONGDE, managed: true },
+      { id: "f-jg", name: JINGUANG_FUND, managed: true },
+    ];
+    findByWorkspaceId = vi.fn(async () => this.rows);
+    findById = vi.fn(async (_ws: string, id: string) => this.rows.find((f) => f.id === id) ?? null);
+    update = vi.fn(async () => ({}));
+    insert = vi.fn();
+  }
+  class PositionRepoMock {
+    findByAssetIds = vi.fn(async () => []);
+    findByFundIds = vi.fn(async () => []);
+    findByHolderInvestorIds = vi.fn(async () => []);
+    findByHolderFundIds = vi.fn(async (): Promise<Array<Record<string, unknown>>> => []);
+  }
+  class InvestorRepoMock {
+    findByWorkspaceId = vi.fn(async () => []);
+    update = vi.fn(async () => ({}));
+  }
+  class EmptyRepoMock {
+    findByWorkspaceId = vi.fn(async () => []);
+    findByPositionIdsAndAsOfDates = vi.fn(async () => []);
+    findSeriesByTarget = vi.fn(async () => []);
+  }
+  class LedgerEntryRepoMock {
+    findAllByPositionIds = vi.fn(async (): Promise<Array<Record<string, unknown>>> => []);
+    findByPositionIds = vi.fn(async () => []);
+  }
+  class MasterDataMock {
+    createInvestor = vi.fn(async (_ws: string, input: { name: string }) => ({ id: `inv-${input.name}`, ...input }));
+    getOrCreateInvestor = vi.fn(async (_ws: string, input: { name: string }) => ({ id: `inv-${input.name}`, ...input }));
+    createFund = vi.fn(async (_ws: string, input: { name: string }) => ({ id: `fund-${input.name}`, ...input }));
+    getOrCreateFund = vi.fn(async (_ws: string, input: { name: string }) => ({ id: `fund-${input.name}`, ...input }));
+    getOrCreateFundingSource = vi.fn();
+    createAsset = vi.fn(async (_ws: string, input: Record<string, unknown>) => ({ id: "asset-new", ...input }));
+  }
+  class PositionServiceMock {
+    getOrOpenPosition = vi.fn(async (_ws: string, input: Record<string, string | null | undefined>) => ({
+      id: `pos:${input.holder_fund_id ? `fund:${input.holder_fund_id}` : `inv:${input.holder_investor_id}`}:${input.fund_id ?? input.asset_id}`,
+      ...input,
+    }));
+  }
+  class LedgerServiceMock {
+    postEvent = vi.fn(async () => ({ entries: [] }));
+  }
+
+  let fundRepo: FundRepoMock;
+  let positionRepo: PositionRepoMock;
+  let ledgerEntryRepo: LedgerEntryRepoMock;
+  let masterData: MasterDataMock;
+  let positionService: PositionServiceMock;
+  let ledgerService: LedgerServiceMock;
+  let service: FundUpdateApplyService;
+
+  beforeEach(() => {
+    vi.mocked(resolveFundVehiclesEnabled).mockResolvedValue(true);
+    fundRepo = new FundRepoMock();
+    positionRepo = new PositionRepoMock();
+    ledgerEntryRepo = new LedgerEntryRepoMock();
+    masterData = new MasterDataMock();
+    positionService = new PositionServiceMock();
+    ledgerService = new LedgerServiceMock();
+    service = new FundUpdateApplyService(
+      { transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(TX)) } as never,
+      "ws-1",
+      fundRepo as never,
+      new EmptyRepoMock() as never,
+      positionRepo as never,
+      new InvestorRepoMock() as never,
+      new EmptyRepoMock() as never,
+      masterData as never,
+      positionService as never,
+      ledgerService as never,
+      { record: vi.fn(), update: vi.fn() } as never,
+      new EmptyRepoMock() as never,
+      ledgerEntryRepo as never,
+    );
+  });
+
+  const event = (overrides: Partial<ParsedCommitmentEvent>) =>
+    sampleCommitmentEvent({ fund: HUAIAN, investorName: YUESHENG, investorTypeRaw: "机构投资人", ...overrides });
+  const postedEntries = () =>
+    ledgerService.postEvent.mock.calls.map((call) => (call as unknown as [string, { entries: Array<Record<string, unknown>> }])[1].entries);
+  const openedPositions = () =>
+    positionService.getOrOpenPosition.mock.calls.map((call) => (call as unknown as [string, Record<string, unknown>])[1]);
+
+  describe("applyCommitmentEvents", () => {
+    it("posts a managed fund's 实缴 on the fund-held position and creates no investor for it", async () => {
+      const result = await service.applyCommitmentEvents(
+        [event({ intent: "paid_in", actionRaw: "实缴", amount: 29_000_000, date: "2024-09-13", sourceRow: 196 })],
+        { fundCatalog: CATALOG },
+      );
+
+      expect(result.events_inserted).toBe(1);
+      expect(openedPositions()).toEqual([
+        expect.objectContaining({ holder_fund_id: "f-yue", fund_id: "f-hua" }),
+      ]);
+      expect(openedPositions()[0]).not.toHaveProperty("holder_investor_id");
+      expect(postedEntries()[0]).toEqual([
+        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", entry_type: "paid_in", cash_delta: "-29000000.00000000" }),
+      ]);
+      expect(masterData.createInvestor).not.toHaveBeenCalled();
+    });
+
+    it("detects the managed fund when its name carries an English suffix on the same line", async () => {
+      await service.applyCommitmentEvents(
+        [event({ intent: "increase", investorName: `${YUESHENG} Nanjing Yuesheng Xingfan Venture Capital Partnership` })],
+        { fundCatalog: CATALOG },
+      );
+      expect(openedPositions()[0]).toMatchObject({ holder_fund_id: "f-yue", fund_id: "f-hua" });
+      expect(masterData.createInvestor).not.toHaveBeenCalled();
+    });
+
+    it("keeps a management company that shares the fund's name prefix as an outside investor", async () => {
+      await service.applyCommitmentEvents(
+        [event({ fund: JINGUANG_FUND, investorName: MGMT_CO, intent: "paid_in", amount: 2_000_000 })],
+        { fundCatalog: CATALOG },
+      );
+      expect(masterData.createInvestor).toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: MGMT_CO }), TX);
+      expect(openedPositions()[0]).toMatchObject({ holder_investor_id: `inv-${MGMT_CO}`, fund_id: "f-jg" });
+      expect(openedPositions()[0]).not.toHaveProperty("holder_fund_id");
+    });
+
+    it("posts a managed fund's 认缴 as commitment on the fund-held position", async () => {
+      await service.applyCommitmentEvents([event({ intent: "increase", amount: 89_600_000 })], { fundCatalog: CATALOG });
+      expect(postedEntries()[0]).toEqual([
+        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", entry_type: "commitment", commitment_delta: "89600000.00000000" }),
+      ]);
+    });
+
+    it("posts a managed fund's 减资 as a negative commitment on the fund-held position", async () => {
+      await service.applyCommitmentEvents([event({ intent: "decrease", amount: 1_000_000 })], { fundCatalog: CATALOG });
+      expect(postedEntries()[0]).toEqual([
+        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", entry_type: "commitment", commitment_delta: "-1000000.00000000" }),
+      ]);
+    });
+
+    it("posts a transfer_in to a managed transferee on its fund-held position against an outside transferor", async () => {
+      const result = await service.applyCommitmentEvents(
+        [
+          event({ investorName: MGMT_CO, intent: "increase", amount: 2_500_000, sourceRow: 193 }),
+          event({
+            intent: "transfer_in",
+            amount: 5_900_000,
+            natureRaw: "受让额度",
+            counterpartyName: MGMT_CO,
+            sourceRow: 195,
+            transferPairing: {
+              status: "paired",
+              transferorName: MGMT_CO,
+              counterpartyRaw: MGMT_CO,
+              matchedReductionSourceRow: null,
+              eligibleForTransferOut: true,
+              requiresReview: false,
+            },
+          }),
+        ],
+        { fundCatalog: CATALOG },
+      );
+
+      expect(result.warnings).toEqual([]);
+      const transfer = postedEntries().find((entries) => entries[0].entry_type === "commitment_transfer")!;
+      expect(transfer).toEqual([
+        expect.objectContaining({ position_id: `pos:inv:inv-${MGMT_CO}:f-hua`, sub_type: "transfer_out", commitment_delta: "-5900000.00000000" }),
+        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", sub_type: "transfer_in", commitment_delta: "5900000.00000000" }),
+      ]);
+    });
+
+    it("posts a transfer_out from a managed transferor that holds commitment in the target", async () => {
+      await service.applyCommitmentEvents(
+        [
+          event({ intent: "increase", amount: 89_600_000, sourceRow: 194 }),
+          event({
+            investorName: "海南荣鑫同创科技发展有限公司",
+            intent: "transfer_in",
+            amount: 4_000_000,
+            counterpartyName: YUESHENG,
+            sourceRow: 300,
+            transferPairing: {
+              status: "paired",
+              transferorName: YUESHENG,
+              counterpartyRaw: YUESHENG,
+              matchedReductionSourceRow: null,
+              eligibleForTransferOut: true,
+              requiresReview: false,
+            },
+          }),
+        ],
+        { fundCatalog: CATALOG },
+      );
+      const transfer = postedEntries().find((entries) => entries[0].entry_type === "commitment_transfer")!;
+      expect(transfer[0]).toMatchObject({ position_id: "pos:fund:f-yue:f-hua", sub_type: "transfer_out" });
+      expect(masterData.createInvestor).not.toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: YUESHENG }), TX);
+    });
+
+    it("blocks a transfer out of a managed fund with no commitment in the target instead of opening a phantom position (row #200)", async () => {
+      const result = await service.applyCommitmentEvents(
+        [
+          event({
+            investorName: "海南荣鑫同创科技发展有限公司",
+            intent: "transfer_in",
+            amount: 4_000_000,
+            date: "2026-03-24",
+            counterpartyName: TONGDE,
+            sourceRow: 202,
+            transferPairing: {
+              status: "paired",
+              transferorName: TONGDE,
+              counterpartyRaw: TONGDE,
+              matchedReductionSourceRow: null,
+              eligibleForTransferOut: true,
+              requiresReview: false,
+            },
+          }),
+        ],
+        { fundCatalog: CATALOG },
+      );
+
+      expect(result.events_skipped).toBe(1);
+      expect(result.warnings[0]).toContain("phantom fund-of-funds holding");
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({ submittedId: "transfer:202", disposition: "rejected" }),
+      ]);
+      expect(openedPositions().some((p) => p.holder_fund_id === "f-tong")).toBe(false);
+      expect(ledgerService.postEvent).not.toHaveBeenCalled();
+      expect(masterData.createInvestor).not.toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: TONGDE }), TX);
+    });
+
+    it("allows the managed transferor when the ledger already holds its commitment in the target", async () => {
+      positionRepo.findByHolderFundIds.mockResolvedValue([{ id: "pos-existing", holder_fund_id: "f-tong", fund_id: "f-hua", asset_id: null }]);
+      ledgerEntryRepo.findAllByPositionIds.mockImplementation(async () => [
+        { id: "le-1", position_id: "pos-existing", entry_type: "commitment", entry_date: "2025-01-01", commitment_delta: "4000000.00000000", currency: "CNY" },
+      ]);
+      const result = await service.applyCommitmentEvents(
+        [
+          event({
+            investorName: "海南荣鑫同创科技发展有限公司",
+            intent: "transfer_in",
+            amount: 4_000_000,
+            counterpartyName: TONGDE,
+            transferPairing: {
+              status: "paired",
+              transferorName: TONGDE,
+              counterpartyRaw: TONGDE,
+              matchedReductionSourceRow: null,
+              eligibleForTransferOut: true,
+              requiresReview: false,
+            },
+          }),
+        ],
+        { fundCatalog: CATALOG },
+      );
+      expect(result.events_inserted).toBe(1);
+      expect(postedEntries()[0][0]).toMatchObject({ position_id: "pos:fund:f-tong:f-hua", sub_type: "transfer_out" });
+    });
+
+    it("writes the retained-proceeds treatment on a distribution to a managed holder fund", async () => {
+      await service.applyCommitmentEvents(
+        [event({ intent: "distribution", actionRaw: "分配", amount: 500_000 })],
+        { fundCatalog: CATALOG },
+      );
+      expect(postedEntries()[0]).toEqual([
+        expect.objectContaining({
+          position_id: "pos:fund:f-yue:f-hua",
+          entry_type: "distribution",
+          cash_delta: "500000.00000000",
+          sub_type: "divestment:cash_in_fund",
+        }),
+      ]);
+    });
+
+    it("leaves an outside investor's distribution sub_type unset", async () => {
+      await service.applyCommitmentEvents(
+        [event({ investorName: "吉龙权", intent: "distribution", actionRaw: "分配", amount: 500_000 })],
+        { fundCatalog: CATALOG },
+      );
+      expect(postedEntries()[0][0]).not.toHaveProperty("sub_type");
+    });
+
+    it("never creates a staged investor row for a managed fund", async () => {
+      await service.applyCommitmentEvents([event({ intent: "increase" })], {
+        fundCatalog: CATALOG,
+        catalogSelections: { funds: [YUESHENG, HUAIAN], investors: [YUESHENG, "吉龙权"], sources: [] },
+      });
+      const created = masterData.createInvestor.mock.calls.map((call) => (call as unknown as [string, { name: string }])[1].name);
+      expect(created).toEqual(["吉龙权"]);
+    });
+
+    it("rejects a managed holder fund that was not selected in Step 1 instead of treating it as an investor", async () => {
+      fundRepo.rows = fundRepo.rows.filter((f) => f.id !== "f-yue");
+      const result = await service.applyCommitmentEvents([event({ intent: "paid_in", amount: 1_000_000 })], {
+        fundCatalog: CATALOG,
+        catalogSelections: { funds: [HUAIAN], investors: [], sources: [] },
+      });
+      expect(result.events_skipped).toBe(1);
+      expect(result.warnings[0]).toContain("holder fund is not in the fund catalog or was not selected");
+      expect(masterData.createInvestor).not.toHaveBeenCalled();
+      expect(ledgerService.postEvent).not.toHaveBeenCalled();
+    });
+
+    it("posts a non-cash paid-in adjustment for a managed fund on the fund-held position", async () => {
+      await service.applyCommitmentEvents([], {
+        fundCatalog: CATALOG,
+        reviewItems: [
+          sampleReviewItem({
+            sourceRow: 210,
+            fund: HUAIAN,
+            investorName: YUESHENG,
+            date: "2025-06-30",
+            amount: 100_000,
+            action: "实缴调整",
+            nature: "损益核销",
+            direction: "非现金调整",
+            category: "non_cash_adjustment",
+          }),
+        ],
+        reviewResolutions: [
+          {
+            sourceRow: 210,
+            resolutionType: "non_cash_adjustment",
+            investorName: YUESHENG,
+            fundName: HUAIAN,
+            date: "2025-06-30",
+            amount: 100_000,
+            direction: "reduction",
+          },
+        ],
+      });
+      expect(openedPositions()[0]).toMatchObject({ holder_fund_id: "f-yue", fund_id: "f-hua" });
+      expect(postedEntries()[0][0]).toMatchObject({ entry_type: "adjustment", cash_delta: "0.00000000" });
+      expect(masterData.createInvestor).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("applySelected", () => {
+    const investIntoHuaian = (overrides: Partial<ParsedAsset> = {}): ParsedAsset =>
+      sampleAsset({
+        code: "NJ-yue-hua",
+        name: HUAIAN,
+        legalName: HUAIAN,
+        assetType: "fund_of_funds",
+        investmentTypeLabel: "Fund of Funds",
+        fund: YUESHENG,
+        entity: null,
+        fundingSource: null,
+        fundingSourceRaw: null,
+        sourceRef: null,
+        valuations: [],
+        currency: "CNY",
+        txns: [
+          sampleTxn({
+            date: "2024-09-09",
+            type: "contribution",
+            valueAmount: 29_000_000,
+            shareCount: null,
+            pricePerShare: null,
+            currency: "CNY",
+            sourceRow: 185,
+          }),
+        ],
+        ...overrides,
+      });
+    const huaianPaidIn = event({ intent: "paid_in", actionRaw: "实缴", amount: 29_000_000, date: "2024-09-13", sourceRow: 196 });
+
+    it("posts no ledger entry for a managed fund's 投资 into another managed fund and annotates the row", async () => {
+      const asset = investIntoHuaian();
+      const result = await service.applySelected([asset], [asset.code], undefined, {
+        commitmentEvents: [huaianPaidIn],
+        executor: TX as never,
+      }, undefined, CATALOG);
+
+      expect(ledgerService.postEvent).not.toHaveBeenCalled();
+      expect(positionService.getOrOpenPosition).not.toHaveBeenCalled();
+      expect(result.txns_inserted).toBe(0);
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({
+          family: "transaction",
+          disposition: "stale",
+          reason: `Recorded from ${HUAIAN}'s paid-in rows; this row posts no ledger entry.`,
+        }),
+      ]);
+      expect(result.catalog_warnings).toBeUndefined();
+    });
+
+    it("warns when the receiving fund's 实缴 rows are not part of this import", async () => {
+      const asset = investIntoHuaian();
+      const result = await service.applySelected([asset], [asset.code], undefined, {
+        commitmentEvents: [],
+        executor: TX as never,
+      }, undefined, CATALOG);
+
+      expect(ledgerService.postEvent).not.toHaveBeenCalled();
+      expect(result.catalog_warnings).toEqual([
+        `${YUESHENG} → ${HUAIAN} 2,900万: recorded from ${HUAIAN}'s paid-in rows, which are not part of this import. Nothing is posted for this money until they are.`,
+      ]);
+      expect(result.outcomes?.[0]).toMatchObject({
+        disposition: "stale",
+        reason: result.catalog_warnings?.[0],
+        warnings: result.catalog_warnings,
+      });
+    });
+
+    it("counts the receiving fund's paid-in already in the ledger as recorded", async () => {
+      positionRepo.findByHolderFundIds.mockResolvedValue([{ id: "pos-fof", holder_fund_id: "f-yue", fund_id: "f-hua", asset_id: null }]);
+      ledgerEntryRepo.findAllByPositionIds.mockImplementation(async () => [
+        { id: "le-1", position_id: "pos-fof", entry_type: "paid_in", entry_date: "2024-09-13", cash_delta: "-29000000.00000000", currency: "CNY" },
+      ]);
+      const asset = investIntoHuaian();
+      const result = await service.applySelected([asset], [asset.code], undefined, {
+        commitmentEvents: [],
+        executor: TX as never,
+      }, undefined, CATALOG);
+      expect(result.catalog_warnings).toBeUndefined();
+    });
+
+    it("warns on a split mismatch between the two books by total", async () => {
+      const asset = investIntoHuaian();
+      const result = await service.applySelected([asset], [asset.code], undefined, {
+        commitmentEvents: [{ ...huaianPaidIn, amount: 20_000_000 }],
+        executor: TX as never,
+      }, undefined, CATALOG);
+      expect(result.catalog_warnings?.[0]).toContain("2,900万");
+      expect(result.catalog_warnings?.[0]).toContain("2,000万");
+    });
+
+    it("keeps posting a managed fund's 投资 into another managed fund on a workbook-fallback (V1) import", async () => {
+      const asset = investIntoHuaian();
+      const result = await service.applySelected([asset], [asset.code], undefined, {
+        isV1: true,
+        executor: TX as never,
+      }, undefined, CATALOG);
+      expect(result.txns_inserted).toBe(1);
+      expect(postedEntries()[0]).toEqual([expect.objectContaining({ entry_type: "paid_in", cash_delta: "-29000000.00000000" })]);
+      expect(result.catalog_warnings).toBeUndefined();
+    });
+
+    it("still posts a managed fund's 投资 into an outside fund", async () => {
+      const asset = investIntoHuaian({ code: "NJ-ext", name: "南京紫东国际创意园天使投资基金（有限合伙企业）", legalName: null });
+      const result = await service.applySelected([asset], [asset.code], undefined, { executor: TX as never }, undefined, CATALOG);
+      expect(result.txns_inserted).toBe(1);
+      expect(postedEntries()[0]).toEqual([expect.objectContaining({ entry_type: "paid_in", cash_delta: "-29000000.00000000" })]);
+    });
+
+    it("leaves an investor-held (Startech-shaped) holding of a managed fund on the normal posting path", async () => {
+      const asset = investIntoHuaian({ holderKind: "investor", holderName: "Asia Star Fund Ltd", group: "Others" });
+      const result = await service.applySelected([asset], [asset.code], undefined, { executor: TX as never }, undefined, CATALOG);
+      expect(result.txns_inserted).toBe(1);
+      expect(openedPositions()[0]).toMatchObject({ holder_investor_id: "inv-Asia Star Fund Ltd", fund_id: "f-hua" });
+    });
+  });
+
+  describe("buildFullReview", () => {
+    it("keeps managed funds out of the investor catalog and reports the managed fund keys", async () => {
+      const review = await service.buildFullReview([], [event({ intent: "paid_in" }), event({ investorName: "吉龙权" })], {
+        fundCatalog: CATALOG,
+      });
+      expect(review.investors.map((i) => i.name)).toEqual(["吉龙权"]);
+      expect(review.managed_fund_keys).toEqual(expect.arrayContaining(CATALOG.map((n) => normalizeCanonicalName(n))));
+    });
+
+    it("classifies a replayed managed-fund 实缴 as a duplicate of the fund-held ledger row", async () => {
+      positionRepo.findByHolderFundIds.mockResolvedValue([{ id: "pos-fof", holder_fund_id: "f-yue", fund_id: "f-hua", asset_id: null }]);
+      ledgerEntryRepo.findAllByPositionIds.mockImplementation(async () => [
+        { id: "le-1", position_id: "pos-fof", entry_type: "paid_in", entry_date: "2024-09-13", cash_delta: "-29000000.00000000", currency: "CNY" },
+      ]);
+      const review = await service.buildFullReview(
+        [],
+        [event({ intent: "paid_in", amount: 29_000_000, date: "2024-09-13", sourceRow: 196 })],
+        { fundCatalog: CATALOG },
+      );
+      expect(review.commitment_event_statuses?.[196]).toBe("duplicate");
+      expect(positionRepo.findByHolderFundIds).toHaveBeenCalledWith("ws-1", ["f-yue"]);
     });
   });
 });

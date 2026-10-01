@@ -230,6 +230,7 @@ describe('Fund Master Data Deduplication & Multi-Fund Holdings', () => {
       findByWorkspaceId: vi.fn(async () => [...positionsStore]),
       findByAssetIds: vi.fn(async (_ws, ids) => positionsStore.filter((p) => ids.includes(p.asset_id))),
       findByFundIds: vi.fn(async (_ws, ids) => positionsStore.filter((p) => ids.includes(p.fund_id))),
+      findByHolderFundIds: vi.fn(async (_ws, ids) => positionsStore.filter((p) => ids.includes(p.holder_fund_id))),
       insert: vi.fn(async (data) => {
         const row = { id: `pos-${positionsStore.length + 1}`, ...data };
         positionsStore.push(row);
@@ -610,12 +611,18 @@ describe('Fund Master Data Deduplication & Multi-Fund Holdings', () => {
     const result = await applyService.applySelected([proposed], ['SAPE40']);
 
     expect(fundsStore.filter((f) => normalizeCanonicalName(f.name) === existingManagedTarget.canonical_name)).toHaveLength(1);
-    expect(positionsStore).toContainEqual(
-      expect.objectContaining({
-        holder_fund_id: 'f-ruiman',
-        fund_id: existingManagedTarget.id,
-      }),
+    // Managed → managed: the 投资 row is recorded from the target fund's 实缴 rows,
+    // which open the fund-held position; the payer's row posts nothing (MB-569).
+    expect(positionsStore).not.toContainEqual(
+      expect.objectContaining({ holder_fund_id: 'f-ruiman', fund_id: existingManagedTarget.id }),
     );
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        disposition: 'stale',
+        // No 实缴 rows in this import, so the row carries the recording-gap warning.
+        reason: expect.stringContaining(`recorded from ${existingManagedTarget.name}'s paid-in rows, which are not part of this import`),
+      }),
+    ]);
     expect(result.created_assets).toBe(0);
   });
 

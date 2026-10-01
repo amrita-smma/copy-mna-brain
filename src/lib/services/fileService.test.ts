@@ -5232,6 +5232,159 @@ describe('MB-513 FileService Fund Update Review & Lifecycle Contract', () => {
       expect(catalogArg.funds).toContain('南京桐德股权投资合伙企业（有限合伙）');
     });
 
+    it('approves a managed LP 实缴 and the payer 投资 into a managed fund without creating a managed-fund investor (MB-569)', async () => {
+      const YUESHENG = '南京月升星繁创业投资合伙企业（有限合伙）';
+      const HUAIAN = '淮安熙和创业投资基金合伙企业（有限合伙）';
+      const fileRepo = makeFileRepoStub();
+      const mockApplyService = {
+        buildFullReview: vi.fn().mockImplementation(async (proposedAssets: any[]) => ({
+          assets: proposedAssets.map((p) => ({
+            code: p.code,
+            name: p.name,
+            fund: p.fund,
+            asset_type: p.assetType,
+            target_kind: 'fund',
+            status: 'new',
+            matched_asset_id: null,
+            proposed_txn_count: p.txns.length,
+            proposed_valuation_count: p.valuations.length,
+            missing_txn_count: p.txns.length,
+            missing_valuation_count: p.valuations.length,
+            proposed: p,
+            missing_txns: p.txns,
+            missing_valuations: p.valuations,
+          })),
+          funds: [
+            { name: YUESHENG, status: 'new', matched_id: null },
+            { name: HUAIAN, status: 'new', matched_id: null, role: 'Fund of Funds' },
+          ],
+          investors: [],
+          sources: [],
+          reconciliation: [],
+          review_items: [],
+          commitment_event_statuses: { 196: 'actionable' },
+        })),
+        applySelected: vi.fn().mockResolvedValue({
+          applied: 0,
+          created_assets: 0,
+          updated_assets: 0,
+          created_funds: 0,
+          skipped: 1,
+          txns_inserted: 0,
+          valuations_upserted: 0,
+          outcomes: [
+            {
+              submittedId: 'txn:NJ-YUE-HUA:0:2024-09-09:contribution',
+              family: 'transaction',
+              disposition: 'stale',
+              reason: `Recorded from ${HUAIAN}'s paid-in rows; this row posts no ledger entry.`,
+            },
+          ],
+        }),
+        applyCommitmentEvents: vi.fn().mockResolvedValue({
+          events_inserted: 1,
+          events_skipped_duplicate: 0,
+          events_skipped: 0,
+          review_items_applied: 0,
+          warnings: [],
+          outcomes: [{ submittedId: 'commitment:196', family: 'commitment_event', disposition: 'posted' }],
+        }),
+      };
+
+      const fofAsset = {
+        code: 'NJ-YUE-HUA',
+        name: HUAIAN,
+        assetType: 'fund_of_funds',
+        fund: YUESHENG,
+        txns: [{ date: '2024-09-09', type: 'contribution', valueAmount: 29000000, currency: 'CNY' }],
+        valuations: [],
+      };
+      const paidIn = {
+        fund: HUAIAN,
+        investorName: YUESHENG,
+        // An English half on the LP name must not turn the managed fund into an investor.
+        investorEnglishName: 'Nanjing Yuesheng Xingfan Venture Capital Partnership',
+        investorTypeRaw: '机构投资人',
+        investorTypeLabel: 'Institutional Investor',
+        date: '2024-09-13',
+        intent: 'paid_in',
+        amount: 29000000,
+        currency: 'CNY',
+        counterpartyName: null,
+        actionRaw: '实缴',
+        natureRaw: '实缴出资',
+        directionRaw: '资金流入基金',
+        notes: null,
+        sourceRow: 196,
+      };
+      const notes = JSON.stringify({
+        file_type: 'fund_updates',
+        parser: 'nanjing_fund_ledger_v1',
+        fund_update_proposal: {
+          template_id: 'nanjing_fund_ledger_v1',
+          stats: { asset_count: 1, direct_count: 0, fund_of_funds_count: 1, commitment_event_count: 1 },
+          assets: [fofAsset],
+          commitment_events: [paidIn],
+          fund_catalog: [YUESHENG, HUAIAN],
+        },
+      });
+      vi.mocked(fileRepo.findById).mockResolvedValue(
+        makeFile({
+          id: 'file-managed-cross-book',
+          processing_status: 'awaiting_review',
+          file_type: 'fund_updates',
+          structured_notes: notes,
+        }),
+      );
+
+      const service = makeService({ fileRepo });
+      service.setFundUpdateApplyService(mockApplyService as any);
+
+      const reviewData = await service.getReviewData('file-managed-cross-book');
+      if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review data');
+      const review = reviewData.two_step_review;
+      expect(review.entities.some((e) => e.tab === 'investor' && e.name === YUESHENG)).toBe(false);
+      expect(review.transactions.find((t) => t.id === 'commitment:196')?.fromKey).toBe(`fund:${YUESHENG}`);
+      expect(review.transactions.find((t) => t.assetCode === 'NJ-YUE-HUA')?.reviewNote).toContain(`Recorded from ${HUAIAN}'s paid-in rows`);
+
+      const result = await service.approve(
+        'file-managed-cross-book',
+        {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: `fund:${YUESHENG}`, action: 'create' },
+              { key: `fund:${HUAIAN}`, action: 'create' },
+            ],
+            transactions: [
+              { id: 'txn:NJ-YUE-HUA:0:2024-09-09:contribution', edits: {} },
+              { id: 'commitment:196', edits: {} },
+            ],
+            valuations: [],
+          },
+        },
+        'reviewer@example.com',
+      );
+
+      const [appliedEvents, commitmentOptions] = mockApplyService.applyCommitmentEvents.mock.calls[0] as [
+        Array<{ sourceRow: number }>,
+        { catalogSelections: { investors: string[]; funds: string[] } },
+      ];
+      expect(appliedEvents.map((e) => e.sourceRow)).toEqual([196]);
+      expect(commitmentOptions.catalogSelections.investors).not.toContain(YUESHENG);
+      expect(commitmentOptions.catalogSelections.funds).toEqual(expect.arrayContaining([YUESHENG, HUAIAN]));
+      // applySelected learns which receiving-fund rows post in this approval.
+      expect(mockApplyService.applySelected.mock.calls[0][3]).toEqual(
+        expect.objectContaining({ commitmentEvents: [expect.objectContaining({ sourceRow: 196 })] }),
+      );
+      const outcomes = (result as any).fund_update.outcomes as Array<{ submittedId: string; disposition: string }>;
+      expect(outcomes.map((o) => o.submittedId)).toEqual([
+        'txn:NJ-YUE-HUA:0:2024-09-09:contribution',
+        'commitment:196',
+      ]);
+    });
+
     it('still creates a staged direct asset when its owning fund is omitted', async () => {
       const fileRepo = makeFileRepoStub();
       const mockApplyService = {
@@ -6434,6 +6587,165 @@ describe('MB-513 FileService Fund Update Review & Lifecycle Contract', () => {
       const sqlString = JSON.stringify(callArg);
       expect(sqlString).toContain('pg_advisory_xact_lock');
       expect(sqlString).toContain('fund-update-approval:workspace-1');
+    });
+
+    describe('post-import 基金汇总 check (MB-642)', () => {
+      const catalogItems = [
+        {
+          nameZh: 'Fund A',
+          nameEn: null,
+          filingCode: null,
+          subscribedAmount: 1_000,
+          paidInAmount: 500,
+          investedAmount: 100,
+          netCashFlowAmount: 400,
+        },
+      ];
+
+      const approveWithCatalog = async (
+        service: ReturnType<typeof makeHarness>['service'],
+        fileRepo: FileRepository,
+        fundCatalogItems: unknown[],
+      ) => {
+        const asset = {
+          code: 'AST-1',
+          name: 'Asset 1',
+          assetType: 'direct_investment',
+          fund: 'Fund A',
+          txns: [{ date: '2024-01-01', type: 'contribution', valueAmount: 100, currency: 'USD' }],
+          valuations: [],
+        };
+        vi.mocked(fileRepo.findById).mockResolvedValue(
+          makeFile({
+            id: 'file-catalog-check',
+            processing_status: 'awaiting_review',
+            file_type: 'fund_updates',
+            structured_notes: JSON.stringify({
+              file_type: 'fund_updates',
+              parser: 'nanjing_fund_ledger_v1',
+              fund_update_proposal: {
+                template_id: 'nanjing_fund_ledger_v1',
+                stats: { asset_count: 1, direct_count: 1, fund_of_funds_count: 0 },
+                assets: [asset],
+                fund_catalog: ['Fund A'],
+                fund_catalog_items: fundCatalogItems,
+              },
+            }),
+          }),
+        );
+        const reviewData = await service.getReviewData('file-catalog-check');
+        if (reviewData.kind !== 'fund_updates') throw new Error('Expected fund update review');
+        return service.approve('file-catalog-check', {
+          file_type: 'fund_updates',
+          matched_company_id: null,
+          two_step_approval: {
+            entityDecisions: [
+              { key: 'asset:AST-1', action: 'create' },
+              { key: 'fund:Fund A', action: 'create' },
+            ],
+            transactions: [{ id: reviewData.two_step_review.transactions[0].id }],
+            valuations: [],
+          },
+        });
+      };
+
+      const postedOutcome = [
+        { submittedId: 'txn:AST-1:0:2024-01-01:contribution', family: 'transaction', disposition: 'posted' },
+      ];
+
+      it('attaches the check to the approval result and logs it on the extraction job', async () => {
+        const { JobRepository } = await import('@/lib/repositories');
+        const findSpy = vi
+          .spyOn(JobRepository.prototype, 'findByTypeAndPayload')
+          .mockResolvedValue([{ id: 'job-1' } as never]);
+        const logSpy = vi.spyOn(JobRepository.prototype, 'appendLog').mockResolvedValue(undefined);
+        const checkResult = {
+          checked_funds: 1,
+          differences: [
+            { fund: 'Fund A', metric: 'cash', kind: 'posting', ledgerValue: 800, rowsValue: 400, catalogValue: 400, diff: 400 },
+          ],
+          skipped_funds: [],
+          missing_funds: [],
+          warnings: ['Fund A: ledger cash CNY 800 vs rows CNY 400 (diff +400).'],
+          notes: [],
+        };
+        const checkAgainstCatalog = vi.fn().mockResolvedValue(checkResult);
+
+        const { fileRepo, service } = makeHarness(postedOutcome);
+        service.setFundCatalogCheckService({ checkAgainstCatalog } as any);
+
+        const result = await approveWithCatalog(service, fileRepo, catalogItems);
+
+        // Row totals come from the submitted rows; every row of Fund A was submitted.
+        expect(checkAgainstCatalog).toHaveBeenCalledWith(catalogItems, {
+          rowFigures: new Map([['fund a', { committed: 0, paidIn: 0, invested: 100 }]]),
+          partialFunds: new Set(),
+          fundsWithRows: new Set(['fund a']),
+        });
+        expect((result as any).fund_update.catalog_check).toEqual(checkResult);
+        expect(findSpy).toHaveBeenCalledWith('fund_update_extraction', { fileId: 'file-catalog-check' });
+        expect(logSpy).toHaveBeenCalledWith('job-1', {
+          message: 'Post-import catalog check: 1 posting difference(s) in the written ledger',
+          metadata: { catalog_check: checkResult },
+        });
+        findSpy.mockRestore();
+        logSpy.mockRestore();
+      });
+
+      it('still completes the approval when the check throws', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const checkAgainstCatalog = vi.fn().mockRejectedValue(new Error('boom'));
+        const { fileRepo, service } = makeHarness(postedOutcome);
+        service.setFundCatalogCheckService({ checkAgainstCatalog } as any);
+
+        const result = await approveWithCatalog(service, fileRepo, catalogItems);
+
+        expect(checkAgainstCatalog).toHaveBeenCalled();
+        expect((result as any).fund_update.catalog_check).toBeUndefined();
+        expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+          'file-catalog-check',
+          expect.objectContaining({ processing_status: 'completed' }),
+          expect.anything(),
+        );
+        errorSpy.mockRestore();
+      });
+
+      it('still returns the check when logging it on the job fails', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { JobRepository } = await import('@/lib/repositories');
+        const findSpy = vi
+          .spyOn(JobRepository.prototype, 'findByTypeAndPayload')
+          .mockRejectedValue(new Error('jobs down'));
+        const checkResult = {
+          checked_funds: 1,
+          differences: [],
+          skipped_funds: [],
+          missing_funds: [],
+          warnings: [],
+          notes: [],
+        };
+        const { fileRepo, service } = makeHarness(postedOutcome);
+        service.setFundCatalogCheckService({ checkAgainstCatalog: vi.fn().mockResolvedValue(checkResult) } as any);
+
+        const result = await approveWithCatalog(service, fileRepo, catalogItems);
+
+        expect((result as any).fund_update.catalog_check).toEqual(checkResult);
+        findSpy.mockRestore();
+        errorSpy.mockRestore();
+      });
+
+      it('skips the check when the summary states no figures', async () => {
+        const checkAgainstCatalog = vi.fn();
+        const { fileRepo, service } = makeHarness(postedOutcome);
+        service.setFundCatalogCheckService({ checkAgainstCatalog } as any);
+
+        const result = await approveWithCatalog(service, fileRepo, [
+          { nameZh: 'Fund A', filingCode: null, subscribedAmount: null, paidInAmount: null, investedAmount: null },
+        ]);
+
+        expect(checkAgainstCatalog).not.toHaveBeenCalled();
+        expect((result as any).fund_update.catalog_check).toBeUndefined();
+      });
     });
 
     it('throws invariant violation and aborts approval when submitted transaction has no outcome', async () => {

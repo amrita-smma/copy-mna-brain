@@ -1304,3 +1304,46 @@ describe('external fund target versus asset target cash parity', () => {
     }
   });
 });
+
+describe('deriveCashLegs on a fund-held position between two managed funds (MB-569)', () => {
+  // 月升星繁 (holder) is an LP of 淮安熙和 (instrument); both are managed.
+  const fundHeld: PositionWithFundFlags = {
+    id: 'pos-yue-hua',
+    holder_investor_id: null,
+    holder_fund_id: 'f-yue',
+    fund_id: 'f-hua',
+    asset_id: null,
+    holderFundManaged: true,
+    instrumentFundManaged: true,
+  };
+
+  it('derives both cash legs from one paid-in entry: payer −, receiver +', () => {
+    const legs = deriveCashLegs(
+      [{ position_id: fundHeld.id, entry_type: 'paid_in', cash_delta: '-29000000', currency: 'CNY' }],
+      [fundHeld],
+    );
+    expect(legs).toEqual([
+      expect.objectContaining({ holder_id: 'f-yue', role: 'holder', cash_delta: '-29000000.00000000' }),
+      expect.objectContaining({ holder_id: 'f-hua', role: 'instrument', cash_delta: '29000000.00000000' }),
+    ]);
+  });
+
+  it('derives both cash legs from a distribution whose row states the retained treatment', () => {
+    const legs = deriveCashLegs(
+      [
+        {
+          position_id: fundHeld.id,
+          entry_type: 'distribution',
+          sub_type: SUB_TYPE_DIVESTMENT_CASH_IN_FUND,
+          cash_delta: '500000',
+          currency: 'CNY',
+        },
+      ],
+      [fundHeld],
+    );
+    expect(legs).toEqual([
+      expect.objectContaining({ holder_id: 'f-yue', role: 'holder', cash_delta: '500000.00000000' }),
+      expect.objectContaining({ holder_id: 'f-hua', role: 'instrument', cash_delta: '-500000.00000000' }),
+    ]);
+  });
+});

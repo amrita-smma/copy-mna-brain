@@ -15,6 +15,7 @@ import {
   InvalidMasterDataError,
   InvalidPositionShapeError,
   InvalidValuationTargetError,
+  ManagedFundInvestorConflictError,
   PositionClosedError,
   PositionNotSettledError,
   UnbalancedTransferError,
@@ -42,6 +43,7 @@ describe('flErrors', () => {
       new EntityNotFoundError('not found'),
       new InvalidMasterDataError('invalid master data'),
       new FundUpdateValidationError('invalid fund update'),
+      new ManagedFundInvestorConflictError('managed fund investor conflict'),
     ];
 
     for (const err of errors) {
@@ -52,7 +54,7 @@ describe('flErrors', () => {
   });
 
   it('includes all domain error classes in FL_DOMAIN_ERRORS', () => {
-    expect(FL_DOMAIN_ERRORS).toHaveLength(19);
+    expect(FL_DOMAIN_ERRORS).toHaveLength(20);
     for (const ErrorClass of FL_DOMAIN_ERRORS) {
       const instance = new ErrorClass('test error');
       expect(instance).toBeInstanceOf(Error);

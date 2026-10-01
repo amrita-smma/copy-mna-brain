@@ -62,6 +62,7 @@ import type {
   SubmittedRowOutcome,
 } from './fundUpdateApplyService';
 import type { JobDispatcher } from './jobDispatcher';
+import type { FundCatalogCheckService } from './fundCatalogCheckService';
 import {
   runFundUpdateExtraction,
   FUND_UPDATE_EXTRACTION_TIMEOUT_SECONDS,
@@ -77,7 +78,15 @@ import {
   type FundUpdateTwoStepApproval,
   type FundUpdateTwoStepReview,
   type StagedReviewEntityInput,
+  type FundCatalogItem,
 } from '@/lib/fund_updates/types';
+import {
+  catalogItemsToCheck,
+  nanjingRowCheckInputs,
+  submittedAssets,
+  type CatalogCheckInputs,
+  type CatalogLedgerCheckResult,
+} from '@/lib/fund_updates/catalogLedgerCheck';
 import {
   validateTransferCounterparty,
   buildNormalizedTwoStepReview,
@@ -88,6 +97,7 @@ import {
 } from '@/lib/fund_updates';
 import { FundUpdateValidationError } from './flErrors';
 import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
+import { buildManagedFundNameKeys, isManagedFundName } from '@/lib/fund_updates/managedFundCrossBook';
 
 /**
  * Helper to safely extract a non-empty string jobId from an unknown response payload.
@@ -473,6 +483,7 @@ const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
 export class FileService {
   private crmService?: CRMService;
   private fundUpdateApplyService?: FundUpdateApplyService;
+  private fundCatalogCheckService?: FundCatalogCheckService;
   private workspaceRepo?: WorkspaceRepository;
 
   constructor(
@@ -511,6 +522,10 @@ export class FileService {
 
   setFundUpdateApplyService(service: FundUpdateApplyService) {
     this.fundUpdateApplyService = service;
+  }
+
+  setFundCatalogCheckService(service: FundCatalogCheckService) {
+    this.fundCatalogCheckService = service;
   }
 
   setJobDispatcher(dispatcher: JobDispatcher) {
@@ -1473,13 +1488,27 @@ export class FileService {
           addBilingual(bilingualFunds, asset.fund, asset.fundEnglishName);
         }
       }
+      // A managed fund that is another managed fund's LP is a fund holder, not an
+      // investor: keep it out of the investor catalog so Step 1 never stages it.
+      const managedFundKeys = new Set([
+        ...(fullReview.managed_fund_keys ?? []),
+        ...buildManagedFundNameKeys([
+          ...(proposal?.fund_catalog ?? []),
+          ...(legacyProposal?.fund_catalog_items ?? []).map((item) => item.nameZh),
+          ...commitmentEvents.map((event) => event.fund),
+        ]),
+      ]);
       for (const event of commitmentEvents) {
         addBilingual(bilingualFunds, event.fund, event.fundEnglishName);
-        addBilingual(bilingualInvestors, event.investorName, event.investorEnglishName);
+        if (!isManagedFundName(event.investorName, managedFundKeys)) {
+          addBilingual(bilingualInvestors, event.investorName, event.investorEnglishName);
+        }
       }
       for (const item of reviewItems) {
         addBilingual(bilingualFunds, item.fund, item.fundEnglishName);
-        addBilingual(bilingualInvestors, item.investorName, item.investorEnglishName);
+        if (!isManagedFundName(item.investorName, managedFundKeys)) {
+          addBilingual(bilingualInvestors, item.investorName, item.investorEnglishName);
+        }
       }
 
       funds = this.mergeCatalogMatches(funds, bilingualFunds);
@@ -1591,6 +1620,7 @@ export class FileService {
         reconciliation: proposal?.reconciliation ?? fullReview.reconciliation ?? [],
         review_items: reviewItems ?? fullReview.review_items ?? [],
         commitment_event_statuses: fullReview.commitment_event_statuses,
+        managed_fund_keys: fullReview.managed_fund_keys,
       },
       proposal,
     );
@@ -2843,7 +2873,7 @@ function isEntityDecisionRemapped(
               submittedId: t.id,
               sourceRow: Number(t.sheetRow),
               resolutionType: 'non_cash_adjustment',
-              investorName: t.nonCashState.investorName || t.fromKey.replace(/^investor:/, ''),
+              investorName: t.nonCashState.investorName || t.fromKey.replace(/^(investor|fund):/, ''),
               fundName: t.rawReviewItem?.fund ?? '',
               date: t.date,
               amount: t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
@@ -2857,7 +2887,7 @@ function isEntityDecisionRemapped(
                 submittedId: t.id,
                 sourceRow: Number(t.sheetRow),
                 resolutionType: 'split_transfer',
-                transfereeName: t.toKey.replace(/^investor:/, ''),
+                transfereeName: t.toKey.replace(/^(investor|fund):/, ''),
                 fundName: t.rawCommitmentEvent?.fund ?? t.rawReviewItem?.fund ?? '',
                 date: t.date,
                 totalAmount: t.rawCommitmentEvent?.amount ?? t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
@@ -2870,7 +2900,7 @@ function isEntityDecisionRemapped(
                 sourceRow: Number(t.sheetRow),
                 resolutionType: 'single_transfer',
                 transferorName: t.singleTransferState.transferorName,
-                transfereeName: t.toKey.replace(/^investor:/, ''),
+                transfereeName: t.toKey.replace(/^(investor|fund):/, ''),
                 fundName: t.rawCommitmentEvent?.fund ?? t.rawReviewItem?.fund ?? '',
                 date: t.date,
                 amount: t.rawCommitmentEvent?.amount ?? t.rawReviewItem?.amount ?? (typeof t.amount === 'number' ? t.amount : 0),
@@ -2979,7 +3009,7 @@ function isEntityDecisionRemapped(
       throw new Error('Database client does not support transactions');
     };
 
-    return runInTransaction(async (tx: DbClient) => {
+    const approved = await runInTransaction(async (tx: DbClient) => {
       const lockKey = `fund-update-approval:${this.workspaceId}`;
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
@@ -2992,6 +3022,9 @@ function isEntityDecisionRemapped(
         isV1: Boolean(isV1),
         fileId,
         fundCatalogItems,
+        // The commitment events posted in this approval: a managed fund's 投资 into
+        // another managed fund is recorded only from these (the target's 实缴 rows).
+        ...(!isV1 ? { commitmentEvents } : {}),
         ...(sourceRemaps !== undefined ? { sourceRemaps } : {}),
         ...(investorRemaps !== undefined ? { investorRemaps } : {}),
         ...(fundRemaps !== undefined ? { fundRemaps } : {}),
@@ -3173,6 +3206,62 @@ function isEntityDecisionRemapped(
       const updated = await this.fileRepo.findById(fileId, tx);
       return { file: updated, company_id: null, fund_update: mergedFundUpdateResult };
     });
+
+    if (!isV1) {
+      const catalogCheck = await this.runCatalogCheck(fileId, fundCatalogItems, () =>
+        nanjingRowCheckInputs({
+          catalogItems: fundCatalogItems ?? [],
+          proposalAssets: assets,
+          proposalEvents: legacyProposal?.commitment_events ?? [],
+          submittedAssets: submittedAssets(assets, codes, selections),
+          submittedEvents: commitmentEvents,
+        }),
+      );
+      if (catalogCheck) approved.fund_update.catalog_check = catalogCheck;
+    }
+    return approved;
+  }
+
+  /**
+   * MB-642: compares the committed ledger with the submitted rows and the
+   * workbook's 基金汇总 summary, and logs the result on the file's extraction
+   * job. Advisory — any failure is logged and swallowed so it can never fail an
+   * approval that already committed.
+   */
+  private async runCatalogCheck(
+    fileId: string,
+    fundCatalogItems: FundCatalogItem[] | undefined,
+    buildInputs: () => CatalogCheckInputs,
+  ): Promise<CatalogLedgerCheckResult | null> {
+    if (!this.fundCatalogCheckService || catalogItemsToCheck(fundCatalogItems).length === 0) {
+      return null;
+    }
+    let result: CatalogLedgerCheckResult;
+    try {
+      result = await this.fundCatalogCheckService.checkAgainstCatalog(fundCatalogItems, buildInputs());
+    } catch (err) {
+      console.error('[fileService] Post-import catalog check failed:', err);
+      return null;
+    }
+
+    if (this.db) {
+      try {
+        const jobRepo = new JobRepository(this.db);
+        const [job] = await jobRepo.findByTypeAndPayload('fund_update_extraction', { fileId });
+        if (job) {
+          await jobRepo.appendLog(job.id, {
+            message:
+              result.warnings.length > 0
+                ? `Post-import catalog check: ${result.warnings.length} posting difference(s) in the written ledger`
+                : `Post-import catalog check: the written ledger matches the submitted rows for ${result.checked_funds} fund(s)`,
+            metadata: { catalog_check: result },
+          });
+        }
+      } catch (err) {
+        console.error('[fileService] Failed to log post-import catalog check:', err);
+      }
+    }
+    return result;
   }
 
   /**

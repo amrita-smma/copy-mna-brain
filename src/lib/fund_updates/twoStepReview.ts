@@ -49,6 +49,13 @@ import { FundUpdateValidationError } from '@/lib/services/flErrors';
 import { toExactDecimalString, safeExactDecimalString } from '@/lib/services/flDecimal';
 import { isPersistableFundUpdateValuation } from './normalizeParsedAsset';
 import {
+  buildManagedFundNameKeys,
+  crossBookFlowKindForTxn,
+  isManagedFundCrossBookAsset,
+  isManagedFundName,
+  managedFundCrossBookNote,
+} from './managedFundCrossBook';
+import {
   isSellProceedsDestination,
   toDivestmentSubType,
   SUB_TYPE_DIVESTMENT_CASH_IN_FUND,
@@ -143,6 +150,19 @@ export function buildNormalizedTwoStepReview(
   const isV1 = Boolean(proposal && 'schema_version' in proposal && proposal.schema_version === 'workbook_fallback_v1');
   const v1Proposal = isV1 ? (proposal as WorkbookFallbackProposalV1) : null;
   const legacyProposal = !isV1 ? (proposal as LegacyAssetProposal | undefined) : undefined;
+
+  // Managed funds, by canonical name. A managed fund on a commitment-path row is
+  // the fund holder of a fund-held position; a managed fund's 投资/退出 into
+  // another managed fund is recorded from the target's book.
+  const managedFundKeys = new Set([
+    ...(fullReview.managed_fund_keys ?? []),
+    ...buildManagedFundNameKeys([
+      ...(legacyProposal?.fund_catalog ?? []),
+      ...(legacyProposal?.fund_catalog_items ?? []).map((c) => c.nameZh),
+      ...(legacyProposal?.commitment_events ?? []).map((e) => e.fund),
+      ...(legacyProposal?.assets ?? []).filter((a) => a.holderKind !== 'investor').map((a) => a.fund),
+    ]),
+  ]);
 
   // -------------------------------------------------------------
   // Step 1: Normalize Entities (Assets, Funds, Investors, Sources)
@@ -1130,6 +1150,13 @@ export function buildNormalizedTwoStepReview(
         ? statedSellProceedsDestination(txn)
         : null;
 
+      // Review annotates, apply decides: a managed fund's 投资/退出 into another
+      // managed fund stays visible and selectable, and apply posts nothing for it.
+      const crossBookNote =
+        !isV1 && asset.proposed && isManagedFundCrossBookAsset(asset.proposed, managedFundKeys)
+          ? managedFundCrossBookNote(asset.proposed.name, crossBookFlowKindForTxn(txn))
+          : null;
+
       const transaction: ReviewTransaction = {
         id: `txn:${asset.code}:${idx}:${txn.date}:${txn.type}`,
         sheetRow: idx + 1,
@@ -1141,6 +1168,7 @@ export function buildNormalizedTwoStepReview(
         type: reviewType,
         subType: txn.subTypeLabel || txn.notes || txn.type,
         notes: txn.notes ?? null,
+        ...(crossBookNote ? { reviewNote: crossBookNote } : {}),
         commitDelta: null,
         quantityDelta: txn.shareCount ?? null,
         pricePerShare: txn.pricePerShare ?? null,
@@ -1235,6 +1263,26 @@ export function buildNormalizedTwoStepReview(
 
   // Path B: Nanjing Commitment Events & Review Items
   const commitmentEvents = !isV1 ? (legacyProposal?.commitment_events ?? []) : [];
+  // The party entity of a commitment-path row: the managed fund's Fund-tab entity
+  // when the party is one of our managed funds, otherwise the investor.
+  const commitmentPartyKey = (name: string | null | undefined): string => {
+    const clean = name?.trim() ?? '';
+    if (clean && isManagedFundName(clean, managedFundKeys)) {
+      const fundEnt =
+        fundEntityMap.get(normalizeCanonicalName(clean) || clean.toLowerCase()) ??
+        fundEntityMap.get(clean.toLowerCase()) ??
+        fundEntityMap.get(clean);
+      return fundEnt?.key ?? `fund:${clean}`;
+    }
+    return `investor:${clean}`;
+  };
+  // Commitment each party holds in each fund according to this workbook, used to
+  // flag a managed-fund transferor that has nothing to transfer.
+  const workbookCommitmentKeys = new Set(
+    commitmentEvents
+      .filter((e) => e.intent === 'increase' || e.intent === 'transfer_in')
+      .map((e) => `${normalizeCanonicalName(e.investorName)}|${normalizeCanonicalName(e.fund)}`),
+  );
   for (const ev of commitmentEvents) {
     if (['increase', 'decrease', 'paid_in', 'distribution'].includes(ev.intent)) {
       const isDistribution = ev.intent === 'distribution';
@@ -1242,8 +1290,8 @@ export function buildNormalizedTwoStepReview(
       const isDecrease = ev.intent === 'decrease';
       const isCommitment = ev.intent === 'increase';
 
-      const fromKey = isDistribution ? `fund:${ev.fund}` : `investor:${ev.investorName}`;
-      const toKey = isDistribution ? `investor:${ev.investorName}` : `fund:${ev.fund}`;
+      const fromKey = isDistribution ? `fund:${ev.fund}` : commitmentPartyKey(ev.investorName);
+      const toKey = isDistribution ? commitmentPartyKey(ev.investorName) : `fund:${ev.fund}`;
       const type = isPaidIn ? 'paid_in' : isDistribution ? 'distribution' : isDecrease ? 'commitment_reduction' : 'commitment';
 
       const commitDelta = isCommitment ? ev.amount : isDecrease ? (ev.amount ? -ev.amount : null) : null;
@@ -1304,13 +1352,21 @@ export function buildNormalizedTwoStepReview(
       );
       const isDuplicate = isEligible && fullReview.commitment_event_statuses?.[ev.sourceRow] === 'duplicate';
 
-      const fromKey = `investor:${transferorName}`;
-      const toKey = `investor:${transfereeName}`;
+      const fromKey = commitmentPartyKey(transferorName);
+      const toKey = commitmentPartyKey(transfereeName);
       const status: 'actionable' | 'duplicate' | 'blocked' = !isEligible
         ? 'blocked'
         : isDuplicate
           ? 'duplicate'
           : 'actionable';
+      // A managed fund can only transfer commitment it holds. With none in this
+      // workbook, apply rejects the row unless the ledger already has it.
+      const phantomTransferNote =
+        isEligible &&
+        isManagedFundName(transferorName, managedFundKeys) &&
+        !workbookCommitmentKeys.has(`${normalizeCanonicalName(transferorName)}|${normalizeCanonicalName(ev.fund)}`)
+          ? `Transferor ${transferorName} is a managed fund with no commitment in ${ev.fund} in this workbook; apply rejects this transfer unless that commitment is already in the ledger, so no phantom fund-of-funds holding is created.`
+          : null;
       const blockReason = !isEligible
         ? (ev.transferPairing?.reviewReason ?? 'Transfer counterparty could not be verified automatically')
         : null;
@@ -1345,6 +1401,7 @@ export function buildNormalizedTwoStepReview(
         isTransfer: true,
         isMultiPartyTransfer: false,
         legs,
+        ...(phantomTransferNote ? { reviewNote: phantomTransferNote } : {}),
         backingRef: { kind: 'commitment_event', sourceRow: ev.sourceRow, intent: ev.intent },
         rawCommitmentEvent: ev,
       };
@@ -1372,7 +1429,7 @@ export function buildNormalizedTwoStepReview(
 
     if (isNonCash) {
       const investorName = item.investorName || item.targetRaw || item.entityRaw || '';
-      const fromKey = `investor:${investorName}`;
+      const fromKey = commitmentPartyKey(investorName);
       const toKey = `fund:${item.fund}`;
 
       const nonCashState: NonCashAdjustmentState = {
@@ -1415,8 +1472,8 @@ export function buildNormalizedTwoStepReview(
       const isMultiParty = item.category === 'multi_party_transfer' || validation.isMultiParty;
       const transfereeName = item.investorName || item.targetRaw || item.entityRaw || '';
 
-      const fromKey = counterpartyRaw ? `investor:${counterpartyRaw}` : '';
-      const toKey = `investor:${transfereeName}`;
+      const fromKey = counterpartyRaw ? commitmentPartyKey(counterpartyRaw) : '';
+      const toKey = commitmentPartyKey(transfereeName);
 
       let allocations: MultiTransferAllocation[] | undefined;
       let singleTransferState: SingleTransferState | undefined;
@@ -1852,7 +1909,9 @@ export function validateTwoStepDependencies(
         const transferor =
           txn.singleTransferState?.transferorName?.trim() ||
           txn.rawCommitmentEvent?.transferPairing?.transferorName?.trim() ||
-          (txn.fromKey.startsWith('investor:') ? txn.fromKey.replace(/^investor:/, '').trim() : '');
+          (txn.fromKey.startsWith('investor:') || txn.fromKey.startsWith('fund:')
+            ? txn.fromKey.replace(/^(investor|fund):/, '').trim()
+            : '');
         if (!transferor) {
           const err = `Transfer "${txn.id}" requires a valid transferor name.`;
           errors.push(err);

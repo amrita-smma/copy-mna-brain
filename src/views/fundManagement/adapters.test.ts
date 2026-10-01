@@ -7,6 +7,7 @@ import {
   buildAssetCreatePayload,
   buildEntityFromPortfolio,
   buildFundFromPortfolio,
+  buildFundLpHolders,
   buildOrphanAssetFund,
   computeFundExposure,
   computeFundHistory,
@@ -4211,3 +4212,128 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       expect(externalFund.ourPosition?.dpi).toBe(0.2);
     });
   });
+
+describe('managed fund LPs held by another managed fund (MB-569)', () => {
+  const fundRowOf = (id: string, name: string, managed: boolean): Tables<'fl_funds'> =>
+    ({
+      id,
+      workspace_id: 'w1',
+      name,
+      canonical_name: name,
+      legal_name: null,
+      english_name: null,
+      registration_no: null,
+      managed,
+      ownership_basis: managed ? 'commitment' : 'capital_account',
+      base_currency: 'CNY',
+      vintage_year: 2024,
+      fund_life_years: null,
+      status: 'investing',
+      mgmt_fee_rate: null,
+      carry_rate: null,
+      preferred_return_rate: null,
+      description: null,
+      created_by: null,
+      updated_by: null,
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    }) as unknown as Tables<'fl_funds'>;
+  const huaian = fundRowOf('f-hua', '淮安熙和', true);
+  const yuesheng = fundRowOf('f-yue', '月升星繁', true);
+  const external = fundRowOf('f-ext', '紫东天使', false);
+
+  const positionOf = (
+    id: string,
+    holder: { investor?: string; fund?: Tables<'fl_funds'> },
+    target: Tables<'fl_funds'>,
+    commitment: string,
+    drawn: string,
+  ): FlPortfolioPosition =>
+    ({
+      id,
+      workspace_id: 'w1',
+      holder_investor_id: holder.investor ?? null,
+      holder_fund_id: holder.fund?.id ?? null,
+      fund_id: target.id,
+      asset_id: null,
+      holder_source_of_fund_id: null,
+      status: 'open',
+      opened_at: '2024-09-06',
+      closed_at: null,
+      notes: null,
+      created_by: null,
+      created_at: '2024-09-06T00:00:00Z',
+      updated_at: '2024-09-06T00:00:00Z',
+      current_value: '0',
+      valuation_method: null,
+      balance: {
+        position_id: id,
+        currency: 'CNY',
+        commitment,
+        drawn_commitment: drawn,
+        quantity: '0',
+        contributed_capital: drawn,
+        distributed_capital: '0',
+        cash_balance: `-${drawn}`,
+        net_invested: drawn,
+        current_value: '0',
+        committed: commitment,
+        contributed: drawn,
+        unfunded: '0',
+        cash_total: `-${drawn}`,
+        distributed: '0',
+      },
+      holder_investor: null,
+      holder_fund: holder.fund ?? null,
+      fund: target,
+      asset: null,
+      funding_source: null,
+    }) as unknown as FlPortfolioPosition;
+
+  // 月升星繁 committed 95.5M to 淮安熙和 and paid in 29M; an outside LP committed 75M and paid 14M.
+  const fundHeld = positionOf('pos-yue-hua', { fund: yuesheng }, huaian, '95500000', '29000000');
+  const outsideLp = positionOf('pos-jinhu-hua', { investor: 'inv-jinhu' }, huaian, '75000000', '14000000');
+  const externalFof = positionOf('pos-yue-ext', { fund: yuesheng }, external, '0', '6400000');
+  const positions = [fundHeld, outsideLp, externalFof];
+
+  it('counts the fund-held position in the managed target\'s size and called capital', () => {
+    const fund = buildFundFromPortfolio(huaian, positions, [], []);
+    expect(fund.size).toBe(170.5);
+    expect(fund.called).toBe(43);
+    expect(fund.calledPct).toBeCloseTo((43 / 170.5) * 100, 6);
+  });
+
+  it('keeps the inbound holding out of the target fund\'s own holdings', () => {
+    const fund = buildFundFromPortfolio(huaian, positions, [], []);
+    expect(fund.h).toEqual([]);
+  });
+
+  it('keeps the fund-held position as the holder fund\'s fund-of-funds holding, not its LP capital', () => {
+    const holder = buildFundFromPortfolio(yuesheng, positions, [], []);
+    expect(holder.size).toBe(0);
+    expect(holder.h.map((h) => h.id)).toEqual(expect.arrayContaining(['f-hua']));
+  });
+
+  it('does not count a managed fund\'s position in an external fund as that fund\'s LP capital', () => {
+    const fund = buildFundFromPortfolio(external, positions, [], []);
+    expect(fund.size).toBe(0);
+    expect(fund.called).toBe(0);
+  });
+
+  it('lists the holder fund on the managed target\'s LP list', () => {
+    const lps = buildFundLpHolders(positions, [huaian, yuesheng, external]);
+    expect(lps).toEqual([
+      expect.objectContaining({
+        id: 'f-yue',
+        n: '月升星繁',
+        type: 'fund',
+        stakes: { 'f-hua': 95.5 },
+        invested: { 'f-hua': 29 },
+      }),
+    ]);
+  });
+
+  it('lists no fund LPs when only investors hold funds (Startech shape)', () => {
+    expect(buildFundLpHolders([outsideLp], [huaian])).toEqual([]);
+  });
+});

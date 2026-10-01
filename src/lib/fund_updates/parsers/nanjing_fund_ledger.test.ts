@@ -9,6 +9,7 @@ import {
   NANJING_TEMPLATE_ID,
   nanjingFundLedgerParser,
   normalizeInvestorName,
+  parseCatalogNetCashFlows,
   parseFundCatalog,
   parseLedgerAssets,
   parseLedgerCommitmentEvents,
@@ -537,6 +538,46 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
       });
     });
 
+    it('evaluates the 基金汇总 net cash-flow column per book fund (实缴 + 退出 − 投资 − 分配)', () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('基金流水明细');
+      const rows: Array<[string, number, string]> = [
+        ['实缴', 1000, '基金甲（有限合伙）\nFund A (LP)'],
+        ['退出', 200, '基金甲（有限合伙）'],
+        ['投资', 700, '基金甲(有限合伙)'],
+        ['分配', 50, '基金甲（有限合伙）'],
+        // Commitment-only actions never move cash in the summary's formula.
+        ['认缴', 5000, '基金甲（有限合伙）'],
+        ['减资', 100, '基金甲（有限合伙）'],
+        ['实缴调整', 30, '基金甲（有限合伙）'],
+        ['实缴', 40, '基金乙（有限合伙）'],
+        ['实缴', 10836.4561, '基金丙（有限合伙）'],
+      ];
+      rows.forEach(([action, amountWan, fund], i) => {
+        const r = i + 3;
+        ws.getCell(r, 1).value = i + 1;
+        ws.getCell(r, 5).value = action;
+        ws.getCell(r, 9).value = amountWan;
+        ws.getCell(r, 12).value = fund;
+      });
+      // Rows after the first blank 序号 are not part of the ledger.
+      ws.getCell(rows.length + 4, 1).value = 99;
+      ws.getCell(rows.length + 4, 5).value = '实缴';
+      ws.getCell(rows.length + 4, 9).value = 9999;
+      ws.getCell(rows.length + 4, 12).value = '基金甲（有限合伙）';
+
+      const flows = parseCatalogNetCashFlows(wb);
+      expect(flows.get(normalizeInvestorName('基金甲（有限合伙）'))).toBe(4_500_000);
+      expect(flows.get(normalizeInvestorName('基金乙（有限合伙）'))).toBe(400_000);
+      // Stated to the fen despite float drift in the 万元 conversion.
+      expect(flows.get(normalizeInvestorName('基金丙（有限合伙）'))).toBe(108_364_561);
+      expect(flows.size).toBe(3);
+    });
+
+    it('returns an empty map when the workbook has no 基金流水明细 sheet', () => {
+      expect(parseCatalogNetCashFlows(new ExcelJS.Workbook()).size).toBe(0);
+    });
+
     it('includes ledger-only funds in fund_catalog even when 基金汇总 omits them', async () => {
       const wb = new ExcelJS.Workbook();
       const wsDetail = wb.addWorksheet('基金流水明细');
@@ -590,6 +631,7 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
           subscribedAmount: null,
           paidInAmount: null,
           investedAmount: null,
+          netCashFlowAmount: 0,
         },
         {
           nameZh: '南京全新基金（有限合伙）',
@@ -1853,6 +1895,8 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
             subscribedAmount: 100_000_000,
             paidInAmount: 80_000_000,
             investedAmount: 60_000_000,
+            // 投资 640万 out of this book fund.
+            netCashFlowAmount: -6_400_000,
           },
           {
             nameZh: '南京金光紫金股权投资基金（有限合伙企业）',
@@ -1861,6 +1905,7 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
             subscribedAmount: 50_000_000,
             paidInAmount: 30_000_000,
             investedAmount: 20_000_000,
+            netCashFlowAmount: 0,
           },
           {
             nameZh: '未在汇总出现的账簿基金',
@@ -2139,6 +2184,77 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
         expect(subRecon!.diff).toBe(0);
         expect(subRecon!.isReconciled).toBe(true);
       });
+    });
+  });
+
+  describe('Managed fund -> managed fund cross-book reconciliation', () => {
+    const TONGDE = '南京桐德股权投资合伙企业（有限合伙）';
+    const RUIFENG = '南京瑞沣股权投资合伙企业（有限合伙）';
+    const summaryRows = [
+      { name: TONGDE, filingCode: 'SVS517', subscribedWan: 856, paidInWan: 848, investedWan: 800 },
+      { name: RUIFENG, filingCode: 'SZP146', subscribedWan: 3000, paidInWan: 1206, investedWan: 1200 },
+    ];
+    const invest400 = {
+      order: 71,
+      date: new Date('2023-02-20'),
+      entity: TONGDE,
+      entityType: '基金',
+      action: '投资',
+      // Target carries an English suffix on the same line, as in row #71.
+      target: `${RUIFENG}Nanjing Ruifeng Equity Investment Partnership (Limited Partnership)`,
+      targetType: '基金/合伙企业',
+      nature: '首次投资',
+      amountWan: 400,
+      direction: '资金流出基金',
+      fund: TONGDE,
+    };
+    const paidIn = (order: number, date: string, amountWan: number) => ({
+      order,
+      date: new Date(date),
+      entity: TONGDE,
+      // #97 labels the managed fund 机构投资人 — detection must not rely on it.
+      entityType: '机构投资人',
+      action: '实缴',
+      target: RUIFENG,
+      targetType: '基金',
+      nature: '实缴出资',
+      amountWan,
+      direction: '资金流入基金',
+      fund: RUIFENG,
+    });
+
+    it('reconciles one 投资 row against split 实缴 rows by total', async () => {
+      const buf = await createTestWorkbookBuffer({
+        summaryRows,
+        dataRows: [invest400, paidIn(97, '2023-03-13', 300), paidIn(109, '2024-01-05', 100)],
+      });
+      const proposal = (await nanjingFundLedgerParser.parse(buf))!.fund_update_proposal as LegacyAssetProposal;
+      const rows = proposal.reconciliation!.filter((r) => r.metricName === 'Managed Fund Investment (投资 vs 实缴)');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        fund: RUIFENG,
+        sourceValue: 4_000_000,
+        calculatedValue: 4_000_000,
+        diff: 0,
+        isReconciled: true,
+      });
+    });
+
+    it('flags the pair when the receiving fund has no 实缴 rows from the holder', async () => {
+      const buf = await createTestWorkbookBuffer({ summaryRows, dataRows: [invest400] });
+      const proposal = (await nanjingFundLedgerParser.parse(buf))!.fund_update_proposal as LegacyAssetProposal;
+      const row = proposal.reconciliation!.find((r) => r.metricName === 'Managed Fund Investment (投资 vs 实缴)');
+      expect(row).toBeDefined();
+      expect(row!.isReconciled).toBe(false);
+      expect(row!.calculatedValue).toBe(0);
+      expect(row!.notes).toContain(`${TONGDE} → ${RUIFENG}`);
+      expect(row!.notes).toContain('no 实缴 rows');
+    });
+
+    it('adds no cross-book row for investments into companies or outside funds', async () => {
+      const buf = await createTestWorkbookBuffer();
+      const proposal = (await nanjingFundLedgerParser.parse(buf))!.fund_update_proposal as LegacyAssetProposal;
+      expect(proposal.reconciliation!.some((r) => r.metricName.startsWith('Managed Fund'))).toBe(false);
     });
   });
 });

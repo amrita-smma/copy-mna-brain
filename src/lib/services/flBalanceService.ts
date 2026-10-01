@@ -35,6 +35,8 @@ export interface PositionBalances {
   quantity: string;
   cash_total: string;
   valuation_adjustment?: string;
+  /** Non-cash paid-in write-offs, already included in `contributed`. */
+  paid_in_adjustment?: string;
   distributed: string;
   retained_proceeds?: string;
   commitment?: string;
@@ -130,7 +132,8 @@ export class FlBalanceService {
       const row = map.get(id);
       const committed = row?.commitment_sum ?? '0.00000000';
       const cashContributed = row?.contributed_sum ?? '0.00000000';
-      const contributed = flAdd(cashContributed, row?.paid_in_adjustment_sum ?? '0');
+      const paidInAdjustment = row?.paid_in_adjustment_sum ?? '0';
+      const contributed = flAdd(cashContributed, paidInAdjustment);
       const unfunded = flSub(committed, contributed);
       const quantity = row?.quantity_sum ?? '0.00000000';
       const cashTotal = row?.cash_sum ?? '0.00000000';
@@ -156,6 +159,7 @@ export class FlBalanceService {
         quantity: toDecimalString(quantity),
         cash_total: toDecimalString(cashTotal),
         valuation_adjustment: toDecimalString(valuationAdjustment),
+        paid_in_adjustment: toDecimalString(paidInAdjustment),
         distributed: toDecimalString(distributed),
         retained_proceeds: toDecimalString(retainedProceeds),
         commitment: toDecimalString(committed),

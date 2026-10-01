@@ -206,6 +206,8 @@ describe('FlBalanceService', () => {
       expect(balance.cash_total).toBe('-116209845.49000000');
       expect(balance.distributed).toBe('33154715.96000000');
       expect(balance.valuation_adjustment).toBe('0.00000000');
+      // Reported separately so a caller can recover cash paid-in.
+      expect(balance.paid_in_adjustment).toBe('-914781.37000000');
     });
 
     it('exposes non-cash valuation adjustments without changing contributed capital', async () => {
@@ -894,6 +896,41 @@ describe('FlBalanceService', () => {
       );
       // Verify findById was NOT called inside getPositionValues
       expect(mockFundRepo.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getFundRollup with a managed fund as LP (MB-569)', () => {
+    it('includes the fund-held position of another managed fund in the LP registry and ownership', async () => {
+      mockFundRepo.findById.mockResolvedValue({
+        id: 'f-hua',
+        workspace_id: workspaceId,
+        name: '淮安熙和',
+        ownership_basis: 'commitment',
+      });
+      mockPositionRepo.findByFundIds.mockResolvedValue([
+        { id: 'pos-out', holder_investor_id: 'inv-jinhu', holder_fund_id: null, fund_id: 'f-hua' },
+        { id: 'pos-yue-hua', holder_investor_id: null, holder_fund_id: 'f-yue', fund_id: 'f-hua' },
+      ]);
+      mockPositionRepo.findByHolderFundIds.mockResolvedValue([]);
+      mockLedgerRepo.sumDeltasByPositionIds.mockImplementation((_ws: string, ids: string[]) =>
+        Promise.resolve(
+          ids.includes('pos-yue-hua')
+            ? [
+                { position_id: 'pos-out', commitment_sum: '75000000.00000000', quantity_sum: '0.00000000', cash_sum: '-14000000.00000000', contributed_sum: '14000000.00000000' },
+                { position_id: 'pos-yue-hua', commitment_sum: '95500000.00000000', quantity_sum: '0.00000000', cash_sum: '-29000000.00000000', contributed_sum: '29000000.00000000' },
+              ]
+            : [],
+        ),
+      );
+
+      const rollup = await service.getFundRollup(workspaceId, 'f-hua');
+
+      expect(rollup.lp_registry.total_committed).toBe('170500000.00000000');
+      const fundLp = rollup.lp_registry.lps.find((l) => l.position_id === 'pos-yue-hua')!;
+      expect(fundLp.holder_fund_id).toBe('f-yue');
+      expect(fundLp.ownership_percentage).toBe(
+        (Math.round((95_500_000 / 170_500_000) * 100 * 1e6) / 1e6).toFixed(6),
+      );
     });
   });
 

@@ -31,6 +31,7 @@ import {
   buildAssetCreatePayload,
   buildEntityFromPortfolio,
   buildFundFromPortfolio,
+  buildFundLpHolders,
   buildOrphanAssetFund,
   filterEntityInvestors,
   fromM,
@@ -1058,6 +1059,16 @@ export default function FundManagement() {
     });
   }, [investorRows, stakeDetail, investorById, portfolioReadModel, asOfDate]);
 
+  // A fund's LP list: its investors plus the managed funds that hold it through a
+  // fund-held position (e.g. 月升星繁 in 淮安熙和). Fund-tab only — a managed fund is
+  // not an entity in the Investor tab.
+  const fundTabLps = useMemo<Investor[]>(() => {
+    const fundLps = portfolioReadModel
+      ? buildFundLpHolders(portfolioReadModel.positions, portfolioReadModel.funds)
+      : [];
+    return [...tabInvestors, ...fundLps];
+  }, [tabInvestors, portfolioReadModel]);
+
   return (
     <>
       <FundDataContext.Provider value={dataCtx}>
@@ -1168,7 +1179,7 @@ export default function FundManagement() {
                     ) : activeTab === 'fund' ? (
                       <FundSummaryTable
                         funds={(displayFunds ?? []).filter((f) => f.id !== 'unassigned' && f.disclosure !== 'no_holder')}
-                        investors={tabInvestors}
+                        investors={fundTabLps}
                         onEditFund={(fund) => setEditFund(fund)}
                         positions={portfolioReadModel?.positions}
                         entries={portfolioReadModel?.entries}

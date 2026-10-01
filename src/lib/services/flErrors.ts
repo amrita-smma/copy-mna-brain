@@ -136,6 +136,17 @@ export class IneligibleCashHolderError extends Error {
   }
 }
 
+/**
+ * A name is both a managed fund and an investor. A managed fund's LP stakes are
+ * positions held by the fund itself; a same-named investor row double-counts them.
+ */
+export class ManagedFundInvestorConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ManagedFundInvestorConflictError';
+  }
+}
+
 export const FL_DOMAIN_ERRORS = [
   InvalidEntryShapeError,
   EntryPositionKindMismatchError,
@@ -156,5 +167,6 @@ export const FL_DOMAIN_ERRORS = [
   InvalidMasterDataError,
   FundUpdateValidationError,
   IneligibleCashHolderError,
+  ManagedFundInvestorConflictError,
 ] as const;
 

@@ -118,6 +118,7 @@ import { WorkspaceService } from './workspaceService';
 import { DealResurfaceService } from './dealResurfaceService';
 import { ChatAttachmentService } from './chatAttachmentService';
 import { FundUpdateApplyService } from './fundUpdateApplyService';
+import { FundCatalogCheckService } from './fundCatalogCheckService';
 import { StalledDealService } from './stalledDealService';
 import { FeatureFlagsService } from './featureFlagsService';
 import { TableLayoutService } from './tableLayoutService';
@@ -173,6 +174,7 @@ export interface Container {
   dealResurfaceService: DealResurfaceService;
   chatAttachmentService: ChatAttachmentService;
   fundUpdateApplyService: FundUpdateApplyService;
+  fundCatalogCheckService: FundCatalogCheckService;
   fundAiOpinionService: FundAiOpinionService;
   stalledDealService: StalledDealService;
   featureFlagsService: FeatureFlagsService;
@@ -499,6 +501,14 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flAllocationRepo,
   );
   fileService.setFundUpdateApplyService(fundUpdateApplyService);
+  const fundCatalogCheckService = new FundCatalogCheckService(
+    workspaceId,
+    flFundRepo,
+    flPositionRepo,
+    flAssetRepo,
+    flBalanceService,
+  );
+  fileService.setFundCatalogCheckService(fundCatalogCheckService);
   const fundAiOpinionService = new FundAiOpinionService(
     flAssetRepo,
     flValuationRepo,
@@ -583,6 +593,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     dealResurfaceService,
     chatAttachmentService,
     fundUpdateApplyService,
+    fundCatalogCheckService,
     fundAiOpinionService,
     stalledDealService,
     featureFlagsService,
