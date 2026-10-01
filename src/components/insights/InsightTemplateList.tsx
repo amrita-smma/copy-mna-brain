@@ -16,7 +16,6 @@ import { formatTemplateUsage } from '@/lib/insights/templateUsage';
 import { InsightEmptyState } from './InsightEmptyState';
 import { InsightTemplateUploadDialog } from './InsightTemplateUploadDialog';
 import { InsightTemplateEditDialog } from './InsightTemplateEditDialog';
-import { getTemplateIconComponent } from './InsightTemplateIconSelect';
 import {
   InsightTemplatePreviewDialog,
   type TemplatePreviewTarget,
@@ -365,7 +364,6 @@ export function InsightTemplateList({ onUseTemplate }: InsightTemplateListProps)
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
           {visibleTemplates.map((tpl) => {
-            const IconComp = getTemplateIconComponent(tpl.icon);
             return (
               <HtmlHoverPreview
                 key={tpl.id}
@@ -393,7 +391,6 @@ export function InsightTemplateList({ onUseTemplate }: InsightTemplateListProps)
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <IconComp className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <h3 className="font-semibold text-sm text-foreground leading-snug line-clamp-1">
                       {tpl.name}
                     </h3>
