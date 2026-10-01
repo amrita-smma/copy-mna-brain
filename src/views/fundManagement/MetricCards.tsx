@@ -47,7 +47,7 @@ export function MetricCards({ funds, investors }: MetricCardsProps) {
       label: 'Unrealized Market Value',
       value: (
         <PartialValuationAmount partial={t.valuationCoverage === 'partial'}>
-          {t.fmv != null ? money(t.fmv) : 'Unavailable (Pending FX)'}
+          {t.fmv != null ? money(t.fmv) : '—'}
         </PartialValuationAmount>
       ),
       sub: `plus ${money(t.real)} realized value`,
@@ -60,7 +60,7 @@ export function MetricCards({ funds, investors }: MetricCardsProps) {
       value: t.moic != null ? `${t.moic.toFixed(2)}×` : '—',
       sub:
         t.valuationCoverage === 'partial'
-          ? 'Unavailable (holdings lack valuation or FX pending)'
+          ? 'Unavailable (holdings lack valuation)'
           : funds.length > 0 && holdingEntityCount > 0
             ? 'MOIC across portfolio'
             : holdingEntityCount > 0

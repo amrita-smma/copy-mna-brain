@@ -944,18 +944,15 @@ export function portfolioTotals(funds: Fund[]): PortfolioTotals {
   const invested = activeFunds.reduce((s, f) => s + f.called, 0);
   const real = activeFunds.reduce((s, f) => s + f.real, 0);
 
-  const anyPendingFx = activeFunds.some(
-    (f) => f.fxStatus === 'pending_fx' || (f.reportingTotalAvailable === false && f.cashStatus !== 'incomplete_negative') || f.fmv === null,
+  const anyUnvalued = activeFunds.some(
+    (f) => f.valuationCoverage === 'partial' || f.h.filter((h) => !h.displayOnly).some((h) => h.fmv === null || h.valuationMethod === null),
   );
-  const anyUnvalued =
-    anyPendingFx ||
-    activeFunds.some(
-      (f) => f.valuationCoverage === 'partial' || f.h.filter((h) => !h.displayOnly).some((h) => h.fmv === null || h.valuationMethod === null),
-    );
   const valuationCoverage: ValuationCoverage = anyUnvalued ? 'partial' : 'complete';
 
-  // If any active fund is pending FX, total portfolio FMV and MOIC cannot be converted or computed nominally
-  const fmv = anyPendingFx ? null : activeFunds.reduce((s, f) => s + (f.fmv ?? 0), 0);
+  // Unrealized MV is holdings-only (never cash), so cash FX status cannot block it.
+  // Null ("—") until at least one fund has a valued holding.
+  const anyValued = activeFunds.some((f) => f.fmv !== null);
+  const fmv = anyValued ? activeFunds.reduce((s, f) => s + (f.fmv ?? 0), 0) : null;
   const moic = valuationCoverage === 'partial' || !invested || fmv === null ? null : (fmv + real) / invested;
 
   const committedHist = sumHist(activeFunds, 'committed');
@@ -1679,10 +1676,9 @@ export function holdingsPortfolioTotals(
 ): PortfolioTotals {
   let invested = 0;
   let holdingFmv = 0;
+  let anyValued = false;
   let real = 0;
   let anyUnvalued = false;
-  let anyPendingFx = false;
-  let totalCashOrRetained = 0;
 
   const seenPositions = new Set<string>();
   const seenHoldingObjects = new Set<Holding>();
@@ -1701,6 +1697,7 @@ export function holdingsPortfolioTotals(
     invested += h.cost;
     if (h.fmv != null) {
       holdingFmv += h.fmv;
+      anyValued = true;
     } else {
       anyUnvalued = true;
     }
@@ -1716,16 +1713,6 @@ export function holdingsPortfolioTotals(
   funds.forEach((f) => {
     if (f.displayOnly) return;
     f.h.forEach(processHolding);
-    if (
-      f.fxStatus === 'pending_fx' ||
-      (f.reportingTotalAvailable === false && f.cashStatus !== 'incomplete_negative') ||
-      f.fmv === null
-    ) {
-      anyPendingFx = true;
-      anyUnvalued = true;
-    } else {
-      totalCashOrRetained += f.cashBalance ?? 0;
-    }
     if (f.valuationCoverage === 'partial') {
       anyUnvalued = true;
     }
@@ -1733,13 +1720,6 @@ export function holdingsPortfolioTotals(
 
   (entities ?? []).forEach((e) => {
     (e.holdings ?? []).forEach(processHolding);
-    if (
-      e.fxStatus === 'pending_fx' ||
-      e.reportingTotalAvailable === false
-    ) {
-      anyPendingFx = true;
-      anyUnvalued = true;
-    }
     if (e.valuationCoverage === 'partial') {
       anyUnvalued = true;
     }
@@ -1773,7 +1753,8 @@ export function holdingsPortfolioTotals(
     return null;
   });
 
-  const fmv = anyPendingFx ? null : holdingFmv + totalCashOrRetained;
+  // Unrealized MV is holdings-only: cash (and its FX status) never enters it or MOIC.
+  const fmv = anyValued ? holdingFmv : null;
   const moic = valuationCoverage === 'partial' || !invested || fmv === null ? null : (fmv + real) / invested;
 
   return {
@@ -1849,15 +1830,18 @@ export function recomputeFund(f: Fund) {
   }
 
   const assetFmv = activeHoldings.reduce((s, x) => s + (x.fmv ?? 0), 0);
-  if (f.fxStatus === 'pending_fx' || (f.reportingTotalAvailable === false && f.cashStatus !== 'incomplete_negative') || f.rawFmv === null) {
-    f.fmv = null;
-    f.tvpi = null;
-  } else {
-    const servedCash = f.cashBalance ?? 0;
-    f.fmv = assetFmv + servedCash;
-    f.tvpi = f.valuationCoverage === 'partial' || !f.called ? null : (f.fmv + f.real) / f.called;
-  }
+  // Unrealized MV is holdings-only; null ("—") until some holding is valued.
+  f.fmv = activeHoldings.some((x) => x.fmv != null) ? assetFmv : null;
+  // TVPI keeps NAV = holdings + cash, so it is unavailable while cash is pending FX.
+  const navUnavailable =
+    f.fxStatus === 'pending_fx' ||
+    (f.reportingTotalAvailable === false && f.cashStatus !== 'incomplete_negative') ||
+    f.rawNav === null;
+  f.tvpi =
+    navUnavailable || f.valuationCoverage === 'partial' || !f.called
+      ? null
+      : (assetFmv + (f.cashBalance ?? 0) + f.real) / f.called;
   f.real = hasDetailedTxns ? totalRealDistributed : activeHoldings.reduce((s, x) => s + x.real, 0);
   f.dpi = f.called ? f.real / f.called : 0;
-  if (f.hist && f.hist.fmv.length) f.hist.fmv[f.hist.fmv.length - 1] = f.fmv;
+  if (f.hist && f.hist.fmv.length) f.hist.fmv[f.hist.fmv.length - 1] = assetFmv;
 }

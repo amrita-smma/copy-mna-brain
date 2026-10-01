@@ -62,7 +62,6 @@ interface ComputedFundRow {
   invested: number;
   fmv: number | null;
   holdingFmv: number;
-  isPendingFx: boolean;
   real: number;
   coverage: 'partial' | 'complete';
   moic: number | null;
@@ -72,20 +71,18 @@ interface ComputedFundRow {
 
 function computeFundRow(f: Fund): ComputedFundRow {
   const invested = f.h.reduce((s, h) => s + h.cost, 0);
-  const isPendingFx = Boolean(
-    f.fxStatus === 'pending_fx' || f.reportingTotalAvailable === false || f.fmv === null,
-  );
-  const hasUnvalued = isPendingFx || f.valuationCoverage === 'partial' || f.h.some((h) => h.fmv === null);
+  const hasUnvalued = f.valuationCoverage === 'partial' || f.h.some((h) => h.fmv === null);
   const coverage = hasUnvalued ? 'partial' : 'complete';
   const holdingFmv = f.h.reduce((s, h) => s + (h.fmv ?? 0), 0);
-  const fmv = isPendingFx ? null : (f.fmv ?? holdingFmv);
+  // Unrealized MV is holdings FMV only — cash never enters it (or MOIC), so the
+  // cash FX status cannot block it either. "—" until at least one holding is valued.
+  const fmv = f.h.some((h) => h.fmv != null) ? holdingFmv : null;
   const real = f.h.reduce((s, h) => s + h.real, 0);
   return {
     f,
     invested,
     fmv,
     holdingFmv,
-    isPendingFx,
     real,
     coverage,
     moic: coverage === 'partial' || invested <= 0 || fmv == null ? null : (fmv + real) / invested,
@@ -251,7 +248,7 @@ export function FundSummaryTable({
     r: ComputedFundRow,
     sectionKind: 'managed' | 'external' | 'liquidated',
   ): ReactNode[] => {
-    const { f, invested, fmv, holdingFmv, isPendingFx, real, moic, dpiVal, calledPct, coverage } = r;
+    const { f, invested, fmv, real, moic, dpiVal, calledPct, coverage } = r;
     const phaseTerm = f.st === 'Investing' ? 'investing' : 'harvesting';
     // A fund we merely hold has neither of the two expandable sub-views: we keep
     // no cash statement for someone else's vehicle and no LP register for it, so
@@ -327,7 +324,7 @@ export function FundSummaryTable({
                   {!f.displayOnly && f.cashStatus === 'incomplete_negative' ? (
                     <span
                       className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                      title="Recorded outflows exceed recorded inflows: funding-side data is missing. Cash balance excluded from Unrealized Market Value."
+                      title="Recorded outflows exceed recorded inflows: funding-side data is missing."
                     >
                       Cash:{' '}
                       {f.cashBalances?.map((b) => `${b.currency} ${formatExact(b.amount, 2)}`).join(', ')}
@@ -421,17 +418,8 @@ export function FundSummaryTable({
           ) : f.displayOnly ? (
             '—'
           ) : (
-            <PartialValuationAmount partial={coverage === 'partial'}>
-              {isPendingFx ? (
-                <span title="Total FMV unavailable: multi-currency cash requires dated FX conversion">
-                  {money(holdingFmv)}
-                  <span className="block text-[10px] text-muted-foreground font-normal">
-                    (Investments only · FX pending)
-                  </span>
-                </span>
-              ) : (
-                money(fmv ?? holdingFmv)
-              )}
+            <PartialValuationAmount partial={coverage === 'partial' && fmv != null}>
+              {fmv != null ? money(fmv) : '—'}
             </PartialValuationAmount>
           )}
         </td>
@@ -515,7 +503,7 @@ export function FundSummaryTable({
                 {f.cashStatus === 'incomplete_negative' ? (
                   <span
                     className="font-medium text-amber-600 dark:text-amber-400"
-                    title="Recorded outflows exceed recorded inflows: funding-side data is missing. Cash balance excluded from Unrealized Market Value."
+                    title="Recorded outflows exceed recorded inflows: funding-side data is missing."
                   >
                     {f.cashBalances?.map((b) => `${b.currency} ${formatExact(b.amount, 2)}`).join(', ')}
                     {' · Incomplete (missing funding data)'}
@@ -566,9 +554,10 @@ export function FundSummaryTable({
           const invInvested = inv.invested?.[f.id] ?? 0;
           const share = s > 0 ? s : invested > 0 ? invInvested / invested : 0;
           const isPartial = f.valuationCoverage === 'partial';
-          const invFmv = f.fmv * share;
+          const invFmv = fmv != null ? fmv * share : null;
           const invReal = f.real * share;
-          const invMoic = isPartial || invInvested <= 0 ? null : (invFmv + invReal) / invInvested;
+          const invMoic =
+            isPartial || invInvested <= 0 || invFmv == null ? null : (invFmv + invReal) / invInvested;
           const invDpi = invInvested > 0 ? invReal / invInvested : 0;
 
           return {
@@ -616,8 +605,8 @@ export function FundSummaryTable({
               <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(invRow.committed)}</td>
               <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">{money(invRow.invInvested)}</td>
               <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">
-                <PartialValuationAmount partial={invRow.isPartial}>
-                  {money(invRow.invFmv)}
+                <PartialValuationAmount partial={invRow.isPartial && invRow.invFmv != null}>
+                  {invRow.invFmv != null ? money(invRow.invFmv) : '—'}
                 </PartialValuationAmount>
               </td>
               <td className="px-3 py-2 text-right align-middle text-[13px] text-foreground">

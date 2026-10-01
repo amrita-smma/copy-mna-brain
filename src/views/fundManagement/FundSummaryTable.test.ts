@@ -431,3 +431,123 @@ describe('FundSummaryTable - Section splitting', () => {
     expect(html).toBe('');
   });
 });
+
+describe('FundSummaryTable - Unrealized MV and MOIC exclude cash', () => {
+  const holding = {
+    id: 'h-cash-test',
+    n: 'Company A',
+    tp: 'Equity',
+    cost: 50,
+    fmv: 80,
+    real: 10,
+    dt: '2021-01-01',
+    moic: 1.8,
+    st: 'Active',
+    valuationCoverage: 'complete',
+    valuationMethod: 'mark',
+  } as Holding;
+
+  const fundWithCash: Fund = {
+    id: 'fund-with-cash',
+    n: 'Fund With Cash',
+    v: 2021,
+    size: 100,
+    called: 50,
+    calledPct: 50,
+    // A cash-inclusive fund-level figure (80M holdings + 30M cash) must never reach the cell:
+    // the row derives Unrealized MV from its holdings.
+    fmv: 110,
+    real: 10,
+    dpi: 0.2,
+    tvpi: 2.4,
+    irr: 0,
+    st: 'Investing',
+    h: [holding],
+    valuationCoverage: 'complete',
+    fxStatus: 'available',
+    reportingTotalAvailable: true,
+    cashBalance: 30,
+    cashBalances: [{ currency: 'USD', amount: '30000000.00000000' }],
+  };
+
+  function renderTable(fund: Fund): string {
+    return renderToStaticMarkup(
+      React.createElement(
+        TooltipProvider,
+        null,
+        React.createElement(FundSummaryTable, { funds: [fund], investors: [] }),
+      ),
+    );
+  }
+
+  /** The fund row's cells after the Fund-name cell: Commitment, Invested, Unrealized MV, MOIC, ... */
+  function renderRowCells(fund: Fund): string[] {
+    const row = renderTable(fund).split('<tr').find((r) => r.includes(fund.n));
+    expect(row).toBeDefined();
+    return row!.split('</tr>')[0].split('<td').slice(2);
+  }
+
+  it('shows holdings FMV only as Unrealized MV and computes MOIC without cash', () => {
+    const [, , mvCell, moicCell] = renderRowCells(fundWithCash);
+    // Unrealized MV = 80M of holdings, not 80M + 30M cash
+    expect(mvCell).toContain('$80M');
+    expect(mvCell).not.toContain('$110M');
+    // MOIC = (80 + 10) / 50 = 1.80×, not (110 + 10) / 50 = 2.40×
+    expect(moicCell).toContain('1.80×');
+  });
+
+  it('keeps the Cash Balance visible on the fund row', () => {
+    const html = renderTable(fundWithCash);
+    expect(html).toContain('Cash:');
+    expect(html).toContain('USD 30,000,000.00');
+  });
+
+  it('shows "—" for Unrealized MV and MOIC when no holding is valued', () => {
+    const unvalued: Fund = {
+      ...fundWithCash,
+      id: 'fund-unvalued',
+      n: 'Fund Unvalued',
+      fmv: null,
+      tvpi: null,
+      valuationCoverage: 'partial',
+      h: [{ ...holding, fmv: null, valuationMethod: null, valuationCoverage: 'partial' } as Holding],
+    };
+    const [, , mvCell, moicCell] = renderRowCells(unvalued);
+    expect(mvCell).toContain('—');
+    expect(mvCell).not.toContain('$30M');
+    expect(moicCell).toContain('—');
+  });
+
+  it('shows the valued holdings with the partial marker, and no MOIC, when only some holdings are valued', () => {
+    const partial: Fund = {
+      ...fundWithCash,
+      id: 'fund-partial',
+      n: 'Fund Partial',
+      valuationCoverage: 'partial',
+      h: [
+        holding,
+        { ...holding, id: 'h-unvalued', n: 'Company B', fmv: null, valuationMethod: null, valuationCoverage: 'partial' } as Holding,
+      ],
+    };
+    const [, , mvCell, moicCell] = renderRowCells(partial);
+    expect(mvCell).toContain('$80M');
+    expect(mvCell).toContain('border-dotted');
+    expect(moicCell).toContain('—');
+  });
+
+  it("shows holdings FMV and MOIC when the fund's cash is pending FX", () => {
+    const pendingFx: Fund = {
+      ...fundWithCash,
+      id: 'fund-pending-fx',
+      n: 'Fund Pending FX',
+      fxStatus: 'pending_fx',
+      reportingTotalAvailable: false,
+      cashBalance: null,
+      tvpi: null,
+    };
+    const [, , mvCell, moicCell] = renderRowCells(pendingFx);
+    expect(mvCell).toContain('$80M');
+    expect(mvCell).not.toContain('FX pending');
+    expect(moicCell).toContain('1.80×');
+  });
+});

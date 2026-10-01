@@ -29,6 +29,17 @@ import { queryFunds } from './query_funds';
 
 afterEach(() => vi.clearAllMocks());
 
+/** Parses the markdown table row for `fundName` into its named cells. */
+function fundRowCells(result: string, fundName: string) {
+  const line = result.split('\n').find((l) => l.startsWith(`| ${fundName}`));
+  expect(line).toBeDefined();
+  const [, , , commitment, called, fmv, realized, dpi, tvpi, irr] = line!
+    .split('|')
+    .slice(1, -1)
+    .map((c) => c.trim());
+  return { commitment, called, fmv, realized, dpi, tvpi, irr };
+}
+
 describe('queryFunds', () => {
   it('returns an empty-state message when there are no funds', async () => {
     getPortfolioMock.mockResolvedValue({ managed_funds: [] });
@@ -164,7 +175,7 @@ describe('queryFunds', () => {
     expect(result).toContain('9,007,199,254,740,995');
   });
 
-  it('excludes cash positions from realized distributions', async () => {
+  it('excludes cash positions from realized distributions and from FMV, but keeps cash in TVPI', async () => {
     getPortfolioMock.mockResolvedValue({
       managed_funds: [
         { id: 'f1', name: 'Fund Cash Test', status: 'investing' },
@@ -215,17 +226,56 @@ describe('queryFunds', () => {
 
     const result = (await queryFunds.invoke({})) as string;
 
+    const cells = fundRowCells(result, 'Fund Cash Test');
     // Realized should only be 2,000,000 (from equity), NOT 5,000,000
-    expect(result).toContain('2,000,000');
-    // FMV includes equity holdings (7M) + served reporting cash (3M) = 10,000,000
-    expect(result).toContain('10,000,000');
+    expect(cells.realized).toBe('2,000,000');
+    // FMV is the equity holding (7M) only — the 3M of cash is not market value
+    expect(cells.fmv).toBe('7,000,000');
     // DPI: 2M / 10M = 0.20x (NOT 0.50x)
-    expect(result).toContain('0.20x');
+    expect(cells.dpi).toBe('0.20x');
+    // TVPI unchanged: NAV includes cash, (7M + 3M + 2M) / 10M = 1.20x
+    expect(cells.tvpi).toBe('1.20x');
     // Cash detail listed
     expect(result).toContain('Cash: USD 3,000,000');
   });
 
-  it('handles pending-FX funds: displays Pending FX, leaves TVPI unavailable, and exposes per-currency cash', async () => {
+  it('shows "-" FMV when no holding is valued, even when the fund holds cash', async () => {
+    getPortfolioMock.mockResolvedValue({
+      managed_funds: [{ id: 'f1', name: 'Unvalued Fund', status: 'investing' }],
+      fund_cash_summaries: {
+        f1: {
+          reporting_total_available: true,
+          reporting_total: '30000000.00',
+          cash_balances: [{ currency: 'CNY', amount: '30000000.00' }],
+        },
+      },
+      positions: [
+        {
+          id: 'lp-1',
+          fund_id: 'f1',
+          holder_investor_id: 'inv-1',
+          current_value: '0',
+          balance: { commitment: '100000000.00', drawn_commitment: '100000000.00' },
+        },
+        {
+          id: 'pos-equity',
+          holder_fund_id: 'f1',
+          asset: { asset_kind: 'equity' },
+          current_value: null,
+          balance: { asset_kind: 'equity' },
+        },
+      ],
+    });
+
+    const result = (await queryFunds.invoke({})) as string;
+
+    const cells = fundRowCells(result, 'Unvalued Fund');
+    expect(cells.fmv).toBe('-');
+    expect(result).not.toMatch(/\|\s*30,000,000\s*\|/);
+    expect(result).toContain('Cash: CNY 30,000,000');
+  });
+
+  it('handles pending-FX funds: shows holdings-only FMV, leaves TVPI unavailable, and exposes per-currency cash', async () => {
     getPortfolioMock.mockResolvedValue({
       managed_funds: [
         { id: 'f-multi', name: 'Global Multi Fund', status: 'investing', vintage_year: 2023 },
@@ -281,14 +331,15 @@ describe('queryFunds', () => {
 
     const result = (await queryFunds.invoke({})) as string;
 
-    // FMV must display "Pending FX" instead of nominal sum (18M + 5M + 2M = 25M is FORBIDDEN)
-    expect(result).toContain('Pending FX');
+    const cells = fundRowCells(result, 'Global Multi Fund');
+    // FMV is holdings only (18M); cash never enters it, so a nominal 18M + 5M + 2M = 25M cannot appear
+    expect(cells.fmv).toBe('18,000,000');
     expect(result).not.toContain('25,000,000');
-    // TVPI is unavailable (-)
-    expect(result).toMatch(/\|\s*-\s*\|\s*-\s*\|/); // TVPI is -, IRR is -
+    // TVPI needs NAV (holdings + cash), which is unavailable while cash is pending FX
+    expect(cells.tvpi).toBe('-');
     // Realized is 3M, DPI is 0.20x
-    expect(result).toContain('3,000,000');
-    expect(result).toContain('0.20x');
+    expect(cells.realized).toBe('3,000,000');
+    expect(cells.dpi).toBe('0.20x');
     // Per-currency cash balances exposed
     expect(result).toContain('Cash: EUR 2,000,000, USD 5,000,000');
   });

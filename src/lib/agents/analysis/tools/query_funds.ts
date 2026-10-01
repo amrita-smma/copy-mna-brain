@@ -154,6 +154,7 @@ export const queryFunds = tool(
       const commitmentByEntityId = new Map<string, string>();
       const calledByEntityId = new Map<string, string>();
       const fmvByEntityId = new Map<string, string>();
+      const valuedEntityIds = new Set<string>();
       const realizedByEntityId = new Map<string, string>();
 
       for (const pos of portfolio.positions ?? []) {
@@ -181,6 +182,7 @@ export const queryFunds = tool(
           const isCash = pos.asset?.asset_kind === 'cash' || pos.balance?.asset_kind === 'cash';
           // Ensure cash positions are never treated as holdings or realized proceeds
           if (!isCash) {
+            if (pos.current_value != null) valuedEntityIds.add(holderId);
             const fmv = String(pos.current_value ?? '0');
             const realized = String(pos.balance?.distributed_capital ?? pos.balance?.distributed ?? '0');
             fmvByEntityId.set(
@@ -234,19 +236,19 @@ export const queryFunds = tool(
                 balances: portfolio.balances,
                 asOfDate: portfolio.as_of_date,
               });
-        let fmvDisplay: string;
+        // FMV (Unrealized MV) is holdings mark-to-market only — cash never enters it.
+        // "-" until at least one holding carries a value.
+        const fmvDisplay = valuedEntityIds.has(entity.id) ? fmtAmount(holdingsFmv) : '-';
+        // TVPI keeps NAV = holdings + cash, so it is unavailable while cash is pending FX.
         let tvpi: string | null = null;
         let cashDetail = '';
 
         if (cashSummary?.reporting_total_available && cashSummary.reporting_total !== null) {
-          const totalFmv = flAdd(holdingsFmv, cashSummary.reporting_total);
-          fmvDisplay = fmtAmount(totalFmv);
-          tvpi = hasCalled ? flDiv(flAdd(totalFmv, realized), called, 2) : null;
+          const nav = flAdd(holdingsFmv, cashSummary.reporting_total);
+          tvpi = hasCalled ? flDiv(flAdd(nav, realized), called, 2) : null;
         } else if (cashSummary?.fx_status === 'pending_fx') {
-          fmvDisplay = 'Pending FX';
           tvpi = null;
         } else {
-          fmvDisplay = fmtAmount(holdingsFmv);
           tvpi = hasCalled ? flDiv(flAdd(holdingsFmv, realized), called, 2) : null;
         }
         if (cashSummary?.cash_balances && cashSummary.cash_balances.length > 0) {
@@ -261,7 +263,7 @@ export const queryFunds = tool(
           realized,
         )} | ${fmtMult(dpi)} | ${fmtMult(tvpi)} | ${fmtPct(irr)} |\n`;
       }
-      out += `\nAmounts are in each fund's base currency. Use query_fund_assets with a fund name to drill into its holdings.`;
+      out += `\nAmounts are in each fund's base currency. FMV is the holdings' unrealized market value only; cash is listed next to the fund name and counts toward TVPI, not FMV. Use query_fund_assets with a fund name to drill into its holdings.`;
 
       logger.debug(`✓ query_funds returned ${entities.length} fund(s)`);
       return out;

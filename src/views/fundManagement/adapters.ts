@@ -263,17 +263,6 @@ export function computeFundHistory(
   }>,
   commitmentSizeAmount: number | string | null | undefined,
   quarterEnds: string[],
-  options?: {
-    cashPositions?: Array<{
-      entries: Array<{
-        entry_date: string;
-        cash_delta?: string | number | null;
-        is_reversal?: boolean;
-      }>;
-    }>;
-    fxStatus?: 'available' | 'pending_fx';
-    reportingTotalAvailable?: boolean;
-  },
 ): FundHist {
   const committedM = toDisplayMillions(commitmentSizeAmount) ?? 0;
   return {
@@ -284,28 +273,13 @@ export function computeFundHistory(
       );
       return toDisplayMillions(totalCalledStr) ?? 0;
     }),
+    // Unrealized MV is mark-to-market on holdings only: cash is never part of it,
+    // so this history (and the % badge built from it) moves only on valuations.
     fmv: quarterEnds.map((end) => {
-      if (options?.fxStatus === 'pending_fx' || options?.reportingTotalAvailable === false) {
-        return null;
-      }
-      // Holdings unrealized valuation
       const holdingsFmvStr = flSum(
         perAsset.map((a) => unrealizedValueAsOf(a.valuations, end)),
       );
-      // As-of cash balance across cash positions: sum all dated signed cash deltas, including reversal rows.
-      // Before reversal date, original economics remain; on/after reversal date, they net correctly.
-      let cashAsOfStr = '0.00000000';
-      if (options?.cashPositions) {
-        for (const cp of options.cashPositions) {
-          for (const e of cp.entries) {
-            if (e.entry_date <= end && e.cash_delta != null) {
-              cashAsOfStr = flAdd(cashAsOfStr, String(e.cash_delta));
-            }
-          }
-        }
-      }
-      const totalFmvStr = flAdd(holdingsFmvStr, cashAsOfStr);
-      return toDisplayMillions(totalFmvStr) ?? 0;
+      return toDisplayMillions(holdingsFmvStr) ?? 0;
     }),
   };
 }
@@ -836,12 +810,11 @@ export function buildFundFromPortfolio(
   // Portfolio positions held by this fund
   const portPositions = allPositions.filter((p) => p.holder_fund_id === fundRow.id);
 
-  // Separate cash positions and investment positions
+  // Separate investment positions from cash positions
   const isCashPos = (p: FlPortfolioPosition) =>
     p.asset?.asset_kind === 'cash' || p.balance?.asset_kind === 'cash';
 
   const investmentPositions = portPositions.filter((p) => !isCashPos(p));
-  const cashPositions = portPositions.filter(isCashPos);
 
   const assetPositionCounts = new Map<string, number>();
   const targetFundPositionCounts = new Map<string, number>();
@@ -896,25 +869,29 @@ export function buildFundFromPortfolio(
       asOfDate,
     });
 
-  let totalFundFmvStr: string | null = null;
+  // Unrealized MV = holdings FMV only; null ("—") until at least one holding
+  // carries a valuation. Cash never feeds it — it only enters NAV for TVPI.
+  const anyHoldingValued = holdings.some((h) => h.rawFmv != null);
+  const totalFundFmvStr: string | null = anyHoldingValued ? totalHoldingFmvStr : null;
+
+  // NAV (holdings + cash), used only for TVPI.
+  let navStr: string | null = null;
   let rawCashBalance: string | null = null;
   let cashBalanceM: number | null = null;
 
   if (cashSummary.reporting_total_available && cashSummary.reporting_total !== null) {
     const cashStr = cashSummary.reporting_total;
-    totalFundFmvStr = flAdd(totalHoldingFmvStr, cashStr);
+    navStr = flAdd(totalHoldingFmvStr, cashStr);
     rawCashBalance = cashStr;
     cashBalanceM = toDisplayMillions(cashStr) ?? 0;
   } else if (cashSummary.cash_status === 'incomplete_negative') {
-    // Incomplete funding data: cash is negative, fall back to holdings-only.
-    // Do NOT null the FMV: holdings valuation is still valid and nulling it would hide good data.
-    totalFundFmvStr = totalHoldingFmvStr;
+    // Incomplete funding data: cash is negative, fall back to holdings-only NAV.
+    navStr = totalHoldingFmvStr;
     rawCashBalance = null;
     cashBalanceM = null;
   } else {
-    // Pending FX: never sum cash currencies nominally!
-    // Never present holdings-only number as complete total FMV.
-    totalFundFmvStr = null;
+    // Pending FX: never sum cash currencies nominally, so NAV (and TVPI) is unavailable.
+    navStr = null;
     rawCashBalance = null;
     cashBalanceM = null;
   }
@@ -934,11 +911,11 @@ export function buildFundFromPortfolio(
   let tvpi: number | null = null;
   if (
     valuationCoverage === 'complete' &&
-    totalFundFmvStr !== null &&
+    navStr !== null &&
     !flIsZero(totalCalledStr) &&
     flGt(totalCalledStr, '0')
   ) {
-    const totalReturnedAndValue = flAdd(totalFundFmvStr, totalRealDistributedStr);
+    const totalReturnedAndValue = flAdd(navStr, totalRealDistributedStr);
     const tvpiStr = flDiv(totalReturnedAndValue, totalCalledStr, 4);
     const tvpiNum = Number(tvpiStr);
     tvpi = Number.isNaN(tvpiNum) ? null : tvpiNum;
@@ -967,6 +944,7 @@ export function buildFundFromPortfolio(
     rawSize: totalCommittedStr,
     rawCalled: totalCalledStr,
     rawFmv: totalFundFmvStr,
+    rawNav: navStr,
     rawReal: totalRealDistributedStr,
     cashBalances: cashSummary.cash_balances,
     cashBalance: cashBalanceM,
@@ -987,19 +965,10 @@ export function buildFundFromPortfolio(
     return { txns: posEntries, valuations: posValuations };
   });
 
-  const cashPositionsForHist = cashPositions.map((pos) => ({
-    entries: allEntries.filter((e) => e.position_id === pos.id),
-  }));
-
   fund.hist = computeFundHistory(
     perAssetForHist,
     totalCommittedStr,
     trailingQuarterEnds(4),
-    {
-      cashPositions: cashPositionsForHist,
-      fxStatus: cashSummary.fx_status,
-      reportingTotalAvailable: cashSummary.reporting_total_available,
-    },
   );
 
   if (disclosure === 'external_fund') {

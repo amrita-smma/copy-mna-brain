@@ -304,6 +304,7 @@ export interface Fund {
   size: number;
   called: number;
   calledPct: number;
+  /** Unrealized MV in millions: holdings FMV only, never cash. Null ("—") when no holding is valued. */
   fmv: number | null;
   real: number;
   dpi: number;
@@ -320,8 +321,10 @@ export interface Fund {
   rawSize?: string | null;
   /** Exact string total called capital from LP balances. */
   rawCalled?: string | null;
-  /** Exact string total fund FMV (holdings + cash balance). */
+  /** Exact string Unrealized MV: holdings FMV only, never cash. Null when no holding is valued. */
   rawFmv?: string | null;
+  /** Exact string NAV (holdings FMV + cash balance), used only for TVPI. Null when cash is pending FX. */
+  rawNav?: string | null;
   /** Exact string total real distributions from portfolio positions. */
   rawReal?: string | null;
   /** Per-currency cash balances. */

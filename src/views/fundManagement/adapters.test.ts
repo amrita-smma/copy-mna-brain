@@ -265,7 +265,7 @@ describe('computeFundHistory', () => {
     expect(hist.fmv).toEqual([0, 0, 0, 0]);
   });
 
-  it('correctly nets original retained sale + retained reversal + distributed repost to zero retained history', () => {
+  it('keeps retained-sale cash (and its reversal) out of history FMV: only valuations move it', () => {
     const perAsset = [
       {
         txns: [
@@ -299,77 +299,11 @@ describe('computeFundHistory', () => {
       },
     ];
 
-    const cashPositions = [
-      {
-        entries: [
-          { entry_date: '2025-06-01', cash_delta: '600000' },
-          { entry_date: '2025-07-01', cash_delta: '-600000' },
-        ],
-      },
-    ];
+    const hist = computeFundHistory(perAsset as any, 10_000_000, ['2025-06-30', '2025-09-30']);
 
-    const hist = computeFundHistory(perAsset as any, 10_000_000, ['2025-06-30', '2025-09-30'], {
-      cashPositions,
-    });
-
-    // As of 2025-06-30 (before reversal): 500k FMV + 600k cash = 1.1M
-    expect(hist.fmv[0]).toBe(1.1);
-
-    // As of 2025-09-30 (after reversal): 500k FMV + 0 cash = 0.5M
-    expect(hist.fmv[1]).toBe(0.5);
-  });
-
-  it('correctly handles retained-direction correction so only the corrected repost contributes to history FMV', () => {
-    const perAsset = [
-      {
-        txns: [
-          { entry_type: 'buy', entry_date: '2025-01-01', cash_delta: '-1000000' },
-          // Original mistakenly posted as distributed
-          {
-            entry_type: 'sell',
-            entry_date: '2025-06-01',
-            cash_delta: '600000',
-            sub_type: null,
-          },
-          // Reversal of the distributed entry
-          {
-            entry_type: 'sell',
-            entry_date: '2025-07-01',
-            cash_delta: '-600000',
-            sub_type: null,
-          },
-          // Repost as retained in fund
-          {
-            entry_type: 'sell',
-            entry_date: '2025-07-01',
-            cash_delta: '600000',
-            sub_type: 'divestment:cash_in_fund',
-          },
-        ],
-        valuations: [
-          { as_of_date: '2025-06-30', market_value: '500000' },
-          { as_of_date: '2025-09-30', market_value: '500000' },
-        ],
-      },
-    ];
-
-    const cashPositions = [
-      {
-        entries: [
-          { entry_date: '2025-07-01', cash_delta: '600000' },
-        ],
-      },
-    ];
-
-    const hist = computeFundHistory(perAsset as any, 10_000_000, ['2025-06-30', '2025-09-30'], {
-      cashPositions,
-    });
-
-    // As of 2025-06-30: 500k FMV + 0 cash = 0.5M
+    // Unrealized MV is holdings-only: the 600k of retained cash never appears in it.
     expect(hist.fmv[0]).toBe(0.5);
-
-    // As of 2025-09-30: 500k FMV + 600k cash = 1.1M
-    expect(hist.fmv[1]).toBe(1.1);
+    expect(hist.fmv[1]).toBe(0.5);
   });
 
   it('correctly offsets invested capital history when a buy entry is reversed and reposted', () => {
@@ -396,7 +330,7 @@ describe('computeFundHistory', () => {
     expect(hist.called[1]).toBe(0.4);
   });
 
-  it('includes cash-only FoF divestments with distribution entry_type and retained subtype in historical FMV', () => {
+  it('leaves retained FoF divestment cash out of historical FMV: it sums holding valuations only', () => {
     const perAsset = [
       {
         txns: [
@@ -430,24 +364,13 @@ describe('computeFundHistory', () => {
       },
     ];
 
-    const cashPositions = [
-      {
-        entries: [
-          { entry_date: '2025-06-15', cash_delta: '500000' },
-          { entry_date: '2025-09-01', cash_delta: '300000' },
-        ],
-      },
-    ];
+    const hist = computeFundHistory(perAsset as any, 10_000_000, ['2025-06-30', '2025-09-30']);
 
-    const hist = computeFundHistory(perAsset as any, 10_000_000, ['2025-06-30', '2025-09-30'], {
-      cashPositions,
-    });
+    // As of 2025-06-30: Asset 1 (1.8M) + Asset 2 (1.0M) = 2.8M — the 0.5M retained cash is not FMV
+    expect(hist.fmv[0]).toBe(2.8);
 
-    // As of 2025-06-30: Asset 1 (1.8M) + Asset 2 (1.0M) + Cash (0.5M) = 3.3M
-    expect(hist.fmv[0]).toBe(3.3);
-
-    // As of 2025-09-30: Asset 1 (1.8M) + Asset 2 (0.8M) + Cash (0.5M + 0.3M = 0.8M) = 3.4M
-    expect(hist.fmv[1]).toBe(3.4);
+    // As of 2025-09-30: Asset 1 (1.8M) + Asset 2 (0.8M) = 2.6M
+    expect(hist.fmv[1]).toBe(2.6);
   });
 });
 
@@ -1750,7 +1673,7 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       expect(txn.sellProceedsDestination).toBe('distributed_to_investor');
     });
 
-    it('buildFundFromPortfolio includes retained sell proceeds in fmv and excludes from real/dpi', () => {
+    it('buildFundFromPortfolio keeps retained sell proceeds out of fmv and real/dpi but counts them in TVPI', () => {
       const fundRow = {
         id: 'f-retained',
         workspace_id: 'w1',
@@ -1939,10 +1862,11 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
 
       const fund = buildFundFromPortfolio(fundRow, [lpPos, portPos, cashPos as any], [], []);
       expect(fund.called).toBe(5); // 5M
-      expect(fund.fmv).toBe(5); // 3M remaining unrealized + 2M cash = 5M
+      expect(fund.fmv).toBe(3); // Unrealized MV = 3M remaining holdings; the 2M cash is not FMV
+      expect(fund.rawNav).toBe('5000000.00000000'); // NAV = 3M holdings + 2M cash
       expect(fund.real).toBe(0); // 0M distributed to LPs
       expect(fund.dpi).toBe(0); // 0 / 5 = 0.00x
-      expect(fund.tvpi).toBe(1); // (5M + 0M) / 5M = 1.00x
+      expect(fund.tvpi).toBe(1); // TVPI unchanged: (3M holdings + 2M cash + 0M) / 5M = 1.00x
     });
 
     it('converts an income/other Txn to LedgerEntryInput', () => {
@@ -2674,7 +2598,7 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       } as any,
     ];
 
-    it('Row 4: buildFundFromPortfolio excludes cash positions from holdings and DPI, adds cash to FMV once', () => {
+    it('Row 4: buildFundFromPortfolio excludes cash from holdings, DPI and Unrealized MV, but keeps it in NAV for TVPI', () => {
       const fund = buildFundFromPortfolio(
         fundRow,
         [lpPos, invPos, cashPos],
@@ -2695,10 +2619,16 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       expect(fund.real).toBe(1); // 1M
       expect(fund.dpi).toBe(0.2); // 1M / 5M called = 0.20
 
-      // FMV includes holding FMV (6M) + cash balance (2M) = 8M (NOT 6M + 2M + 0.5M retained = 8.5M)
-      expect(fund.fmv).toBe(8);
+      // Unrealized MV = holding FMV (6M) only — the 2M cash balance never enters it
+      expect(fund.fmv).toBe(6);
+      expect(fund.rawFmv).toBe('6000000.00000000');
+      // The cash balance is still reported on its own line
       expect(fund.cashBalance).toBe(2);
       expect(fund.rawCashBalance).toBe('2000000.00000000');
+
+      // TVPI unchanged: NAV = 6M holdings + 2M cash (NOT + 0.5M legacy retained); (8M + 1M) / 5M = 1.8x
+      expect(fund.rawNav).toBe('8000000.00000000');
+      expect(fund.tvpi).toBe(1.8);
     });
 
     it('Row 4: buildFundFromPortfolio has FMV = holdings FMV when fund has no cash positions', () => {
@@ -2717,7 +2647,26 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       expect(fund.cashBalance).toBe(0);
     });
 
-    it('Row 5: computeFundHistory uses cash balance across quarter ends', () => {
+    it('shows no Unrealized MV ("—") when no holding is valued, even when the fund holds cash', () => {
+      const unvaluedPos = { ...invPos, current_value: null, valuation_method: null };
+      const fund = buildFundFromPortfolio(
+        fundRow,
+        [lpPos, unvaluedPos, cashPos],
+        [],
+        [],
+        '2025-01-01',
+      );
+
+      expect(fund.h[0].fmv).toBeNull();
+      expect(fund.fmv).toBeNull();
+      expect(fund.rawFmv).toBeNull();
+      expect(fund.valuationCoverage).toBe('partial');
+      // Cash is still there — just not dressed up as market value
+      expect(fund.cashBalance).toBe(2);
+      expect(fund.tvpi).toBeNull();
+    });
+
+    it('Row 5: computeFundHistory tracks holding valuations only, ignoring cash across quarter ends', () => {
       const perAsset = [
         {
           txns: [
@@ -2736,98 +2685,11 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         },
       ];
 
-      const cashPositions = [
-        {
-          entries: [
-            {
-              entry_date: '2025-01-01',
-              cash_delta: '2000000.00000000',
-              is_reversal: false,
-            },
-          ],
-        },
-      ];
-
       const quarterEnds = ['2024-09-30', '2024-12-31', '2025-03-31'];
-      const hist = computeFundHistory(perAsset, '10000000', quarterEnds, {
-        cashPositions,
-      });
+      const hist = computeFundHistory(perAsset, '10000000', quarterEnds);
 
-      // 2024-09-30: 5M unrealized + 0 cash = 5M
-      expect(hist.fmv[0]).toBe(5);
-      // 2024-12-31: 5M unrealized + 0 cash = 5M
-      expect(hist.fmv[1]).toBe(5);
-      // 2025-03-31: 6M unrealized + 2M cash balance = 8M
-      expect(hist.fmv[2]).toBe(8);
-    });
-
-    it('sums all dated signed cash deltas including reversals so cash nets correctly across reversal dates', () => {
-      const perAsset: any[] = [
-        {
-          txns: [],
-          valuations: [
-            { as_of_date: '2025-03-31', market_value: '5000000.00000000' },
-            { as_of_date: '2025-06-30', market_value: '5000000.00000000' },
-          ],
-        },
-      ];
-
-      // Cash position has 2M opening, 1M movement in Q1, and reversal of that 1M movement on 2025-05-15 in Q2
-      const cashPositions = [
-        {
-          entries: [
-            { entry_date: '2025-01-01', cash_delta: '2000000.00000000', is_reversal: false },
-            { entry_date: '2025-02-15', cash_delta: '1000000.00000000', is_reversal: false },
-            { entry_date: '2025-05-15', cash_delta: '-1000000.00000000', is_reversal: true },
-          ],
-        },
-      ];
-
-      const quarterEnds = ['2025-03-31', '2025-06-30'];
-      const hist = computeFundHistory(perAsset, '10000000', quarterEnds, {
-        cashPositions,
-        fxStatus: 'available',
-        reportingTotalAvailable: true,
-      });
-
-      // As of 2025-03-31: before reversal date 2025-05-15. Cash = 2M + 1M = 3M. FMV = 5M + 3M = 8M.
-      expect(hist.fmv[0]).toBe(8);
-      // As of 2025-06-30: on/after reversal date 2025-05-15. Cash nets: 2M + 1M - 1M = 2M. FMV = 5M + 2M = 7M.
-      expect(hist.fmv[1]).toBe(7);
-    });
-
-    it('returns null fmv when fxStatus is pending_fx', () => {
-      const perAsset: any[] = [
-        {
-          txns: [
-            { entry_type: 'buy', entry_date: '2024-06-01', cash_delta: '-2000000.00000000' },
-            { entry_type: 'sell', entry_date: '2024-08-01', cash_delta: '500000.00000000', sell_proceeds_destination: 'cash_in_fund' },
-          ],
-          valuations: [
-            { as_of_date: '2024-12-31', market_value: '5000000.00000000' },
-            { as_of_date: '2025-03-31', market_value: '6000000.00000000' },
-          ],
-        },
-      ];
-
-      const cashPositions = [
-        {
-          entries: [
-            { entry_date: '2025-01-01', cash_delta: '2000000.00000000', is_reversal: false },
-          ],
-        },
-      ];
-
-      const quarterEnds = ['2024-12-31', '2025-03-31'];
-      const hist = computeFundHistory(perAsset, '10000000', quarterEnds, {
-        cashPositions,
-        fxStatus: 'pending_fx',
-        reportingTotalAvailable: false,
-      });
-
-      // Both quarters with pending_fx return null
-      expect(hist.fmv[0]).toBeNull();
-      expect(hist.fmv[1]).toBeNull();
+      // The retained 0.5M sale proceeds are cash, not FMV: history moves only on valuations
+      expect(hist.fmv).toEqual([5, 5, 6]);
     });
   });
 
@@ -2886,9 +2748,11 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
 
       expect(fund.fxStatus).toBe('pending_fx');
       expect(fund.reportingTotalAvailable).toBe(false);
-      // Total FMV and TVPI must be null, never nominal sum!
+      // No holding is valued, so Unrealized MV is "—"; NAV (holdings + cash) and TVPI
+      // stay null while cash is pending FX — never a nominal multi-currency sum.
       expect(fund.fmv).toBeNull();
       expect(fund.rawFmv).toBeNull();
+      expect(fund.rawNav).toBeNull();
       expect(fund.tvpi).toBeNull();
       expect(fund.cashBalance).toBeNull();
       expect(fund.rawCashBalance).toBeNull();
@@ -2957,10 +2821,10 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       ]);
     });
 
-    it('南京金光紫金 is unaffected: cash is added to FMV', () => {
+    it('keeps a positive cash balance out of Unrealized MV but in NAV', () => {
       const fundRow: any = {
         id: 'fund-nanjing',
-        name: '南京金光紫金',
+        name: 'Fund A',
         base_currency: 'CNY',
         status: 'investing',
         vintage_year: 2023,
@@ -3001,11 +2865,14 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
 
       expect(fund.cashStatus).toBe('ok');
       expect(fund.reportingTotalAvailable).toBe(true);
-      expect(fund.rawFmv).toBe('130494255.65000000');
-        expect(fund.cashBalances).toEqual([
-          { currency: 'CNY', amount: '30494255.65000000' },
-        ]);
-      });
+      expect(fund.rawFmv).toBe('100000000.00000000');
+      expect(fund.fmv).toBe(100);
+      expect(fund.rawNav).toBe('130494255.65000000');
+      expect(fund.cashBalance).toBeCloseTo(30.49, 2);
+      expect(fund.cashBalances).toEqual([
+        { currency: 'CNY', amount: '30494255.65000000' },
+      ]);
+    });
     });
   });
 

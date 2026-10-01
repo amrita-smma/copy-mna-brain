@@ -1520,7 +1520,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
   });
 
   describe('Phase 6: recomputeFund for active cash ledger funds (Row 6)', () => {
-    it('uses served cash balance and does not re-derive retained cash for active funds', () => {
+    it('keeps served cash out of FMV but in TVPI, and does not re-derive retained cash', () => {
       const holdingWithRetainedSale = makeHolding({
         id: 'h1',
         cost: 3,
@@ -1544,7 +1544,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 10,
         called: 5,
         calledPct: 50,
-        fmv: 8, // 5M holding FMV + 3M served cash balance
+        fmv: 5, // 5M holding FMV (cash is never Unrealized MV)
         real: 1,
         dpi: 0.2,
         tvpi: 1.8,
@@ -1562,14 +1562,15 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
 
       recomputeFund(activeFund);
 
-      // FMV must be 5M (holding FMV) + 3M (served cash) = 8M.
-      // Must NOT be 5M + 2M (recomputed from txns) = 7M.
-      expect(activeFund.fmv).toBe(8);
+      // Unrealized MV = 5M holding FMV only; the 3M served cash is not market value.
+      expect(activeFund.fmv).toBe(5);
+      // TVPI keeps NAV = 5M holdings + 3M served cash (NOT the 2M re-derived from txns): (8M + 1M) / 5M
+      expect(activeFund.tvpi).toBeCloseTo(1.8, 6);
       // History FMV must agree with current FMV
-      expect(activeFund.hist!.fmv[activeFund.hist!.fmv.length - 1]).toBe(8);
+      expect(activeFund.hist!.fmv[activeFund.hist!.fmv.length - 1]).toBe(5);
     });
 
-    it('recomputeFund sets fmv and tvpi to null when active fund has pending_fx', () => {
+    it('recomputeFund keeps holdings-only FMV but nulls TVPI when the fund\'s cash is pending_fx', () => {
       const pendingFxFund: Fund = {
         id: 'f-pfx',
         n: 'Pending FX Fund',
@@ -1600,13 +1601,44 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
 
       recomputeFund(pendingFxFund);
 
-      expect(pendingFxFund.fmv).toBeNull();
+      // Cash FX status cannot block Unrealized MV, which never includes cash
+      expect(pendingFxFund.fmv).toBe(12);
+      // TVPI needs NAV (holdings + cash), which is unavailable until FX is resolved
       expect(pendingFxFund.tvpi).toBeNull();
+    });
+
+    it('recomputeFund shows no FMV ("—") when no holding is valued, even though the fund holds cash', () => {
+      const unvaluedFund: Fund = {
+        id: 'f-unvalued',
+        n: 'Unvalued Fund',
+        v: 2024,
+        size: 20,
+        called: 10,
+        calledPct: 50,
+        fmv: null,
+        real: 0,
+        dpi: 0,
+        tvpi: null,
+        irr: 0,
+        st: 'Investing',
+        h: [makeHolding({ id: 'h1', cost: 10, fmv: null, real: 0 })],
+        valuationCoverage: 'partial',
+        fxStatus: 'available',
+        reportingTotalAvailable: true,
+        cashBalance: 30,
+        hist: { committed: [20], called: [10], fmv: [0] },
+      };
+
+      recomputeFund(unvaluedFund);
+
+      expect(unvaluedFund.fmv).toBeNull();
+      expect(unvaluedFund.tvpi).toBeNull();
+      expect(unvaluedFund.hist!.fmv).toEqual([0]);
     });
   });
 
   describe('portfolioTotals and holdingsPortfolioTotals with pending_fx', () => {
-    it('sets fmv and moic to null and coverage to partial when any active fund is pending_fx', () => {
+    it('keeps holdings-only FMV and MOIC when a fund\'s cash is pending_fx', () => {
       const normalFund: Fund = {
         id: 'f1',
         n: 'Normal Fund',
@@ -1614,7 +1646,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 10,
         called: 5,
         calledPct: 50,
-        fmv: 8,
+        fmv: 7,
         real: 2,
         dpi: 0.4,
         tvpi: 2.0,
@@ -1634,7 +1666,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 20,
         called: 10,
         calledPct: 50,
-        fmv: null,
+        fmv: 10,
         real: 1,
         dpi: 0.1,
         tvpi: null,
@@ -1650,15 +1682,67 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
 
       const funds = [normalFund, pendingFxFund];
 
+      // Cash (and its FX status) never enters Unrealized MV or MOIC, so pending FX does not blank them
       const pTotals = portfolioTotals(funds);
-      expect(pTotals.fmv).toBeNull();
-      expect(pTotals.moic).toBeNull();
-      expect(pTotals.valuationCoverage).toBe('partial');
+      expect(pTotals.fmv).toBe(17);
+      expect(pTotals.valuationCoverage).toBe('complete');
+      expect(pTotals.moic).toBeCloseTo((17 + 3) / 15, 6);
 
       const hTotals = holdingsPortfolioTotals(funds);
-      expect(hTotals.fmv).toBeNull();
-      expect(hTotals.moic).toBeNull();
-      expect(hTotals.valuationCoverage).toBe('partial');
+      expect(hTotals.fmv).toBe(17);
+      expect(hTotals.valuationCoverage).toBe('complete');
+      expect(hTotals.moic).toBeCloseTo((17 + 2) / 12, 6);
+    });
+
+    it('excludes cash from portfolio FMV and MOIC, and shows no FMV when nothing is valued', () => {
+      const valuedWithCash: Fund = {
+        id: 'f-valued',
+        n: 'Valued Fund',
+        v: 2024,
+        size: 10,
+        called: 5,
+        calledPct: 50,
+        fmv: 6,
+        real: 1,
+        dpi: 0.2,
+        tvpi: 2.0,
+        irr: 0,
+        st: 'Investing',
+        h: [makeHolding({ id: 'h-v', cost: 4, fmv: 6, real: 1 })],
+        valuationCoverage: 'complete',
+        fxStatus: 'available',
+        reportingTotalAvailable: true,
+        cashBalance: 3,
+      };
+      const t = holdingsPortfolioTotals([valuedWithCash]);
+      expect(t.fmv).toBe(6);
+      expect(t.moic).toBeCloseTo((6 + 1) / 4, 6);
+      const p = portfolioTotals([valuedWithCash]);
+      expect(p.fmv).toBe(6);
+      expect(p.moic).toBeCloseTo((6 + 1) / 5, 6);
+
+      const unvaluedWithCash: Fund = {
+        ...valuedWithCash,
+        id: 'f-unvalued',
+        fmv: null,
+        tvpi: null,
+        h: [makeHolding({ id: 'h-u', cost: 4, fmv: null, real: 0 })],
+        valuationCoverage: 'partial',
+        cashBalance: 30,
+      };
+      const tu = holdingsPortfolioTotals([unvaluedWithCash]);
+      expect(tu.fmv).toBeNull();
+      expect(tu.moic).toBeNull();
+      expect(tu.valuationCoverage).toBe('partial');
+      const pu = portfolioTotals([unvaluedWithCash]);
+      expect(pu.fmv).toBeNull();
+      expect(pu.moic).toBeNull();
+
+      // One valued holding among unvalued ones: partial sum of the valued holdings, MOIC withheld
+      const partial = holdingsPortfolioTotals([valuedWithCash, unvaluedWithCash]);
+      expect(partial.fmv).toBe(6);
+      expect(partial.valuationCoverage).toBe('partial');
+      expect(partial.moic).toBeNull();
     });
   });
 
@@ -1756,7 +1840,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
       expect(growth([10])).toBe(0);
     });
 
-    it('single pending-FX fund preserves null history, moic: null, and growth: null across totals', () => {
+    it('single fund with pending-FX cash still reports holdings-only FMV, MOIC and FMV history', () => {
       const singlePendingFxFund: Fund = {
         id: 'f-pfx-single',
         n: 'Single Pending FX Fund',
@@ -1764,7 +1848,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 30,
         called: 15,
         calledPct: 50,
-        fmv: null,
+        fmv: 20,
         real: 3,
         dpi: 0.2,
         tvpi: null,
@@ -1775,38 +1859,33 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         fxStatus: 'pending_fx',
         reportingTotalAvailable: false,
         cashBalance: null,
-        rawFmv: null,
+        rawFmv: '20000000.00000000',
+        rawNav: null,
         hist: {
           committed: [30, 30, 30, 30],
           called: [10, 12, 15, 15],
-          fmv: [15, 18, null, null], // Null when pending_fx
+          fmv: [15, 18, 19, 20], // Holdings-only: cash FX status does not blank it
         },
       };
 
       const pTotals = portfolioTotals([singlePendingFxFund]);
-      expect(pTotals.fmv).toBeNull();
-      expect(pTotals.moic).toBeNull();
-      expect(pTotals.fmvHist).toEqual([15, 18, null, null]);
-      // TVPI history: non-final quarters are null when realization history is absent (no fabricated 0.85 multiplier)
+      expect(pTotals.fmv).toBe(20);
+      expect(pTotals.moic).toBeCloseTo((20 + 3) / 15, 6);
+      expect(pTotals.fmvHist).toEqual([15, 18, 19, 20]);
+      // Multiple history: non-final quarters are null when realization history is absent (no fabricated 0.85 multiplier)
       expect(pTotals.tvpiHist[0]).toBeNull();
       expect(pTotals.tvpiHist[1]).toBeNull();
       expect(pTotals.tvpiHist[2]).toBeNull();
-      expect(pTotals.tvpiHist[3]).toBeNull();
-      // Derived growth/delta must be null
-      expect(growth(pTotals.fmvHist)).toBeNull();
-      expect(growth(pTotals.tvpiHist)).toBeNull();
+      expect(pTotals.tvpiHist[3]).toBeCloseTo((20 + 3) / 15, 6);
+      expect(growth(pTotals.fmvHist)).toBeCloseTo(((20 - 19) / 19) * 100, 6);
 
       const hTotals = holdingsPortfolioTotals([singlePendingFxFund]);
-      expect(hTotals.fmv).toBeNull();
-      expect(hTotals.moic).toBeNull();
-      expect(hTotals.fmvHist).toEqual([15, 18, null, null]);
-      expect(hTotals.tvpiHist[2]).toBeNull();
-      expect(hTotals.tvpiHist[3]).toBeNull();
-      expect(growth(hTotals.fmvHist)).toBeNull();
-      expect(growth(hTotals.tvpiHist)).toBeNull();
+      expect(hTotals.fmv).toBe(20);
+      expect(hTotals.moic).toBeCloseTo((20 + 3) / 15, 6);
+      expect(hTotals.fmvHist).toEqual([15, 18, 19, 20]);
     });
 
-    it('mixed portfolio (available + pending-FX) propagates null history and never presents partial sums as complete', () => {
+    it('mixed portfolio (available + pending-FX cash) sums holdings-only FMV and MOIC across both funds', () => {
       const normalFund: Fund = {
         id: 'f-norm',
         n: 'Available Fund',
@@ -1814,7 +1893,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 20,
         called: 10,
         calledPct: 50,
-        fmv: 16,
+        fmv: 14,
         real: 4,
         dpi: 0.4,
         tvpi: 2.0,
@@ -1828,7 +1907,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         hist: {
           committed: [20, 20, 20, 20],
           called: [5, 8, 10, 10],
-          fmv: [8, 12, 14, 16],
+          fmv: [8, 12, 13, 14],
         },
       };
 
@@ -1839,7 +1918,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 30,
         called: 15,
         calledPct: 50,
-        fmv: null,
+        fmv: 18,
         real: 2,
         dpi: 0.13,
         tvpi: null,
@@ -1850,44 +1929,34 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         fxStatus: 'pending_fx',
         reportingTotalAvailable: false,
         cashBalance: null,
-        rawFmv: null,
+        rawFmv: '18000000.00000000',
+        rawNav: null,
         hist: {
           committed: [30, 30, 30, 30],
           called: [5, 10, 15, 15],
-          fmv: [10, 14, null, null], // Pending FX
+          fmv: [10, 14, 16, 18], // Holdings-only: not blanked by pending-FX cash
         },
       };
 
       const funds = [normalFund, pendingFxFund];
 
       const pTotals = portfolioTotals(funds);
-      // Portfolio-level FMV and MOIC are null
-      expect(pTotals.fmv).toBeNull();
-      expect(pTotals.moic).toBeNull();
-      expect(pTotals.valuationCoverage).toBe('partial');
+      expect(pTotals.fmv).toBe(32);
+      expect(pTotals.moic).toBeCloseTo((32 + 6) / 25, 6);
+      expect(pTotals.valuationCoverage).toBe('complete');
       // Committed & called sum normally
       expect(pTotals.committedHist).toEqual([50, 50, 50, 50]);
       expect(pTotals.calledHist).toEqual([10, 18, 25, 25]);
-      // FMV history: Q0 & Q1 are combined (8+10=18, 12+14=26). Q2 & Q3 MUST BE NULL, NOT 14 or 16!
-      expect(pTotals.fmvHist).toEqual([18, 26, null, null]);
-      // TVPI history: Q0 & Q1 are null because real > 0 with no realization history (no fabricated 0.85); Q2 & Q3 are null because FMV is pending FX
+      expect(pTotals.fmvHist).toEqual([18, 26, 29, 32]);
+      // Q0 & Q1 are null because real > 0 with no realization history (no fabricated 0.85)
       expect(pTotals.tvpiHist[0]).toBeNull();
       expect(pTotals.tvpiHist[1]).toBeNull();
-      expect(pTotals.tvpiHist[2]).toBeNull();
-      expect(pTotals.tvpiHist[3]).toBeNull();
-      // Derived growth/delta must be null
-      expect(growth(pTotals.fmvHist)).toBeNull();
-      expect(growth(pTotals.tvpiHist)).toBeNull();
 
       const hTotals = holdingsPortfolioTotals(funds);
-      expect(hTotals.fmv).toBeNull();
-      expect(hTotals.moic).toBeNull();
-      expect(hTotals.valuationCoverage).toBe('partial');
-      expect(hTotals.fmvHist).toEqual([18, 26, null, null]);
-      expect(hTotals.tvpiHist[2]).toBeNull();
-      expect(hTotals.tvpiHist[3]).toBeNull();
-      expect(growth(hTotals.fmvHist)).toBeNull();
-      expect(growth(hTotals.tvpiHist)).toBeNull();
+      expect(hTotals.fmv).toBe(32);
+      expect(hTotals.moic).toBeCloseTo((32 + 6) / 25, 6);
+      expect(hTotals.valuationCoverage).toBe('complete');
+      expect(hTotals.fmvHist).toEqual([18, 26, 29, 32]);
     });
 
     it('DeltaBadge renders unavailable status when pct is null', () => {
@@ -1908,7 +1977,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
       expect(htmlZero).toContain('– no change');
     });
 
-    it('MetricCards renders unavailable status and unavailable delta badge for single pending-FX fund', () => {
+    it('MetricCards shows holdings-only Unrealized MV for a fund whose cash is pending FX', () => {
       const renderWithTooltip = (el: React.ReactElement) =>
         renderToStaticMarkup(React.createElement(TooltipProvider, null, el));
 
@@ -1919,7 +1988,7 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         size: 20,
         called: 10,
         calledPct: 50,
-        fmv: null,
+        fmv: 15,
         real: 1,
         dpi: 0.1,
         tvpi: null,
@@ -1930,78 +1999,58 @@ describe('Append-only reversals date-aware metrics (computeInv & computeFoF)', (
         fxStatus: 'pending_fx',
         reportingTotalAvailable: false,
         cashBalance: null,
-        rawFmv: null,
+        rawFmv: '15000000.00000000',
+        rawNav: null,
         hist: {
           committed: [20, 20, 20, 20],
           called: [5, 8, 10, 10],
-          fmv: [10, 12, null, null],
+          fmv: [10, 12, 15, 15],
         },
       };
 
       const html = renderWithTooltip(React.createElement(MetricCards, { funds: [pendingFxFund] }));
-      expect(html).toContain('Unavailable (Pending FX)');
-      // Both FMV delta and MOIC delta should show unavailable
-      expect(html).toContain('– unavailable');
+      expect(html).not.toContain('Unavailable (Pending FX)');
+      expect(html).toContain('$15M');
+      expect(html).toContain('1.60×');
     });
 
-    it('MetricCards renders unavailable status and unavailable delta badge for mixed portfolio', () => {
+    it('MetricCards shows "—" for Unrealized MV and MOIC when no holding is valued, even with cash', () => {
       const renderWithTooltip = (el: React.ReactElement) =>
         renderToStaticMarkup(React.createElement(TooltipProvider, null, el));
 
-      const normalFund: Fund = {
-        id: 'f-norm-ui',
-        n: 'Normal Fund',
-        v: 2024,
-        size: 20,
-        called: 10,
-        calledPct: 50,
-        fmv: 15,
-        real: 2,
-        dpi: 0.2,
-        tvpi: 1.7,
-        irr: 0,
-        st: 'Investing',
-        h: [makeHolding({ id: 'h-norm', cost: 10, fmv: 14, real: 2 })],
-        valuationCoverage: 'complete',
-        fxStatus: 'available',
-        reportingTotalAvailable: true,
-        cashBalance: 1,
-        hist: {
-          committed: [20, 20, 20, 20],
-          called: [5, 8, 10, 10],
-          fmv: [10, 12, 14, 15],
-        },
-      };
-
-      const pendingFxFund: Fund = {
-        id: 'f-pfx-ui-2',
-        n: 'Pending FX Fund',
+      const unvaluedFund: Fund = {
+        id: 'f-unvalued-ui',
+        n: 'Unvalued Fund',
         v: 2024,
         size: 30,
         called: 15,
         calledPct: 50,
         fmv: null,
-        real: 1,
-        dpi: 0.07,
+        real: 0,
+        dpi: 0,
         tvpi: null,
         irr: 0,
         st: 'Investing',
-        h: [makeHolding({ id: 'h-pfx', cost: 15, fmv: 18, real: 1 })],
-        valuationCoverage: 'complete',
-        fxStatus: 'pending_fx',
-        reportingTotalAvailable: false,
-        cashBalance: null,
-        rawFmv: null,
+        h: [makeHolding({ id: 'h-u', cost: 15, fmv: null, real: 0 })],
+        valuationCoverage: 'partial',
+        fxStatus: 'available',
+        reportingTotalAvailable: true,
+        cashBalance: 30,
         hist: {
           committed: [30, 30, 30, 30],
           called: [5, 10, 15, 15],
-          fmv: [12, 14, null, null],
+          fmv: [0, 0, 0, 0],
         },
       };
 
-      const html = renderWithTooltip(React.createElement(MetricCards, { funds: [normalFund, pendingFxFund] }));
-      expect(html).toContain('Unavailable (Pending FX)');
-      expect(html).toContain('– unavailable');
+      const html = renderWithTooltip(React.createElement(MetricCards, { funds: [unvaluedFund] }));
+      const mvCard = html.slice(html.indexOf('Unrealized Market Value'), html.indexOf('MOIC</div>'));
+      // The 30M of cash is never presented as market value
+      expect(mvCard).not.toContain('$30M');
+      expect(mvCard).toContain('—');
+      // And with a holding-only history there is no phantom "return" badge
+      expect(mvCard).toContain('– no change');
+      expect(html).toContain('Unavailable (holdings lack valuation)');
     });
   });
 });
@@ -2118,7 +2167,7 @@ describe('Phase 3f: entity holdings integration in merge, totals, and cards', ()
     const htmlPartial = renderWithTooltip(
       React.createElement(MetricCards, { funds: [fund], investors: [entityWithUnvalued] }),
     );
-    expect(htmlPartial).toContain('Unavailable (holdings lack valuation or FX pending)');
+    expect(htmlPartial).toContain('Unavailable (holdings lack valuation)');
   });
 
   it('5. Regression: with entities absent, every output is byte-identical to today\'s fund-only behaviour', () => {
