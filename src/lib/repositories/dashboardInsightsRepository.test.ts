@@ -242,6 +242,20 @@ describe('DashboardInsightsRepository.getStaleCandidates', () => {
       deal_captain_name: null,
     });
   });
+
+  // Regression: this query once filtered only on status/stage/created_at, so it
+  // returned every tenant's funnel deals. It must carry the same workspace
+  // predicate every other aggregate in this class does.
+  it('scopes the query to the repository workspace', async () => {
+    mockDb.where.mockResolvedValueOnce([]);
+
+    await repo.getStaleCandidates(WINDOW_FROM, WINDOW_TO);
+
+    const whereArg = mockDb.where.mock.calls[0][0] as SQL;
+    const { sql, params } = new PgDialect().sqlToQuery(whereArg);
+    expect(sql).toContain('workspace_id');
+    expect(params).toContain('workspace-1');
+  });
 });
 
 describe('DashboardInsightsRepository count helpers', () => {

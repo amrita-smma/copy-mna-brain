@@ -365,14 +365,7 @@ export class DashboardInsightsRepository {
       .from(companies)
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .leftJoin(captainUsers, eq(captainUsers.id, companies.deal_captain))
-      .where(
-        and(
-          eq(companies.status, 'active'),
-          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
-          gte(companies.created_at, from.toISOString()),
-          lte(companies.created_at, to.toISOString()),
-        ),
-      );
+      .where(this.inFunnel(from, to));
     return rows.map((r) => ({ ...r, pipeline_stage: String(r.pipeline_stage) }));
   }
 
