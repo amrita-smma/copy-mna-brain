@@ -102,6 +102,34 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "975684027760f4e9ae9822cf4256290f924a1af7",
+    "date": "2026-10-01",
+    "subject": "Add script to randomize staging worksapce",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e80cdc711035344e6f7646b45f7f9b17f037235d",
+    "date": "2026-10-01",
+    "subject": "Dashboard now filters stale-deal candidates by active workspace",
+    "category": "improvement"
+  },
+  {
+    "hash": "8c69a2115ac2e452f089aec1593c162aed318be6",
+    "date": "2026-10-01",
+    "subject": "Minority Stakes Portfolio Manager can now use Copilot for deal analysis",
+    "category": "feature"
+  },
+  {
+    "hash": "20857b643c282111f60c1213b5aa0e5dbc0babe8",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
