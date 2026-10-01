@@ -60,6 +60,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4b31565c05c33de58f2552c550e15ea9035603cc",
+    "date": "2026-10-01",
+    "subject": "Fixed erroneous debits for commitment transferors with zero holdings",
+    "category": "improvement"
+  },
+  {
+    "hash": "f29dc4aa3e16caed4d031beb41e79e9580d4bce6",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
