@@ -32,6 +32,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "9cc0b327d1f60368d1727ca7ec7d5531e119fc1a",
+    "date": "2026-10-01",
+    "subject": "Removed icon display from Insight Template List cards",
+    "category": "improvement"
+  },
+  {
+    "hash": "a465c070e6e0973ebae710f713f4ac887e1d08ad",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
