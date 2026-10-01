@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Building, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { Building, Loader2, Plus, Sparkles, SquarePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +86,7 @@ export function MatchedCompaniesCell({
     type: "add" | "remove";
     key: string;
   } | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const linkedIds = new Set(
     safeCompanies
@@ -195,6 +196,47 @@ export function MatchedCompaniesCell({
     }
   };
 
+  /**
+   * Mint a company from this file instead of linking an existing one. The
+   * typed query (if any) becomes the company name; otherwise the server falls
+   * back to whatever the agent extracted from the document, and tells us to
+   * ask for a name when it can't read one.
+   */
+  const handleCreate = async () => {
+    const name = query.trim();
+    setCreating(true);
+    try {
+      const res = await fetch(`/api/smart-files/${fileId}/create-company`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to create company");
+      }
+      const company = json.data?.company as
+        | { target?: string | null; project_name?: string | null }
+        | undefined;
+      const label =
+        company?.target?.trim() || company?.project_name?.trim() || "Company";
+      toast.success(
+        json.data?.created
+          ? `Created ${label} and linked it to this file`
+          : `${label} already exists — linked it to this file instead`,
+      );
+      setOpen(false);
+      setQuery("");
+      onChanged();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create company",
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const handleAdd = async (companyId: string) => {
     setOpen(false);
     setQuery("");
@@ -232,7 +274,8 @@ export function MatchedCompaniesCell({
     ? safeCompanies
     : safeCompanies.slice(0, VISIBLE_LIMIT);
 
-  const isBusy = pendingAction !== null;
+  const isBusy = pendingAction !== null || creating;
+  const unlinkedResults = results.filter((c) => !linkedIds.has(c.id));
   const hasOverflow = safeCompanies.length > VISIBLE_LIMIT;
 
   const addPopover = (
@@ -294,31 +337,29 @@ export function MatchedCompaniesCell({
               {loading ? "Loading..." : "No companies found."}
             </CommandEmpty>
             <CommandGroup>
-              {results
-                .filter((c) => !linkedIds.has(c.id))
-                .map((c) => {
-                  const primary = companyDisplayName(c, "Unnamed");
-                  const secondary =
-                    c.target?.trim() && c.project_name?.trim()
-                      ? c.project_name.trim()
-                      : null;
-                  return (
-                    <CommandItem
-                      key={c.id}
-                      value={c.id}
-                      onSelect={() => void handleAdd(c.id)}
-                    >
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="truncate">{primary}</span>
-                        {secondary && (
-                          <span className="truncate text-xs text-muted-foreground">
-                            {secondary}
-                          </span>
-                        )}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
+              {unlinkedResults.map((c) => {
+                const primary = companyDisplayName(c, "Unnamed");
+                const secondary =
+                  c.target?.trim() && c.project_name?.trim()
+                    ? c.project_name.trim()
+                    : null;
+                return (
+                  <CommandItem
+                    key={c.id}
+                    value={c.id}
+                    onSelect={() => void handleAdd(c.id)}
+                  >
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="truncate">{primary}</span>
+                      {secondary && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {secondary}
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                );
+              })}
               {loading && results.length > 0 && (
                 <div className="py-2 text-center text-xs text-muted-foreground">
                   Loading more...
@@ -326,6 +367,25 @@ export function MatchedCompaniesCell({
               )}
             </CommandGroup>
           </CommandList>
+          <div className="shrink-0 border-t bg-popover p-1">
+            <button
+              type="button"
+              disabled={creating}
+              onClick={() => void handleCreate()}
+              className="flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              {creating ? (
+                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <SquarePlus className="mr-2 h-4 w-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {query.trim()
+                  ? `Create new company "${query.trim()}"`
+                  : "Create new company from this file"}
+              </span>
+            </button>
+          </div>
         </Command>
       </PopoverContent>
     </Popover>

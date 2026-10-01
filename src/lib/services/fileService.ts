@@ -19,6 +19,7 @@ import type {
 } from '@/lib/fund_updates';
 import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplyService';
 import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
+import { SMART_FILES_UPLOAD_CATEGORIES } from '@/lib/smartFilesTabs';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
@@ -102,6 +103,18 @@ import { buildManagedFundNameKeys, isManagedFundName } from '@/lib/fund_updates/
 /**
  * Helper to safely extract a non-empty string jobId from an unknown response payload.
  */
+/**
+ * Raised when `createCompanyFromFile` has no name to create a company under:
+ * the file carries no extracted target, no financial-statement issuer, and no
+ * unmatched name chip, and the caller supplied none either.
+ */
+export class FileCompanyNameRequiredError extends Error {
+  constructor() {
+    super('No company name could be read from this file — type a name to create one.');
+    this.name = 'FileCompanyNameRequiredError';
+  }
+}
+
 export function asyncJobId(data: unknown): string | undefined {
   if (data && typeof data === 'object' && 'jobId' in data) {
     const id = (data as { jobId?: unknown }).jobId;
@@ -351,18 +364,15 @@ async function resolveFileIngestion(opts: {
 }
 
 /** File types that are valid `FileTypeOverride`s the agent accepts as a hint. */
-const FILE_TYPE_OVERRIDE_VALUES = new Set<FileTypeOverride>([
-  'mom',
-  'prospectus',
-  'other',
-  'shopping_list',
-  'market_study',
-  'fund_updates',
-]);
+// Typing the Set as FileTypeOverride makes this a compile-time assertion that
+// every category the upload UI offers is one the processing agent accepts.
+const FILE_TYPE_OVERRIDE_VALUES = new Set<FileTypeOverride>(
+  SMART_FILES_UPLOAD_CATEGORIES,
+);
 
 /**
  * Narrow a stored `file_type` to a `FileTypeOverride` the agent accepts. Types
- * outside the override union (e.g. `financial_statement`, `banker_communications`)
+ * outside the override union (e.g. `legal_document`, `banker_communications`)
  * return undefined so the agent classifies from content instead.
  */
 function asFileTypeOverride(fileType: string | null | undefined): FileTypeOverride | undefined {
@@ -3887,6 +3897,200 @@ function isEntityDecisionRemapped(
     return this.fileRepo.update(fileId, {
       matched_companies: current as Tables<'files'>['matched_companies'],
     });
+  }
+
+  /**
+   * Create a pipeline company from ANY Smart File, then link it to that file.
+   *
+   * Upload-time auto-ingest deliberately only mints companies for deal-target
+   * documents (`MULTI_COMPANY_FILE_TYPES`) so a buyer/lender/advisor deck or a
+   * standalone financial statement can never silently register itself as a
+   * target (MB-300). That guard is about what the classifier does unattended;
+   * it is not a rule that other documents can never describe a company worth
+   * tracking. This is the explicit, human-triggered escape hatch: a reviewer
+   * looking at a MoM, financial statement, bond issuance, or anything else can
+   * mint the company it talks about, seeded from whatever the agent already
+   * extracted.
+   *
+   * The new company lands in `unreviewed` (Inbound Pending Review) rather than
+   * L0 — one click cannot satisfy the L0 required-field set, and triage is
+   * exactly where a company sourced from a non-target document belongs.
+   *
+   * `name` (what the user typed in the chip's search box) wins over the
+   * extracted candidate. When an existing company already carries that name
+   * the file is linked to it instead of a near-duplicate being created;
+   * `created: false` tells the caller to say so.
+   */
+  async createCompanyFromFile(
+    fileId: string,
+    opts: { name?: string; enteredBy?: string | null } = {},
+  ): Promise<{ file: Tables<'files'>; company: Tables<'companies'>; created: boolean }> {
+    const file = await this.fileRepo.findById(fileId);
+    const parsedNotes = this.parseStructuredNotes(file.structured_notes);
+
+    const requestedName = opts.name?.trim() || undefined;
+    const identityName = requestedName ?? this.fileCompanyCandidateName(file, parsedNotes);
+    if (!identityName) {
+      throw new FileCompanyNameRequiredError();
+    }
+
+    // Seed the new row from the extracted entry that actually describes this
+    // name. A typed name with no matching entry seeds nothing — pulling an
+    // unrelated target's segment and financials in would be worse than a bare
+    // company row.
+    const entry = this.pickEntryForName(file, parsedNotes, identityName, Boolean(requestedName));
+
+    // Substring/suffix-stripped match only. The Levenshtein fallback that
+    // guards unattended auto-create is deliberately NOT applied here: the user
+    // explicitly asked for this name, so only a near-certain duplicate should
+    // divert them to an existing row.
+    const preexisting = await this.companyService.findByNameFuzzy(identityName);
+    if (preexisting) {
+      return {
+        file: await this.addMatchedCompany(fileId, preexisting.id),
+        company: await this.companyService.findById(preexisting.id),
+        created: false,
+      };
+    }
+
+    const result = await this.withCompanyNameLock(identityName, async (companyService) => {
+      // Re-check inside the lock so two reviewers clicking at once can't both
+      // insert the same target.
+      const raced = await companyService.findByNameFuzzy(identityName);
+      if (raced) return { companyId: raced.id, created: false };
+
+      const seeded = this.buildCompanyCreateInput(
+        entry,
+        file.file_type ?? 'other',
+        'inbound',
+      );
+      // `buildCompanyCreateInput` only fills target/project_name from the
+      // entry; a name that came from the user, a chip, or a financial
+      // statement has no entry behind it and must be set explicitly.
+      const hasIdentity = Boolean(seeded.target?.trim() || seeded.project_name?.trim());
+      const company = await companyService.createFromDTO(
+        {
+          pipeline_stage: 'unreviewed',
+          status: 'active',
+          entered_by: opts.enteredBy ?? null,
+          matched_track_ids: this.extractSuggestedTrackIds(parsedNotes),
+          ...seeded,
+          ...(hasIdentity ? {} : { target: identityName }),
+        },
+        `created_from_file:${fileId}`,
+      );
+      return { companyId: company.id, created: true };
+    });
+
+    const companyId = result.companyId;
+    if (!result.created) {
+      return {
+        file: await this.addMatchedCompany(fileId, companyId),
+        company: await this.companyService.findById(companyId),
+        created: false,
+      };
+    }
+
+    // `buildCompanyCreateInput` can only carry FY2021–FY2025 through the
+    // legacy flat DTO columns, so write the full extracted ledger separately
+    // (same rows the HITL approve path upserts).
+    const financialRows = (entry?.financials ?? []).filter(
+      (r) =>
+        r.revenue_usd_mn !== null ||
+        r.ebitda_usd_mn !== null ||
+        r.ev_usd_mn !== null ||
+        r.ebitda_margin !== null ||
+        r.ev_ebitda !== null ||
+        r.revenue_cagr_vs_prior !== null,
+    );
+    if (financialRows.length > 0) {
+      await this.companyFinancialRepo.bulkUpsertForCompany(companyId, financialRows);
+    }
+    if ((entry?.fx_adjustments ?? []).length > 0) {
+      await this.companyFxAdjustmentRepo.bulkUpsertForCompany(companyId, entry!.fx_adjustments!);
+    }
+
+    const updatedFile = await this.addMatchedCompany(fileId, companyId);
+
+    // Re-read outside the (now committed) lock transaction so screening sees
+    // matched_track_ids, then kick off the same background work a HITL
+    // approval would.
+    const company = await this.companyService.findById(companyId);
+    await this.companyAnalysisService
+      .dispatch({ companyId, source: file.file_type ?? 'other' })
+      .catch((err) => console.error('Error dispatching company analysis:', err));
+    void this.dispatchScreeningJobs(companyId, company);
+
+    return { file: updatedFile, company, created: true };
+  }
+
+  /**
+   * Best guess at the company a file is about, for the one-click create flow.
+   * Ordered most- to least-trustworthy: an extracted deal target, the company
+   * a financial statement reports on, then an AI-detected name chip that isn't
+   * already a pipeline company. Returns null when nothing usable is on the
+   * file — the caller asks the user to type a name rather than guessing from
+   * the filename, which is mostly deal codenames and version suffixes.
+   */
+  private fileCompanyCandidateName(
+    file: Tables<'files'>,
+    parsedNotes: Record<string, unknown> | null,
+  ): string | null {
+    for (const entry of this.parseExtractedCompanies(parsedNotes)) {
+      const name = this.companyIdentityName(entry);
+      if (name) return name;
+    }
+
+    const fss = parsedNotes?.financial_statement_summary as
+      | FinancialStatementSummary
+      | undefined;
+    const fssName = fss?.company_name?.trim();
+    if (fssName && !isGenericDocumentPhrase(fssName)) return fssName;
+
+    for (const match of this.normalizeMatchedCompanies(file.matched_companies)) {
+      // Chips that already carry an id are existing companies — re-creating
+      // them is exactly what this flow must not do.
+      if (typeof match.id === 'string' && match.id.length > 0) continue;
+      const name = (String(match.name ?? '').trim() || String(match.target ?? '').trim());
+      if (name && !isGenericDocumentPhrase(name)) return name;
+    }
+
+    return null;
+  }
+
+  /**
+   * The extracted entry describing `name`, or a synthetic entry carrying a
+   * financial statement's figures. `nameWasRequested` is false when `name`
+   * itself came from the first extracted entry, in which case that entry is
+   * the right seed even if the name comparison is inexact.
+   */
+  private pickEntryForName(
+    file: Tables<'files'>,
+    parsedNotes: Record<string, unknown> | null,
+    name: string,
+    nameWasRequested: boolean,
+  ): ProspectusSummary | undefined {
+    const norm = (value: string | null | undefined) => value?.trim().toLowerCase() ?? '';
+    const needle = norm(name);
+    const entries = this.parseExtractedCompanies(parsedNotes);
+    const matched = entries.find(
+      (e) => norm(e.company_name) === needle || norm(e.project_name) === needle,
+    );
+    if (matched) return matched;
+    if (!nameWasRequested && entries.length > 0) return entries[0];
+
+    const fss = parsedNotes?.financial_statement_summary as
+      | FinancialStatementSummary
+      | undefined;
+    if (fss && (!nameWasRequested || norm(fss.company_name) === needle)) {
+      return {
+        company_name: fss.company_name ?? null,
+        financials: fss.financials,
+        fx_adjustments: fss.fx_adjustments as ProspectusSummary['fx_adjustments'],
+      };
+    }
+
+    return undefined;
   }
 
   /**

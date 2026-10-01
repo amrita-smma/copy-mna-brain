@@ -89,7 +89,26 @@ pnpm test:watch    # watch mode
 
 ## Smart Files
 
-Uploaded files are processed by the File Processing Agent (`src/lib/agents/file_processing`), which classifies each document (prospectus, shopping_list, mom, banker_communications, financial_statement, legal_document, market_study, other) and extracts structured data.
+Uploaded files are processed by the File Processing Agent (`src/lib/agents/file_processing`), which classifies each document (prospectus, shopping_list, mom, banker_communications, financial_statement, bond_issuance, legal_document, market_study, fund_updates, other) and extracts structured data.
+
+### Categories
+
+`src/lib/smartFilesTabs.ts` is the single source of truth for the Smart Files
+categories. Everything downstream derives from it: the `/smart-files/<tab>`
+deep-link slugs, the tab bar and its labels, the upload-time classification
+dropdown (`SMART_FILES_UPLOAD_CATEGORIES` — every category except
+`banker_communications`, which is driven by the CSV/MBOX shape of an email
+export rather than picked by a reviewer), the HITL review dialog's
+reclassification select, and `FileRepository`'s bucketing
+(`DEDICATED_FILE_TYPES`; `other` is the inverse of that set plus NULL
+`file_type`). Adding a category means adding it there and to
+`FileTypeOverride` + the classifier prompt in
+`src/lib/agents/file_processing/index.ts`.
+
+The tab bar **hides categories with zero files** so a workspace isn't cluttered
+with buckets it never uses. The active tab and any tab whose count hasn't
+loaded yet are always shown, so deep links still render and the bar doesn't
+flash on first paint.
 
 ### Multi-company auto-ingestion
 
@@ -101,7 +120,32 @@ Deal-target file types — **prospectus** and **shopping_list** — can describe
 - Analysis + screening jobs are dispatched for each created or auto-enriched company.
 - **Note-driven inclusion** — the per-file upload notes can instruct the agent which companies to include or exclude (e.g. "only include Acme and Beta"); excluded companies are omitted from extraction entirely.
 
-Other file types (financial statements, legal documents, MoMs, buyer/sponsor/advisor material) never auto-create companies — they describe counterparties or process, not companies on sale.
+Other file types (financial statements, bond issuances, legal documents, MoMs, buyer/sponsor/advisor material) never **auto**-create companies — they describe counterparties or process, not companies on sale (MB-300).
+
+### Creating a company from any file
+
+That auto-ingest guard is about what the classifier does unattended, not a rule
+that only deal-target documents can ever mint a company. The matched-company
+chip on every Smart Files row carries a **Create new company** action
+(`POST /api/smart-files/[id]/create-company` → `FileService.createCompanyFromFile`)
+that works for *any* file type:
+
+- The name is whatever the user typed in the chip's search box; with nothing
+  typed, the service falls back to the best candidate on the file — an
+  extracted deal target, then a financial statement's issuer, then an
+  AI-detected name chip that isn't already a pipeline company. Generic document
+  headings ("Executive Summary") are rejected, and a file with no usable name
+  returns 422 asking the user to type one rather than guessing from the
+  filename.
+- The company is seeded from the extracted entry that matches that name
+  (including its full financial/FX ledger, not just the FY2021–FY2025 the flat
+  DTO carries), stamped with the file's `file_type` as `doc_type`, and created
+  at the `unreviewed` stage — one click can't satisfy the L0 required-field set,
+  and triage is where a company sourced from a non-target document belongs.
+- An existing company already carrying that name is linked to the file instead
+  of a near-duplicate being created. Creation runs under the same per-name
+  advisory lock as auto-ingest, and dispatches analysis + screening jobs like a
+  HITL approval does.
 
 ### Email-ingest notifications
 

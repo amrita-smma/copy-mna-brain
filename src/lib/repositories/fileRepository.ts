@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, ilike, isNull, notInArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { files } from '@/lib/db/schema';
+import { DEDICATED_FILE_TYPES, SMART_FILES_TABS } from '@/lib/smartFilesTabs';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export interface FileAgentSearchOptions {
@@ -28,16 +29,6 @@ export interface FileListResult {
   /** Total rows matching the filter/search, ignoring limit/offset. */
   total: number;
 }
-
-/** File types that have their own dedicated tab in the Smart Files view. */
-const DEDICATED_FILE_TYPES = [
-  'mom',
-  'prospectus',
-  'shopping_list',
-  'banker_communications',
-  'fund_updates',
-  'market_study',
-] as const;
 
 const FILE_SORT_COLUMNS: Record<FileSortField, AnyColumn> = {
   file_name: files.file_name,
@@ -126,8 +117,8 @@ export class FileRepository {
 
     const conditions: (SQL | undefined)[] = [eq(files.workspace_id, this.workspaceId)];
     if (fileType === 'other') {
-      // Capture every type that doesn't have its own dedicated tab, including
-      // financial_statement and any future classifier outputs.
+      // Capture every type that doesn't have its own dedicated tab (NULL
+      // file_type, legal_document, and any future classifier output).
       conditions.push(
         or(isNull(files.file_type), notInArray(files.file_type, [...DEDICATED_FILE_TYPES])),
       );
@@ -180,15 +171,12 @@ export class FileRepository {
       .groupBy(files.file_type);
 
     const dedicated = new Set<string>(DEDICATED_FILE_TYPES);
-    const counts: Record<string, number> = {
-      mom: 0,
-      prospectus: 0,
-      shopping_list: 0,
-      banker_communications: 0,
-      fund_updates: 0,
-      market_study: 0,
-      other: 0,
-    };
+    // Seed every tab at 0 so a bucket with no rows still reports a count —
+    // the view hides zero-count tabs and must be able to tell "no files" from
+    // "counts not loaded yet".
+    const counts: Record<string, number> = Object.fromEntries(
+      SMART_FILES_TABS.map((tab) => [tab, 0]),
+    );
 
     for (const row of rows) {
       const ft = row.file_type;

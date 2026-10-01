@@ -89,6 +89,8 @@ const mockSmartFiles = (
             banker_communications: banker.length,
             fund_updates: 0,
             market_study: 0,
+            financial_statement: 0,
+            bond_issuance: 0,
             other: other.length,
           },
         }),
@@ -167,6 +169,12 @@ test.describe('Smart Files page', () => {
     await expect(page.getByRole('tab', { name: /Prospectus/ })).toBeVisible();
     await expect(page.getByRole('tab', { name: /Banker Communications/ })).toBeVisible();
     await expect(page.getByRole('tab', { name: /Other/ })).toBeVisible();
+
+    // Categories with no files are hidden so the bar isn't cluttered with
+    // buckets this workspace never uses.
+    await expect(page.getByRole('tab', { name: /Shopping Lists/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Fund Updates/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Bond Issuances/ })).toHaveCount(0);
 
     await expect(page.getByText('Board Meeting March.pdf')).toBeVisible();
   });

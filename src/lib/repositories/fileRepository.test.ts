@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { FileRepository } from './fileRepository';
+import { DEDICATED_FILE_TYPES, SMART_FILES_TABS } from '@/lib/smartFilesTabs';
 import type { Tables } from './types';
 
 function makeDb() {
@@ -96,6 +97,19 @@ describe('FileRepository.listPaginated', () => {
     expect(orderBy.mock.calls[0]).toHaveLength(2);
   });
 
+  it('excludes every dedicated tab type from the "other" bucket', async () => {
+    const { db, whereRows } = makeListDb([], 0);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await repo.listPaginated({ fileType: 'other', limit: 10, offset: 0 });
+
+    const [condition] = whereRows.mock.calls[0];
+    const { params } = new PgDialect().sqlToQuery(condition as SQL);
+    for (const fileType of DEDICATED_FILE_TYPES) {
+      expect(params).toContain(fileType);
+    }
+  });
+
   it('adds a search filter matching file_name, tags and matched company names', async () => {
     const { db, whereRows } = makeListDb([], 0);
     const repo = new FileRepository(db, 'workspace-1');
@@ -165,5 +179,58 @@ describe('FileRepository.findByMatchedCompanyId', () => {
     const second = makeMatchedDb([]);
     await new FileRepository(second.db, 'workspace-1').findByMatchedCompanyId('company-1', 5);
     expect(second.limit).toHaveBeenCalledWith(5);
+  });
+});
+
+/** Chain for `countsByType`: `select().from().where().groupBy()`. */
+function makeCountsDb(rows: Array<{ file_type: string | null; count: number }>) {
+  const groupBy = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ groupBy });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+  return { db: { select } as never };
+}
+
+describe('FileRepository.countsByType', () => {
+  it('reports 0 (not undefined) for every tab with no rows', async () => {
+    const { db } = makeCountsDb([]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    const counts = await repo.countsByType();
+
+    // The view hides zero-count tabs, so it must be able to tell a real 0
+    // from "counts haven't loaded".
+    for (const tab of SMART_FILES_TABS) {
+      expect(counts[tab]).toBe(0);
+    }
+  });
+
+  it('gives the new financial statement and bond issuance types their own buckets', async () => {
+    const { db } = makeCountsDb([
+      { file_type: 'financial_statement', count: 4 },
+      { file_type: 'bond_issuance', count: 2 },
+    ]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    const counts = await repo.countsByType();
+
+    expect(counts.financial_statement).toBe(4);
+    expect(counts.bond_issuance).toBe(2);
+    // They used to fall through to the catch-all bucket.
+    expect(counts.other).toBe(0);
+  });
+
+  it('folds NULL and undedicated types into the "other" bucket', async () => {
+    const { db } = makeCountsDb([
+      { file_type: null, count: 3 },
+      { file_type: 'legal_document', count: 1 },
+      { file_type: 'mom', count: 5 },
+    ]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    const counts = await repo.countsByType();
+
+    expect(counts.other).toBe(4);
+    expect(counts.mom).toBe(5);
   });
 });

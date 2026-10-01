@@ -77,8 +77,10 @@ import {
   File,
   FileSpreadsheet,
   FileText,
+  FileChartColumn,
   FileUp,
   FileStack,
+  Landmark,
   Loader2,
   Pencil,
   RefreshCw,
@@ -103,7 +105,11 @@ import CompanyDetailDialog, {
 } from "@/components/pipeline/CompanyDetailDialog";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import {
+  SMART_FILES_TABS,
+  SMART_FILES_TAB_LABELS,
+  SMART_FILES_UPLOAD_CATEGORIES,
   type SmartFilesTab,
+  type SmartFilesUploadCategory,
   isSmartFilesTab,
 } from "@/lib/smartFilesTabs";
 
@@ -951,6 +957,74 @@ function TabBucketPanel({
 
 const PAGE_SIZE = 10;
 
+/**
+ * Per-tab presentation. Labels come from `SMART_FILES_TAB_LABELS` so the tab
+ * bar, the deep-link slugs, and the server-side bucketing can't drift; only
+ * the icon and empty-state copy live here.
+ */
+const TAB_PRESENTATION: Record<
+  SmartFilesTab,
+  { icon: ReactNode; iconColor: string; emptyMessage: string; emptySubMessage: string }
+> = {
+  mom: {
+    icon: <FileText className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No MoM uploaded yet.",
+    emptySubMessage: "Upload your first MoM using the form above.",
+  },
+  prospectus: {
+    icon: <FileSpreadsheet className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No prospectus uploaded yet.",
+    emptySubMessage: "Upload your first prospectus using the form above.",
+  },
+  shopping_list: {
+    icon: <FileSpreadsheet className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No shopping lists uploaded yet.",
+    emptySubMessage: "Upload your first shopping list using the form above.",
+  },
+  banker_communications: {
+    icon: <FileSpreadsheet className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No banker communications uploaded yet.",
+    emptySubMessage: "Upload CSV or MBOX files from Google Vault exports.",
+  },
+  fund_updates: {
+    icon: <FileText className="h-5 w-5" />,
+    iconColor: "text-emerald-500",
+    emptyMessage: "No fund update documents found",
+    emptySubMessage:
+      "Documents uploaded and classified as 'Fund Updates' will appear here.",
+  },
+  market_study: {
+    icon: <FileSpreadsheet className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No market studies uploaded yet.",
+    emptySubMessage: "Upload your first market study using the form above.",
+  },
+  financial_statement: {
+    icon: <FileChartColumn className="h-5 w-5" />,
+    iconColor: "text-amber-500",
+    emptyMessage: "No financial statements uploaded yet.",
+    emptySubMessage:
+      "Annual reports, audited accounts, and management accounts land here.",
+  },
+  bond_issuance: {
+    icon: <Landmark className="h-5 w-5" />,
+    iconColor: "text-violet-500",
+    emptyMessage: "No bond issuances uploaded yet.",
+    emptySubMessage:
+      "Offering circulars, pricing supplements, and MTN programme documents land here.",
+  },
+  other: {
+    icon: <File className="h-5 w-5" />,
+    iconColor: "text-blue-500",
+    emptyMessage: "No other files uploaded yet.",
+    emptySubMessage: "Upload your files using the form above.",
+  },
+};
+
 interface FileBucket {
   /** Current page of rows for this category. */
   files: FileRecord[];
@@ -1133,11 +1207,13 @@ export default function SmartFiles({
 }: SmartFilesProps) {
   const { analyzeWithAI } = useChatContext();
   const [activeTab, setActiveTab] = useState<SmartFilesTab>(initialTab);
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(
+  const [visitedTabs, setVisitedTabs] = useState<Set<SmartFilesTab>>(
     () => new Set([initialTab]),
   );
   const [globalSearch, setGlobalSearch] = useState("");
-  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+  const [tabCounts, setTabCounts] = useState<Partial<Record<SmartFilesTab, number>>>(
+    {},
+  );
 
   // Keep the URL in sync with the active tab: `/smart-files/mom`,
   // `/smart-files/prospectus`, etc.
@@ -1184,32 +1260,64 @@ export default function SmartFiles({
   // Each category owns its server-driven sort / pagination state but shares
   // the global search term so the search bar persists across tab changes.
   // Tabs are lazy-loaded: data is only fetched once the tab has been visited.
+  // One hook per tab (hooks can't be called in a loop); `bucketByTab` is the
+  // single lookup everything downstream uses.
   const mom = useFileBucket("mom", globalSearch, visitedTabs.has("mom"));
   const prospectusBucket = useFileBucket("prospectus", globalSearch, visitedTabs.has("prospectus"));
   const shoppingListBucket = useFileBucket("shopping_list", globalSearch, visitedTabs.has("shopping_list"));
   const bankerCommsBucket = useFileBucket("banker_communications", globalSearch, visitedTabs.has("banker_communications"));
   const fundUpdatesBucket = useFileBucket("fund_updates", globalSearch, visitedTabs.has("fund_updates"));
   const marketStudyBucket = useFileBucket("market_study", globalSearch, visitedTabs.has("market_study"));
+  const financialStatementBucket = useFileBucket("financial_statement", globalSearch, visitedTabs.has("financial_statement"));
+  const bondIssuanceBucket = useFileBucket("bond_issuance", globalSearch, visitedTabs.has("bond_issuance"));
   const otherBucket = useFileBucket("other", globalSearch, visitedTabs.has("other"));
 
-  const getActiveBucket = () => {
-    switch (activeTab) {
-      case "mom": return mom;
-      case "prospectus": return prospectusBucket;
-      case "shopping_list": return shoppingListBucket;
-      case "banker_communications": return bankerCommsBucket;
-      case "fund_updates": return fundUpdatesBucket;
-      case "market_study": return marketStudyBucket;
-      case "other": return otherBucket;
-      default: return mom;
-    }
-  };
-  const activeBucket = getActiveBucket();
-
-  const bucketByTab = useMemo<Record<string, FileBucket>>(
-    () => ({ mom, prospectus: prospectusBucket, shopping_list: shoppingListBucket, banker_communications: bankerCommsBucket, fund_updates: fundUpdatesBucket, market_study: marketStudyBucket, other: otherBucket }),
-    [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, otherBucket],
+  const bucketByTab = useMemo<Record<SmartFilesTab, FileBucket>>(
+    () => ({
+      mom,
+      prospectus: prospectusBucket,
+      shopping_list: shoppingListBucket,
+      banker_communications: bankerCommsBucket,
+      fund_updates: fundUpdatesBucket,
+      market_study: marketStudyBucket,
+      financial_statement: financialStatementBucket,
+      bond_issuance: bondIssuanceBucket,
+      other: otherBucket,
+    }),
+    [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, financialStatementBucket, bondIssuanceBucket, otherBucket],
   );
+  const activeBucket = bucketByTab[activeTab] ?? mom;
+
+  /**
+   * Count for a tab: once visited, the bucket's own total is authoritative
+   * (it reflects the live search); until then fall back to the counts
+   * endpoint. `undefined` means counts haven't loaded and the tab was never
+   * visited — distinct from a real 0, which hides the tab.
+   */
+  const tabCountFor = useCallback(
+    (tab: SmartFilesTab): number | undefined =>
+      visitedTabs.has(tab) ? bucketByTab[tab].total : tabCounts[tab],
+    [visitedTabs, bucketByTab, tabCounts],
+  );
+
+  /**
+   * Hide empty categories so the bar isn't cluttered with buckets this
+   * workspace never uses. Two things are always kept visible regardless of
+   * count: the active tab (so a deep link to an empty category still renders
+   * its own tab, and so the tab you're on can't vanish as you delete its last
+   * file) and any tab whose count hasn't loaded yet (otherwise every tab
+   * flashes out on first paint). If that leaves nothing — a brand-new
+   * workspace with no files at all — fall back to the full list rather than an
+   * empty bar.
+   */
+  const visibleTabs = useMemo<SmartFilesTab[]>(() => {
+    const shown = SMART_FILES_TABS.filter((tab) => {
+      if (tab === activeTab) return true;
+      const count = tabCountFor(tab);
+      return count === undefined || count > 0;
+    });
+    return shown.length > 0 ? shown : [...SMART_FILES_TABS];
+  }, [activeTab, tabCountFor]);
 
   /** Refetch only visited (already-loaded) tabs — use after upload, delete, reprocess. */
   const refetchVisited = useCallback(() => {
@@ -1245,12 +1353,11 @@ export default function SmartFiles({
   >({});
   /**
    * Per-file classification override: key = `${file.name}-${index}`.
-   * 'auto' (the default) lets the AI classify; 'mom' / 'prospectus' /
-   * 'shopping_list' / 'other' force the file_type and lock the agent's
-   * classification.
+   * 'auto' (the default) lets the AI classify; any other value forces the
+   * file_type and locks the agent's classification.
    */
   const [fileTypeOverrides, setFileTypeOverrides] = useState<
-    Record<string, "auto" | "mom" | "prospectus" | "shopping_list" | "fund_updates" | "market_study" | "other">
+    Record<string, "auto" | SmartFilesUploadCategory>
   >({});
   /**
    * Per-file pre-upload picks for "Matched Company" and "Project Name".
@@ -1993,12 +2100,7 @@ export default function SmartFiles({
                                       ...prev,
                                       [fileKey]: value as
                                         | "auto"
-                                        | "mom"
-                                        | "prospectus"
-                                        | "shopping_list"
-                                        | "fund_updates"
-                                        | "market_study"
-                                        | "other",
+                                        | SmartFilesUploadCategory,
                                     }))
                                   }
                                   disabled={uploading}
@@ -2013,20 +2115,16 @@ export default function SmartFiles({
                                     <SelectItem value="auto">
                                       Auto (AI Decides)
                                     </SelectItem>
-                                    <SelectItem value="mom">MoM</SelectItem>
-                                    <SelectItem value="prospectus">
-                                      Prospectus
-                                    </SelectItem>
-                                    <SelectItem value="shopping_list">
-                                      Shopping List
-                                    </SelectItem>
-                                    <SelectItem value="fund_updates">
-                                      Fund Updates
-                                    </SelectItem>
-                                    <SelectItem value="market_study">
-                                      Market Study
-                                    </SelectItem>
-                                    <SelectItem value="other">Other</SelectItem>
+                                    {SMART_FILES_UPLOAD_CATEGORIES.map(
+                                      (category) => (
+                                        <SelectItem
+                                          key={category}
+                                          value={category}
+                                        >
+                                          {SMART_FILES_TAB_LABELS[category]}
+                                        </SelectItem>
+                                      ),
+                                    )}
                                   </SelectContent>
                                 </Select>
                               </TableCell>
@@ -2162,296 +2260,66 @@ export default function SmartFiles({
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <div className="border-b px-2 pt-1">
             <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-0 bg-transparent px-0 pt-0">
-              {(
-              [
-                { value: "mom", label: "MoM", bucket: mom },
-                { value: "prospectus", label: "Prospectus", bucket: prospectusBucket },
-                { value: "shopping_list", label: "Shopping Lists", bucket: shoppingListBucket },
-                { value: "banker_communications", label: "Banker Communications", bucket: bankerCommsBucket },
-                { value: "fund_updates", label: "Fund Updates", bucket: fundUpdatesBucket },
-                { value: "market_study", label: "Market Study", bucket: marketStudyBucket },
-                { value: "other", label: "Other", bucket: otherBucket },
-              ].map((t) => ({
-                ...t,
-                count: visitedTabs.has(t.value) ? t.bucket.total : (tabCounts[t.value] ?? 0),
-              }))
-            ).map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                className="relative -mb-px shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-4 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300"
-              >
-                {tab.label}
-                <Badge
-                  variant="secondary"
-                  className="ml-2 h-5 min-w-5 px-1.5 text-xs font-normal"
+              {visibleTabs.map((tab) => (
+                <TabsTrigger
+                  key={tab}
+                  value={tab}
+                  className="relative -mb-px shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-4 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300"
                 >
-                  {tab.count}
-                </Badge>
-              </TabsTrigger>
-            ))}
+                  {SMART_FILES_TAB_LABELS[tab]}
+                  <Badge
+                    variant="secondary"
+                    className="ml-2 h-5 min-w-5 px-1.5 text-xs font-normal"
+                  >
+                    {tabCountFor(tab) ?? 0}
+                  </Badge>
+                </TabsTrigger>
+              ))}
             </TabsList>
           </div>
 
-          <TabsContent value="mom" className="mt-0">
-            <TabBucketPanel loading={mom.initialLoading}>
-            <FileTable
-              title="MoM"
-              icon={<FileText className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={mom.files}
-              total={mom.total}
-              searchQuery={mom.search}
-              onSearchChange={mom.setSearch}
-              sortField={mom.sortField}
-              sortDirection={mom.sortDirection}
-              onSort={mom.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No MoM uploaded yet."
-              emptySubMessage="Upload your first MoM using the form above."
-              currentPage={mom.page}
-              onPageChange={mom.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="prospectus" className="mt-0">
-            <TabBucketPanel loading={prospectusBucket.initialLoading}>
-            <FileTable
-              title="Prospectus"
-              icon={<FileSpreadsheet className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={prospectusBucket.files}
-              total={prospectusBucket.total}
-              searchQuery={prospectusBucket.search}
-              onSearchChange={prospectusBucket.setSearch}
-              sortField={prospectusBucket.sortField}
-              sortDirection={prospectusBucket.sortDirection}
-              onSort={prospectusBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No prospectus uploaded yet."
-              emptySubMessage="Upload your first prospectus using the form above."
-              currentPage={prospectusBucket.page}
-              onPageChange={prospectusBucket.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="shopping_list" className="mt-0">
-            <TabBucketPanel loading={shoppingListBucket.initialLoading}>
-            <FileTable
-              title="Shopping Lists"
-              icon={<FileSpreadsheet className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={shoppingListBucket.files}
-              total={shoppingListBucket.total}
-              searchQuery={shoppingListBucket.search}
-              onSearchChange={shoppingListBucket.setSearch}
-              sortField={shoppingListBucket.sortField}
-              sortDirection={shoppingListBucket.sortDirection}
-              onSort={shoppingListBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No shopping lists uploaded yet."
-              emptySubMessage="Upload a target list using the form above."
-              currentPage={shoppingListBucket.page}
-              onPageChange={shoppingListBucket.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="banker_communications" className="mt-0">
-            <TabBucketPanel loading={bankerCommsBucket.initialLoading}>
-            <FileTable
-              title="Banker Communications"
-              icon={<FileSpreadsheet className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={bankerCommsBucket.files}
-              total={bankerCommsBucket.total}
-              searchQuery={bankerCommsBucket.search}
-              onSearchChange={bankerCommsBucket.setSearch}
-              sortField={bankerCommsBucket.sortField}
-              sortDirection={bankerCommsBucket.sortDirection}
-              onSort={bankerCommsBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No banker communications uploaded yet."
-              emptySubMessage="Upload CSV or MBOX files from Google Vault exports."
-              currentPage={bankerCommsBucket.page}
-              onPageChange={bankerCommsBucket.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="fund_updates" className="mt-0">
-            <TabBucketPanel loading={fundUpdatesBucket.initialLoading}>
-            <FileTable
-              title="Fund Updates"
-              icon={<FileText className="h-5 w-5" />}
-              iconColor="text-emerald-500"
-              files={fundUpdatesBucket.files}
-              total={fundUpdatesBucket.total}
-              searchQuery={fundUpdatesBucket.search}
-              onSearchChange={fundUpdatesBucket.setSearch}
-              sortField={fundUpdatesBucket.sortField}
-              sortDirection={fundUpdatesBucket.sortDirection}
-              onSort={fundUpdatesBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No fund update documents found"
-              emptySubMessage="Documents uploaded and classified as 'Fund Updates' will appear here."
-              currentPage={fundUpdatesBucket.page}
-              onPageChange={fundUpdatesBucket.setPage}
-              itemsPerPage={PAGE_SIZE}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="market_study" className="mt-0">
-            <TabBucketPanel loading={marketStudyBucket.initialLoading}>
-            <FileTable
-              title="Market Study"
-              icon={<FileSpreadsheet className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={marketStudyBucket.files}
-              total={marketStudyBucket.total}
-              searchQuery={marketStudyBucket.search}
-              onSearchChange={marketStudyBucket.setSearch}
-              sortField={marketStudyBucket.sortField}
-              sortDirection={marketStudyBucket.sortDirection}
-              onSort={marketStudyBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No market studies uploaded yet."
-              emptySubMessage="Upload your first market study using the form above."
-              currentPage={marketStudyBucket.page}
-              onPageChange={marketStudyBucket.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
-
-          <TabsContent value="other" className="mt-0">
-            <TabBucketPanel loading={otherBucket.initialLoading}>
-            <FileTable
-              title="Other"
-              icon={<File className="h-5 w-5" />}
-              iconColor="text-blue-500"
-              files={otherBucket.files}
-              total={otherBucket.total}
-              searchQuery={otherBucket.search}
-              onSearchChange={otherBucket.setSearch}
-              sortField={otherBucket.sortField}
-              sortDirection={otherBucket.sortDirection}
-              onSort={otherBucket.onSort}
-              expandedTags={expandedTags}
-              toggleTags={toggleTags}
-              expandedCompanies={expandedCompanies}
-              toggleCompanies={toggleCompanies}
-              onOpenCompany={openCompany}
-              onMatchedCompaniesChanged={refetchAll}
-              onUpdateDate={handleUpdateDate}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
-              onViewFundUpdateParsed={setViewFundUpdateFileId}
-              onReprocess={handleReprocess}
-              downloadingId={downloadingId}
-              deletingId={deletingId}
-              reprocessingId={reprocessingId}
-              emptyMessage="No other files uploaded yet."
-              emptySubMessage="Upload your files using the form above."
-              currentPage={otherBucket.page}
-              onPageChange={otherBucket.setPage}
-              hideTitle
-            />
-            </TabBucketPanel>
-          </TabsContent>
+          {visibleTabs.map((tab) => {
+            const bucket = bucketByTab[tab];
+            const presentation = TAB_PRESENTATION[tab];
+            return (
+              <TabsContent key={tab} value={tab} className="mt-0">
+                <TabBucketPanel loading={bucket.initialLoading}>
+                  <FileTable
+                    title={SMART_FILES_TAB_LABELS[tab]}
+                    icon={presentation.icon}
+                    iconColor={presentation.iconColor}
+                    files={bucket.files}
+                    total={bucket.total}
+                    searchQuery={bucket.search}
+                    onSearchChange={bucket.setSearch}
+                    sortField={bucket.sortField}
+                    sortDirection={bucket.sortDirection}
+                    onSort={bucket.onSort}
+                    expandedTags={expandedTags}
+                    toggleTags={toggleTags}
+                    expandedCompanies={expandedCompanies}
+                    toggleCompanies={toggleCompanies}
+                    onOpenCompany={openCompany}
+                    onMatchedCompaniesChanged={refetchAll}
+                    onUpdateDate={handleUpdateDate}
+                    onDownload={handleDownload}
+                    onDelete={handleDelete}
+                    onReview={(id, fileType) => setReviewFile({ id, file_type: fileType })}
+                    onViewFundUpdateParsed={setViewFundUpdateFileId}
+                    onReprocess={handleReprocess}
+                    downloadingId={downloadingId}
+                    deletingId={deletingId}
+                    reprocessingId={reprocessingId}
+                    emptyMessage={presentation.emptyMessage}
+                    emptySubMessage={presentation.emptySubMessage}
+                    currentPage={bucket.page}
+                    onPageChange={bucket.setPage}
+                    hideTitle
+                  />
+                </TabBucketPanel>
+              </TabsContent>
+            );
+          })}
         </Tabs>
         </Card>
       </div>

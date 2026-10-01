@@ -117,6 +117,7 @@ export const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'mom', label: 'MOM' },
   { value: 'financial_model', label: 'Financial Model' },
   { value: 'financial_statement', label: 'Financial Statement' },
+  { value: 'bond_issuance', label: 'Bond Issuance' },
   { value: 'shopping_list', label: 'Shopping List' },
   { value: 'market_study', label: 'Market Study' },
   { value: 'market_research', label: 'Market Research' },

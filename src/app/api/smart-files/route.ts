@@ -8,11 +8,17 @@ import {
   UserWorkspaceRepository,
   type FileSortField,
 } from '@/lib/repositories';
+import {
+  SMART_FILES_UPLOAD_CATEGORIES,
+  type SmartFilesUploadCategory,
+} from '@/lib/smartFilesTabs';
 
 export const maxDuration = 600;
 
-const FILE_TYPE_OVERRIDES = ['mom', 'prospectus', 'other', 'shopping_list', 'market_study', 'fund_updates'] as const;
-type FileTypeOverrideValue = (typeof FILE_TYPE_OVERRIDES)[number];
+// The categories a user may force are exactly the ones the upload UI offers;
+// `fileService` asserts at compile time that the agent accepts all of them.
+const FILE_TYPE_OVERRIDES = SMART_FILES_UPLOAD_CATEGORIES;
+type FileTypeOverrideValue = SmartFilesUploadCategory;
 
 function parseFileTypeOverride(value: unknown): FileTypeOverrideValue | undefined {
   if (typeof value !== 'string') return undefined;

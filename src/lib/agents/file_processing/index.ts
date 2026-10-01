@@ -39,7 +39,9 @@ export type FileTypeOverride =
   | 'other'
   | 'shopping_list'
   | 'market_study'
-  | 'fund_updates';
+  | 'fund_updates'
+  | 'financial_statement'
+  | 'bond_issuance';
 
 /**
  * File types whose documents describe deal targets and therefore emit the
@@ -123,9 +125,10 @@ ${userRawNotes}
    - **Project-in-Company**: A codename explicitly associated with a known company in the document (e.g. "Project Tulia (PT Sinar Mas)"). Set both 'company_name' and 'project_name'.
    Actively scan for project codenames even if they don't match the Known Companies list — treat them as valid detected entities.
    **IMPORTANT — Do NOT classify document section headings as company or project names.** Common false positives to reject: "Project Overview", "Project Summary", "Project Background", "Company Overview", "Company Profile", "Business Overview", "Executive Summary", "Transaction Overview", "Transaction Summary", "Deal Overview", "Investment Highlights", "Financial Summary", "Management Overview", "Market Overview", "Opportunity Overview", "Sector Overview". A real project codename is a unique proper name chosen to identify a deal (e.g. "Project Tulia", "Project Phoenix", "Project Atlas") — not a generic document structure phrase. If the only candidate is a generic heading, leave 'project_name' null.
-4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", "fund_updates", or "other".
+4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "bond_issuance", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", "fund_updates", or "other".
    - **prospectus**: ONLY for a document that OFFERS A COMPANY OR BUSINESS FOR SALE to prospective buyers — a teaser, information memorandum (IM), confidential information memorandum (CIM), sale prospectus, or pitch deck marketing a target. The defining test: *is this document presenting a company/asset that is up for acquisition?* If you are not sure a company is being offered for sale, it is NOT a prospectus.
    - **financial_statement**: audited or management financial statements, annual reports, AFS, balance sheets, P&L, or cash-flow statements presented on their own. These describe a company's finances but do NOT offer it for sale.
+   - **bond_issuance**: debt-capital-markets material for a bond, note, or sukuk issue — offering circulars, prospectuses for a bond/notes programme, pricing supplements, term sheets for an issuance, rating-agency reports on an issuer's notes, and MTN programme documents. The defining test: *is this document raising or describing DEBT rather than offering equity/the business for sale?* A bond offering circular is NOT a "prospectus" in this taxonomy even when it calls itself one.
    - **legal_document**: SPAs, share/stock purchase agreements, term sheets, credit agreements, commitment papers, NDAs, and other transaction legal documents.
    - **mom**: meeting minutes, meeting notes, or call summaries.
    - **banker_communications**: an email export (CSV or MBOX) containing email threads, especially from bankers or investment professionals.

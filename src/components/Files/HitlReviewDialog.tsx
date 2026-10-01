@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { getUsers, type UserSummary } from "@/lib/api/pipeline";
 import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
+import { SMART_FILES_TABS, SMART_FILES_TAB_LABELS } from "@/lib/smartFilesTabs";
 
 interface SuggestedCompany {
   target: string | null;
@@ -388,10 +389,11 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="prospectus">Prospectus</SelectItem>
-                    <SelectItem value="mom">MoM</SelectItem>
-                    <SelectItem value="banker_communications">Banker Comms</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {SMART_FILES_TABS.map((tab) => (
+                      <SelectItem key={tab} value={tab}>
+                        {SMART_FILES_TAB_LABELS[tab]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {reviewData.ai.file_type && reviewData.ai.file_type !== fileType && (

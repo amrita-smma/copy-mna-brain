@@ -12,7 +12,11 @@ import {
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CompanyService } from './companyService';
-import { FileService, type ApproveFileInput } from './fileService';
+import {
+  FileService,
+  FileCompanyNameRequiredError,
+  type ApproveFileInput,
+} from './fileService';
 
 vi.mock('@/lib/s3', () => ({
   downloadFile: vi.fn(),
@@ -247,6 +251,275 @@ function makeService(overrides: {
     makeUserWorkspaceRepoStub(),
   );
 }
+
+describe('FileService.createCompanyFromFile', () => {
+  let fileRepo: FileRepository;
+  let companyService: CompanyService;
+  let companyFinancialRepo: CompanyFinancialRepository;
+  let companyFxAdjustmentRepo: CompanyFxAdjustmentRepository;
+  let companyAnalysisService: CompanyAnalysisService;
+  let service: FileService;
+
+  beforeEach(() => {
+    fileRepo = makeFileRepoStub();
+    companyService = makeCompanyServiceStub();
+    companyFinancialRepo = makeCompanyFinancialRepoStub();
+    companyFxAdjustmentRepo = makeCompanyFxAdjustmentRepoStub();
+    companyAnalysisService = makeCompanyAnalysisServiceStub();
+    // Constructed directly with a null db (not via `makeService`, whose `??`
+    // default would substitute a transaction-capable mock): with no
+    // `transaction` on the client, `withCompanyNameLock` runs its callback
+    // against the injected CompanyService stub rather than building a
+    // transaction-bound one the test can't observe.
+    service = new FileService(
+      null as unknown as DbClient,
+      'workspace-1',
+      fileRepo,
+      companyAnalysisService,
+      makeAIScreeningServiceStub(),
+      makeCriteriaRepoStub(),
+      makeScreeningRepoStub(),
+      companyFinancialRepo,
+      companyService,
+      companyFxAdjustmentRepo,
+      makeUserWorkspaceRepoStub(),
+    );
+    vi.mocked(fileRepo.update).mockImplementation(async (_id, updates) =>
+      makeFile({ ...updates } as Partial<FileRow>),
+    );
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue(undefined as never);
+  });
+
+  it('creates an unreviewed company from a non-deal-target file (MoM)', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-mom',
+        file_type: 'mom',
+        structured_notes: JSON.stringify({
+          matched_companies: [{ name: 'Helios Energy' }],
+        }),
+        matched_companies: [{ name: 'Helios Energy' }] as never,
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }),
+    );
+
+    const result = await service.createCompanyFromFile('file-mom');
+
+    expect(result.created).toBe(true);
+    const [dto, reason] = vi.mocked(companyService.createFromDTO).mock.calls[0];
+    expect(dto).toMatchObject({
+      pipeline_stage: 'unreviewed',
+      target: 'Helios Energy',
+      // doc_type records the document the company was sourced from.
+      doc_type: 'mom',
+    });
+    expect(reason).toBe('created_from_file:file-mom');
+  });
+
+  it('seeds the company from the extracted deal-target entry when the file has one', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-pros',
+        file_type: 'prospectus',
+        structured_notes: JSON.stringify({
+          companies: [
+            {
+              company_name: 'Acme Corp',
+              segment: 'Industrials',
+              geography: 'Indonesia',
+              financials: [
+                {
+                  fiscal_year: 2019,
+                  revenue_usd_mn: 12,
+                  ebitda_usd_mn: null,
+                  ev_usd_mn: null,
+                  ebitda_margin: null,
+                  ev_ebitda: null,
+                  revenue_cagr_vs_prior: null,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Acme Corp' }) as never,
+    );
+
+    await service.createCompanyFromFile('file-pros');
+
+    expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+      target: 'Acme Corp',
+      segment: 'Industrials',
+      geography: 'Indonesia',
+    });
+    // FY2019 is outside the legacy flat DTO's 2021–2025 window, so it can only
+    // reach the company through the normalized ledger.
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith('company-new', [
+      expect.objectContaining({ fiscal_year: 2019, revenue_usd_mn: 12 }),
+    ]);
+  });
+
+  it('carries a financial statement\'s issuer and figures into the new company', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-fs',
+        file_type: 'financial_statement',
+        structured_notes: JSON.stringify({
+          financial_statement_summary: {
+            company_name: 'Borneo Mining',
+            financials: [
+              {
+                fiscal_year: 2023,
+                revenue_usd_mn: 88,
+                ebitda_usd_mn: 20,
+                ev_usd_mn: null,
+                ebitda_margin: null,
+                ev_ebitda: null,
+                revenue_cagr_vs_prior: null,
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Borneo Mining' }) as never,
+    );
+
+    const result = await service.createCompanyFromFile('file-fs');
+
+    expect(result.created).toBe(true);
+    expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+      target: 'Borneo Mining',
+      doc_type: 'financial_statement',
+    });
+    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith('company-new', [
+      expect.objectContaining({ fiscal_year: 2023, revenue_usd_mn: 88 }),
+    ]);
+  });
+
+  it('prefers the caller-supplied name over the extracted candidate', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        file_type: 'bond_issuance',
+        structured_notes: JSON.stringify({
+          companies: [{ company_name: 'Extracted Co' }],
+        }),
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Typed Co' }) as never,
+    );
+
+    await service.createCompanyFromFile('file-1', { name: '  Typed Co  ' });
+
+    // The typed name matches no extracted entry, so nothing from the unrelated
+    // "Extracted Co" entry may leak into the new row.
+    expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+      target: 'Typed Co',
+    });
+    expect(
+      vi.mocked(companyService.createFromDTO).mock.calls[0][0].project_name,
+    ).toBeUndefined();
+  });
+
+  it('links an existing company instead of creating a near-duplicate', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_type: 'mom', matched_companies: [] }),
+    );
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-existing', target: 'Acme Corp' }),
+    );
+
+    const result = await service.createCompanyFromFile('file-1', { name: 'Acme Corp' });
+
+    expect(result.created).toBe(false);
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(vi.mocked(fileRepo.update).mock.calls[0][1].matched_companies).toEqual([
+      expect.objectContaining({ id: 'company-existing', type: 'company' }),
+    ]);
+  });
+
+  it('links the new company to the file and dispatches analysis', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_type: 'mom', matched_companies: [] }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }),
+    );
+
+    await service.createCompanyFromFile('file-1', { name: 'Helios Energy' });
+
+    expect(vi.mocked(fileRepo.update).mock.calls[0][1].matched_companies).toEqual([
+      expect.objectContaining({ id: 'company-new', name: 'Helios Energy' }),
+    ]);
+    expect(companyAnalysisService.dispatch).toHaveBeenCalledWith({
+      companyId: 'company-new',
+      source: 'mom',
+    });
+  });
+
+  it('rejects a file with no extractable name and no caller-supplied name', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', file_type: 'other', structured_notes: null, matched_companies: [] }),
+    );
+
+    await expect(service.createCompanyFromFile('file-1')).rejects.toBeInstanceOf(
+      FileCompanyNameRequiredError,
+    );
+    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+  });
+
+  it('ignores name chips that are already pipeline companies', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        file_type: 'other',
+        matched_companies: [
+          { id: 'company-1', name: 'Already Linked', type: 'company' },
+          { name: 'Only Suggested' },
+        ] as never,
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Only Suggested' }) as never,
+    );
+
+    await service.createCompanyFromFile('file-1');
+
+    expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+      target: 'Only Suggested',
+    });
+  });
+
+  it('rejects a generic document heading as a company name', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-1',
+        file_type: 'other',
+        matched_companies: [{ name: 'Executive Summary' }] as never,
+      }),
+    );
+
+    await expect(service.createCompanyFromFile('file-1')).rejects.toBeInstanceOf(
+      FileCompanyNameRequiredError,
+    );
+  });
+});
 
 describe('FileService.processUpload', () => {
   let fileRepo: FileRepository;
