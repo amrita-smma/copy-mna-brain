@@ -130,6 +130,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7923663d3941b8e882b485c27c44781a63884bad",
+    "date": "2026-10-01",
+    "subject": "Dashboard loads faster with optimized data requests",
+    "category": "improvement"
+  },
+  {
+    "hash": "3a7e6646bf0f0179050e8c01839d0b436a8d7675",
+    "date": "2026-10-01",
+    "subject": "Eliminated unnecessary loading spinners on page load for faster perceived performance",
+    "category": "improvement"
+  },
+  {
+    "hash": "dce2bcc57ce5c9d22e6243a7d78ff99604c7023d",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
