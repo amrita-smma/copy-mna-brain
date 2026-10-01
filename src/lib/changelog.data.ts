@@ -46,6 +46,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "81a6b667d8d3835f0d70ad05932b31e10f3a2682",
+    "date": "2026-10-01",
+    "subject": "Select multiple insights using chips with drag-select and keyboard shortcuts",
+    "category": "improvement"
+  },
+  {
+    "hash": "b190e8c0886d7db366e102885936e4c4a04114dd",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
