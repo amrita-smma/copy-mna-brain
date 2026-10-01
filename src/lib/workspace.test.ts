@@ -192,6 +192,19 @@ describe('runWithWorkforceWorkspaceId', () => {
     expect(result).toBe('run-ws-4');
     expect(mockAuth).not.toHaveBeenCalled();
   });
+
+  // The request-derived resolution is memoized per request; the ALS lookup
+  // deliberately sits OUTSIDE that memo. Two workforce runs share a process, so
+  // caching the store read would hand the second run the first run's workspace.
+  it('gives each run its own workspace id when several run in the same process', async () => {
+    mockAuth.mockRejectedValue(new Error('should not be called'));
+
+    const first = await runWithWorkforceWorkspaceId('run-ws-5', () => getActiveWorkspaceId());
+    const second = await runWithWorkforceWorkspaceId('run-ws-6', () => getActiveWorkspaceId());
+
+    expect(first).toBe('run-ws-5');
+    expect(second).toBe('run-ws-6');
+  });
 });
 
 describe('workspaceSlugFromClaims', () => {

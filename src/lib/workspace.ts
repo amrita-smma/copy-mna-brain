@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { cache } from 'react';
 import { MNA_WORKSPACE_ID, NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 
 /**
@@ -56,19 +57,17 @@ export function runWithWorkforceWorkspaceId<T>(workspaceId: string, fn: () => T)
  *    (`NO_ACTIVE_WORKSPACE_ID`, which matches no real workspace row) rather
  *    than silently serve another tenant's data.
  *
- * The dynamic import of `@/auth` is load-bearing, not stylistic: a static
- * import here would close a real cycle (`auth.ts` -> `container.ts` ->
- * ... -> `workspace.ts`) and would pull this node-only module into the edge
- * bundle.
+ * The dynamic import of the session module is load-bearing, not stylistic: it
+ * reaches `@/auth`, and a static import here would close a real cycle
+ * (`auth.ts` -> `container.ts` -> ... -> `workspace.ts`) and would pull this
+ * node-only module into the edge bundle.
  */
-export async function getActiveWorkspaceId(): Promise<string> {
-  const workforceWorkspaceId = workforceWorkspaceContext.getStore();
-  if (workforceWorkspaceId) {
-    return workforceWorkspaceId;
-  }
+const rawResolveFromRequest = async (): Promise<string> => {
   try {
-    const { auth } = await import('@/auth');
-    const session = await auth();
+    // Goes through the shared request-memoized `getSession` rather than calling
+    // `auth()` directly, so the layout's read and this one are the same decrypt.
+    const { getSession } = await import('@/lib/server/session');
+    const session = await getSession();
     if (session?.user) {
       const { headers } = await import('next/headers');
       const requestHeaders = await headers();
@@ -94,6 +93,29 @@ export async function getActiveWorkspaceId(): Promise<string> {
     // No request scope — fall through to the legacy constant below.
   }
   return MNA_WORKSPACE_ID;
+};
+
+/**
+ * Request-scoped memo of the resolution above. Every `auth()` call decrypts the
+ * session JWE, and a single page render resolves the workspace several times
+ * over (the layout, then once per feature flag) — `cache` collapses those into
+ * one decrypt per request. Zero-arg, so the cache key is the request itself.
+ *
+ * Guarded the same way `@/lib/features/overrides` guards its own `cache` use:
+ * `cache` only exists in a React server runtime, so fall back to the raw
+ * resolver elsewhere (e.g. vitest, job handlers).
+ */
+const resolveFromRequest =
+  typeof cache === 'function' ? cache(rawResolveFromRequest) : rawResolveFromRequest;
+
+export async function getActiveWorkspaceId(): Promise<string> {
+  // Deliberately outside the memo: the workforce store varies per run, and two
+  // runs can share a process. Only the request-derived path is cacheable.
+  const workforceWorkspaceId = workforceWorkspaceContext.getStore();
+  if (workforceWorkspaceId) {
+    return workforceWorkspaceId;
+  }
+  return resolveFromRequest();
 }
 
 /** Raised by `getActiveWorkspaceIdOrThrow` — see that function's doc comment. */

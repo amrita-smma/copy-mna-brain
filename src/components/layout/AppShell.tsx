@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { ProtectedRoute, type ProtectedRouteUser } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import {
@@ -86,7 +86,16 @@ import {
  *    the copilot docked to the right. Expanding the copilot keeps the URL, so
  *    collapsing returns to the same page.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialUser,
+}: {
+  children: ReactNode;
+  /** The session user the workspace layout already authenticated server-side.
+   *  Forwarded to `ProtectedRoute` so the gate doesn't flash a spinner while
+   *  the client session resolves. */
+  initialUser?: ProtectedRouteUser | null;
+}) {
   const pathname = usePathname();
   const isMobile = useIsMobile();
   const { focusComposer } = useChatContext();
@@ -213,7 +222,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // drawer); every other tab renders its page content above the bottom nav.
   if (isMobile) {
     return (
-      <ProtectedRoute>
+      <ProtectedRoute initialUser={initialUser}>
         <PageContextProvider>
           {/* Mobile has no docked pane to uncover — the destination route just
               replaces the chat screen — but navigate_page must still work here,
@@ -238,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute initialUser={initialUser}>
       <LivingBackground variant="default" />
       <PageContextProvider>
         <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>

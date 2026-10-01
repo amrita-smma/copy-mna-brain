@@ -7,8 +7,30 @@ import { loginUrlWithCallback } from '@/lib/callbackUrl';
 import { isEmbedded, postToLauncher } from '@/lib/iframe';
 import { Loader2 } from 'lucide-react';
 
+/** The fields this gate actually reads off a user. Structurally compatible with
+ *  both `useAuth()`'s memoized user and the server session's `user`. */
+export interface ProtectedRouteUser {
+  isSuperadmin: boolean;
+  workspaces: readonly { slug: string }[];
+}
+
 interface ProtectedRouteProps {
   children: ReactNode;
+  /**
+   * The user the **server** already authenticated for this request, passed down
+   * from the workspace layout.
+   *
+   * `useSession` starts out `loading` and only settles after a client-side
+   * `GET /api/auth/session` round trip. Without this, that window renders a
+   * full-screen spinner — on the server too, since SSR sees the same `loading`
+   * state — so every page load showed a spinner first and the server's own
+   * render was thrown away. Seeding it lets the gate open immediately on a
+   * request the server already validated.
+   *
+   * Only trusted while `loading`; once the client session settles it wins, so
+   * an expired session still redirects.
+   */
+  initialUser?: ProtectedRouteUser | null;
 }
 
 /**
@@ -18,8 +40,13 @@ interface ProtectedRouteProps {
  * from the URL, not the session's globally-active `workspaceId`, so this
  * check is correct even when a tab's URL differs from the session's claim.
  */
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+export function ProtectedRoute({ children, initialUser }: ProtectedRouteProps) {
+  const { user: sessionUser, loading } = useAuth();
+  // While the client session is still resolving, fall back to the user the
+  // server already authenticated. Once it settles, the client session is the
+  // only source of truth — otherwise a session that expired mid-visit would
+  // keep rendering against a stale server snapshot.
+  const user = loading ? (sessionUser ?? initialUser ?? null) : sessionUser;
   const router = useRouter();
   const params = useParams<{ workspaceSlug?: string }>();
   const pathname = usePathname();
@@ -51,7 +78,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
   }, [user, loading, router, params.workspaceSlug, pathname, searchParams]);
 
-  if (loading) {
+  // Only block on the session when the server didn't hand us one to start from.
+  if (loading && !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

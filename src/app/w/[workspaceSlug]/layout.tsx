@@ -1,10 +1,12 @@
 import { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
-import { auth } from '@/auth';
+import { getSession } from '@/lib/server/session';
 import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
+import { normalizeCopilotAgent } from '@/lib/services/workspaceService';
+import { normalizeCurrency } from '@/lib/currency';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 import { AppShell } from '@/components/layout/AppShell';
@@ -32,7 +34,7 @@ export default async function WorkspaceLayout({
   children: ReactNode;
   params: Promise<{ workspaceSlug: string }>;
 }) {
-  const session = await auth();
+  const session = await getSession();
   const { workspaceSlug } = await params;
   if (!session?.user) {
     // Preserve the deeplink, same as the `proxy.ts` gate that normally catches
@@ -69,11 +71,13 @@ export default async function WorkspaceLayout({
   }
 
   const workspaceId = workspace.id;
-  const [copilotAgent, defaultCurrency, featureFlags] = await Promise.all([
-    workspaceService.getCopilotAgent(workspaceId),
-    workspaceService.getDefaultCurrency(workspaceId),
-    resolveWorkspaceFeatureFlags(workspaceId),
-  ]);
+  // `copilot_agent` and `default_currency` are columns on the row we just
+  // fetched, so normalize them in place. Calling `getCopilotAgent` /
+  // `getDefaultCurrency` here would re-SELECT this same workspace row twice
+  // more — three identical reads on the critical path of every page load.
+  const copilotAgent = normalizeCopilotAgent(workspace.copilot_agent);
+  const defaultCurrency = normalizeCurrency(workspace.default_currency);
+  const featureFlags = await resolveWorkspaceFeatureFlags(workspaceId);
 
   return (
     <CopilotAgentProvider agentType={copilotAgent}>
@@ -90,7 +94,17 @@ export default async function WorkspaceLayout({
                 above the routed `children`, moving between console tabs is a
                 soft navigation that swaps only the page — the sidebar, the
                 copilot pane, and any in-flight chat stream stay mounted. */}
-            <AppShell>{children}</AppShell>
+            {/* `initialUser` is the session this layout already gated on, handed
+                to the client gate so it doesn't re-block on `useSession` and
+                flash a spinner over a page the server has already authorized. */}
+            <AppShell
+              initialUser={{
+                isSuperadmin: session.user.isSuperadmin ?? false,
+                workspaces: session.user.workspaces ?? [],
+              }}
+            >
+              {children}
+            </AppShell>
           </TableLayoutProvider>
         </FeatureFlagsProvider>
       </WorkspaceCurrencyProvider>

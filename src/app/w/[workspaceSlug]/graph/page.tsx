@@ -1,5 +1,5 @@
 import CompanyGraph from '@/views/CompanyGraph';
-import { auth } from '@/auth';
+import { getSession } from '@/lib/server/session';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { getActiveWorkspaceId } from '@/lib/workspace';
@@ -11,7 +11,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 export default async function GraphPage() {
   // Resolve whether the current user is a workspace admin — only admins may
   // combine companies. Computed server-side and passed as a boolean prop.
-  const session = await auth();
+  const session = await getSession();
   let isWorkspaceAdmin = false;
   if (session?.user?.id) {
     const workspaceId = await getActiveWorkspaceId();
