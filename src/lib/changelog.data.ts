@@ -88,6 +88,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "38fe95758c40dae2613b4db749ae5adde28b2d34",
+    "date": "2026-10-01",
+    "subject": "Enable manual company creation directly from Smart Files with expanded document categories",
+    "category": "feature"
+  },
+  {
+    "hash": "3cda5f3a835ddc667bfec87794ebe7fed2fcf35d",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "f08679b23c5ef65ec43b48f0f2edf9402726a233",
     "date": "2026-09-30",
     "subject": "Uploaded documents now format correctly when sent via email",
