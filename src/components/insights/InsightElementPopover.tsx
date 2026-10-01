@@ -10,6 +10,8 @@ export interface InsightElementPopoverProps {
   label: string;
   /** How many elements the selection holds; the box speaks for all of them. */
   count?: number;
+  /** The selection is words the user highlighted, not elements. */
+  textPick?: boolean;
   anchor: {
     top: number;
     left: number;
@@ -32,6 +34,7 @@ export interface InsightElementPopoverProps {
 export function InsightElementPopover({
   label,
   count = 1,
+  textPick = false,
   anchor,
   onSubmit,
   onClose,
@@ -97,9 +100,11 @@ export function InsightElementPopover({
       ref={popoverRef}
       role="dialog"
       aria-label={
-        count > 1
-          ? `Ask CoPilot about ${count} selected elements`
-          : `Ask CoPilot about the selected <${label}>`
+        textPick
+          ? 'Ask CoPilot about the highlighted text'
+          : count > 1
+            ? `Ask CoPilot about ${count} selected elements`
+            : `Ask CoPilot about the selected <${label}>`
       }
       style={{ top: coords.top, left: coords.left }}
       className="absolute z-50 w-80 rounded-lg border border-border bg-card p-3 shadow-lg text-card-foreground"
@@ -107,7 +112,11 @@ export function InsightElementPopover({
       <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
         <SquareDashedMousePointer className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="truncate">
-          {count > 1 ? `${count} elements selected` : '1 element selected'}
+          {textPick
+            ? 'Highlighted text'
+            : count > 1
+              ? `${count} elements selected`
+              : '1 element selected'}
         </span>
       </div>
       <Textarea
@@ -116,14 +125,16 @@ export function InsightElementPopover({
         onChange={(e) => setInstruction(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={
-          count > 1 ? 'Ask the CoPilot to change these…' : 'Ask the CoPilot to change this…'
+          count > 1
+            ? 'Ask about these, or ask the CoPilot to change them…'
+            : 'Ask about this, or ask the CoPilot to change it…'
         }
         rows={3}
         className="min-h-0 resize-none text-xs bg-background text-foreground border-border placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-[10px] leading-tight text-muted-foreground">
-          Ctrl/⌘-click to add more
+          {textPick ? '' : 'Ctrl/⌘-click or drag to add more'}
         </span>
         <Button
           type="button"

@@ -91,18 +91,52 @@ describe('buildInsightSrcDoc', () => {
     expect(out.indexOf(INSIGHT_CSP)).toBeLessThan(out.indexOf(INSIGHT_SECTIONS_MESSAGE));
   });
 
-  it("lets a plain click on the document's own controls or a text drag through, so an always-armed insight still works", () => {
+  it("lets a plain click on the document's own controls through, and keeps a stray highlight from picking", () => {
     const out = buildInsightSrcDoc('<p>hi</p>');
-    // Losing either bail-out turns every insight read-only / makes reading a pick.
+    // Losing the control bail-out turns every insight read-only in selection mode.
     expect(out).toContain('if (!multi && isInteractive(target)) return;');
     expect(out).toContain('if (!multi && textSel && !textSel.isCollapsed) return;');
   });
 
-  it('bumps the pick session only when a plain click aims somewhere new', () => {
+  it('turns text highlighting off in selection mode, so a drag draws a rectangle instead', () => {
     const out = buildInsightSrcDoc('<p>hi</p>');
-    // The host keys the prompt box on this, so a Ctrl/Cmd-click must NOT bump it.
+    expect(out).toContain('user-select: none !important;');
+    // A drag that starts on the document's own control stays that control's.
+    expect(out).toContain('if (!multi && isInteractive(e.target)) return;');
+    // The click a finished drag fires must not pick again.
+    expect(out).toContain('if (suppressClick) {');
+  });
+
+  it('deselects everything on a plain click or fresh drag that lands on nothing', () => {
+    const out = buildInsightSrcDoc('<p>hi</p>');
+    expect(out).toContain('if (!res) {\n      // A plain click on nothing selectable deselects everything');
+    expect(out).toContain('      if (!multi) clearSelection();');
+    expect(out).toContain('      if (!additive) clearSelection();');
+  });
+
+  it('dismisses a text ask — prompt box and selection — when the highlight goes away', () => {
+    const out = buildInsightSrcDoc('<p>hi</p>');
+    // The host never sees a click inside the frame, so the frame must report it.
+    expect(out).toContain('if (!sel || sel.isCollapsed) dismissTextAsk();');
+    // Asking must not offer the button again for the same highlight.
+    expect(out).toContain('if (activePick && activePick.range) return;');
+    expect(out).toContain("selected = selected.filter(function (ref) { return ref.kind !== 'text'; });");
+    // The host's echo of the new selection must not forget the text pick.
+    expect(out).toContain('if (activePick && (armed ? !!activePick.range : !activePick.range)) activePick = null;');
+  });
+
+  it('offers to ask about highlighted text only while selection mode is off and askText is on', () => {
+    const out = buildInsightSrcDoc('<p>hi</p>');
+    expect(out).toContain('askText = !!data.askText;');
+    expect(out).toContain('if (armed || !askText) {');
+  });
+
+  it('starts a new pick session on a fresh click, drag or text ask — never on a Ctrl/Cmd extension', () => {
+    const out = buildInsightSrcDoc('<p>hi</p>');
+    // The host keys the prompt box on this, so extending a selection must NOT bump it.
     expect(out).toContain('if (!clearing) session++;');
-    expect((out.match(/session\+\+/g) ?? []).length).toBe(1);
+    expect(out).toContain('if (!additive) {\n      selected = [];\n      session++;');
+    expect((out.match(/session\+\+/g) ?? []).length).toBe(3);
   });
 
   it('never paints the devtools-style address badge over the element', () => {
@@ -192,6 +226,7 @@ describe('isInsightHeightMessage', () => {
 describe('isInsightSectionsMessage', () => {
   it.each([
     ['a ref with path', sections({ sections: [{ key: 'r', path: [0, 1] }] })],
+    ['a highlighted-text ref with its words', sections({ sections: [{ key: 'r', path: [0], kind: 'text', content: 'hot' }] })],
     ['a null sections list, which is the load-time announcement', sections({ sections: null, available: 0 })],
   ])('accepts %s', (_, data) => {
     expect(isInsightSectionsMessage(ev(data), frame)).toBe(true);
@@ -202,6 +237,8 @@ describe('isInsightSectionsMessage', () => {
     ['a non-string key', sections({ sections: [{ key: 123 }] })],
     ['a negative path index', sections({ sections: [{ key: 'r', path: [-1] }] })],
     ['a fractional path index', sections({ sections: [{ key: 'r', path: [1.5] }] })],
+    ['an unknown kind', sections({ sections: [{ key: 'r', kind: 'html' }] })],
+    ['non-string content', sections({ sections: [{ key: 'r', content: { evil: true } }] })],
     ['a missing available count', { type: INSIGHT_SECTIONS_MESSAGE, sections: [] }],
     ['a NaN available count', sections({ sections: [], available: NaN })],
     ['a height report, so one handler can tell them apart', { type: INSIGHT_HEIGHT_MESSAGE, height: 100 }],

@@ -23,6 +23,13 @@ export const MAX_INSIGHT_SECTIONS = 20;
 export const MAX_INSIGHT_SECTION_PATH_INDEX = 999;
 /** Maximum child path depth allowed before truncation. */
 export const MAX_INSIGHT_SECTION_PATH_DEPTH = 12;
+/** Cap on one selected item's `content`, in characters. */
+export const MAX_INSIGHT_SECTION_CONTENT_CHARS = 1000;
+/** Cap on the `content` of a whole selection, across every item. */
+export const MAX_INSIGHT_SELECTION_CONTENT_CHARS = 4000;
+
+/** `element`: the user picked a whole element. `text`: they highlighted words in it. */
+export type InsightSectionKind = 'element' | 'text';
 /** The only shape a tag name may take — a closed vocabulary, quoted into the prompt. */
 const SECTION_TAG_RE = /^[a-z][a-z0-9-]{0,20}$/;
 
@@ -59,6 +66,22 @@ export interface InsightSectionRef {
    * keys-only fence below.
    */
   tags?: string[];
+  /**
+   * What was picked, the address's counterpart: `element` (the default when
+   * absent) or `text`, when the user highlighted words inside the element.
+   */
+  kind?: InsightSectionKind;
+  /**
+   * The document text the user pointed at — the highlighted words for a `text`
+   * pick, the element's own text for an `element` pick — whitespace-collapsed
+   * and capped. It is model-authored prose, so it travels ONLY in the selection
+   * attachment, which the server quotes into the user's turn as labelled
+   * document content. The page context drops it (see `sanitizePageContext`), so
+   * `read_page_context` stays address-only.
+   */
+  content?: string;
+  /** Set when `content` is an excerpt — cut at a cap, or dropped at the total. */
+  contentTruncated?: true;
 }
 
 /** Stable identity for a ref — the React key, and how a chip removes one. */
@@ -67,7 +90,10 @@ export function insightSectionRefId(ref: InsightSectionRef): string {
   // `data-section` key that happens to read the same way.
   const anchor = ref.key ?? 'body';
   const path = ref.path && ref.path.length > 0 ? `:${ref.path.join('.')}` : '';
-  return `${anchor}${path}`;
+  // Two highlights in one paragraph share its address, and so does a pick of
+  // the paragraph itself; the words are what tell them apart.
+  const text = ref.kind === 'text' ? `~text:${ref.content ?? ''}` : '';
+  return `${anchor}${path}${text}`;
 }
 
 /** Formats a ref's child path and tags into a child-step string (e.g. "child 1 <tag> › child 2"). */
@@ -76,6 +102,64 @@ export function formatInsightChildSteps(ref: InsightSectionRef): string {
   return ref.path
     .map((idx, i) => (ref.tags?.[i] ? `child ${idx + 1} <${ref.tags[i]}>` : `child ${idx + 1}`))
     .join(' › ');
+}
+
+/**
+ * What a picked element is, in the words a user would use. Tags come from the
+ * closed `SECTION_TAG_RE` vocabulary; anything unlisted is just an "Element".
+ */
+const ELEMENT_KIND_BY_TAG: Record<string, string> = {
+  h1: 'Heading', h2: 'Heading', h3: 'Heading', h4: 'Heading', h5: 'Heading', h6: 'Heading',
+  p: 'Paragraph',
+  table: 'Table', thead: 'Table', tbody: 'Table', tfoot: 'Table',
+  tr: 'Table row', td: 'Table cell', th: 'Table cell', caption: 'Caption', figcaption: 'Caption',
+  ul: 'List', ol: 'List', dl: 'List', li: 'List item',
+  img: 'Image', picture: 'Image', svg: 'Graphic', canvas: 'Chart', figure: 'Figure',
+  a: 'Link', button: 'Button', blockquote: 'Quote', pre: 'Code', code: 'Code', hr: 'Divider',
+  span: 'Text', strong: 'Text', b: 'Text', em: 'Text', i: 'Text', small: 'Text', mark: 'Text', label: 'Text',
+  header: 'Header', footer: 'Footer',
+  div: 'Block', section: 'Block', article: 'Block', main: 'Block', aside: 'Block', nav: 'Block',
+};
+
+function describeElementTag(tag: string | undefined): string {
+  return (tag && ELEMENT_KIND_BY_TAG[tag]) || 'Element';
+}
+
+/** `seven-day_forecast` → `Seven day forecast`. Keys are `SECTION_KEY_RE`-shaped. */
+function humanizeSectionKey(key: string): string {
+  const words = key.replace(/[-_]+/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
+/**
+ * A ref as a user-facing label for a chip: `Summary section`, `Heading in
+ * Summary`, or just `Heading` for a pick in a document with no section keys;
+ * highlighted words read `“A hot, humid week…” in Summary`.
+ * The model never sees this — it gets the exact address (`formatPageContext`,
+ * `formatInsightSelectionBlock`).
+ */
+export function formatInsightSectionLabel(ref: InsightSectionRef): string {
+  const section = ref.key ? humanizeSectionKey(ref.key) : null;
+  // Highlighted words are named by the words themselves.
+  if (ref.kind === 'text') {
+    const quote = ref.content ? `“${shortQuote(ref.content)}”` : 'Selected text';
+    return section ? `${quote} in ${section}` : quote;
+  }
+  const hasPath = Boolean(ref.path && ref.path.length > 0);
+  // The last tag is the picked element itself; a step with no tag is unknown.
+  const kind = describeElementTag(hasPath ? ref.tags?.[ref.tags.length - 1] : undefined);
+  if (!section) return kind;
+  return hasPath ? `${kind} in ${section}` : `${section} section`;
+}
+
+const SHORT_QUOTE_CHARS = 32;
+
+/** The first few words of a quote, cut on a word boundary where one is near. */
+function shortQuote(text: string): string {
+  if (text.length <= SHORT_QUOTE_CHARS) return text;
+  const cut = text.slice(0, SHORT_QUOTE_CHARS);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > SHORT_QUOTE_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 /** The only shape a section key may take. Keys reach us from a document the
@@ -122,6 +206,138 @@ export interface PageContext {
   insightSections?: InsightSectionRef[];
 }
 
+function rawObjectFlag(entry: unknown, name: string): unknown {
+  return entry && typeof entry === 'object' ? (entry as Record<string, unknown>)[name] : undefined;
+}
+
+/** Whitespace-collapsed, control-character-free document text. */
+function normalizeContent(value: string): string {
+  return stripControlChars(value).replace(/\s+/g, ' ');
+}
+
+/**
+ * Validates a browser-supplied list of insight section refs. Anything not an
+ * inert address (key shape, path bounds, tags aligned with the path) is
+ * dropped, duplicates collapse, and the list is capped at
+ * `MAX_INSIGHT_SECTIONS`. Returns `undefined` when nothing survives.
+ *
+ * Addresses only by default. `withContent` also keeps each ref's `kind` and
+ * `content` — for the selection attachment, never for the page context — with
+ * `content` capped per item and across the list, and `contentTruncated` set
+ * wherever it was cut. A `text` ref with no words is not a selection, and is
+ * dropped.
+ */
+export function sanitizeInsightSections(
+  raw: unknown,
+  { withContent = false }: { withContent?: boolean } = {},
+): InsightSectionRef[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const validSections: InsightSectionRef[] = [];
+  let contentBudget = MAX_INSIGHT_SELECTION_CONTENT_CHARS;
+  for (const rawEntry of raw) {
+    let rawKey: unknown;
+    let rawPath: unknown;
+    let rawTags: unknown;
+    let rawKind: unknown;
+    let rawContent: unknown;
+
+    if (typeof rawEntry === 'string') {
+      rawKey = rawEntry;
+      rawPath = undefined;
+    } else if (rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry)) {
+      const obj = rawEntry as Record<string, unknown>;
+      rawKey = obj.key;
+      rawPath = obj.path;
+      rawTags = obj.tags;
+      rawKind = obj.kind;
+      rawContent = obj.content;
+    } else {
+      continue;
+    }
+
+    // A keyless ref addresses from <body>, so it is only meaningful with a
+    // path; a ref with neither is not an address at all.
+    let key: string | undefined;
+    if (rawKey !== undefined && rawKey !== null) {
+      if (typeof rawKey !== 'string') continue;
+      const trimmed = rawKey.trim().slice(0, MAX_INSIGHT_SECTION_KEY_LENGTH);
+      if (!SECTION_KEY_RE.test(trimmed)) continue;
+      key = trimmed;
+    }
+
+    let path: number[] | undefined;
+    if (rawPath !== undefined) {
+      if (!Array.isArray(rawPath)) {
+        continue;
+      }
+      if (rawPath.length > 0) {
+        const isValid = rawPath.every(
+          (item) =>
+            typeof item === 'number' &&
+            Number.isInteger(item) &&
+            item >= 0 &&
+            item < MAX_INSIGHT_SECTION_PATH_INDEX,
+        );
+        if (!isValid) {
+          continue;
+        }
+        path = (rawPath as number[]).slice(0, MAX_INSIGHT_SECTION_PATH_DEPTH);
+      }
+    }
+
+    if (key === undefined && (!path || path.length === 0)) continue;
+
+    // Tags ride alongside the path and must line up with it exactly; a
+    // mismatched or malformed list is dropped rather than half-trusted.
+    let tags: string[] | undefined;
+    if (rawTags !== undefined && path && path.length > 0) {
+      // A deep path is truncated above, so truncate tags the same way before
+      // demanding they line up.
+      const candidate = Array.isArray(rawTags)
+        ? rawTags.slice(0, MAX_INSIGHT_SECTION_PATH_DEPTH)
+        : null;
+      if (
+        candidate &&
+        candidate.length === path.length &&
+        candidate.every((t) => typeof t === 'string' && SECTION_TAG_RE.test(t))
+      ) {
+        tags = candidate as string[];
+      }
+    }
+
+    let kind: InsightSectionKind | undefined;
+    let content: string | undefined;
+    let contentTruncated = false;
+    if (withContent) {
+      kind = rawKind === 'text' ? 'text' : 'element';
+      const full = typeof rawContent === 'string' ? normalizeContent(rawContent) : '';
+      if (kind === 'text' && !full) continue;
+      const cap = Math.min(MAX_INSIGHT_SECTION_CONTENT_CHARS, contentBudget);
+      content = full.slice(0, cap);
+      // A ref restored from the store may already hold an excerpt.
+      contentTruncated =
+        full.length > content.length || rawObjectFlag(rawEntry, 'contentTruncated') === true;
+      contentBudget -= content.length;
+    }
+
+    const ref: InsightSectionRef = {
+      ...(key !== undefined ? { key } : {}),
+      ...(path && path.length > 0 ? { path } : {}),
+      ...(tags ? { tags } : {}),
+      ...(kind === 'text' ? { kind } : {}),
+      ...(content ? { content } : {}),
+      ...(contentTruncated ? { contentTruncated: true as const } : {}),
+    };
+    const id = insightSectionRefId(ref);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    validSections.push(ref);
+    if (validSections.length === MAX_INSIGHT_SECTIONS) break;
+  }
+  return validSections.length > 0 ? validSections : undefined;
+}
+
 /**
  * Normalizes a `page_context` payload straight off the wire.
  *
@@ -159,92 +375,7 @@ export function sanitizePageContext(raw: unknown): PageContext | null {
   const rawInsightId = typeof input.insightId === 'string' ? input.insightId.trim() : '';
   const insightId = isUuid(rawInsightId) ? rawInsightId : undefined;
 
-  let insightSections: InsightSectionRef[] | undefined;
-  if (Array.isArray(input.insightSections)) {
-    const seen = new Set<string>();
-    const validSections: InsightSectionRef[] = [];
-    for (const rawEntry of input.insightSections) {
-      let rawKey: unknown;
-      let rawPath: unknown;
-      let rawTags: unknown;
-
-      if (typeof rawEntry === 'string') {
-        rawKey = rawEntry;
-        rawPath = undefined;
-      } else if (rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry)) {
-        const obj = rawEntry as Record<string, unknown>;
-        rawKey = obj.key;
-        rawPath = obj.path;
-        rawTags = obj.tags;
-      } else {
-        continue;
-      }
-
-      // A keyless ref addresses from <body>, so it is only meaningful with a
-      // path; a ref with neither is not an address at all.
-      let key: string | undefined;
-      if (rawKey !== undefined && rawKey !== null) {
-        if (typeof rawKey !== 'string') continue;
-        const trimmed = rawKey.trim().slice(0, MAX_INSIGHT_SECTION_KEY_LENGTH);
-        if (!SECTION_KEY_RE.test(trimmed)) continue;
-        key = trimmed;
-      }
-
-      let path: number[] | undefined;
-      if (rawPath !== undefined) {
-        if (!Array.isArray(rawPath)) {
-          continue;
-        }
-        if (rawPath.length > 0) {
-          const isValid = rawPath.every(
-            (item) =>
-              typeof item === 'number' &&
-              Number.isInteger(item) &&
-              item >= 0 &&
-              item < MAX_INSIGHT_SECTION_PATH_INDEX,
-          );
-          if (!isValid) {
-            continue;
-          }
-          path = (rawPath as number[]).slice(0, MAX_INSIGHT_SECTION_PATH_DEPTH);
-        }
-      }
-
-      if (key === undefined && (!path || path.length === 0)) continue;
-
-      // Tags ride alongside the path and must line up with it exactly; a
-      // mismatched or malformed list is dropped rather than half-trusted.
-      let tags: string[] | undefined;
-      if (rawTags !== undefined && path && path.length > 0) {
-        // A deep path is truncated above, so truncate tags the same way before
-        // demanding they line up.
-        const candidate = Array.isArray(rawTags)
-          ? rawTags.slice(0, MAX_INSIGHT_SECTION_PATH_DEPTH)
-          : null;
-        if (
-          candidate &&
-          candidate.length === path.length &&
-          candidate.every((t) => typeof t === 'string' && SECTION_TAG_RE.test(t))
-        ) {
-          tags = candidate as string[];
-        }
-      }
-
-      const ref: InsightSectionRef = {
-        ...(key !== undefined ? { key } : {}),
-        ...(path && path.length > 0 ? { path } : {}),
-        ...(tags ? { tags } : {}),
-      };
-      const id = insightSectionRefId(ref);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      validSections.push(ref);
-      if (validSections.length === MAX_INSIGHT_SECTIONS) break;
-    }
-    if (validSections.length > 0) {
-      insightSections = validSections;
-    }
-  }
+  const insightSections = sanitizeInsightSections(input.insightSections);
 
   return {
     tabSlug,
@@ -265,7 +396,7 @@ export function sanitizePageContext(raw: unknown): PageContext | null {
  * their own conversation, but a boundary worth keeping tight regardless. Keeping
  * `detail` to one line is what makes the block unambiguous.
  */
-function stripControlChars(value: string): string {
+export function stripControlChars(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim();
 }
 

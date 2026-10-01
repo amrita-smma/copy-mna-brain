@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_INSIGHT_SECTIONS,
+  MAX_INSIGHT_SECTION_CONTENT_CHARS,
+  MAX_INSIGHT_SELECTION_CONTENT_CHARS,
   MAX_INSIGHT_SECTION_KEY_LENGTH,
   MAX_PAGE_DETAIL_LENGTH,
   insightSectionRefId,
   formatInsightChildSteps,
+  formatInsightSectionLabel,
   formatPageContext,
+  sanitizeInsightSections,
   sanitizePageContext,
 } from './pageContext';
 
@@ -330,5 +334,135 @@ describe('formatInsightChildSteps', () => {
     [{ path: [0, 1], tags: ['div'] }, 'child 1 <div> › child 2'],
   ])('formats %j as %p', (ref, expected) => {
     expect(formatInsightChildSteps(ref)).toBe(expected);
+  });
+});
+
+describe('sanitizeInsightSections', () => {
+  it('returns undefined for a non-array or a list with nothing valid', () => {
+    expect(sanitizeInsightSections(undefined)).toBeUndefined();
+    expect(sanitizeInsightSections([{ key: 'not ok' }])).toBeUndefined();
+  });
+
+  it('keeps valid refs and collapses duplicates', () => {
+    expect(sanitizeInsightSections([{ key: 'a' }, { key: 'a' }, { path: [0], tags: ['h1'] }])).toEqual([
+      { key: 'a' },
+      { path: [0], tags: ['h1'] },
+    ]);
+  });
+});
+
+describe('sanitizeInsightSections withContent', () => {
+  it('drops kind and content from the page context, which stays address-only', () => {
+    expect(
+      sanitizePageContext({
+        tabSlug: 'insight',
+        path: '/insight',
+        insightSections: [{ key: 'summary', kind: 'text', content: 'wet spell', contentTruncated: true }],
+      })?.insightSections,
+    ).toEqual([{ key: 'summary' }]);
+    expect(sanitizeInsightSections([{ key: 'summary', content: 'x' }])).toEqual([{ key: 'summary' }]);
+  });
+
+  it('keeps kind and whitespace-collapsed content when asked', () => {
+    expect(
+      sanitizeInsightSections(
+        [
+          { key: 'summary', content: ' A  hot\nweek ' },
+          { key: 'summary', path: [0], tags: ['p'], kind: 'text', content: 'hot' },
+        ],
+        { withContent: true },
+      ),
+    ).toEqual([
+      { key: 'summary', content: 'A hot week' },
+      { key: 'summary', path: [0], tags: ['p'], kind: 'text', content: 'hot' },
+    ]);
+  });
+
+  it('treats an unknown kind as an element pick, and drops a text pick with no words', () => {
+    expect(
+      sanitizeInsightSections(
+        [{ key: 'a', kind: 'bogus' }, { key: 'b', kind: 'text', content: '   ' }],
+        { withContent: true },
+      ),
+    ).toEqual([{ key: 'a' }]);
+  });
+
+  it('caps content per item and marks the excerpt', () => {
+    const [ref] = sanitizeInsightSections(
+      [{ key: 'a', content: 'x'.repeat(MAX_INSIGHT_SECTION_CONTENT_CHARS + 50) }],
+      { withContent: true },
+    )!;
+    expect(ref.content).toHaveLength(MAX_INSIGHT_SECTION_CONTENT_CHARS);
+    expect(ref.contentTruncated).toBe(true);
+  });
+
+  it('caps content across the whole selection, keeping later addresses', () => {
+    const refs = sanitizeInsightSections(
+      Array.from({ length: 6 }, (_, i) => ({ key: `s${i}`, content: 'y'.repeat(1000) })),
+      { withContent: true },
+    )!;
+    expect(refs).toHaveLength(6);
+    expect(refs.reduce((n, r) => n + (r.content?.length ?? 0), 0)).toBe(
+      MAX_INSIGHT_SELECTION_CONTENT_CHARS,
+    );
+    expect(refs[4]).toEqual({ key: 's4', contentTruncated: true });
+  });
+
+  it('keeps the excerpt mark on a ref restored from the store', () => {
+    expect(
+      sanitizeInsightSections([{ key: 'a', content: 'short', contentTruncated: true }], {
+        withContent: true,
+      }),
+    ).toEqual([{ key: 'a', content: 'short', contentTruncated: true }]);
+  });
+
+  it('tells two highlights, and a highlight from its element, apart', () => {
+    const element = { key: 'summary', path: [0] };
+    const a = { ...element, kind: 'text' as const, content: 'hot' };
+    const b = { ...element, kind: 'text' as const, content: 'wet' };
+    const ids = new Set([element, a, b].map(insightSectionRefId));
+    expect(ids.size).toBe(3);
+    expect(sanitizeInsightSections([element, a, b], { withContent: true })).toHaveLength(3);
+  });
+});
+
+describe('formatInsightSectionLabel', () => {
+  it('names a whole keyed section by its humanized key', () => {
+    expect(formatInsightSectionLabel({ key: 'summary' })).toBe('Summary section');
+    expect(formatInsightSectionLabel({ key: 'seven-day_forecast' })).toBe('Seven day forecast section');
+  });
+
+  it('names an element inside a keyed section by its kind and section', () => {
+    expect(formatInsightSectionLabel({ key: 'summary', path: [1], tags: ['p'] })).toBe(
+      'Paragraph in Summary',
+    );
+    expect(formatInsightSectionLabel({ key: 'forecast', path: [0, 2], tags: ['table', 'tr'] })).toBe(
+      'Table row in Forecast',
+    );
+  });
+
+  it('names a keyless pick by the kind of element picked', () => {
+    expect(formatInsightSectionLabel({ path: [0, 0], tags: ['div', 'h1'] })).toBe('Heading');
+    expect(formatInsightSectionLabel({ path: [3], tags: ['li'] })).toBe('List item');
+  });
+
+  it('names highlighted words by the words, cut short', () => {
+    expect(
+      formatInsightSectionLabel({ key: 'summary', path: [0], kind: 'text', content: 'wet spell' }),
+    ).toBe('“wet spell” in Summary');
+    expect(
+      formatInsightSectionLabel({
+        path: [0],
+        kind: 'text',
+        content: 'A hot, humid week with a wet spell midweek.',
+      }),
+    ).toBe('“A hot, humid week with a wet…”');
+    expect(formatInsightSectionLabel({ path: [0], kind: 'text' })).toBe('Selected text');
+  });
+
+  it('falls back to "Element" when the tag is missing or unlisted', () => {
+    expect(formatInsightSectionLabel({ path: [0] })).toBe('Element');
+    expect(formatInsightSectionLabel({ path: [0], tags: ['marquee'] })).toBe('Element');
+    expect(formatInsightSectionLabel({ key: 'summary', path: [1] })).toBe('Element in Summary');
   });
 });

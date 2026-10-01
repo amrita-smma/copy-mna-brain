@@ -2,8 +2,7 @@
 
 import {
   insightSectionRefId,
-  formatInsightChildSteps,
-  type InsightSectionRef,
+  formatInsightSectionLabel,
 } from '@/lib/chat/pageContext';
 import {
   usePageContext,
@@ -15,12 +14,6 @@ import { SquareDashedMousePointer, X } from 'lucide-react';
 
 interface SelectedContextChipsProps {
   className?: string;
-}
-
-function formatChipTitle(ref: InsightSectionRef): string {
-  const anchor = ref.key ?? 'body';
-  const childSteps = formatInsightChildSteps(ref);
-  return childSteps ? `Section: ${anchor} › ${childSteps}` : `Section: ${anchor}`;
 }
 
 /**
@@ -42,16 +35,7 @@ export function SelectedContextChips({ className }: SelectedContextChipsProps) {
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {sections.map((ref) => {
         const id = insightSectionRefId(ref);
-        const hasPath = ref.path && ref.path.length > 0;
-        // A keyless pick has no name to show, so name what it actually is: the
-        // element's tag, which is the last step of the path.
-        const leafTag = ref.tags?.[ref.tags.length - 1];
-        const label = ref.key
-          ? hasPath
-            ? `Section: ${ref.key} › …`
-            : `Section: ${ref.key}`
-          : `Element: <${leafTag ?? 'body'}>`;
-        const title = formatChipTitle(ref);
+        const label = formatInsightSectionLabel(ref);
 
         return (
           <div
@@ -62,7 +46,7 @@ export function SelectedContextChips({ className }: SelectedContextChipsProps) {
               className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden
             />
-            <span className="truncate max-w-[140px]" title={title}>
+            <span className="truncate max-w-[140px]" title={label}>
               {label}
             </span>
             <button

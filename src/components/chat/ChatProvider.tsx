@@ -24,7 +24,16 @@ import {
   insightTemplatePart,
   type InsightTemplateAttachment,
 } from "@/lib/insights/templateAttachment";
+import {
+  insightSelectionPart,
+  type InsightSelectionAttachment,
+} from "@/lib/insights/selectionAttachment";
 import type { ManualEffortChoice } from "@/lib/agents/analysis";
+
+/** Structured context `analyzeWithAI` sends as message parts, not as text. */
+export interface AnalyzeOptions {
+  insightSelection?: InsightSelectionAttachment;
+}
 
 // Manual tiers only. The Auto-only `deep` tier is decided and stored server
 // side; the client never names it, so it must not be representable here.
@@ -235,8 +244,11 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
    * copilot immediately when idle; when a response is already streaming it
    * opens a confirmation dialog offering to stop the current response and
    * replace it with this analysis.
+   *
+   * `insightSelection` attaches the elements picked in an open insight: the
+   * bubble shows them as a chip and `text` stays the user's own words.
    */
-  analyzeWithAI: (text: string) => void;
+  analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
   /**
    * Put text in the composer ready to edit, without sending it. Unlike
    * `analyzeWithAI` (which sends immediately), this hands the user a
@@ -764,10 +776,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setAttachments([]);
   }, []);
 
-  // An attached insight template is a structured part of the message itself —
-  // the bubble renders it as a card and the server expands it into the model's
-  // turn — never words added to what the user typed.
-  const sendWithAttachments = useCallback((text: string, insightTemplate?: InsightTemplateAttachment) => {
+  // An attached insight template or insight selection is a structured part of
+  // the message itself — the bubble renders it as a card and the server expands
+  // it into the model's turn — never words added to what the user typed.
+  const sendWithAttachments = useCallback((
+    text: string,
+    insightTemplate?: InsightTemplateAttachment,
+    insightSelection?: InsightSelectionAttachment,
+  ) => {
     const readyAttachments = attachmentsRef.current.filter((a) => a.status === 'ready' && a.key);
     let payloadText = text;
     
@@ -791,6 +807,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       parts: [
         { type: 'text', text: payloadText },
         ...(insightTemplate ? [insightTemplatePart(insightTemplate)] : []),
+        ...(insightSelection ? [insightSelectionPart(insightSelection)] : []),
       ],
     });
     resetComposerAttachments();
@@ -979,7 +996,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
-  const [pendingAnalysis, setPendingAnalysis] = useState<string | null>(null);
+  const [pendingAnalysis, setPendingAnalysis] = useState<
+    { text: string; options?: AnalyzeOptions } | null
+  >(null);
 
   // The pending composer prefill, consumed by ChatInputContainer. Nonce increments on
   // every prefill so identical prompts (e.g. clicking "New insight" twice) still
@@ -991,22 +1010,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const analyzeWithAI = useCallback(
-    (text: string) => {
+    (text: string, options?: AnalyzeOptions) => {
       const status = chatStateRef.current.status;
       const busy = status === "streaming" || status === "submitted";
       if (busy) {
-        setPendingAnalysis(text);
+        setPendingAnalysis({ text, options });
+      } else if (options?.insightSelection) {
+        // Never served from the cache: the text alone ("make it blue") can't
+        // say what was selected, so it would match an unrelated chat.
+        sendWithAttachments(text, undefined, options.insightSelection);
       } else {
         void sendWithCacheCheck(text);
       }
     },
-    [sendWithCacheCheck],
+    [sendWithCacheCheck, sendWithAttachments],
   );
 
   const confirmPendingAnalysis = useCallback(async () => {
-    const text = pendingAnalysis;
+    const pending = pendingAnalysis;
     setPendingAnalysis(null);
-    if (text == null) return;
+    if (pending == null) return;
+    const { text, options } = pending;
 
     // Fully stop the in-flight run BEFORE starting the new turn. stop() aborts
     // the fetch (which propagates to the server via req.signal), but we also
@@ -1043,7 +1067,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    chatStateRef.current.sendMessage({ text });
+    const insightSelection = options?.insightSelection;
+    chatStateRef.current.sendMessage(
+      insightSelection
+        ? { parts: [{ type: "text", text }, insightSelectionPart(insightSelection)] }
+        : { text },
+    );
   }, [pendingAnalysis]);
 
   const value = useMemo<ChatContextValue>(

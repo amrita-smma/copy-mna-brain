@@ -37,6 +37,12 @@ import {
   readInsightTemplatePart,
 } from '@/lib/insights/templateAttachment';
 import {
+  formatInsightSelectionBlock,
+  INSIGHT_SELECTION_KWARG,
+  readInsightSelectionPart,
+  withInsightSelection,
+} from '@/lib/insights/selectionAttachment';
+import {
   CHAT_ATTACHMENTS_KWARG,
   latestUserAttachments,
   previousTurnTimedOut,
@@ -198,6 +204,11 @@ export async function POST(req: NextRequest) {
     const insightTemplate = readInsightTemplatePart(
       (lastUserUI as { parts?: unknown }).parts,
     );
+    // Elements picked with the insight selection tool ride the same way, as a
+    // `data-insight-selection` part; the text part is only the user's words.
+    const insightSelection = readInsightSelectionPart(
+      (lastUserUI as { parts?: unknown }).parts,
+    );
 
     const normalizedLast: UIMessage = ((): UIMessage => {
       const m = lastUserUI as { role: string; parts?: { type: string }[]; content?: unknown };
@@ -221,6 +232,10 @@ export async function POST(req: NextRequest) {
       .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && 'text' in p)
       .map((p) => p.text)
       .join('\n');
+    // The turn as plain text, selection addresses included, for the readers that
+    // never see the content blocks: effort routing and the question recorded
+    // against research tool calls.
+    const turnText = withInsightSelection(firstUserText, insightSelection);
 
     // Auto tiering. Kicked off HERE and awaited just before the graph is built,
     // so the routing call overlaps the attachment upload and the workspace/flag
@@ -238,7 +253,7 @@ export async function POST(req: NextRequest) {
             {
               // Despite the name, this holds THIS turn's text (it is derived
               // from `normalizedLast`), which is what we want to route on.
-              message: firstUserText,
+              message: turnText,
               hasAttachments,
               pageSummary: pageContext?.path ?? null,
             },
@@ -262,7 +277,7 @@ export async function POST(req: NextRequest) {
     let messages: BaseMessage[];
     let uploadedFileIds: string[] = [];
     let carriesTooLargeDocument = false;
-    if (attachments.length > 0 || insightTemplate) {
+    if (attachments.length > 0 || insightTemplate || insightSelection) {
       try {
         const templateBlocks = insightTemplate
           ? [await insightTemplateService.prepareForMessage(insightTemplate)]
@@ -277,16 +292,30 @@ export async function POST(req: NextRequest) {
           templateBlocks.some((block) => isTooLargeInsightTemplateBlock(block.text));
         const fallbackText = attachments.length > 0
           ? 'Please review the attached file(s).'
-          : 'Create an insight from the attached template.';
+          : insightTemplate
+            ? 'Create an insight from the attached template.'
+            : 'Tell me about the selected part of the insight.';
+        // Recorded on the message, never sent to the model: the attachment
+        // refs for a later handoff, and the selection so a reloaded chat can
+        // re-render its chip.
+        const additionalKwargs = {
+          ...(attachments.length > 0
+            ? { [CHAT_ATTACHMENTS_KWARG]: chatAttachmentService.ownedRefs(attachments) }
+            : {}),
+          ...(insightSelection ? { [INSIGHT_SELECTION_KWARG]: insightSelection } : {}),
+        };
         messages = [
           new HumanMessage({
             content: [
               ...templateBlocks,
+              ...(insightSelection
+                ? [{ type: 'text' as const, text: formatInsightSelectionBlock(insightSelection) }]
+                : []),
               { type: 'text', text: firstUserText || fallbackText },
               ...blocks,
             ],
-            ...(attachments.length > 0
-              ? { additional_kwargs: { [CHAT_ATTACHMENTS_KWARG]: chatAttachmentService.ownedRefs(attachments) } }
+            ...(Object.keys(additionalKwargs).length > 0
+              ? { additional_kwargs: additionalKwargs }
               : {}),
           }),
         ];
@@ -456,14 +485,15 @@ export async function POST(req: NextRequest) {
     // errored runs out of the cache. Gated on `!requestedChatId` so we never
     // touch a resumed thread, and on the `chatCacheEnabled` flag so caching can
     // be turned off entirely.
-    // A template-backed first turn is not cached: its text alone doesn't say
-    // which template was attached, so a later plain question could match it.
+    // A template- or selection-backed first turn is not cached: its text alone
+    // doesn't say what was attached, so a later plain question could match it.
     // A turn that carried the no-sector-agent notice isn't cached either: its
     // answer opens with that statement, which is wrong anywhere else. Nor is a
     // turn made on an open insight (MB-550): its answer reads that insight.
     if (
       !requestedChatId &&
       !insightTemplate &&
+      !insightSelection &&
       !agentNotice &&
       !openInsightId &&
       (await chatCacheEnabled())
@@ -490,6 +520,10 @@ export async function POST(req: NextRequest) {
     if (shouldGenerateTitle && apiKey) {
       let titlePromptText = stripComposerMarkup(firstUserText);
       if (!titlePromptText) titlePromptText = "Attached file(s)";
+      // "make it blue" alone titles nothing; name the insight it was asked of.
+      if (insightSelection) {
+        titlePromptText = `About the insight "${insightSelection.insightName}": ${titlePromptText}`;
+      }
       
       titlePromise = generateAndSaveTitle({
         chatId: chat.id,
@@ -522,7 +556,7 @@ export async function POST(req: NextRequest) {
             userName,
             agentRole: 'chat',
             pageContext,
-            originalUserQuestion: firstUserText,
+            originalUserQuestion: turnText,
             attachments,
             // Read by propose_workforce_handoff when this turn has none.
             priorAttachments,
@@ -629,7 +663,7 @@ export async function POST(req: NextRequest) {
               userName,
               agentRole: 'chat',
               pageContext,
-              originalUserQuestion: firstUserText,
+              originalUserQuestion: turnText,
               attachments,
               priorAttachments,
               agent_key: agentKey,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
-import type { InsightSectionRef } from '@/lib/chat/pageContext';
+import { sanitizeInsightSections, type InsightSectionRef } from '@/lib/chat/pageContext';
 import {
   INSIGHT_PRIME_TIMEOUT_MS,
   INSIGHT_SANDBOX,
@@ -33,6 +33,12 @@ export interface InsightFrameProps {
    * the version-history dialog — never pass it, so they stay disarmed.
    */
   selectMode?: boolean;
+  /**
+   * Offers "Ask CoPilot" on text the user highlights while select mode is off.
+   * Only the open insight passes it; the approval cards and the version-history
+   * dialog never do, so their previews stay inert.
+   */
+  askText?: boolean;
   /** The refs currently selected, mirrored into the document's outlines. */
   selectedSections?: InsightSectionRef[];
   /** Called with the new section ref list, in document order, on every toggle. */
@@ -79,6 +85,7 @@ export function InsightFrame({
   minHeight = DEFAULT_MIN_HEIGHT,
   maxHeight = DEFAULT_MAX_HEIGHT,
   selectMode = false,
+  askText = false,
   selectedSections = NO_SECTIONS,
   onSectionsChange,
   onPick,
@@ -108,8 +115,8 @@ export function InsightFrame({
 
   // Read by the load handler, which has to re-send the current state to a
   // document that has just replaced itself (a theme flip rebuilds the srcdoc).
-  const armed = useRef({ selectMode, selectedSections });
-  armed.current = { selectMode, selectedSections };
+  const armed = useRef({ selectMode, askText, selectedSections });
+  armed.current = { selectMode, askText, selectedSections };
 
   const postSelectMode = useCallback(() => {
     // '*' is the only usable target: the frame has an opaque origin, and the
@@ -118,6 +125,7 @@ export function InsightFrame({
       {
         type: INSIGHT_SELECT_MODE_MESSAGE,
         active: armed.current.selectMode,
+        askText: armed.current.askText,
         selected: armed.current.selectedSections,
       },
       '*',
@@ -134,17 +142,27 @@ export function InsightFrame({
         // A null list is the document announcing itself on load, not a
         // selection — reporting it as one would wipe the selection the host
         // is holding every time the srcdoc is rebuilt.
-        if (event.data.sections) onSectionsChange?.(event.data.sections);
+        //
+        // Re-validated and clamped here, at the boundary: refs carry document
+        // text now, and the store they land in rides on every chat turn.
+        if (event.data.sections) {
+          onSectionsChange?.(
+            sanitizeInsightSections(event.data.sections, { withContent: true }) ?? [],
+          );
+        }
         return;
       }
       if (isInsightPickMessage(event, frameRef.current)) {
-        if (event.data.ref && event.data.rect) {
+        const ref = event.data.ref
+          ? sanitizeInsightSections([event.data.ref], { withContent: true })?.[0]
+          : undefined;
+        if (ref && event.data.rect) {
           // Clamp label to 80 chars and strip control characters where it enters the host
           const label = event.data.label
             .replace(/[\x00-\x1F\x7F]/g, '')
             .slice(0, 80);
           onPick?.({
-            ref: event.data.ref,
+            ref,
             rect: event.data.rect,
             label,
             count: event.data.count ?? 1,
@@ -161,7 +179,7 @@ export function InsightFrame({
 
   useEffect(() => {
     postSelectMode();
-  }, [postSelectMode, selectMode, selectedSections]);
+  }, [postSelectMode, selectMode, askText, selectedSections]);
 
   // A document that never reports (scripts disabled, parse error) keeps the
   // starting height rather than collapsing to nothing.

@@ -89,6 +89,10 @@ import {
   TIMED_OUT_FOLLOW_UP_CONTEXT,
   ZERO_WORK_FOLLOW_UP_CONTEXT,
 } from '@/lib/chat/largeDocumentTurn';
+import {
+  INSIGHT_SELECTION_KWARG,
+  formatInsightSelectionBlock,
+} from '@/lib/insights/selectionAttachment';
 
 const CHAT_ID = '11111111-2222-4333-8444-555555555555';
 const INSIGHT_ID = '99999999-8888-4777-8666-555555555555';
@@ -494,6 +498,64 @@ describe('POST /api/chat', () => {
       );
 
       expect(inputs().withheldTools).toEqual([]);
+    });
+  });
+
+  describe('an insight selection (MB-583)', () => {
+    const SELECTION = {
+      insightId: INSIGHT_ID,
+      insightName: 'Weekly Weather Forecast',
+      sections: [{ path: [0, 0], tags: ['div', 'h1'], content: 'Weekly Weather Forecast' }],
+    };
+    const selectionRequest = () =>
+      chatRequest({
+        chat_id: CHAT_ID,
+        page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
+        messages: [
+          {
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'HERE YOU GO' },
+              { type: 'data-insight-selection', data: SELECTION },
+            ],
+          },
+        ],
+      });
+
+    it('puts the selection block before the user words, and records it on the message', async () => {
+      resolve();
+
+      await POST(selectionRequest());
+
+      const [human] = invokeMock.mock.calls[0][0].messages;
+      expect(human.content).toEqual([
+        { type: 'text', text: formatInsightSelectionBlock(SELECTION) },
+        { type: 'text', text: 'HERE YOU GO' },
+      ]);
+      expect(human.additional_kwargs).toEqual({ [INSIGHT_SELECTION_KWARG]: SELECTION });
+    });
+
+    it('records the question with the selection addresses but never the document content', async () => {
+      resolve();
+
+      await POST(selectionRequest());
+
+      const question = invokeMock.mock.calls[0][1].configurable.originalUserQuestion;
+      expect(question).toBe(
+        `${formatInsightSelectionBlock(SELECTION, { includeContent: false })}\n\nHERE YOU GO`,
+      );
+      expect(question).not.toContain('document_content');
+    });
+
+    it('leaves a turn without a selection on the plain text path', async () => {
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+
+      expect(attachmentPrepareMock).not.toHaveBeenCalled();
+      expect(invokeMock.mock.calls[0][1].configurable.originalUserQuestion).toBe(
+        'How is this developer doing?',
+      );
     });
   });
 });

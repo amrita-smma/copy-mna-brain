@@ -42,6 +42,8 @@ import {
 } from "./ReportPlanCard";
 import { AttachedInsightTemplateCard } from "./AttachedInsightTemplateCard";
 import { readInsightTemplatePart } from "@/lib/insights/templateAttachment";
+import { AttachedInsightSelectionCard } from "./AttachedInsightSelectionCard";
+import { readInsightSelectionPart } from "@/lib/insights/selectionAttachment";
 import type {
   InsightCreateApprovalPayload,
   InsightEditApprovalPayload,
@@ -207,8 +209,13 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
   });
   
   const attachedTemplate = readInsightTemplatePart(parts);
+  const attachedSelection = readInsightSelectionPart(parts);
 
-  const hasAttachments = hasImages || uniqueFilePills.length > 0 || attachedTemplate !== null;
+  const hasAttachments =
+    hasImages ||
+    uniqueFilePills.length > 0 ||
+    attachedTemplate !== null ||
+    attachedSelection !== null;
 
   return (
     <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
@@ -219,6 +226,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
         {hasAttachments && (
           <div className="flex flex-wrap justify-end gap-2 mb-1">
             {attachedTemplate && <AttachedInsightTemplateCard template={attachedTemplate} />}
+            {attachedSelection && <AttachedInsightSelectionCard selection={attachedSelection} />}
 
             {/* Document Pills */}
             {uniqueFilePills.map((fileName, i) => (

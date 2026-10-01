@@ -12,7 +12,7 @@ import {
 import { describeRoutinePause } from '@/lib/routines/pauseReason';
 import type { InsightDetail } from '@/lib/insights/types';
 import { formatInsightDate } from '@/lib/insights/format';
-import { formatInsightChildSteps, type InsightSectionRef } from '@/lib/chat/pageContext';
+import type { InsightSectionRef } from '@/lib/chat/pageContext';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -90,19 +90,6 @@ export interface InsightViewProps {
   onToggleSelectMode?: () => void;
   onInsightChange?: () => void;
   onArchive?: () => void;
-}
-
-/**
- * Spells a ref out as an address the agent can follow in the raw document.
- *
- * A keyless pick is addressed from `<body>` — the fallback anchor the picker
- * uses on a document whose blocks carry no `data-section` key — so the key is
- * never assumed to be there.
- */
-function formatAddress(ref: InsightSectionRef): string {
-  const anchor = ref.key ? `section \`${ref.key}\`` : '`<body>`';
-  const childSteps = formatInsightChildSteps(ref);
-  return childSteps ? `the element at ${anchor} › ${childSteps}` : anchor;
 }
 
 export function InsightView({
@@ -468,31 +455,17 @@ export function InsightView({
   const handlePopoverSubmit = (instruction: string) => {
     if (!detail || !currentPick) return;
 
-    // The prompt names every element the frame currently has selected, not just
-    // the one the box is anchored to: a Ctrl/Cmd-click builds a multi-element
-    // selection, and the turn carries it on BOTH channels — spelled out inline
-    // here, and as refs via read_page_context. They have to agree, or the agent
-    // is told to edit three blocks while the prompt asks about one.
-    const refs = selectedSections?.length ? selectedSections : [currentPick.ref];
-    const selection =
-      refs.length === 1
-        ? `the user selected ${formatAddress(refs[0])}`
-        : [
-            `the user selected ${refs.length} elements:`,
-            ...refs.map((ref) => `- ${formatAddress(ref)}`),
-          ].join('\n');
-
-    const prompt = [
-      `In the insight "${detail.name}" (insight_id: ${insightId}), ${selection}.`,
-      '',
-      `Requested change: ${instruction}`,
-      '',
-      refs.length === 1
-        ? 'Read the current document with get_insight, change only that part, and propose the edit.'
-        : 'Read the current document with get_insight, change only those parts, and propose the edit.',
-    ].join('\n');
-
-    analyzeWithAI(prompt);
+    // The selection names every element the frame currently has selected, not
+    // just the one the box is anchored to: a Ctrl/Cmd-click builds a
+    // multi-element selection, and the turn carries it on BOTH channels — as an
+    // attached selection the server spells out for the model, and as refs via
+    // read_page_context. They have to agree, or the agent is told to edit three
+    // blocks while the prompt asks about one. The bubble shows only the
+    // instruction, with the selection as a chip beside it.
+    const sections = selectedSections?.length ? selectedSections : [currentPick.ref];
+    analyzeWithAI(instruction, {
+      insightSelection: { insightId, insightName: detail.name, sections },
+    });
     setCurrentPick(null);
 
     if (isMobile) {
@@ -670,9 +643,14 @@ export function InsightView({
                   : 'bg-card hover:bg-muted text-foreground',
               )}
               data-testid="insight-update"
+              title={
+                selectMode
+                  ? 'Click, Ctrl/⌘-click or drag to select. Click again to read and highlight text.'
+                  : 'Select parts of the insight to ask about or edit. Or just highlight text to ask about it.'
+              }
             >
               <SquareDashedMousePointer className="h-4 w-4" />
-              {selectMode ? 'Select Section to Update' : 'Update'}
+              {selectMode ? 'Selection mode on' : 'Selection mode'}
             </Button>
 
             <Button
@@ -871,9 +849,11 @@ export function InsightView({
               <InsightFrame
                 html={detail.html}
                 title={detail.name}
-                // Armed from the page toolbar. The approval cards and the
-                // history dialog never pass it, so their previews stay inert.
+                // Armed from the page toolbar; with it off, highlighted text
+                // can still be asked about. The approval cards and the history
+                // dialog pass neither, so their previews stay inert.
                 selectMode={selectMode}
+                askText
                 selectedSections={selectedSections}
                 onSectionsChange={setInsightSections}
                 onPick={setCurrentPick}
@@ -889,6 +869,7 @@ export function InsightView({
                 key={currentPick.session}
                 label={currentPick.label}
                 count={currentPick.count}
+                textPick={currentPick.ref.kind === 'text'}
                 anchor={currentPick.rect}
                 onSubmit={handlePopoverSubmit}
                 onClose={() => setCurrentPick(null)}

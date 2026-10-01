@@ -109,10 +109,12 @@ export function buildInsightPrimerSrcDoc(theme: InsightTheme = 'light'): string 
  * Message an insight posts to the host when its section selection changes, and
  * once on load to announce how many selectable blocks it has.
  *
- * It carries KEYS AND PATHS ONLY, never the section's text. The host needs no
- * text: it already holds the insight's id, and `get_insight` hands the copilot
- * the whole document. Posting the rendered prose instead would pipe model-authored,
- * prompt-injectable content straight into the system prompt.
+ * Each ref is an address (key, path, tags) plus what it points at: `kind` and
+ * `content`, the text the user picked or highlighted. The content is
+ * model-authored, prompt-injectable prose, so the host keeps it out of the page
+ * context and the system prompt — it reaches the model only inside the
+ * selection attachment, quoted into the user's own turn as labelled document
+ * content (see `selectionAttachment.ts`).
  */
 export const INSIGHT_SECTIONS_MESSAGE = 'insight:sections';
 
@@ -187,14 +189,27 @@ const RESIZE_SCRIPT = `<script>(function(){
  * Click-to-select for `[data-section]` blocks and nested elements, so the user
  * can point the copilot at part of an insight.
  *
- * Interaction contract:
+ * Interaction contract, while selection mode is on (`armed`):
  *  - Hovering outlines what a click would select. Nothing outlines over a
  *    control the document owns, so an outline always means "this is selectable".
  *  - A plain click selects exactly that one element, replacing the selection;
  *    clicking the one already selected clears it.
  *  - Ctrl/Cmd-click adds to or removes from the selection, and is also the way
  *    to select one of the document's own controls.
+ *  - Dragging draws a rectangle and selects the outermost elements lying wholly
+ *    inside it (a table, not each of its cells), replacing the selection;
+ *    Ctrl/Cmd-drag adds them. Text cannot be highlighted in this mode, so the
+ *    two gestures never compete.
  *  - Escape clears everything.
+ *
+ * While it is off, the document reads normally, and when `askText` is on (the
+ * open insight only) highlighting text offers an "Ask CoPilot" button. Asking
+ * replaces the selection with the highlighted words, addressed by the element
+ * they sit in.
+ *
+ * Every pick carries its `content` — the element's text, or the highlighted
+ * words — cut one character past the host's cap so the host can tell an
+ * excerpt.
  *
  * Lives in-frame because sandboxed opaque origin prevents host DOM access.
  *
@@ -220,6 +235,16 @@ const SELECT_SCRIPT = `<script>(function(){
     + ' [role="button"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"],'
     + ' [role="link"], [role="menuitem"], [contenteditable=""], [contenteditable="true"]';
   var armed = false;
+  var askText = false;
+  var MAX_PICKS = 20;
+  var MAX_CONTENT = 1001;
+  var DRAG_THRESHOLD = 5;
+  var SKIP_TAGS = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, LINK: 1, META: 1, HEAD: 1 };
+  var drag = null;
+  var marquee = null;
+  var suppressClick = false;
+  var askButton = null;
+  var pendingText = null;
   var selected = [];
   var sheet = null;
   var overlay = null;
@@ -245,12 +270,27 @@ const SELECT_SCRIPT = `<script>(function(){
     return !!(el && typeof el.closest === 'function' && el.closest(INTERACTIVE));
   }
 
+  // Mirrors insightSectionRefId on the host: highlighted words are told apart
+  // from each other, and from a pick of the element they sit in, by the words.
   function refId(ref) {
     if (!ref) return '';
     var anchor = ref.key || 'body';
-    return (ref.path && ref.path.length > 0)
+    var id = (ref.path && ref.path.length > 0)
       ? anchor + ':' + ref.path.join('.')
       : anchor;
+    return ref.kind === 'text' ? id + '~text:' + (ref.content || '') : id;
+  }
+
+  function textOf(value) {
+    return String(value || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_CONTENT);
+  }
+
+  /** A picked element's ref, with the element's own text as its content. */
+  function picked(res) {
+    var ref = Object.assign({}, res.ref);
+    var text = textOf(res.element.innerText || res.element.textContent);
+    if (text) ref.content = text;
+    return ref;
   }
 
   function indexOfRef(id) {
@@ -367,8 +407,10 @@ const SELECT_SCRIPT = `<script>(function(){
     // A crosshair everywhere selection reaches, but the document's own controls
     // keep a pointer: their cursor is the hint that a plain click still works
     // them rather than selecting them.
+    // No text highlighting in selection mode: a drag there draws a rectangle.
     sheet.textContent = (armed
-      ? 'body, body * { cursor: crosshair; } ' + INTERACTIVE + ' { cursor: pointer; }'
+      ? 'body, body * { cursor: crosshair; -webkit-user-select: none !important; user-select: none !important; } '
+        + INTERACTIVE + ' { cursor: pointer; }'
       : '')
       + '[data-insight-selected]{outline:2px solid ' + HL + ' !important;outline-offset:2px !important;}';
 
@@ -378,6 +420,9 @@ const SELECT_SCRIPT = `<script>(function(){
     }
 
     for (var s = 0; s < selected.length; s++) {
+      // Highlighted words keep the browser's own highlight; ringing the whole
+      // paragraph would claim more than was picked.
+      if (selected[s].kind === 'text') continue;
       var el = elementForRef(selected[s]);
       if (el) el.setAttribute('data-insight-selected', '');
     }
@@ -476,8 +521,153 @@ const SELECT_SCRIPT = `<script>(function(){
     }
   }
 
+  function ensureMarquee() {
+    if (!marquee) {
+      marquee = document.createElement('div');
+      marquee.setAttribute('data-insight-marquee', '');
+      marquee.style.position = 'fixed';
+      marquee.style.pointerEvents = 'none';
+      marquee.style.zIndex = '2147483647';
+      marquee.style.border = '1px dashed ' + HL;
+      marquee.style.backgroundColor = HL_FILL;
+      marquee.style.boxSizing = 'border-box';
+    }
+    if (!marquee.parentNode) {
+      (document.body || document.documentElement).appendChild(marquee);
+    }
+  }
+
+  function removeMarquee() {
+    if (marquee && marquee.parentNode) marquee.parentNode.removeChild(marquee);
+  }
+
+  function dragRect(e) {
+    return {
+      left: Math.min(drag.x, e.clientX),
+      top: Math.min(drag.y, e.clientY),
+      right: Math.max(drag.x, e.clientX),
+      bottom: Math.max(drag.y, e.clientY)
+    };
+  }
+
+  function drawMarquee(r) {
+    ensureMarquee();
+    marquee.style.left = r.left + 'px';
+    marquee.style.top = r.top + 'px';
+    marquee.style.width = (r.right - r.left) + 'px';
+    marquee.style.height = (r.bottom - r.top) + 'px';
+  }
+
+  // The outermost elements lying wholly inside the rectangle. An element the
+  // rectangle only crosses is searched for children that fit instead.
+  function elementsIn(r) {
+    var out = [];
+    function walk(node) {
+      var kids = node.children;
+      for (var i = 0; i < kids.length && out.length < MAX_PICKS; i++) {
+        var el = kids[i];
+        if (SKIP_TAGS[el.tagName] || el === overlay || el === marquee || el === askButton) continue;
+        var b = el.getBoundingClientRect();
+        if (b.right < r.left || b.left > r.right || b.bottom < r.top || b.top > r.bottom) continue;
+        var inside = b.width > 0 && b.height > 0
+          && b.left >= r.left && b.right <= r.right && b.top >= r.top && b.bottom <= r.bottom;
+        if (inside) {
+          var res = refFor(el);
+          if (res) {
+            out.push(res);
+            continue;
+          }
+        }
+        walk(el);
+      }
+    }
+    if (document.body) walk(document.body);
+    return out;
+  }
+
+  /** Drops every pick and closes the prompt box — Escape, or a click on nothing. */
+  function clearSelection() {
+    activePick = null;
+    if (selected.length > 0) {
+      selected = [];
+      paint();
+      announce([]);
+    }
+    postPick();
+  }
+
+  function finishDrag(e) {
+    var r = dragRect(e);
+    var additive = drag.additive;
+    drag = null;
+    removeMarquee();
+    var hits = elementsIn(r);
+    if (hits.length === 0) {
+      // A fresh drag round empty space replaces the selection with nothing.
+      if (!additive) clearSelection();
+      return;
+    }
+    if (!additive) {
+      selected = [];
+      session++;
+    }
+    for (var i = 0; i < hits.length && selected.length < MAX_PICKS; i++) {
+      var ref = picked(hits[i]);
+      if (indexOfRef(refId(ref)) === -1) selected.push(ref);
+    }
+    sortSelected();
+    paint();
+    announce(selected.slice());
+    // The prompt box anchors on the last element in document order.
+    var lastRef = selected[selected.length - 1];
+    var lastEl = elementForRef(lastRef);
+    activePick = lastEl
+      ? { element: lastEl, ref: lastRef, label: lastEl.tagName.toLowerCase() }
+      : null;
+    postPick();
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (!armed || e.button !== 0) return;
+    var multi = !!(e.ctrlKey || e.metaKey);
+    // A drag that starts on the document's own control belongs to it.
+    if (!multi && isInteractive(e.target)) return;
+    drag = { x: e.clientX, y: e.clientY, additive: multi, active: false };
+  }, true);
+
+  document.addEventListener('mouseup', function (e) {
+    if (!drag) return;
+    if (!drag.active) {
+      drag = null;
+      return;
+    }
+    finishDrag(e);
+    // The click this mouseup is about to fire would otherwise pick again.
+    suppressClick = true;
+    setTimeout(function () { suppressClick = false; }, 0);
+  }, true);
+
   document.addEventListener('mousemove', function (e) {
     if (!armed) return;
+    if (drag) {
+      if (e.buttons === 0) {
+        // The button came up outside the frame, where no mouseup reaches us.
+        if (drag.active) finishDrag(e);
+        else drag = null;
+      } else {
+        if (!drag.active
+          && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > DRAG_THRESHOLD) {
+          drag.active = true;
+          clearHover();
+          var dragSel = window.getSelection && window.getSelection();
+          if (dragSel) dragSel.removeAllRanges();
+        }
+        if (drag.active) {
+          drawMarquee(dragRect(e));
+          return;
+        }
+      }
+    }
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
     // Read off the event rather than keydown: the frame does not have to hold
@@ -502,7 +692,14 @@ const SELECT_SCRIPT = `<script>(function(){
   });
 
   document.addEventListener('keydown', function (e) {
-    if (!armed) return;
+    if (!armed) {
+      if (e.key === 'Escape' && (pendingText || (activePick && activePick.range))) {
+        var escSel = window.getSelection && window.getSelection();
+        if (escSel) escSel.removeAllRanges();
+        dismissTextAsk();
+      }
+      return;
+    }
     if (e.key === 'Control' || e.key === 'Meta') {
       modifier = true;
       queueHover();
@@ -510,13 +707,11 @@ const SELECT_SCRIPT = `<script>(function(){
     }
     if (e.key === 'Escape') {
       clearHover();
-      activePick = null;
-      if (selected.length > 0) {
-        selected = [];
-        paint();
-        announce([]);
+      if (drag) {
+        drag = null;
+        removeMarquee();
       }
-      postPick();
+      clearSelection();
       return;
     }
     if (e.key === 'ArrowUp') {
@@ -548,6 +743,12 @@ const SELECT_SCRIPT = `<script>(function(){
 
   document.addEventListener('click', function (e) {
     if (!armed) return;
+    if (suppressClick) {
+      suppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     var multi = !!(e.ctrlKey || e.metaKey);
     var target = e.target;
     // The document's own control, clicked without a modifier: let it through
@@ -561,24 +762,30 @@ const SELECT_SCRIPT = `<script>(function(){
     if (!multi && textSel && !textSel.isCollapsed) return;
 
     var res = refFor(target);
-    if (!res) return;
+    if (!res) {
+      // A plain click on nothing selectable deselects everything, the way a
+      // click on empty space does in any editor. Ctrl/Cmd-click keeps it.
+      if (!multi) clearSelection();
+      return;
+    }
 
     // Capture phase + stop: this click picks an element instead of reaching the
     // insight's own handlers.
     e.preventDefault();
     e.stopPropagation();
 
-    var id = refId(res.ref);
+    var ref = picked(res);
+    var id = refId(ref);
     var at = indexOfRef(id);
 
     if (!multi) {
       // A plain click is a fresh, single selection — and clicking the element
       // that is already the only one selected clears it.
       var clearing = at !== -1 && selected.length === 1;
-      selected = clearing ? [] : [res.ref];
+      selected = clearing ? [] : [ref];
       if (!clearing) session++;
     } else if (at === -1) {
-      selected.push(res.ref);
+      if (selected.length < MAX_PICKS) selected.push(ref);
     } else {
       selected.splice(at, 1);
     }
@@ -588,7 +795,7 @@ const SELECT_SCRIPT = `<script>(function(){
     announce(selected.slice());
 
     if (indexOfRef(id) !== -1) {
-      activePick = { element: res.element, ref: res.ref, label: res.label };
+      activePick = { element: res.element, ref: ref, label: res.label };
     } else if (selected.length > 0) {
       // The anchor was just removed but others remain: re-anchor on the last of
       // them so the prompt box does not vanish mid multi-select.
@@ -621,7 +828,10 @@ const SELECT_SCRIPT = `<script>(function(){
       );
       return;
     }
-    var bcr = activePick.element.getBoundingClientRect();
+    // Highlighted words anchor the prompt box on the words, not their paragraph.
+    var bcr = activePick.range
+      ? activePick.range.getBoundingClientRect()
+      : activePick.element.getBoundingClientRect();
     parent.postMessage({
       type: PICK,
       ref: activePick.ref,
@@ -647,6 +857,136 @@ const SELECT_SCRIPT = `<script>(function(){
     }
   }
 
+  function ensureAskButton() {
+    if (!askButton) {
+      askButton = document.createElement('button');
+      askButton.type = 'button';
+      askButton.setAttribute('data-insight-ask', '');
+      askButton.textContent = 'Ask CoPilot';
+      var st = askButton.style;
+      st.position = 'fixed';
+      st.zIndex = '2147483647';
+      st.padding = '4px 10px';
+      st.border = 'none';
+      st.borderRadius = '6px';
+      st.background = HL;
+      st.color = '#ffffff';
+      st.font = '600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      st.cursor = 'pointer';
+      st.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.25)';
+      // A mousedown here would otherwise collapse the highlight it asks about,
+      // and its mouseup would offer the button again for the same highlight.
+      askButton.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      askButton.addEventListener('mouseup', function (e) {
+        e.stopPropagation();
+      });
+      askButton.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        askAboutText();
+      });
+    }
+    if (!askButton.parentNode) {
+      (document.body || document.documentElement).appendChild(askButton);
+    }
+  }
+
+  function hideAsk() {
+    pendingText = null;
+    if (askButton && askButton.parentNode) askButton.parentNode.removeChild(askButton);
+  }
+
+  function elementOf(node) {
+    return node && (node.nodeType === 1 ? node : node.parentElement);
+  }
+
+  // The highlighted words and the element that addresses them: the one the
+  // whole highlight sits in, or — for a highlight spanning top-level blocks of
+  // a keyless document, which lands on <body>, no address — the one it starts in.
+  function textSelection() {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    var text = textOf(sel.toString());
+    if (!text) return null;
+    var range = sel.getRangeAt(0);
+    var common = elementOf(range.commonAncestorContainer);
+    var res = common ? refFor(common) : null;
+    if (!res) {
+      var start = elementOf(range.startContainer);
+      res = start ? refFor(start) : null;
+    }
+    return res ? { res: res, text: text, range: range } : null;
+  }
+
+  function offerAsk() {
+    if (armed || !askText) {
+      hideAsk();
+      return;
+    }
+    // Already asked about this highlight; a new one collapses it first, which
+    // dismisses the ask and lets the next highlight be offered.
+    if (activePick && activePick.range) return;
+    var found = textSelection();
+    if (!found) {
+      hideAsk();
+      return;
+    }
+    pendingText = found;
+    ensureAskButton();
+    var rects = found.range.getClientRects();
+    var b = rects.length ? rects[rects.length - 1] : found.range.getBoundingClientRect();
+    var w = askButton.offsetWidth || 96;
+    var h = askButton.offsetHeight || 26;
+    var top = b.bottom + 6;
+    if (top + h > window.innerHeight) top = Math.max(4, b.top - h - 6);
+    askButton.style.left = Math.max(4, Math.min(b.right - w, window.innerWidth - w - 4)) + 'px';
+    askButton.style.top = top + 'px';
+  }
+
+  function askAboutText() {
+    var found = pendingText;
+    hideAsk();
+    if (!found) return;
+    var ref = Object.assign({}, found.res.ref, { kind: 'text', content: found.text });
+    // Asking about highlighted words replaces whatever was selected before: the
+    // next turn is about these words, not an element picked earlier.
+    selected = [ref];
+    session++;
+    paint();
+    announce(selected.slice());
+    activePick = { element: found.res.element, ref: ref, label: 'text', range: found.range };
+    postPick();
+  }
+
+  document.addEventListener('mouseup', function () {
+    if (armed || !askText) return;
+    // Once the browser has settled the selection this mouseup made.
+    setTimeout(offerAsk, 0);
+  });
+
+  // The highlight going away — a click elsewhere in the document, a new drag,
+  // Escape — takes the ask with it: the button, and once asked, the prompt box
+  // and the selection the words became. The host cannot see a click in here,
+  // so this is the only place that knows.
+  function dismissTextAsk() {
+    hideAsk();
+    if (!activePick || !activePick.range) return;
+    activePick = null;
+    selected = selected.filter(function (ref) { return ref.kind !== 'text'; });
+    paint();
+    announce(selected.slice());
+    postPick();
+  }
+
+  document.addEventListener('selectionchange', function () {
+    if (armed) return;
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed) dismissTextAsk();
+  });
+
   window.addEventListener('scroll', queuePickRectUpdate, true);
   window.addEventListener('resize', queuePickRectUpdate);
 
@@ -654,6 +994,8 @@ const SELECT_SCRIPT = `<script>(function(){
     var data = e.data;
     if (!data || data.type !== ARM) return;
     armed = !!data.active;
+    askText = !!data.askText;
+    if (armed || !askText) hideAsk();
     selected = Array.isArray(data.selected)
       ? data.selected.filter(function (item) {
           if (typeof item === 'string') return true;
@@ -665,13 +1007,17 @@ const SELECT_SCRIPT = `<script>(function(){
           var out = { path: Array.isArray(item.path) ? item.path : [] };
           if (typeof item.key === 'string' && item.key) out.key = item.key;
           if (Array.isArray(item.tags)) out.tags = item.tags;
+          if (item.kind === 'text') out.kind = 'text';
+          if (typeof item.content === 'string') out.content = item.content;
+          if (item.contentTruncated === true) out.contentTruncated = true;
           return out;
         })
       : [];
-    if (!armed) {
-      clearHover();
-      activePick = null;
-    }
+    // The host echoes every selection change back, so this runs right after an
+    // ask too. Only a pick of the other mode is stale: an element pick once
+    // selection mode is off, a text pick once it is on.
+    if (!armed) clearHover();
+    if (activePick && (armed ? !!activePick.range : !activePick.range)) activePick = null;
     paint();
   });
 
@@ -767,7 +1113,17 @@ export function isInsightFrameReadyMessage(
 
 function isValidRef(ref: unknown): ref is InsightSectionRef {
   if (!ref || typeof ref !== 'object') return false;
-  const r = ref as { key?: unknown; path?: unknown; tags?: unknown };
+  const r = ref as {
+    key?: unknown;
+    path?: unknown;
+    tags?: unknown;
+    kind?: unknown;
+    content?: unknown;
+  };
+  // Shape only. The host clamps `content` (sanitizeInsightSections) before it
+  // is stored, so a document posting a huge string cannot bloat every turn.
+  if (r.kind !== undefined && r.kind !== 'element' && r.kind !== 'text') return false;
+  if (r.content !== undefined && typeof r.content !== 'string') return false;
   const hasKey = typeof r.key === 'string' && r.key.length > 0;
   if (r.key !== undefined && typeof r.key !== 'string') return false;
   if (r.path !== undefined && !Array.isArray(r.path)) return false;

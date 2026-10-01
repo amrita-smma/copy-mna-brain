@@ -15,6 +15,12 @@ import {
   parseInsightTemplateBlock,
   type InsightTemplateAttachment,
 } from '@/lib/insights/templateAttachment';
+import {
+  INSIGHT_SELECTION_PART_TYPE,
+  isInsightSelectionBlock,
+  readInsightSelectionKwarg,
+  type InsightSelectionAttachment,
+} from '@/lib/insights/selectionAttachment';
 
 type TextPart = { type: 'text'; text: string };
 type ToolPart = {
@@ -26,7 +32,8 @@ type ToolPart = {
   output?: { kwargs: { content: string } };
 };
 type TemplatePart = { type: typeof INSIGHT_TEMPLATE_PART_TYPE; data: InsightTemplateAttachment };
-type UIPart = TextPart | ToolPart | TemplatePart;
+type SelectionPart = { type: typeof INSIGHT_SELECTION_PART_TYPE; data: InsightSelectionAttachment };
+type UIPart = TextPart | ToolPart | TemplatePart | SelectionPart;
 
 interface UIMessageOut {
   id: string;
@@ -44,11 +51,12 @@ function extractText(content: unknown): string {
       if (typeof block === 'string') return block;
       if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
         const txt = (block as { text?: string }).text ?? '';
-        // Hide backend file extractions and expanded insight templates from the UI
+        // Hide backend file extractions, expanded insight templates and insight
+        // selections from the UI
         if (txt.startsWith('Attached file "') && txt.includes('":\n\n')) {
           return '';
         }
-        if (parseInsightTemplateBlock(txt)) {
+        if (parseInsightTemplateBlock(txt) || isInsightSelectionBlock(txt)) {
           return '';
         }
         return txt;
@@ -92,6 +100,9 @@ function toUIMessages(messages: BaseMessage[]): UIMessageOut[] {
       const text = extractText(m.content);
       const experimental_attachments: { url: string; contentType?: string }[] = [];
       const parts: UIPart[] = [];
+
+      const selection = readInsightSelectionKwarg(m.additional_kwargs);
+      if (selection) parts.push({ type: INSIGHT_SELECTION_PART_TYPE, data: selection });
 
       if (Array.isArray(m.content)) {
         for (const block of m.content) {
