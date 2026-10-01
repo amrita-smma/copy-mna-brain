@@ -1276,13 +1276,6 @@ export function buildNormalizedTwoStepReview(
     }
     return `investor:${clean}`;
   };
-  // Commitment each party holds in each fund according to this workbook, used to
-  // flag a managed-fund transferor that has nothing to transfer.
-  const workbookCommitmentKeys = new Set(
-    commitmentEvents
-      .filter((e) => e.intent === 'increase' || e.intent === 'transfer_in')
-      .map((e) => `${normalizeCanonicalName(e.investorName)}|${normalizeCanonicalName(e.fund)}`),
-  );
   for (const ev of commitmentEvents) {
     if (['increase', 'decrease', 'paid_in', 'distribution'].includes(ev.intent)) {
       const isDistribution = ev.intent === 'distribution';
@@ -1359,23 +1352,14 @@ export function buildNormalizedTwoStepReview(
         : isDuplicate
           ? 'duplicate'
           : 'actionable';
-      // A managed fund can only transfer commitment it holds. With none in this
-      // workbook, apply rejects the row unless the ledger already has it.
-      const phantomTransferNote =
-        isEligible &&
-        isManagedFundName(transferorName, managedFundKeys) &&
-        !workbookCommitmentKeys.has(`${normalizeCanonicalName(transferorName)}|${normalizeCanonicalName(ev.fund)}`)
-          ? `Transferor ${transferorName} is a managed fund with no commitment in ${ev.fund} in this workbook; apply rejects this transfer unless that commitment is already in the ledger, so no phantom fund-of-funds holding is created.`
-          : null;
       const blockReason = !isEligible
         ? (ev.transferPairing?.reviewReason ?? 'Transfer counterparty could not be verified automatically')
         : null;
 
+      // Only the transferee leg posts: the workbook never records the
+      // transferor's commitment or its reduction, so there is no transfer_out leg.
       const legs: ReviewTransactionLeg[] = isEligible
-        ? [
-            { from: transferorName, to: ev.fund, type: 'transfer_out', amount: ev.amount ?? 0 },
-            { from: ev.fund, to: transfereeName, type: 'transfer_in', amount: ev.amount ?? 0 },
-          ]
+        ? [{ from: ev.fund, to: transfereeName, type: 'transfer_in', amount: ev.amount ?? 0 }]
         : [];
 
       const transaction: ReviewTransaction = {
@@ -1401,7 +1385,6 @@ export function buildNormalizedTwoStepReview(
         isTransfer: true,
         isMultiPartyTransfer: false,
         legs,
-        ...(phantomTransferNote ? { reviewNote: phantomTransferNote } : {}),
         backingRef: { kind: 'commitment_event', sourceRow: ev.sourceRow, intent: ev.intent },
         rawCommitmentEvent: ev,
       };

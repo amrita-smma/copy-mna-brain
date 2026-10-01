@@ -183,7 +183,10 @@ export function CommitmentLedgerDialog({
       return;
     }
 
+    // Only a new transfer needs a counterparty: an edit keeps the participants,
+    // and a transferee-only transfer (Nanjing import) has none.
     if (
+      !editingEvent &&
       (formEventType === 'transfer_in' || formEventType === 'transfer_out') &&
       !formCounterpartyId
     ) {

@@ -1926,13 +1926,13 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
             {
               name: '南京金光紫金股权投资基金（有限合伙企业）',
               filingCode: 'SD2431',
-              subscribedWan: 3800, // 38,000,000 CNY (40M increase - 2M decrease; 12M paired transfer nets to 0)
+              subscribedWan: 5000, // 50,000,000 CNY (40M increase + 12M transfer-in - 2M decrease)
               paidInWan: 3000,     // 30,000,000 CNY
               investedWan: 1000,   // 10,000,000 CNY
             },
           ],
           dataRows: [
-            // Net Commitment: 40M increase + 12M transfer (paired with synthetic -12M) - 2M decrease = 38M
+            // Net Commitment: 40M increase + 12M 受让 (no transferor debit) - 2M decrease = 50M
             {
               order: 1,
               date: new Date('2023-01-01'),
@@ -2011,8 +2011,8 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
           (r) => r.metricName === 'Net Commitment vs Subscribed',
         );
         expect(subRecon).toBeDefined();
-        expect(subRecon!.sourceValue).toBe(38_000_000);
-        expect(subRecon!.calculatedValue).toBe(38_000_000);
+        expect(subRecon!.sourceValue).toBe(50_000_000);
+        expect(subRecon!.calculatedValue).toBe(50_000_000);
         expect(subRecon!.diff).toBe(0);
         expect(subRecon!.isReconciled).toBe(true);
 
@@ -2047,13 +2047,13 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
         );
       });
 
-      it('nets paired synthetic transfers to zero at fund level during reconciliation', async () => {
+      it('counts a 受让额度 row with no reciprocal reduction as new fund commitment, with no transferor debit', async () => {
         const buf = await createTestWorkbookBuffer({
           summaryRows: [
             {
               name: '南京金光紫金股权投资基金（有限合伙企业）',
               filingCode: 'SD2431',
-              subscribedWan: 5000, // 50,000,000 CNY
+              subscribedWan: 6500, // 65,000,000 CNY: the catalog counts the 受让 row as fund size
             },
           ],
           dataRows: [
@@ -2068,7 +2068,7 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
               direction: '认缴额度增加',
               fund: '南京金光紫金股权投资基金（有限合伙企业）',
             },
-            // LP A transfers 15M to LP B (paired synthetic transfer, no reciprocal reduction row in workbook)
+            // LP B takes a 15M 受让 from LP A; the workbook has no reciprocal reduction row
             {
               order: 2,
               date: new Date('2023-01-15'),
@@ -2103,9 +2103,9 @@ describe('Nanjing Fund deterministic fingerprint parser', () => {
           (r) => r.metricName === 'Net Commitment vs Subscribed',
         );
         expect(subRecon).toBeDefined();
-        expect(subRecon!.sourceValue).toBe(50_000_000);
-        // Calculated must net to exactly 50M (+50M increase +15M transfer_in -15M synthetic transfer_out = 50M)
-        expect(subRecon!.calculatedValue).toBe(50_000_000);
+        expect(subRecon!.sourceValue).toBe(65_000_000);
+        // +50M increase +15M transfer_in; the transferor is not debited
+        expect(subRecon!.calculatedValue).toBe(65_000_000);
         expect(subRecon!.diff).toBe(0);
         expect(subRecon!.isReconciled).toBe(true);
       });

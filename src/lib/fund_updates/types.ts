@@ -172,6 +172,10 @@ export interface TransferPairingMetadata {
   transferorName?: string | null;
   counterpartyRaw?: string | null;
   matchedReductionSourceRow?: number | null;
+  /**
+   * The transfer can post automatically. Only the transferee's commitment
+   * increase is posted; the transferor stays metadata and is never debited.
+   */
   eligibleForTransferOut: boolean;
   requiresReview: boolean;
   reviewReason?: string | null;

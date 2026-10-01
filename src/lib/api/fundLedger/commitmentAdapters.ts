@@ -74,6 +74,9 @@ export async function listCommitmentEvents(params?: {
       let event_type: CommitmentEventType = 'additional_commitment';
       if (e.entry_type === 'commitment_transfer') {
         event_type = delta.startsWith('-') ? 'transfer_out' : 'transfer_in';
+      } else if (e.entry_type === 'commitment' && e.sub_type === 'transfer_in') {
+        // A transferee-only transfer (Nanjing import): no counterparty leg.
+        event_type = 'transfer_in';
       } else if (delta.startsWith('-')) {
         event_type = 'reduction';
       } else {

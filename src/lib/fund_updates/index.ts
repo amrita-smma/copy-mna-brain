@@ -107,6 +107,7 @@ export {
   buildCommitmentEventDedupKey,
   buildLedgerEntryCommitmentDedupKey,
   buildCommitmentTransferDedupKey,
+  TransferInReplayGuard,
   buildAdjustmentDedupKey,
   sortFundUpdateReviewAssets,
   defaultCommitmentEventSelection,

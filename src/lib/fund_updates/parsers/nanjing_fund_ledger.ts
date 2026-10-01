@@ -1081,13 +1081,12 @@ export function reconcileNanjingFundLedger(
     const totalIncreases = fundCommitments
       .filter((e) => e.intent === 'increase' || e.intent === 'transfer_in')
       .reduce((sum, e) => sum + e.amount, 0);
-    const totalWorkbookDecreases = fundCommitments
+    // A 受让额度 row adds to fund size: the workbook never records the
+    // transferor's commitment or a reduction for it, and the import posts no
+    // transferor debit, so only explicit 减资 rows reduce commitment.
+    const totalDecreases = fundCommitments
       .filter((e) => e.intent === 'decrease')
       .reduce((sum, e) => sum + e.amount, 0);
-    const totalSyntheticTransferDecreases = fundCommitments
-      .filter((e) => e.intent === 'transfer_in' && e.transferPairing?.eligibleForTransferOut === true)
-      .reduce((sum, e) => sum + e.amount, 0);
-    const totalDecreases = totalWorkbookDecreases + totalSyntheticTransferDecreases;
     const calculatedNetCommitment = totalIncreases - totalDecreases;
 
     const sourceSubscribed = catalogItem?.subscribedAmount ?? null;
@@ -1115,7 +1114,7 @@ export function reconcileNanjingFundLedger(
       isReconciled: subReconciled,
       sheet: '基金汇总 / 基金流水明细',
       notes: hasSourceSubscribed
-        ? `Calculated net commitment = ${calculatedNetCommitment.toLocaleString()} CNY (Increases/Transfers: ${totalIncreases.toLocaleString()} - Decreases: ${totalDecreases.toLocaleString()}${totalSyntheticTransferDecreases > 0 ? ` [including ${totalSyntheticTransferDecreases.toLocaleString()} CNY paired synthetic transfer(s)]` : ''}), Summary subscribed = ${subSourceVal.toLocaleString()} CNY, Diff = ${subDiff.toLocaleString()} CNY.`
+        ? `Calculated net commitment = ${calculatedNetCommitment.toLocaleString()} CNY (Increases/Transfers: ${totalIncreases.toLocaleString()} - Decreases: ${totalDecreases.toLocaleString()}), Summary subscribed = ${subSourceVal.toLocaleString()} CNY, Diff = ${subDiff.toLocaleString()} CNY.`
         : `Calculated net commitment = ${calculatedNetCommitment.toLocaleString()} CNY. No summary subscribed amount found in 基金汇总.`,
     });
 

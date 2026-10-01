@@ -2288,11 +2288,14 @@ describe('buildNormalizedTwoStepReview — managed fund → managed fund (MB-569
     expect(investRow.blockReason).toBeNull();
   });
 
-  it('flags a transfer out of a managed fund that holds no commitment in the target (row #200)', () => {
+  it('shows a transfer from a managed fund with no commitment in the target (row #200) as an actionable transferee-only leg', () => {
     const review = build();
     const transfer = review.transactions.find((t) => t.id === 'transfer:202')!;
     expect(transfer.fromKey).toBe(`fund:${TONGDE}`);
-    expect(transfer.reviewNote).toContain('no commitment in');
-    expect(transfer.reviewNote).toContain('phantom fund-of-funds holding');
+    expect(transfer.status).toBe('actionable');
+    expect(transfer.reviewNote).toBeUndefined();
+    expect(transfer.legs).toEqual([
+      expect.objectContaining({ type: 'transfer_in', from: HUAIAN, amount: transfer.amount }),
+    ]);
   });
 });

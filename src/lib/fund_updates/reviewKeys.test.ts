@@ -8,6 +8,7 @@ import {
   buildCommitmentEventDedupKey,
   buildLedgerEntryCommitmentDedupKey,
   buildCommitmentTransferDedupKey,
+  TransferInReplayGuard,
   buildAdjustmentDedupKey,
   sortFundUpdateReviewAssets,
   defaultCommitmentEventSelection,
@@ -731,6 +732,89 @@ describe('buildLedgerEntryCommitmentDedupKey', () => {
     expect(buildLedgerEntryCommitmentDedupKey(entry)).toBe(
       buildAdjustmentDedupKey('2023-07-01', '-914781.37000000'),
     );
+  });
+});
+
+describe('buildLedgerEntryCommitmentDedupKey — transferee-only transfers', () => {
+  const transferInKey = buildCommitmentEventDedupKey('transfer_in', '2024-10-15', 3000000);
+
+  it('matches a transfer_in proposal against a commitment entry tagged transfer_in', () => {
+    expect(transferInKey).toBe('commitment_transfer_in|2024-10-15|3000000.00000000');
+    expect(
+      buildLedgerEntryCommitmentDedupKey({
+        entry_type: 'commitment',
+        sub_type: 'transfer_in',
+        entry_date: '2024-10-15',
+        commitment_delta: '3000000.00000000',
+      }),
+    ).toBe(transferInKey);
+  });
+
+  it('matches a transfer_in proposal against the transferee leg of an earlier two-legged import', () => {
+    expect(
+      buildLedgerEntryCommitmentDedupKey({
+        entry_type: 'commitment_transfer',
+        sub_type: 'transfer_in',
+        entry_date: '2024-10-15',
+        commitment_delta: '3000000.00000000',
+        cash_delta: '0.00000000',
+      }),
+    ).toBe(transferInKey);
+  });
+
+  it('keeps the transfer_out leg of a two-legged transfer out of the transfer_in key', () => {
+    expect(
+      buildLedgerEntryCommitmentDedupKey({
+        entry_type: 'commitment_transfer',
+        sub_type: 'transfer_out',
+        entry_date: '2024-10-15',
+        commitment_delta: '-3000000.00000000',
+        cash_delta: '0.00000000',
+      }),
+    ).toBe('commitment_transfer|2024-10-15|0.00000000');
+  });
+
+  it('never matches an ordinary commitment increase of the same date and amount', () => {
+    expect(buildCommitmentEventDedupKey('increase', '2024-10-15', 3000000)).not.toBe(transferInKey);
+    expect(
+      buildLedgerEntryCommitmentDedupKey({
+        entry_type: 'commitment',
+        entry_date: '2024-10-15',
+        commitment_delta: '3000000.00000000',
+      }),
+    ).not.toBe(transferInKey);
+  });
+});
+
+describe('TransferInReplayGuard.check', () => {
+  const key = 'commitment_transfer_in|2024-10-15|1000000.00000000';
+
+  it('posts a row when the ledger has no matching entry', () => {
+    expect(new TransferInReplayGuard().check('pos-1', key, 'lp-a', 0)).toBe('new');
+  });
+
+  it('lets each matching ledger entry absorb exactly one row', () => {
+    const guard = new TransferInReplayGuard();
+    expect(guard.check('pos-1', key, 'lp-a', 1)).toBe('duplicate');
+    expect(guard.check('pos-1', key, 'lp-b', 1)).toBe('new');
+  });
+
+  it('treats a row repeated with the same transferor in one batch as a duplicate', () => {
+    const guard = new TransferInReplayGuard();
+    expect(guard.check('pos-1', key, 'lp-a', 0)).toBe('new');
+    expect(guard.check('pos-1', key, 'lp-a', 1)).toBe('duplicate');
+  });
+
+  it('posts same-day, same-amount rows from different transferors', () => {
+    const guard = new TransferInReplayGuard();
+    expect(guard.check('pos-1', key, 'lp-a', 0)).toBe('new');
+    expect(guard.check('pos-1', key, 'lp-b', 1)).toBe('new');
+  });
+
+  it('keeps positions apart', () => {
+    const guard = new TransferInReplayGuard();
+    expect(guard.check('pos-1', key, 'lp-a', 1)).toBe('duplicate');
+    expect(guard.check('pos-2', key, 'lp-a', 0)).toBe('new');
   });
 });
 

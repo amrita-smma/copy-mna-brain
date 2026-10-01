@@ -4,18 +4,30 @@ import type { ParsedTxn, ParsedValuation } from './parsers/startech_quarterly';
 import { classifyFundUpdateTxn } from './canonicalEvent';
 
 /**
+ * Key kind for a transferee-only commitment transfer: a `commitment` entry
+ * tagged `sub_type = 'transfer_in'`, or the positive leg of a two-legged
+ * `commitment_transfer` posted by an earlier import. Kept apart from ordinary
+ * commitment increases so a same-day, same-amount increase never dedups
+ * against a transfer.
+ */
+const TRANSFER_IN_KEY_KIND = 'commitment_transfer_in';
+
+/**
  * Stable dedup key for one-sided commitment event proposals and ledger entries.
  * Format: `${entryType}|${date}|${keyAmount}`
- * where entryType is 'commitment', 'paid_in', or 'distribution',
- * and keyAmount is:
+ * where entryType is 'commitment', 'commitment_transfer_in', 'paid_in', or
+ * 'distribution', and keyAmount is:
  * - signed exact decimal string for commitment (negative for decrease)
- * - positive exact decimal string for paid_in and distribution
+ * - positive exact decimal string for transfer_in, paid_in and distribution
  */
 export function buildCommitmentEventDedupKey(
-  intent: 'increase' | 'decrease' | 'paid_in' | 'distribution' | string,
+  intent: 'increase' | 'decrease' | 'transfer_in' | 'paid_in' | 'distribution' | string,
   date: string,
   amount: number | string,
 ): string {
+  if (intent === 'transfer_in') {
+    return `${TRANSFER_IN_KEY_KIND}|${date}|${flAbs(toExactDecimalString(amount))}`;
+  }
   const entryType =
     intent === 'paid_in'
       ? 'paid_in'
@@ -44,6 +56,13 @@ export function buildLedgerEntryCommitmentDedupKey(entry: {
   if (isPaidInAdjustment(entry)) {
     return buildAdjustmentDedupKey(entry.entry_date, '0.00000000', entry.commitment_delta ?? '0.00000000', entry.valuation_delta ?? '0');
   }
+  const commitmentDelta = toExactDecimalString(entry.commitment_delta ?? '0.00000000');
+  const isTransferIn =
+    (entry.entry_type === 'commitment' && entry.sub_type === 'transfer_in') ||
+    (entry.entry_type === 'commitment_transfer' && !commitmentDelta.startsWith('-') && !flIsZero(commitmentDelta));
+  if (isTransferIn) {
+    return `${TRANSFER_IN_KEY_KIND}|${entry.entry_date}|${flAbs(commitmentDelta)}`;
+  }
   const amount =
     entry.entry_type === 'commitment'
       ? entry.commitment_delta
@@ -71,6 +90,47 @@ export function buildCommitmentTransferDedupKey(
 ): string {
   const amtStr = toExactDecimalString(flAbs(toExactDecimalString(amount)));
   return `commitment_transfer|${date}|${amtStr}|${transferorPositionId}|${transfereePositionId}`;
+}
+
+/**
+ * Decides whether a transferee-only transfer row is already in the ledger.
+ *
+ * The posted entry carries no transferor, so the ledger can only be matched by
+ * `(transferee position, date, amount)`. Two different transferors handing the
+ * same amount to one holder on one day are two rows, so each matching ledger
+ * entry absorbs at most one row, while a row repeated with the same transferor
+ * within one batch is a duplicate.
+ */
+export class TransferInReplayGuard {
+  private readonly batchRows = new Set<string>();
+  private readonly ledgerMatches = new Map<string, number>();
+  private readonly absorbed = new Map<string, number>();
+
+  /**
+   * @param ledgerMatchCount entries on the position with this dedup key. Read
+   *   once per `(position, key)` on first sight, before this batch posts any.
+   * @returns `'duplicate'` when the row is already recorded, `'new'` to post it.
+   */
+  check(
+    positionKey: string,
+    dedupKey: string,
+    transferorKey: string,
+    ledgerMatchCount: number,
+  ): 'duplicate' | 'new' {
+    const slot = `${positionKey}|${dedupKey}`;
+    if (!this.ledgerMatches.has(slot)) this.ledgerMatches.set(slot, ledgerMatchCount);
+
+    const row = `${slot}|${transferorKey}`;
+    if (this.batchRows.has(row)) return 'duplicate';
+    this.batchRows.add(row);
+
+    const absorbed = this.absorbed.get(slot) ?? 0;
+    if (absorbed < (this.ledgerMatches.get(slot) ?? 0)) {
+      this.absorbed.set(slot, absorbed + 1);
+      return 'duplicate';
+    }
+    return 'new';
+  }
 }
 
 /**

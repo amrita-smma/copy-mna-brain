@@ -1518,7 +1518,7 @@ describe("FundUpdateApplyService", () => {
       expect(grp?.matched_id).toBe("inv-grp-99");
     });
 
-    it("surfaces valid transfer counterparties in full.investors catalog with Transfer Counterparty role", async () => {
+    it("lists only the transferee of a transfer in full.investors: the transferor is counterparty metadata, not an investor to create", async () => {
       flFundRepo.findByWorkspaceId.mockResolvedValue([]);
       flInvestorRepo.findByWorkspaceId.mockResolvedValue([]);
       flFundingSourceRepo.findByWorkspaceId.mockResolvedValue([]);
@@ -1538,14 +1538,11 @@ describe("FundUpdateApplyService", () => {
       });
 
       const full = await service.buildFullReview([], [transferEvent]);
-      expect(full.investors).toHaveLength(2);
+      expect(full.investors).toHaveLength(1);
       const transferee = full.investors.find((i) => i.name === "Transferee LP");
-      const transferor = full.investors.find((i) => i.name === "Unknown Transferor LP");
       expect(transferee).toBeDefined();
       expect(transferee?.status).toBe("new");
-      expect(transferor).toBeDefined();
-      expect(transferor?.status).toBe("new");
-      expect(transferor?.role).toBe("Transfer Counterparty");
+      expect(full.investors.find((i) => i.name === "Unknown Transferor LP")).toBeUndefined();
     });
   });
 
@@ -3205,21 +3202,20 @@ describe("FundUpdateApplyService", () => {
       expect(result.warnings[0]).toContain("cannot apply CNY commitment events");
     });
 
-    it("posts balanced commitment_transfer when transfer_in is paired with an existing master transferor", async () => {
+    it("posts only the transferee's commitment increase for a paired transfer_in and never debits the transferor", async () => {
       flInvestorRepo.findByWorkspaceId.mockResolvedValue([
         { id: "inv-transferor", name: "Transferor LP" },
       ]);
-      flPositionService.getOrOpenPosition.mockImplementation(async (_ws, input) => {
-        if (input.holder_investor_id === "inv-transferor") {
-          return { id: "pos-transferor", holder_investor_id: "inv-transferor", fund_id: input.fund_id };
-        }
-        return { id: "pos-transferee", holder_investor_id: input.holder_investor_id, fund_id: input.fund_id };
-      });
+      flPositionService.getOrOpenPosition.mockImplementation(async (_ws, input) => ({
+        id: `pos-${input.holder_investor_id}`,
+        holder_investor_id: input.holder_investor_id,
+        fund_id: input.fund_id,
+      }));
 
       const transferEvent = sampleCommitmentEvent({
         intent: "transfer_in",
-        actionRaw: "转让",
-        natureRaw: "份额受让",
+        actionRaw: "认缴",
+        natureRaw: "受让额度",
         directionRaw: "认缴额度增加",
         amount: 3_000_000,
         transferPairing: {
@@ -3239,95 +3235,39 @@ describe("FundUpdateApplyService", () => {
       expect(result.events_skipped).toBe(0);
       expect(result.events_skipped_duplicate).toBe(0);
       expect(result.warnings).toEqual([]);
+      expect(result.outcomes[0]).toMatchObject({ submittedId: "transfer:3", disposition: "posted" });
 
+      // No position is ever opened for the transferor.
+      expect(flPositionService.getOrOpenPosition).not.toHaveBeenCalledWith(
+        "ws-1",
+        expect.objectContaining({ holder_investor_id: "inv-transferor" }),
+        mockTxExecutor,
+      );
       expect(flLedgerService.postEvent).toHaveBeenCalledTimes(1);
       expect(flLedgerService.postEvent).toHaveBeenCalledWith(
         "ws-1",
         expect.objectContaining({
           event_date: "2024-01-15",
+          description: expect.stringContaining("from Transferor LP to Investor A"),
           source_record_id: expect.stringContaining("src-rec"),
           entries: [
             expect.objectContaining({
-              position_id: "pos-transferor",
-              counterparty_position_id: "pos-transferee",
-              entry_type: "commitment_transfer",
-              sub_type: "transfer_out",
-              commitment_delta: "-3000000.00000000",
-              quantity_delta: "0.00000000",
-              cash_delta: "0.00000000",
-              currency: "CNY",
-            }),
-            expect.objectContaining({
-              position_id: "pos-transferee",
-              counterparty_position_id: "pos-transferor",
-              entry_type: "commitment_transfer",
+              position_id: expect.not.stringContaining("inv-transferor"),
+              entry_type: "commitment",
               sub_type: "transfer_in",
               commitment_delta: "3000000.00000000",
-              quantity_delta: "0.00000000",
-              cash_delta: "0.00000000",
               currency: "CNY",
             }),
           ],
         }),
         mockTxExecutor,
       );
+      const [entry] = flLedgerService.postEvent.mock.calls[0][1].entries;
+      expect(entry).not.toHaveProperty("counterparty_position_id");
     });
 
-    it("does NOT auto-create transferor from column 11 without catalog approval and blocks the transfer", async () => {
+    it("posts a transfer_in whose transferor is not a master investor, without creating the transferor", async () => {
       flInvestorRepo.findByWorkspaceId.mockResolvedValue([]); // No existing master investors
-
-      const transferEvent = sampleCommitmentEvent({
-        intent: "transfer_in",
-        actionRaw: "转让",
-        amount: 2_000_000,
-        transferPairing: {
-          transferorName: "Brand New Unregistered LP",
-          eligibleForTransferOut: true,
-          status: "paired",
-          requiresReview: false,
-        },
-      });
-
-      const result = await service.applyCommitmentEvents([transferEvent]);
-
-      expect(result.events_inserted).toBe(0);
-      expect(result.events_skipped).toBe(1);
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toContain("not found in master investors");
-      expect(result.warnings[0]).toContain("Blocked transfer-in");
-
-      // Transferee is created from col 3, but unselected transferor is NEVER created from col 11
-      expect(flMasterDataService.createInvestor).toHaveBeenCalledTimes(1);
-      expect(flMasterDataService.createInvestor).toHaveBeenCalledWith(
-        "ws-1",
-        expect.objectContaining({ name: "Investor A" }),
-        mockTxExecutor,
-      );
-
-      expect(flLedgerService.postEvent).not.toHaveBeenCalled();
-    });
-
-    it("creates approved transferor from catalogSelections and posts balanced commitment_transfer", async () => {
-      flInvestorRepo.findByWorkspaceId.mockResolvedValue([]); // No existing master investors initially
-
-      flMasterDataService.createInvestor.mockImplementation((_ws: any, input: any) =>
-        Promise.resolve({ id: `inv-${input.name}`, name: input.name, investor_type: input.investor_type }),
-      );
-
-      flPositionService.getOrOpenPosition.mockImplementation((_ws: any, input: any) => {
-        if (input.holder_investor_id === "inv-Brand New Unregistered LP") {
-          return Promise.resolve({ id: "pos-transferor", holder_investor_id: "inv-Brand New Unregistered LP", fund_id: input.fund_id });
-        }
-        return Promise.resolve({ id: "pos-transferee", holder_investor_id: input.holder_investor_id, fund_id: input.fund_id });
-      });
-
-      flLedgerService.postEvent.mockResolvedValue({
-        event: { id: "evt-transfer" } as any,
-        entries: [
-          { id: "e1", position_id: "pos-transferor", entry_type: "commitment_transfer" } as any,
-          { id: "e2", position_id: "pos-transferee", entry_type: "commitment_transfer" } as any,
-        ],
-      });
 
       const transferEvent = sampleCommitmentEvent({
         intent: "transfer_in",
@@ -3342,51 +3282,93 @@ describe("FundUpdateApplyService", () => {
         },
       });
 
-      const result = await service.applyCommitmentEvents([transferEvent], {
-        catalogSelections: {
-          investors: ["Brand New Unregistered LP"],
-        },
-      });
+      const result = await service.applyCommitmentEvents([transferEvent]);
 
       expect(result.events_inserted).toBe(1);
       expect(result.events_skipped).toBe(0);
-      expect(result.warnings).toHaveLength(0);
+      expect(result.warnings).toEqual([]);
 
-      // Both transferee (col 3) and transferor (catalog approval) are created
-      expect(flMasterDataService.createInvestor).toHaveBeenCalledWith(
-        "ws-1",
-        expect.objectContaining({ name: "Brand New Unregistered LP" }),
-        mockTxExecutor,
-      );
+      // Only the transferee (col 3) is created; the transferor (col 11) is metadata.
+      expect(flMasterDataService.createInvestor).toHaveBeenCalledTimes(1);
       expect(flMasterDataService.createInvestor).toHaveBeenCalledWith(
         "ws-1",
         expect.objectContaining({ name: "Investor A" }),
         mockTxExecutor,
       );
-
-      // Balanced commitment transfer legs posted
       expect(flLedgerService.postEvent).toHaveBeenCalledWith(
         "ws-1",
         expect.objectContaining({
           entries: [
-            expect.objectContaining({
-              position_id: "pos-transferor",
-              counterparty_position_id: "pos-transferee",
-              entry_type: "commitment_transfer",
-              sub_type: "transfer_out",
-              commitment_delta: "-2000000.00000000",
-            }),
-            expect.objectContaining({
-              position_id: "pos-transferee",
-              counterparty_position_id: "pos-transferor",
-              entry_type: "commitment_transfer",
-              sub_type: "transfer_in",
-              commitment_delta: "2000000.00000000",
-            }),
+            expect.objectContaining({ entry_type: "commitment", sub_type: "transfer_in", commitment_delta: "2000000.00000000" }),
           ],
         }),
         mockTxExecutor,
       );
+    });
+
+    it("skips a transfer_in already recorded as the transferee leg of an earlier two-legged import", async () => {
+      flLedgerEntryRepo.findByPositionIds.mockResolvedValue([
+        {
+          id: "legacy-in",
+          entry_date: "2024-01-15",
+          entry_type: "commitment_transfer",
+          sub_type: "transfer_in",
+          counterparty_position_id: "pos-old-transferor",
+          commitment_delta: "2000000.00000000",
+          currency: "CNY",
+        },
+      ]);
+
+      const transferEvent = sampleCommitmentEvent({
+        intent: "transfer_in",
+        amount: 2_000_000,
+        transferPairing: { transferorName: "Transferor LP", eligibleForTransferOut: true, status: "paired", requiresReview: false },
+      });
+
+      const result = await service.applyCommitmentEvents([transferEvent]);
+
+      expect(result.events_skipped_duplicate).toBe(1);
+      expect(result.events_inserted).toBe(0);
+      expect(result.outcomes[0]).toMatchObject({ submittedId: "transfer:3", disposition: "duplicate" });
+      expect(flLedgerService.postEvent).not.toHaveBeenCalled();
+    });
+
+    it("posts two same-day, same-amount transfers into one holder from different transferors, but dedups a repeated row", async () => {
+      const transfer = (sourceRow: number, transferorName: string) =>
+        sampleCommitmentEvent({
+          intent: "transfer_in",
+          amount: 1_000_000,
+          sourceRow,
+          transferPairing: { transferorName, eligibleForTransferOut: true, status: "paired", requiresReview: false },
+        });
+
+      const result = await service.applyCommitmentEvents([
+        transfer(10, "Transferor LP"),
+        transfer(11, "Other Transferor LP"),
+        transfer(12, "Transferor LP"),
+      ]);
+
+      expect(result.events_inserted).toBe(2);
+      expect(result.events_skipped_duplicate).toBe(1);
+      expect(result.outcomes.find((o) => o.submittedId === "transfer:12")?.disposition).toBe("duplicate");
+    });
+
+    it("does not dedup an ordinary commitment increase against a same-day, same-amount transfer_in", async () => {
+      flLedgerEntryRepo.findByPositionIds.mockResolvedValue([
+        {
+          id: "posted-transfer",
+          entry_date: "2024-01-15",
+          entry_type: "commitment",
+          sub_type: "transfer_in",
+          commitment_delta: "1000000.00000000",
+          currency: "CNY",
+        },
+      ]);
+
+      const result = await service.applyCommitmentEvents([sampleCommitmentEvent({ amount: 1_000_000 })]);
+
+      expect(result.events_inserted).toBe(1);
+      expect(result.events_skipped_duplicate).toBe(0);
     });
 
     it("blocks transfer when pairing is reciprocal_reduction_found but cannot post an atomic pair", async () => {
@@ -7481,7 +7463,7 @@ describe("FundUpdateApplyService managed fund → managed fund (MB-569)", () => 
       ]);
     });
 
-    it("posts a transfer_in to a managed transferee on its fund-held position against an outside transferor", async () => {
+    it("posts a transfer_in to a managed transferee as one commitment on its fund-held position, with no leg on the outside transferor", async () => {
       const result = await service.applyCommitmentEvents(
         [
           event({ investorName: MGMT_CO, intent: "increase", amount: 2_500_000, sourceRow: 193 }),
@@ -7505,19 +7487,19 @@ describe("FundUpdateApplyService managed fund → managed fund (MB-569)", () => 
       );
 
       expect(result.warnings).toEqual([]);
-      const transfer = postedEntries().find((entries) => entries[0].entry_type === "commitment_transfer")!;
+      const transfer = postedEntries().find((entries) => entries[0].sub_type === "transfer_in")!;
       expect(transfer).toEqual([
-        expect.objectContaining({ position_id: `pos:inv:inv-${MGMT_CO}:f-hua`, sub_type: "transfer_out", commitment_delta: "-5900000.00000000" }),
-        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", sub_type: "transfer_in", commitment_delta: "5900000.00000000" }),
+        expect.objectContaining({ position_id: "pos:fund:f-yue:f-hua", entry_type: "commitment", commitment_delta: "5900000.00000000" }),
       ]);
+      expect(postedEntries().flat().some((e) => e.entry_type === "commitment_transfer")).toBe(false);
     });
 
-    it("posts a transfer_out from a managed transferor that holds commitment in the target", async () => {
+    it("posts no transfer_out on a managed transferor, even when it holds commitment in the target", async () => {
       await service.applyCommitmentEvents(
         [
           event({ intent: "increase", amount: 89_600_000, sourceRow: 194 }),
           event({
-            investorName: "海南荣鑫同创科技发展有限公司",
+            investorName: "Outside LP",
             intent: "transfer_in",
             amount: 4_000_000,
             counterpartyName: YUESHENG,
@@ -7534,16 +7516,21 @@ describe("FundUpdateApplyService managed fund → managed fund (MB-569)", () => 
         ],
         { fundCatalog: CATALOG },
       );
-      const transfer = postedEntries().find((entries) => entries[0].entry_type === "commitment_transfer")!;
-      expect(transfer[0]).toMatchObject({ position_id: "pos:fund:f-yue:f-hua", sub_type: "transfer_out" });
+      const transfer = postedEntries().find((entries) => entries[0].sub_type === "transfer_in")!;
+      expect(transfer).toEqual([
+        expect.objectContaining({ position_id: "pos:inv:inv-Outside LP:f-hua", entry_type: "commitment", commitment_delta: "4000000.00000000" }),
+      ]);
+      // The managed transferor keeps its full 认缴: nothing negative lands on it.
+      const onTransferor = postedEntries().flat().filter((e) => e.position_id === "pos:fund:f-yue:f-hua");
+      expect(onTransferor).toEqual([expect.objectContaining({ commitment_delta: "89600000.00000000" })]);
       expect(masterData.createInvestor).not.toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: YUESHENG }), TX);
     });
 
-    it("blocks a transfer out of a managed fund with no commitment in the target instead of opening a phantom position (row #200)", async () => {
+    it("accepts a transfer from a managed fund that holds no commitment in the target (row #200) without opening a position for it", async () => {
       const result = await service.applyCommitmentEvents(
         [
           event({
-            investorName: "海南荣鑫同创科技发展有限公司",
+            investorName: "Outside LP",
             intent: "transfer_in",
             amount: 4_000_000,
             date: "2026-03-24",
@@ -7562,42 +7549,16 @@ describe("FundUpdateApplyService managed fund → managed fund (MB-569)", () => 
         { fundCatalog: CATALOG },
       );
 
-      expect(result.events_skipped).toBe(1);
-      expect(result.warnings[0]).toContain("phantom fund-of-funds holding");
+      expect(result.events_inserted).toBe(1);
+      expect(result.warnings).toEqual([]);
       expect(result.outcomes).toEqual([
-        expect.objectContaining({ submittedId: "transfer:202", disposition: "rejected" }),
+        expect.objectContaining({ submittedId: "transfer:202", disposition: "posted" }),
       ]);
       expect(openedPositions().some((p) => p.holder_fund_id === "f-tong")).toBe(false);
-      expect(ledgerService.postEvent).not.toHaveBeenCalled();
-      expect(masterData.createInvestor).not.toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: TONGDE }), TX);
-    });
-
-    it("allows the managed transferor when the ledger already holds its commitment in the target", async () => {
-      positionRepo.findByHolderFundIds.mockResolvedValue([{ id: "pos-existing", holder_fund_id: "f-tong", fund_id: "f-hua", asset_id: null }]);
-      ledgerEntryRepo.findAllByPositionIds.mockImplementation(async () => [
-        { id: "le-1", position_id: "pos-existing", entry_type: "commitment", entry_date: "2025-01-01", commitment_delta: "4000000.00000000", currency: "CNY" },
+      expect(postedEntries()).toEqual([
+        [expect.objectContaining({ position_id: "pos:inv:inv-Outside LP:f-hua", entry_type: "commitment", sub_type: "transfer_in" })],
       ]);
-      const result = await service.applyCommitmentEvents(
-        [
-          event({
-            investorName: "海南荣鑫同创科技发展有限公司",
-            intent: "transfer_in",
-            amount: 4_000_000,
-            counterpartyName: TONGDE,
-            transferPairing: {
-              status: "paired",
-              transferorName: TONGDE,
-              counterpartyRaw: TONGDE,
-              matchedReductionSourceRow: null,
-              eligibleForTransferOut: true,
-              requiresReview: false,
-            },
-          }),
-        ],
-        { fundCatalog: CATALOG },
-      );
-      expect(result.events_inserted).toBe(1);
-      expect(postedEntries()[0][0]).toMatchObject({ position_id: "pos:fund:f-tong:f-hua", sub_type: "transfer_out" });
+      expect(masterData.createInvestor).not.toHaveBeenCalledWith("ws-1", expect.objectContaining({ name: TONGDE }), TX);
     });
 
     it("writes the retained-proceeds treatment on a distribution to a managed holder fund", async () => {

@@ -32,6 +32,7 @@ import {
   FUND_CATALOG,
   NANJING_TEMPLATE_ID,
   OTHERS_GROUP,
+  TransferInReplayGuard,
   UNATTRIBUTED_ENTITY,
   buildAdjustmentDedupKey,
   buildCommitmentEventDedupKey,
@@ -1507,24 +1508,8 @@ export class FundUpdateApplyService {
           ? null
           : matchCatalog(ev.investorName, investorByName);
         if (matched) upsertUnique(uniqueInvestors, matched);
-
-        if (
-          ev.intent === "transfer_in" &&
-          ev.transferPairing?.transferorName &&
-          !isManagedFundName(ev.transferPairing.transferorName, managedNames) &&
-          ev.transferPairing.eligibleForTransferOut &&
-          !ev.transferPairing.requiresReview
-        ) {
-          const matchedCp = matchCatalog(ev.transferPairing.transferorName, investorByName);
-          if (matchedCp) {
-            const existingKey = matchedCp.name.toLowerCase();
-            const existingMatch = uniqueInvestors.get(existingKey);
-            if (!existingMatch) {
-              matchedCp.role = "Transfer Counterparty";
-              upsertUnique(uniqueInvestors, matchedCp);
-            }
-          }
-        }
+        // A transfer's transferor is counterparty metadata only: the transfer
+        // posts no leg on it, so it is not an investor to create.
       }
     }
 
@@ -1647,11 +1632,6 @@ export class FundUpdateApplyService {
       if (fund) referencedFundIds.add(fund.id);
 
       referenceParty(findParty(ev.investorName));
-
-      if (ev.intent === "transfer_in") {
-        const transferorName = ev.transferPairing?.transferorName ?? ev.counterpartyName;
-        referenceParty(findParty(transferorName));
-      }
     }
 
     const investorIds = Array.from(referencedInvestorIds);
@@ -1707,22 +1687,11 @@ export class FundUpdateApplyService {
       seenKeysByPosition.set(posId, keys);
     }
 
-    const seenTransferKeys = new Set<string>();
-    for (const e of ledgerEntries) {
-      if (e.entry_type === "commitment_transfer" && e.counterparty_position_id) {
-        if (e.sub_type === "transfer_in" || (e.commitment_delta && !e.commitment_delta.startsWith("-"))) {
-          const amtStr = toExactDecimalString(e.commitment_delta ?? "0");
-          seenTransferKeys.add(
-            buildCommitmentTransferDedupKey(e.entry_date, amtStr, e.counterparty_position_id, e.position_id),
-          );
-        } else if (e.sub_type === "transfer_out" || (e.commitment_delta && e.commitment_delta.startsWith("-"))) {
-          const amtStr = toExactDecimalString(flAbs(e.commitment_delta ?? "0"));
-          seenTransferKeys.add(
-            buildCommitmentTransferDedupKey(e.entry_date, amtStr, e.position_id, e.counterparty_position_id),
-          );
-        }
-      }
-    }
+    const transferInGuard = new TransferInReplayGuard();
+    const countLedgerMatches = (positionId: string | undefined, key: string) =>
+      positionId
+        ? (entriesByPositionId.get(positionId) ?? []).filter((e) => buildLedgerEntryCommitmentDedupKey(e) === key).length
+        : 0;
 
     // Sort events to preserve deterministic source order for intra-file dedup
     const sortedEvents = [...events].sort((a, b) => {
@@ -1748,7 +1717,6 @@ export class FundUpdateApplyService {
       if (event.intent === "transfer_in") {
         const pairing = event.transferPairing;
         const transferorName = pairing?.transferorName?.trim() ?? event.counterpartyName?.trim();
-        const transfereeName = event.investorName?.trim();
 
         if (
           !pairing ||
@@ -1757,42 +1725,29 @@ export class FundUpdateApplyService {
           pairing.requiresReview ||
           !pairing.eligibleForTransferOut ||
           !transferorName ||
-          !transfereeName
+          !event.investorName?.trim()
         ) {
           // Unresolved / review-required transfer -> remains blocked at twoStepReview
           continue;
         }
-
-        const transferee = findParty(transfereeName);
-        const transferor = findParty(transferorName);
-
+        // Posted as the transferee's leg alone (see applyCommitmentEvents).
+        const transferee = findParty(event.investorName);
         const transfereePos = transferee && fund
           ? positionByPartyAndFund.get(`${partyKey(transferee)}:::${fund.id}`)
           : undefined;
-        const transferorPos = transferor && fund
-          ? positionByPartyAndFund.get(`${partyKey(transferor)}:::${fund.id}`)
-          : undefined;
-
         const transfereePosKey = transfereePos
           ? transfereePos.id
-          : `synthetic:${syntheticPartyKey(transferee, transfereeName)}:::${fundKey}`;
-        const transferorPosKey = transferorPos
-          ? transferorPos.id
-          : `synthetic:${syntheticPartyKey(transferor, transferorName)}:::${fundKey}`;
-
-        const transferDedupKey = buildCommitmentTransferDedupKey(
-          event.date,
-          event.amount,
-          transferorPosKey,
-          transfereePosKey,
-        );
-
-        if (seenTransferKeys.has(transferDedupKey)) {
-          result[event.sourceRow] = "duplicate";
-        } else {
-          result[event.sourceRow] = "actionable";
-          seenTransferKeys.add(transferDedupKey);
-        }
+          : `synthetic:${syntheticPartyKey(transferee, event.investorName)}:::${fundKey}`;
+        const key = buildCommitmentEventDedupKey(event.intent, event.date, event.amount);
+        result[event.sourceRow] =
+          transferInGuard.check(
+            transfereePosKey,
+            key,
+            normalizeInvestorName(transferorName),
+            countLedgerMatches(transfereePos?.id, key),
+          ) === "duplicate"
+            ? "duplicate"
+            : "actionable";
         continue;
       }
 
@@ -3478,6 +3433,7 @@ export class FundUpdateApplyService {
       };
 
       const seenTransferKeys = new Set<string>();
+      const transferInGuard = new TransferInReplayGuard();
 
       const getFundId = async (fundName: string) => {
         const fundKey = fundName.trim().toLowerCase();
@@ -4334,9 +4290,8 @@ export class FundUpdateApplyService {
           const pairing = event.transferPairing;
           const transferorName = pairing?.transferorName?.trim();
 
-          // A transfer is never an ordinary commitment increase. Keep all
-          // unresolved/ambiguous rows quarantined until a reciprocal leg can
-          // be posted atomically.
+          // Keep unresolved/ambiguous transfers quarantined: without a verified
+          // transferor the row cannot be told apart from an ordinary increase.
           if (
             !pairing ||
             pairing.status === "missing_counterparty" ||
@@ -4359,172 +4314,33 @@ export class FundUpdateApplyService {
             continue;
           }
 
-          if (pairing.eligibleForTransferOut && transferorName) {
-            const transferorHolder = findHolder(transferorName);
-            const transferorBlock = !transferorHolder
-              ? isManagedParty(transferorName)
-                ? unresolvedManagedHolderWarning(transferorName, event.fund)
-                : `Blocked transfer-in: transferor "${transferorName}" not found in master investors (not approved/created) for fund "${event.fund}" on ${event.date}.`
-              : transferorHolder.kind === "fund" && transferorHolder.id === fundId
-                ? selfHoldingWarning(transferorName)
-                : transferorHolder.kind === "fund" &&
-                    !(await fundHolderHasCommitment(transferorName, transferorHolder.id, event.fund, fundId))
-                  ? phantomTransferWarning(transferorName, event.fund, event.date)
-                  : null;
-
-            if (!transferorHolder || transferorBlock) {
-              events_skipped += 1;
-              const warn = transferorBlock ?? `Blocked transfer-in for fund "${event.fund}" on ${event.date}.`;
-              warnings.push(warn);
-              outcomes.push({
-                submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
-                family: 'commitment_event',
-                disposition: 'rejected',
-                reason: warn,
-                assetCode: event.fund,
-                targetId: transfereePos.id,
-              });
-              continue;
-            } else {
-              const transferorPos = await getPosition(transferorHolder, fundId, event.date);
-
-              // Check currency guard on transferor position
-              const transferorEntries = await getPositionEntries(transferorPos.id);
-              const transferorLifecycle = transferorEntries.filter((e) =>
-                e.entry_type === "commitment" || e.entry_type === "commitment_transfer" || e.entry_type === "paid_in" || e.entry_type === "distribution",
-              );
-              if (transferorLifecycle.length > 0 && (transferorLifecycle[0].currency || "USD") !== "CNY") {
-                const existingCurrency = transferorLifecycle[0].currency || "USD";
-                events_skipped += 1;
-                const warn = `Existing commitment ledger for transferor "${transferorName}" in fund "${event.fund}" is in ${existingCurrency}; cannot apply CNY transfer event.`;
-                warnings.push(warn);
-                outcomes.push({
-                  submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
-                  family: 'commitment_event',
-                  disposition: 'rejected',
-                  reason: warn,
-                  assetCode: event.fund,
-                  targetId: transferorPos.id,
-                });
-                continue;
-              }
-
-              // Semantic dedup key for paired transfer
-              const transferDedupKey = buildCommitmentTransferDedupKey(
-                event.date,
-                eventAmtStr,
-                transferorPos.id,
-                transfereePos.id,
-              );
-              const hasExistingTransfer =
-                seenTransferKeys.has(transferDedupKey) ||
-                transfereeEntries.some(
-                  (e) =>
-                    e.entry_type === "commitment_transfer" &&
-                    e.entry_date === event.date &&
-                    e.counterparty_position_id === transferorPos.id &&
-                    toExactDecimalString(e.commitment_delta ?? "0") === eventAmtStr,
-                );
-
-              if (hasExistingTransfer) {
-                events_skipped_duplicate += 1;
-                outcomes.push({
-                  submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
-                  family: 'commitment_event',
-                  disposition: 'duplicate',
-                  reason: 'Skipped: commitment transfer already recorded in ledger',
-                  assetCode: event.fund,
-                  targetId: transfereePos.id,
-                  persistedTable: 'fl_ledger_entries',
-                });
-                continue;
-              }
-
-              try {
-                const postResult = await this.flLedgerService.postEvent(
-                  this.workspaceId,
-                  {
-                    event_date: event.date,
-                    description: event.notes ?? `Commitment transfer of ${eventAmtStr} CNY from ${transferorName} to ${event.investorName} in ${event.fund}`,
-                    source_record_id: sourceRecordId,
-                    created_by: options?.createdBy ?? null,
-                    entries: [
-                      {
-                        position_id: transferorPos.id,
-                        counterparty_position_id: transfereePos.id,
-                        entry_type: "commitment_transfer",
-                        sub_type: "transfer_out",
-                        commitment_delta: flNeg(eventAmtStr),
-                        quantity_delta: "0.00000000",
-                        valuation_delta: "0.00000000",
-                        cash_delta: "0.00000000",
-                        currency: "CNY",
-                        notes: event.notes ?? null,
-                        data_status: event.dataStatus ?? 'verified',
-                        source_record_id: sourceRecordId,
-                        created_by: options?.createdBy ?? null,
-                      },
-                      {
-                        position_id: transfereePos.id,
-                        counterparty_position_id: transferorPos.id,
-                        entry_type: "commitment_transfer",
-                        sub_type: "transfer_in",
-                        commitment_delta: eventAmtStr,
-                        quantity_delta: "0.00000000",
-                        valuation_delta: "0.00000000",
-                        cash_delta: "0.00000000",
-                        currency: "CNY",
-                        notes: event.notes ?? null,
-                        data_status: event.dataStatus ?? 'verified',
-                        source_record_id: sourceRecordId,
-                        created_by: options?.createdBy ?? null,
-                      },
-                    ],
-                  },
-                  tx,
-                );
-
-                events_inserted += 1;
-                seenTransferKeys.add(transferDedupKey);
-                const childLegs: SubmittedRowOutcome[] | undefined =
-                  postResult?.entries && postResult.entries.length > 1
-                    ? postResult.entries.map((entry, idx) => ({
-                        submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
-                        family: 'commitment_event' as const,
-                        disposition: 'posted' as const,
-                        reason: idx === 0 ? 'Commitment transfer (out) posted to ledger' : 'Commitment transfer (in) posted to ledger',
-                        assetCode: event.fund,
-                        targetId: entry.position_id ?? transfereePos.id,
-                        persistedId: entry.id,
-                        persistedTable: 'fl_ledger_entries',
-                      }))
-                    : undefined;
-
-                outcomes.push({
-                  submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
-                  family: 'commitment_event',
-                  disposition: 'posted',
-                  reason: 'Commitment transfer posted to ledger',
-                  assetCode: event.fund,
-                  targetId: transfereePos.id,
-                  persistedId: postResult?.entries?.[0]?.id ?? null,
-                  persistedTable: 'fl_ledger_entries',
-                  childOutcomes: childLegs,
-                });
-
-                // Update position entries cache
-                if (postResult?.entries) {
-                  transfereeEntries.push(...postResult.entries.filter((e) => e.position_id === transfereePos.id));
-                  transferorEntries.push(...postResult.entries.filter((e) => e.position_id === transferorPos.id));
-                }
-                continue;
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                throw new Error(
-                  `Failed to apply paired commitment transfer from "${transferorName}" to "${event.investorName}" on ${event.date} (${event.amount} CNY): ${errMsg}`,
-                );
-              }
-            }
+          // The workbook records a commitment transfer only as the transferee's
+          // 受让额度 row: the transferor's original commitment and its reduction
+          // are never recorded, and the catalog's fund size counts every 受让 row
+          // as new commitment. So post the transferee leg alone (a commitment
+          // increase tagged `transfer_in`) and keep the transferor as metadata —
+          // debiting it would leave a negative commitment and understate the fund.
+          // The transferee leg of a two-legged transfer from an earlier import
+          // matches the same key, so a re-import does not post it twice.
+          const transferKey = buildCommitmentEventDedupKey(event.intent, event.date, event.amount);
+          const replay = transferInGuard.check(
+            transfereePos.id,
+            transferKey,
+            normalizeInvestorName(transferorName),
+            transfereeEntries.filter((e) => buildLedgerEntryCommitmentDedupKey(e) === transferKey).length,
+          );
+          if (replay === "duplicate") {
+            events_skipped_duplicate += 1;
+            outcomes.push({
+              submittedId: event.submittedId ?? `transfer:${event.sourceRow}`,
+              family: 'commitment_event',
+              disposition: 'duplicate',
+              reason: 'Skipped: commitment transfer already recorded in ledger',
+              assetCode: event.fund,
+              targetId: transfereePos.id,
+              persistedTable: 'fl_ledger_entries',
+            });
+            continue;
           }
         }
 
@@ -4535,12 +4351,19 @@ export class FundUpdateApplyService {
             ? "distribution"
             : "commitment";
         const key = buildCommitmentEventDedupKey(event.intent, event.date, event.amount);
+        const fallbackSubmittedId =
+          event.intent === "transfer_in" ? `transfer:${event.sourceRow}` : `commitment:${event.sourceRow}`;
+        const postedReason =
+          event.intent === "transfer_in"
+            ? "Commitment transfer (transferee leg) posted to ledger"
+            : `${entryType} event posted to ledger`;
 
         const seenKeys = await getSeenKeys(transfereePos.id);
-        if (seenKeys.has(key)) {
+        // transfer_in replay was settled by transferInGuard above.
+        if (event.intent !== "transfer_in" && seenKeys.has(key)) {
           events_skipped_duplicate += 1;
           outcomes.push({
-            submittedId: event.submittedId ?? `commitment:${event.sourceRow}`,
+            submittedId: event.submittedId ?? fallbackSubmittedId,
             family: 'commitment_event',
             disposition: 'duplicate',
             reason: `Skipped: ${entryType} event already recorded in ledger`,
@@ -4557,6 +4380,7 @@ export class FundUpdateApplyService {
             ? {
                 position_id: transfereePos.id,
                 entry_type: "commitment",
+                ...(event.intent === "transfer_in" ? { sub_type: "transfer_in" } : {}),
                 commitment_delta: deltaAmount,
                 currency: "CNY",
                 notes: event.notes ?? null,
@@ -4594,7 +4418,11 @@ export class FundUpdateApplyService {
             this.workspaceId,
             {
               event_date: event.date,
-              description: event.notes ?? `${entryType} for ${event.investorName} in ${event.fund}`,
+              description:
+                event.notes ??
+                (event.intent === "transfer_in"
+                  ? `Commitment transfer of ${eventAmtStr} CNY from ${event.transferPairing?.transferorName?.trim()} to ${event.investorName} in ${event.fund}`
+                  : `${entryType} for ${event.investorName} in ${event.fund}`),
               source_record_id: sourceRecordId,
               created_by: options?.createdBy ?? null,
               entries: [entry],
@@ -4607,7 +4435,7 @@ export class FundUpdateApplyService {
           const childLegs: SubmittedRowOutcome[] | undefined =
             postResult?.entries && postResult.entries.length > 1
               ? postResult.entries.map((entry, idx) => ({
-                  submittedId: event.submittedId ?? `commitment:${event.sourceRow}`,
+                  submittedId: event.submittedId ?? fallbackSubmittedId,
                   family: 'commitment_event' as const,
                   disposition: 'posted' as const,
                   reason:
@@ -4622,10 +4450,10 @@ export class FundUpdateApplyService {
               : undefined;
 
           outcomes.push({
-            submittedId: event.submittedId ?? `commitment:${event.sourceRow}`,
+            submittedId: event.submittedId ?? fallbackSubmittedId,
             family: 'commitment_event',
             disposition: 'posted',
-            reason: `${entryType} event posted to ledger`,
+            reason: postedReason,
             assetCode: event.fund,
             targetId: transfereePos.id,
             persistedId: postResult?.entries?.[0]?.id ?? null,
