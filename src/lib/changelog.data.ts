@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "d41073f9636b8fd6fc5c5d383e882fdd2f929af4",
+    "date": "2026-10-02",
+    "subject": "Ownership percentages now update automatically when corporate actions occur",
+    "category": "improvement"
+  },
+  {
+    "hash": "934f48de70e6ef3d6d3a94fd9fad104abc90a45c",
+    "date": "2026-10-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b061173fe311da8f1c571faf22c9d2ea9371fc6d",
     "date": "2026-10-01",
     "subject": "Display invested amount by fund on multi-fund assets",
