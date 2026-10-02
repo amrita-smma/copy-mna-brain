@@ -311,6 +311,10 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('vc')).toBe('vc');
   });
 
+  it('accepts the crowdfunding flavor', () => {
+    expect(normalizeCopilotAgent('crowdfunding')).toBe('crowdfunding');
+  });
+
   it('accepts the minority-stakes portfolio manager flavor', () => {
     expect(normalizeCopilotAgent('minority')).toBe('minority');
   });
@@ -323,7 +327,14 @@ describe('normalizeCopilotAgent', () => {
   });
 
   it('exposes exactly the five supported flavors', () => {
-    expect([...COPILOT_AGENTS]).toEqual(['mna', 'investment', 'combined', 'vc', 'minority']);
+    expect([...COPILOT_AGENTS]).toEqual([
+      'mna',
+      'investment',
+      'combined',
+      'vc',
+      'minority',
+      'crowdfunding',
+    ]);
   });
 });
 

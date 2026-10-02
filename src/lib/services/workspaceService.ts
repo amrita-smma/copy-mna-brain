@@ -8,18 +8,19 @@ import type {
   WorkspaceRepository,
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
-import type { CopilotAgentType } from '@/lib/agents/analysis';
+import {
+  COPILOT_AGENT_KEYS,
+  DEFAULT_COPILOT_AGENT,
+  isCopilotAgentType,
+  type CopilotAgentType,
+} from '@/lib/agents/analysis/flavors/keys';
 import { CURRENCIES, normalizeCurrency, type Currency } from '@/lib/currency';
 
-/** The AI Copilot flavors a workspace can be set to. Source of truth for
- *  validating the `copilot_agent` column and the PATCH payload. */
-export const COPILOT_AGENTS: readonly CopilotAgentType[] = [
-  'mna',
-  'investment',
-  'combined',
-  'vc',
-  'minority',
-] as const;
+/** The AI Copilot flavors a workspace can be set to — the agent's own flavor
+ *  registry (`src/lib/agents/analysis/flavors`), which is what actually runs.
+ *  Imported from `flavors/keys`, a dependency-free module, so validating a
+ *  column here never pulls the LangChain agent stack into a route. */
+export const COPILOT_AGENTS: readonly CopilotAgentType[] = COPILOT_AGENT_KEYS;
 
 /** The display currencies a workspace can be set to. Source of truth for
  *  validating the `default_currency` column and the PATCH payload. */
@@ -27,11 +28,7 @@ export const WORKSPACE_CURRENCIES: readonly Currency[] = CURRENCIES;
 
 /** Narrow an arbitrary string to a valid CopilotAgentType, defaulting to 'mna'. */
 export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
-  if (value === 'investment') return 'investment';
-  if (value === 'combined') return 'combined';
-  if (value === 'vc') return 'vc';
-  if (value === 'minority') return 'minority';
-  return 'mna';
+  return isCopilotAgentType(value) ? value : DEFAULT_COPILOT_AGENT;
 }
 
 /** Raised when a role name passed to addMember/setMemberRole isn't a seeded role. */

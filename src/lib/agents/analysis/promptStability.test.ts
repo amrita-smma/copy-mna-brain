@@ -46,6 +46,11 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   combinedTools: [],
   vcTools: [],
   valyuSearch: { name: 'valyu_search' },
+  calculateInvestmentReturns: { name: 'calculate_investment_returns' },
+  getCompanyProfile: { name: 'get_company_profile' },
+  getRegulatoryContext: { name: 'get_regulatory_context' },
+  getSectorContext: { name: 'get_sector_context' },
+  valyuExtractContent: { name: 'valyu_extract_content' },
 }));
 
 vi.mock('@/lib/server/db', () => ({
@@ -94,6 +99,12 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // under a portfolio-construction prompt (sizing, concentration, minority
   // protections, exit paths).
   minority: '7d3d489aa62f181b91f999fe8d21a4db9c3633b0d99d31534b459f56f634f2e3',
+  // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
+  // returns calculator, regulatory/sector context, company profile and Valyu
+  // extraction, under a small-ticket MSME and project-raise prompt (mandate
+  // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
+  // crowdfunding regime, and the employee-raise conduct rule).
+  crowdfunding: '10c0ada3d8c69a513d509cb7ebd2b124a5c0ba7d64a4ca2fd46b3f6a503a2b82',
 };
 // The Workforce prompt changed on purpose, for the same reason: a file handed
 // off with the task can be emailed with `attached_html`.

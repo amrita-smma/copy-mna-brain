@@ -1018,13 +1018,47 @@ The rule, with a reviewer's checklist, lives in
 `.claude/rules/dialog-open-state.md`; `/review-implementation` and `/pr-review`
 both check diffs against it.
 
-## Copilot flavors (M&A, Investment, Combined, VC, Minority Stakes)
+## Copilot flavors (M&A, Investment, Combined, VC, Minority Stakes, Crowdfunding)
 
-The in-app Copilot ships in five selectable flavors, chosen per workspace:
+The in-app Copilot ships in six selectable flavors, chosen per workspace.
+
+**Where the code lives.** `src/lib/agents/analysis/` is laid out in dependency
+order — each layer may import the ones above it, never the ones below:
+
+| Module | Holds |
+| --- | --- |
+| `effort.ts` | the reasoning-effort tiers (model + `output_config.effort`) |
+| `guides.ts` | the prompt fragments every chat flavor appends |
+| `flavors/` | **one file per flavor**, plus the registry that lists them |
+| `workforce.ts` | the Workforce agent's tools, HITL middleware and prompt |
+| `runtime.ts` | how an agent is built and driven (`createLocalAgent`, `AgentGraph`) |
+| `graphs.ts` | the memoized graphs and the getters routes call |
+| `messages.ts` | reading agent output back off a message list |
+| `index.ts` | a barrel — consumers still import `@/lib/agents/analysis` |
+
+**Adding a flavor** is a new file in `flavors/` exporting a `CopilotFlavor` (its
+tool list and its system prompt), its key in `flavors/keys.ts`, and its line in
+`flavors/index.ts`. Build the tool list with `lazyToolList(() => [...])` — never
+spread `tools` at module scope. `tools/index.ts` sits in an import cycle with
+services and job handlers (a chat tool calls into them, and they import the
+agent back), so a flavor module can evaluate while `tools` is still
+initializing; reading it then throws `Cannot access '…' before initialization`
+during `next build`'s page-data collection. vitest mocks the tools barrel, so
+unit tests cannot catch it — `flavors/index.test.ts` pins the invariant instead. `CopilotAgentType` is *derived* from `COPILOT_AGENT_KEYS`
+and `COPILOT_FLAVORS` is a `Record<CopilotAgentType, CopilotFlavor>`, so adding
+the key fails the build until the flavor exists. `getAgentGraph` resolves
+through the registry and does not branch per flavor, and `workspaceService`'s
+`COPILOT_AGENTS` / `normalizeCopilotAgent` are derived from the same key list
+(via `flavors/keys.ts`, which imports nothing, so validating the column never
+drags the LangChain agent stack into a route). What still needs wiring by hand
+is the user-facing copy: the admin-portal picker, and the chat welcome message
+and suggestions.
+
+The six flavors:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
   pipeline analysis, Workforce handoffs, and AlphaSense/Valyu/web search
-  (`CHAT_SYSTEM_PROMPT` + `DEFAULT_TOOL_LIST`).
+  (`CHAT_SYSTEM_PROMPT` + `defaultChatToolList`).
 - **`investment`** — the funds & investing assistant: read-only tools to see and
   analyze the workspace's funds, assets/holdings, investors (LPs), and fund
   sources, plus web search and Valyu search (`INVESTMENT_SYSTEM_PROMPT` +
@@ -1059,8 +1093,8 @@ The in-app Copilot ships in five selectable flavors, chosen per workspace:
 - **`minority`** — the **Minority Stakes Portfolio Manager**: the Copilot for a
   firm that holds MANY SMALL, NON-CONTROLLING positions rather than a few control
   deals (`MINORITY_SYSTEM_PROMPT` + `MINORITY_TOOL_LIST`). It is the one flavor
-  defined by its prompt alone — `MINORITY_TOOL_LIST` is an alias of
-  `DEFAULT_TOOL_LIST`, so it reads exactly the same pipeline, CRM, files and
+  defined by its prompt alone — `MINORITY_TOOL_LIST` *is* `defaultChatToolList`,
+  the same memoized factory, so it reads exactly the same pipeline, CRM, files and
   research surface as `mna` and owes the user the same write discipline (no
   direct writes; Workforce handoffs and the inline bulk cards). What differs is
   the job: every answer is framed by whether the business is one we can hold
@@ -1071,12 +1105,54 @@ The in-app Copilot ships in five selectable flavors, chosen per workspace:
   the `mna` and `minority` prompts both interpolate so the two can't drift;
   `promptStability.test.ts` pins both assembled prompts' hashes. Persisted via
   `workspaces.copilot_agent = 'minority'` — no migration needed.
+- **`crowdfunding`** — the **Crowdfunding Agent**: the Copilot for the firm's
+  small-ticket book, a position of around **Rp 10bn** into a raise whose whole
+  funding need is **under Rp 20bn**, funded through a crowd that may be the
+  firm's own employees (`CROWDFUNDING_SYSTEM_PROMPT` +
+  `CROWDFUNDING_TOOL_LIST`). The tool list is `defaultChatToolList()` plus five
+  read-only additions the mandate needs and `mna` has no use for:
+  `calculate_investment_returns` (a raise this size is underwritten on IRR,
+  payback and distribution cover off a stated cash-flow schedule, not on an
+  entry multiple), `get_regulatory_context`, `get_company_profile` (at this size
+  the owner-operator *is* the credit), `get_sector_context`, and
+  `valyu_extract_content` (reading a venue listing or an OJK page properly
+  rather than off a search snippet). It shares `MNA_PIPELINE_OPERATIONS_GUIDE`
+  with `mna` and `minority`, so the write discipline is identical. What differs
+  is the job, and four things in the prompt carry it:
+  - **A mandate gate checked before any analysis** — a larger raise or ticket is
+    named as outside the mandate and pointed at the M&A / VC flavors. Because
+    the posture is deliberately high-risk, every recommendation leads with the
+    loss case.
+  - **A carve-out perimeter check** — what is on offer is often one project,
+    outlet, vessel or SPV rather than a company, and it has no separately
+    reported financials. Legal perimeter, cash separability, asset title,
+    contract perimeter, cost attribution, who is obliged to pay, step-in. A
+    project failing cash separability or the obligor test is "an exposure to the
+    parent dressed as a project".
+  - **A Verified / Sponsor-stated / Modelled label on every figure** — nothing an
+    MSME this size reports is corroborated by a public record, so Verified is
+    restricted to evidence outside the sponsor's own say-so (a reconciled bank
+    statement, a tax filing, a notarial/AHU record, a licence record, an
+    executed contract, a court record, a direct counterparty confirmation).
+  - **The OJK securities-crowdfunding regime, cited to its instrument** — POJK 17
+    Tahun 2025 (in force 25 July 2025, revoking POJK 57/POJK.04/2020 and POJK
+    16/POJK.04/2021): the Rp 10bn per-issuer 12-month cap, issuer eligibility,
+    the 5% / 10% investor income limits, and the >100-offered / >50-sold
+    public-offering threshold that bounds a raise run outside a licensed venue.
+    The parameters moved recently, so the prompt makes re-confirming them a hard
+    rule rather than baking them in — and it carries a conduct rule for raising
+    from the firm's **own employees** (voluntary, unlinked to employment, same
+    disclosure as an outside investor, no personal investment advice, legal and
+    compliance sign-off first).
+
+  `promptStability.test.ts` pins the assembled prompt's hash. Persisted via
+  `workspaces.copilot_agent = 'crowdfunding'` — no migration needed.
 
 ### AlphaSense research (`alphasense_search`)
 
 `alphasense_search` (`src/lib/agents/analysis/tools/alphasense_search.ts`) is the
 one tool registered for **every** agent flavor — M&A chat, AI Workforce,
-investment, combined, VC, and minority stakes. It lives in the shared read-only base list
+investment, combined, VC, minority stakes, and crowdfunding. It lives in the shared read-only base list
 (`tools` in `src/lib/agents/analysis/tools/index.ts`) plus `investmentTools` and
 `vcTools`, so any agent can reach the firm's AlphaSense subscription: sell-side /
 broker research, SEC and global filings, earnings-call and expert-call
@@ -2525,7 +2601,7 @@ clean import reports **256 imported**, not 263.
   similarity + trigram `ILIKE`, merged and re-ranked in
   `DataNavigatorService.searchNews`) over the lake. It's registered on the
   base `tools` list, so it reaches the **`mna` chat, AI Workforce,
-  `combined` and `minority`** Copilot flavors; the **`investment`** and **`vc`** flavors
+  `combined`, `minority` and `crowdfunding`** Copilot flavors; the **`investment`** and **`vc`** flavors
   enumerate their own tool lists in `src/lib/agents/analysis/tools/index.ts`
   and do **not** include it.
 - **Feed admin:** `X-Api-Secret`-gated routes under `/api/auth/rss-feeds`

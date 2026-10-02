@@ -128,6 +128,37 @@ const MINORITY_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
+// Crowdfunding flavor: the small-ticket book. Its opening questions are the
+// four the prompt makes it ask in order — does it fit the mandate, what exactly
+// is being funded, what is actually verified, and can the raise be filled —
+// landed on the pipeline tools this flavor shares with the M&A set.
+const CROWDFUNDING_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Mandate Screen",
+    prompt:
+      "Which companies in the pipeline fit the small-ticket mandate — a position of around Rp 10 billion into a total raise under Rp 20 billion — and which are too big for it?",
+    icon: Target,
+  },
+  {
+    label: "Perimeter Check",
+    prompt:
+      "Walk me through the perimeter check for funding one project inside a company rather than the whole company: what I need to establish, and what makes it an exposure to the parent instead.",
+    icon: Briefcase,
+  },
+  {
+    label: "Verify a Teaser",
+    prompt:
+      "Take the latest small-ticket teaser on file and split it into what is verified, what is only sponsor-stated, and what is modelled — with the document that would verify each one.",
+    icon: Search,
+  },
+  {
+    label: "Raise Structure",
+    prompt:
+      "How much of a Rp 18 billion funding need can actually be raised through crowdfunding under the current OJK rules, and what has to cover the rest?",
+    icon: Activity,
+  },
+];
+
 // Combined flavor: a mix that exercises both the deal pipeline and the fund
 // portfolio so users see the assistant can move between the two.
 const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
@@ -167,7 +198,9 @@ export function ChatSuggestions({ className }: { className?: string }) {
           ? COMBINED_SUGGESTIONS
           : agentType === "minority"
             ? MINORITY_SUGGESTIONS
-            : MNA_SUGGESTIONS;
+            : agentType === "crowdfunding"
+              ? CROWDFUNDING_SUGGESTIONS
+              : MNA_SUGGESTIONS;
   const suggestions = [...baseSuggestions, INSIGHT_TEMPLATE_SUGGESTION];
 
   return (

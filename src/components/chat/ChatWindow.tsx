@@ -92,10 +92,30 @@ const MINORITY_WELCOME_MESSAGE = `# Hello! I'm your Minority Stakes Portfolio Ma
 • "Screen the L0 candidates as minority positions"
 • "What protections do we have on Acme, and what's unverified?"`;
 
+const CROWDFUNDING_WELCOME_MESSAGE = `# Hello! I'm your Crowdfunding Agent. I can help you with
+
+---
+
+🎯 **Mandate Screening** - Whether a raise and a ticket fit the small-ticket book
+🧩 **Perimeter Checks** - What exactly is being funded when it is part of a company, not all of it
+🔍 **Verification** - What is actually verified, what is only sponsor-stated, and what is modelled
+📈 **Returns & Downside** - IRR, payback and distribution cover, loss case first
+⚖️ **Raise Structure** - OJK caps, investor limits, venues, and raising from our own employees
+
+---
+
+💡 **Try asking:**
+• "Is a Rp 18 billion raise fundable through one issuer on a licensed venue?"
+• "This is one outlet inside a larger company — walk the perimeter check"
+• "What in this teaser is verified, and what document would verify the rest?"
+• "Model the downside: what do we recover if the project stops at month 12?"
+• "We want to offer this to our employees — what are the constraints?"`;
+
 function welcomeText(agentType: ReturnType<typeof useCopilotAgent>): string {
   if (agentType === "investment") return INVESTMENT_WELCOME_MESSAGE;
   if (agentType === "combined") return COMBINED_WELCOME_MESSAGE;
   if (agentType === "minority") return MINORITY_WELCOME_MESSAGE;
+  if (agentType === "crowdfunding") return CROWDFUNDING_WELCOME_MESSAGE;
   return MNA_WELCOME_MESSAGE;
 }
 

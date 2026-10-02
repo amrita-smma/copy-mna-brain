@@ -80,6 +80,13 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
     { name: 'calculate_investment_returns' },
   ],
   valyuSearch: { name: 'valyu_search' },
+  // The five read-only tools the crowdfunding flavor adds on top of the M&A
+  // chat list.
+  calculateInvestmentReturns: { name: 'calculate_investment_returns' },
+  getCompanyProfile: { name: 'get_company_profile' },
+  getRegulatoryContext: { name: 'get_regulatory_context' },
+  getSectorContext: { name: 'get_sector_context' },
+  valyuExtractContent: { name: 'valyu_extract_content' },
 }));
 
 // db.ts constructs a Postgres client at module load and throws without DB env
@@ -112,6 +119,7 @@ import {
   asEffortChoice,
   asManualEffort,
   withoutTools,
+  type CopilotAgentType,
   type EffortChoice,
   type ToolList,
 } from '@/lib/agents/analysis';
@@ -505,6 +513,122 @@ describe('getAgentGraph flavor selection', () => {
     expect(await getAgentGraph('minority')).toBe(minority);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
   });
+
+  // The Crowdfunding flavor: the M&A chat tools plus the five it needs to
+  // underwrite a cash flow and a regulated raise rather than an entry multiple.
+  it('gives the crowdfunding flavor the mna tools plus its five additions', async () => {
+    await getAgentGraph('mna');
+    await getAgentGraph('crowdfunding');
+
+    const mnaTools = (mocks.createAgent.mock.calls[0][0].tools as Array<{ name: string }>).map(
+      (t) => t.name,
+    );
+    const crowdfundingTools = (
+      mocks.createAgent.mock.calls[1][0].tools as Array<{ name: string }>
+    ).map((t) => t.name);
+
+    expect(crowdfundingTools.slice(0, mnaTools.length)).toEqual(mnaTools);
+    expect(crowdfundingTools.slice(mnaTools.length)).toEqual([
+      'calculate_investment_returns',
+      'get_regulatory_context',
+      'get_company_profile',
+      'get_sector_context',
+      'valyu_extract_content',
+    ]);
+    // No tool registered twice — createAgent rejects a duplicate name.
+    expect(new Set(crowdfundingTools).size).toBe(crowdfundingTools.length);
+  });
+
+  it('builds the crowdfunding flavor with its own small-ticket prompt', async () => {
+    await getAgentGraph('crowdfunding');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('Crowdfunding Agent');
+    // The mandate gate, stated in figures so it can actually be screened on.
+    expect(prompt).toContain('## Check the mandate first');
+    expect(prompt).toMatch(/around \*\*Rp 10 billion\*\*/);
+    expect(prompt).toMatch(/\*\*under Rp 20 billion\*\*/);
+    expect(prompt).toMatch(/\*\*outside the mandate\*\*/);
+    expect(prompt).toMatch(/\*\*lead with the loss case\*\*/);
+    // What is being funded is often part of a company, not the company.
+    expect(prompt).toContain('## What exactly is being funded — the perimeter check');
+    expect(prompt).toContain('an exposure to the parent dressed as a project');
+    // The evidence rule that exists because an MSME's books are corroborated
+    // by nothing.
+    expect(prompt).toContain('## Verified, Sponsor-stated, Modelled — hard rule');
+    expect(prompt).toContain('One source restating itself is still one source.');
+    // It is not the M&A prompt wearing a new name.
+    expect(prompt).not.toContain('intelligent M&A Data Analysis Assistant');
+  });
+
+  it('carries the OJK crowdfunding regime with the instrument behind each parameter', async () => {
+    await getAgentGraph('crowdfunding');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    // The current instrument, and the two it revoked — the reason the prompt
+    // tells the agent to re-confirm rather than treating these as settled.
+    expect(prompt).toContain('POJK 17 Tahun 2025');
+    expect(prompt).toContain('POJK 57/POJK.04/2020');
+    expect(prompt).toContain('POJK 16/POJK.04/2021');
+    expect(prompt).toMatch(/confirm any threshold, cap or window against the current POJK text/i);
+    // The cap that makes a sub-Rp 20bn need un-fundable by one issuer alone,
+    // and the consequence the agent must apply unprompted.
+    expect(prompt).toContain('Rp 10,000,000,000 in any 12-month period');
+    expect(prompt).toMatch(/\*\*cannot\*\* be met by a single issuer/);
+    // The investor limits, and the perimeter an employee-only raise must stay in.
+    expect(prompt).toMatch(/at most \*\*5%\*\*/);
+    expect(prompt).toMatch(/at most \*\*10%\*\*/);
+    expect(prompt).toContain('**100 parties**');
+    expect(prompt).toContain('**50 parties**');
+  });
+
+  it('makes an employee-funded raise a compliance question, and refuses individual advice', async () => {
+    await getAgentGraph('crowdfunding');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const section = prompt.slice(prompt.indexOf("## Raising from the firm's own employees"));
+
+    expect(section).toMatch(/securities offering before it is an HR exercise/);
+    expect(section).toMatch(/voluntary and visibly unlinked to employment/);
+    expect(section).toMatch(/default-on payroll deduction/);
+    expect(section).toMatch(/legal and compliance for sign-off/);
+    expect(section).toMatch(/do \*\*not\*\* tell any individual/);
+  });
+
+  it('shares the M&A pipeline-operations mechanics with the crowdfunding flavor', async () => {
+    await getAgentGraph('mna');
+    await getAgentGraph('crowdfunding');
+
+    const mnaPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const crowdfundingPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
+
+    // It holds every M&A chat tool, so it inherits the same write discipline.
+    for (const heading of [
+      '## Emailing the User (one email, whatever they asked for)',
+      '## Editing a Company Card Section',
+      '## Delegating to the Workforce',
+      '## Adding a New Company (Chat-Initiated)',
+      '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
+      '## Promoting Companies from L0 to L1',
+    ]) {
+      expect(mnaPrompt).toContain(heading);
+      expect(crowdfundingPrompt).toContain(heading);
+    }
+    expect(crowdfundingPrompt).toContain('**You have NO direct write tools.**');
+  });
+
+  it('memoizes the crowdfunding flavor independently from mna', async () => {
+    const mna = await getAgentGraph('mna');
+    const crowdfunding = await getAgentGraph('crowdfunding');
+
+    expect(crowdfunding).not.toBe(mna);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+    expect(await getAgentGraph('crowdfunding')).toBe(crowdfunding);
+    expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+  });
 });
 
 // The four chat flavors used to carry their own, mutually inconsistent search
@@ -523,12 +647,12 @@ describe('external evidence grounding (chat flavors)', () => {
     vi.clearAllMocks();
   });
 
-  const promptFor = async (flavor: 'mna' | 'investment' | 'combined' | 'vc' | 'minority') => {
+  const promptFor = async (flavor: CopilotAgentType) => {
     await getAgentGraph(flavor);
     return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
   };
 
-  const FLAVORS = ['mna', 'investment', 'combined', 'vc', 'minority'] as const;
+  const FLAVORS = ['mna', 'investment', 'combined', 'vc', 'minority', 'crowdfunding'] as const;
 
   it.each(FLAVORS)('gives the %s flavor the shared grounding section', async (flavor) => {
     const prompt = await promptFor(flavor);
