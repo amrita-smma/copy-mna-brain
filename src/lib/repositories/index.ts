@@ -63,6 +63,7 @@ export * from './flBusinessEventRevisionRepository';
 export * from './flLedgerEntryRepository';
 export * from './flAllocationRepository';
 export * from './flValuationRepository';
+export * from './flCorporateActionRepository';
 export * from './flSourceRecordRepository';
 
 export * from './insightRepository';

@@ -186,6 +186,15 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     navItem: false,
     category: 'funds',
   },
+  {
+    key: 'CORPORATE_ACTIONS_ENABLED',
+    label: 'Ownership & Corporate Actions',
+    description:
+      'Adds an Ownership tab to company holdings: record corporate actions (funding rounds, opening stakes, other ownership changes) once on the company, and every fund holding it gets its ownership % before and after. A funding round works out the diluted stakes from pre-money, round size and follow-ons. Only ownership changes; invested, realized and market value are untouched. Off by default; while off, the Ownership tab is still listed but shows a "turned off" notice.',
+    defaultEnabled: false,
+    navItem: false,
+    category: 'funds',
+  },
 ];
 
 const CATALOG_BY_KEY = new Map(FEATURE_CATALOG.map((f) => [f.key, f]));

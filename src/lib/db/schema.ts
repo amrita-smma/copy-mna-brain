@@ -4122,6 +4122,115 @@ export const flValuations = pgTable("fl_valuations", {
   // is defined in SQL migration because Drizzle TS API does not support NULLS NOT DISTINCT.
 }));
 
+// 12. fl_corporate_actions — a corporate action on a company asset that changes our
+// ownership % (funding_round / opening_stake / other). A priced round keeps its
+// inputs for audit. It tracks ownership % only; it writes no fl_valuations rows.
+export const flCorporateActions = pgTable("fl_corporate_actions", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  asset_id: uuid().notNull(),
+  action_type: text().default("funding_round").notNull(),
+  action_date: date().notNull(),
+  label: text(),
+  // Required for a funding_round; null for the other action types.
+  currency: char({ length: 3 }),
+  pre_money: numeric({ precision: 38, scale: 8 }),
+  round_size: numeric({ precision: 38, scale: 8 }),
+  notes: text(),
+  created_by: uuid(),
+  updated_by: uuid(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flCorporateActionsAssetFkey: foreignKey({
+    columns: [table.asset_id],
+    foreignColumns: [flAssets.id],
+    name: "fl_corporate_actions_asset_id_fkey",
+  }).onDelete("cascade"),
+  flCorporateActionsCreatedByFkey: foreignKey({
+    columns: [table.created_by],
+    foreignColumns: [users.id],
+    name: "fl_corporate_actions_created_by_fkey",
+  }).onDelete("set null"),
+  flCorporateActionsUpdatedByFkey: foreignKey({
+    columns: [table.updated_by],
+    foreignColumns: [users.id],
+    name: "fl_corporate_actions_updated_by_fkey",
+  }).onDelete("set null"),
+  flCorporateActionsActionTypeCheck: check(
+    "fl_corporate_actions_action_type_check",
+    sql`${table.action_type} IN ('funding_round', 'opening_stake', 'other')`,
+  ),
+  flCorporateActionsTermsRequired: check(
+    "fl_corporate_actions_terms_required",
+    sql`${table.action_type} <> 'funding_round' OR (${table.currency} IS NOT NULL AND ${table.pre_money} IS NOT NULL AND ${table.round_size} IS NOT NULL)`,
+  ),
+  flCorporateActionsPreMoneyPositive: check(
+    "fl_corporate_actions_pre_money_positive",
+    sql`${table.pre_money} > 0`,
+  ),
+  flCorporateActionsRoundSizeNonNegative: check(
+    "fl_corporate_actions_round_size_non_negative",
+    sql`${table.round_size} >= 0`,
+  ),
+  idxFlCorporateActionsWorkspaceId: index("idx_fl_corporate_actions_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  idxFlCorporateActionsAssetIdActionDate: index("idx_fl_corporate_actions_asset_id_action_date")
+    .using("btree", table.asset_id.asc().nullsLast().op("uuid_ops"), table.action_date.asc().nullsLast()),
+}));
+
+// 13. fl_ownership_changes — one row per position whose stake a corporate action changes.
+// Percentages are percent points (12.5 = 12.5%), matching shareholding_pct.
+export const flOwnershipChanges = pgTable("fl_ownership_changes", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  corporate_action_id: uuid().notNull(),
+  position_id: uuid().notNull(),
+  pct_before: numeric({ precision: 12, scale: 8 }).notNull(),
+  follow_on_amount: numeric({ precision: 38, scale: 8 }).default("0").notNull(),
+  pct_after: numeric({ precision: 12, scale: 8 }).notNull(),
+  pct_override: numeric({ precision: 12, scale: 8 }),
+  override_remark: text(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  flOwnershipChangesActionFkey: foreignKey({
+    columns: [table.corporate_action_id],
+    foreignColumns: [flCorporateActions.id],
+    name: "fl_ownership_changes_corporate_action_id_fkey",
+  }).onDelete("cascade"),
+  flOwnershipChangesPositionFkey: foreignKey({
+    columns: [table.position_id],
+    foreignColumns: [flPositions.id],
+    name: "fl_ownership_changes_position_id_fkey",
+  }).onDelete("cascade"),
+  flOwnershipChangesActionPositionUniq: unique("fl_ownership_changes_action_position_key")
+    .on(table.corporate_action_id, table.position_id),
+  flOwnershipChangesPreRoundPctRange: check(
+    "fl_ownership_changes_pct_before_range",
+    sql`${table.pct_before} >= 0 AND ${table.pct_before} <= 100`,
+  ),
+  flOwnershipChangesAmountNonNegative: check(
+    "fl_ownership_changes_amount_non_negative",
+    sql`${table.follow_on_amount} >= 0`,
+  ),
+  flOwnershipChangesOverridePctRange: check(
+    "fl_ownership_changes_pct_override_range",
+    sql`${table.pct_override} IS NULL OR (${table.pct_override} >= 0 AND ${table.pct_override} <= 100)`,
+  ),
+  idxFlFundingRoundParticipationsFundingRoundId: index("idx_fl_ownership_changes_corporate_action_id")
+    .using("btree", table.corporate_action_id.asc().nullsLast().op("uuid_ops")),
+  idxFlFundingRoundParticipationsPositionId: index("idx_fl_ownership_changes_position_id")
+    .using("btree", table.position_id.asc().nullsLast().op("uuid_ops")),
+}));
+
 // ============================================================================
 // Insights & Versions
 // ============================================================================

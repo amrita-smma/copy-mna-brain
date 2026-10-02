@@ -73,6 +73,8 @@ type TableMap = {
   fl_ledger_entries: typeof schema.flLedgerEntries;
   fl_ledger_entry_funding_allocations: typeof schema.flLedgerEntryFundingAllocations;
   fl_valuations: typeof schema.flValuations;
+  fl_corporate_actions: typeof schema.flCorporateActions;
+  fl_ownership_changes: typeof schema.flOwnershipChanges;
   fl_source_records: typeof schema.flSourceRecords;
 };
 

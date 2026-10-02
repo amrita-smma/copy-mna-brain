@@ -45,4 +45,6 @@ export const sourceOfFundsEnabled = booleanFlag("SOURCE_OF_FUNDS_ENABLED");
 
 export const fundVehicleViewEnabled = booleanFlag("FUND_VEHICLE_VIEW_ENABLED");
 
+export const corporateActionsEnabled = booleanFlag("CORPORATE_ACTIONS_ENABLED");
+
 export const insightsEnabled = booleanFlag("INSIGHTS_ENABLED");

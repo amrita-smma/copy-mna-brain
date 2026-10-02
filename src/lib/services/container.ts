@@ -61,6 +61,7 @@ import {
   FlLedgerEntryRepository,
   FlAllocationRepository,
   FlValuationRepository,
+  FlCorporateActionRepository,
   FlSourceRecordRepository,
   InsightRepository,
   InsightVersionRepository,
@@ -76,6 +77,7 @@ import { FlMasterDataService } from './flMasterDataService';
 import { FlPositionService } from './flPositionService';
 import { FlLedgerService } from './flLedgerService';
 import { FlValuationService } from './flValuationService';
+import { FlCorporateActionService } from './flCorporateActionService';
 import { FlBalanceService } from './flBalanceService';
 import { FlPortfolioService } from './flPortfolioService';
 import { createNeo4jDriver } from '@/lib/neo4j';
@@ -187,6 +189,7 @@ export interface Container {
   flPositionService: FlPositionService;
   flLedgerService: FlLedgerService;
   flValuationService: FlValuationService;
+  flCorporateActionService: FlCorporateActionService;
   flBalanceService: FlBalanceService;
   flPortfolioService: FlPortfolioService;
   insightService: InsightService;
@@ -420,6 +423,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const flAllocationRepo = new FlAllocationRepository(db);
   const flValuationRepo = new FlValuationRepository(db);
   const flSourceRecordRepo = new FlSourceRecordRepository(db);
+  const flCorporateActionRepo = new FlCorporateActionRepository(db);
 
   const flMasterDataService = new FlMasterDataService(
     db,
@@ -460,6 +464,16 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flFundRepo,
     flPositionRepo,
     flSourceRecordRepo,
+  );
+  const flCorporateActionService = new FlCorporateActionService(
+    db,
+    flCorporateActionRepo,
+    flValuationRepo,
+    flPositionRepo,
+    flAssetRepo,
+    flFundRepo,
+    flInvestorRepo,
+    flLedgerEntryRepo,
   );
   const flBalanceService = new FlBalanceService(
     db,
@@ -606,6 +620,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flPositionService,
     flLedgerService,
     flValuationService,
+    flCorporateActionService,
     flBalanceService,
     flPortfolioService,
     insightService,

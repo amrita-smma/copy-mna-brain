@@ -81,6 +81,14 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   coupon: { t: 'Coupon', d: 'Yearly interest rate paid on a loan or note.' },
   nav: { t: 'NAV', d: 'Net Asset Value — the present worth of an investment in another fund.' },
   mvtracker: { t: 'Market Value Tracker', d: "How the position's value has moved quarter by quarter." },
+  ownership: {
+    t: 'Current Ownership',
+    d: "Each fund's ownership % in this company, from its latest corporate action (or, until one is recorded, from a quarterly mark).",
+  },
+  corporateaction: {
+    t: 'Corporate Actions',
+    d: "Events at the company that change our ownership %: funding rounds, a fund's opening stake, share transfers and the like. They change ownership only; invested, realized and market value are unchanged.",
+  },
   sharesout: { t: 'Total Shares Outstanding', d: 'Total shares the investee has issued. Your ownership % = your shares ÷ this number.' },
   shpct: { t: 'Shareholding %', d: 'Ownership stake as a percentage of total shares outstanding. Can drift as new shares are issued.' },
   qcost: { t: 'Invested Capital (cumulative)', d: 'Total capital invested up to and including that quarter.' },

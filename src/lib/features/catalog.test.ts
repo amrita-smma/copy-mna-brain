@@ -41,6 +41,24 @@ describe('FEATURE_CATALOG', () => {
     expect(fundVehicle?.navItem).toBe(false);
   });
 
+  it('registers Ownership & Corporate Actions as an opt-in funds setting', () => {
+    // Off by default so Startech (and any workspace that hasn't asked for it)
+    // never sees the round dialog; an admin turns it on per workspace.
+    const calc = FEATURE_CATALOG.find((feature) => feature.key === 'CORPORATE_ACTIONS_ENABLED');
+    expect(calc).toBeDefined();
+    expect(calc?.category).toBe('funds');
+    expect(calc?.navItem).toBe(false);
+    expect(calc?.defaultEnabled).toBe(false);
+
+    const orig = process.env.CORPORATE_ACTIONS_ENABLED;
+    try {
+      delete process.env.CORPORATE_ACTIONS_ENABLED;
+      expect(featureEnvDefault('CORPORATE_ACTIONS_ENABLED')).toBe(false);
+    } finally {
+      if (orig !== undefined) process.env.CORPORATE_ACTIONS_ENABLED = orig;
+    }
+  });
+
   it('defaults FUND_VEHICLE_VIEW_ENABLED to true and respects env overrides', () => {
     expect(featureEnvDefault('FUND_VEHICLE_VIEW_ENABLED')).toBe(true);
 

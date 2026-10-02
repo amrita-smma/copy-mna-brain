@@ -5,6 +5,7 @@ export * from './masterData';
 export * from './positions';
 export * from './events';
 export * from './valuations';
+export * from './corporateActions';
 export * from './holdingAdapters';
 export * from './commitmentAdapters';
 export * from './aiOpinion';

@@ -147,6 +147,14 @@ export class ManagedFundInvestorConflictError extends Error {
   }
 }
 
+/** A funding round's inputs can't produce a valid ownership change (bad terms, non-company asset, closed position). */
+export class CorporateActionValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CorporateActionValidationError';
+  }
+}
+
 export const FL_DOMAIN_ERRORS = [
   InvalidEntryShapeError,
   EntryPositionKindMismatchError,
@@ -168,5 +176,6 @@ export const FL_DOMAIN_ERRORS = [
   FundUpdateValidationError,
   IneligibleCashHolderError,
   ManagedFundInvestorConflictError,
+  CorporateActionValidationError,
 ] as const;
 

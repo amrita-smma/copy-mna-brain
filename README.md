@@ -2287,7 +2287,7 @@ fund/holding financials, with live recomputation of MOIC / IRR / DPI and all
 downstream metrics.
 
 **Fund Ledger v2.** The Fund Management module is powered by Fund Ledger v2
-across 12 `fl_*` tables and is exposed through `/api/fund-ledger/*`. Its append-only
+across 14 `fl_*` tables and is exposed through `/api/fund-ledger/*`. Its append-only
 entries are posted and reversed through workspace-scoped repositories and services;
 monetary values stay decimal strings end to end to avoid floating-point loss.
 The legacy v1 `fund_*` ledger tables (`fund_assets`, `fund_asset_transactions`,
@@ -2321,6 +2321,36 @@ via forward-only cutovers (`fl_fund_cash_cutovers`, activated through admin rout
 - **Null-Propagating History**: Aggregate quarterly history preserves explicit unavailability: if any included fund
   has an explicit null FMV/TVPI value for a quarter (such as active `pending_fx`), the aggregate FMV/TVPI and derived
   growth/delta for that quarter are null/unavailable—never zero or partial totals presented as complete.
+
+**Ownership and corporate actions (MB-567).** Our ownership % in a company is
+tracked as its own history, separate from both the ledger (cash) and
+valuations (worth). A corporate action is recorded once on the company asset
+and changes the stake of every one of our positions in it, across all our
+funds. `fl_corporate_actions` holds the action — `action_type` is `funding_round`,
+`opening_stake` or `other`, with date and label, and for a funding round its
+currency, pre-money and round size — and `fl_ownership_changes`
+holds, per position, the stake before, any follow-on amount, the stake after
+and an optional manual override with its remark. `FlCorporateActionService`
+(`/api/fund-ledger/assets/:id/corporate-actions`, `/api/fund-ledger/corporate-actions/:id`)
+computes a funding round with the pure calculator in
+`src/lib/fundLedger/fundingRound.ts` (stake × pre-money + follow-on, over
+post-money); an opening stake (starting from 0%) and other actions take the
+stake after as entered. A position's current stake is the stake after of the
+latest action it took part in, falling back to a quarterly mark's
+`shareholding_pct` only while it has no history. Corporate actions write
+neither ledger entries nor `fl_valuations` marks, so invested capital, realized
+proceeds, contributions and market value cannot move. A funding round never
+posts the follow-on cash either, only warns when no matching `buy` entry exists
+within 30 days. Editing or deleting an action replaces or removes its own rows;
+later actions are not recomputed but are flagged stale when their starting
+stake no longer matches what the previous action left (an opening stake starts
+a new chain). Fund-of-funds stakes are rejected. The Ownership tab on an equity
+holding shows current ownership and the history, takes funding-round amounts
+in millions, comma-groups amounts as they are typed, names each holder with its
+English name when it has one, and fixes the round's currency to the workspace
+currency (shown read-only). It sits behind the opt-in `CORPORATE_ACTIONS_ENABLED` funds setting:
+while the setting is off the tab is still listed but shows a "turned off"
+notice and loads nothing, and the API returns 404.
 
 **Multilingual asset names.** Original investments are often recorded under a
 non-English name, so an asset carries both its recorded name

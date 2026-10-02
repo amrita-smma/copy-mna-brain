@@ -39,5 +39,6 @@ export * from './flMasterDataService';
 export * from './flPositionService';
 export * from './flLedgerService';
 export * from './flValuationService';
+export * from './flCorporateActionService';
 export * from './flBalanceService';
 export * from './flPortfolioService';

@@ -51,6 +51,8 @@ import { isSellProceedsDestination } from '@/lib/sellProceedsDestination';
 import { toLocalISODate } from './adapters';
 import { FieldKey, GlossaryTerm, InlineEdit, type InlineKind, MiniSpark, Pill } from './parts';
 import { CURRENCIES, CurrencyInput, MoneyInlineEdit, normalizeCurrency, type Currency } from './CurrencyInput';
+import { OwnershipDisabledNotice, OwnershipSection, ownershipTabState } from './Ownership';
+import { useFeatureFlags } from '@/components/layout/FeatureFlagsContext';
 
 // Money domain values are in millions; the currency editors work in raw units.
 const M = 1_000_000;
@@ -225,6 +227,7 @@ function safe<T>(v: T | null | undefined, fmt: (v: T) => ReactNode): ReactNode {
 // ================= Equity =================
 function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
   const { commitHolding, investorOptions, sourceOptions, sourceOfFundsEnabled } = useFundData();
+  const ownershipTab = ownershipTabState(useFeatureFlags(), holding);
   const { money, moneyFee } = useFundMoney();
   const save = () => commitHolding(fund, holding);
   const inv = holding.inv!;
@@ -460,6 +463,15 @@ function EquityDetail({ fund, holding }: { fund: Fund; holding: Holding }) {
         { id: 'txn', label: 'Transactions', body: <TxnTable fund={fund} holding={holding} /> },
         { id: 'deal', label: 'Deal economics', body: deal },
         { id: 'hist', label: 'Historical value', body: <QuarterTable fund={fund} holding={holding} equity /> },
+        ...(ownershipTab === 'hidden'
+          ? []
+          : [
+              {
+                id: 'own',
+                label: 'Ownership',
+                body: ownershipTab === 'enabled' ? <OwnershipSection holding={holding} /> : <OwnershipDisabledNotice />,
+              },
+            ]),
       ]}
     />
   );

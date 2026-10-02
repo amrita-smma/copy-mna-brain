@@ -10,6 +10,7 @@ import {
   EventAlreadyReversedError,
   FL_DOMAIN_ERRORS,
   FundUpdateValidationError,
+  CorporateActionValidationError,
   InvalidCurrencyError,
   InvalidEntryShapeError,
   InvalidMasterDataError,
@@ -44,6 +45,7 @@ describe('flErrors', () => {
       new InvalidMasterDataError('invalid master data'),
       new FundUpdateValidationError('invalid fund update'),
       new ManagedFundInvestorConflictError('managed fund investor conflict'),
+      new CorporateActionValidationError('invalid funding round'),
     ];
 
     for (const err of errors) {
@@ -54,7 +56,7 @@ describe('flErrors', () => {
   });
 
   it('includes all domain error classes in FL_DOMAIN_ERRORS', () => {
-    expect(FL_DOMAIN_ERRORS).toHaveLength(20);
+    expect(FL_DOMAIN_ERRORS).toHaveLength(21);
     for (const ErrorClass of FL_DOMAIN_ERRORS) {
       const instance = new ErrorClass('test error');
       expect(instance).toBeInstanceOf(Error);
