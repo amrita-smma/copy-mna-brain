@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "5f01d980c50cb45fedca4d415a503a495143aeb7",
+    "date": "2026-10-02",
+    "subject": "Enable Crowdfunding Copilot flavor for small-ticket MSME deals",
+    "category": "feature"
+  },
+  {
     "hash": "b061173fe311da8f1c571faf22c9d2ea9371fc6d",
     "date": "2026-10-01",
     "subject": "Display invested amount by fund on multi-fund assets",
@@ -143,6 +149,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "dce2bcc57ce5c9d22e6243a7d78ff99604c7023d",
+    "date": "2026-10-01",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "94ea31e3a84ffac54fa7accf06523763bacd5538",
     "date": "2026-10-01",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
