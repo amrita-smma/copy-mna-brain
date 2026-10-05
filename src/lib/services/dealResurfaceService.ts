@@ -4,8 +4,10 @@ import type {
   DealNoteRepository,
   UserRepository,
   InvestmentThesisRepository,
+  PipelineStageRepository,
   Tables,
 } from '@/lib/repositories';
+import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
 
@@ -64,15 +66,22 @@ export class DealResurfaceService {
     private readonly thesisRepo: InvestmentThesisRepository,
     private readonly enqueue: EnqueueFn = enqueueSendEmail,
     private readonly appUrl: string = resolveAppUrl(),
+    // Optional: finds deals whose stage was deleted while they were dropped,
+    // which resurface into the first stage instead.
+    private readonly stageRepo?: PipelineStageRepository,
   ) {}
 
   async processDue(now: Date = new Date()): Promise<DealResurfaceResult> {
     const due = await this.companyRepo.findDueForResurface(now.toISOString());
     const result: DealResurfaceResult = { resurfaced: 0, notified: 0, failed: [] };
+    const deletedStageRefs = await this.findDeletedStageRefs(due);
 
     for (const company of due) {
       try {
-        result.notified += await this.resurfaceOne(company);
+        const stageDeleted = deletedStageRefs.has(
+          `${company.workspace_id}:${company.pipeline_stage}`,
+        );
+        result.notified += await this.resurfaceOne(company, stageDeleted);
         result.resurfaced += 1;
       } catch (err) {
         console.error(
@@ -85,9 +94,20 @@ export class DealResurfaceService {
     return result;
   }
 
-  /** Reactivate one deal, append the note, and enqueue notification emails. */
-  private async resurfaceOne(company: Tables<'companies'>): Promise<number> {
-    const stage = company.pipeline_stage;
+  private async findDeletedStageRefs(due: Tables<'companies'>[]): Promise<Set<string>> {
+    if (!this.stageRepo || due.length === 0) return new Set();
+    const workspaceIds = [...new Set(due.map((c) => c.workspace_id).filter((id): id is string => !!id))];
+    const keys = [...new Set(due.map((c) => c.pipeline_stage))];
+    return this.stageRepo.findDeletedStageRefs(workspaceIds, keys);
+  }
+
+  /**
+   * Reactivate one deal, append the note, and enqueue notification emails. A
+   * deal whose stage was deleted while it was dropped comes back at the first
+   * stage — there is nobody to ask, unlike a manual restore.
+   */
+  private async resurfaceOne(company: Tables<'companies'>, stageDeleted = false): Promise<number> {
+    const stage = stageDeleted ? FIRST_STAGE_KEY : company.pipeline_stage;
     const droppedAtLabel = fmtDate(company.dropped_at);
     const dropReason = company.dropped_reason?.trim() || null;
 
@@ -97,6 +117,7 @@ export class DealResurfaceService {
       dropped_at: null,
       resurface_at: null,
       dropped_by: null,
+      ...(stageDeleted ? { pipeline_stage: FIRST_STAGE_KEY } : {}),
     });
     await this.companyLogRepo.insert({
       company_id: company.id,
@@ -107,6 +128,9 @@ export class DealResurfaceService {
       `Deal automatically added back to the active pipeline: it was dropped${
         droppedAtLabel ? ` on ${droppedAtLabel}` : ''
       } with a scheduled resurface date, which has now been reached.`,
+      stageDeleted
+        ? `Its stage (${company.pipeline_stage}) was deleted while it was dropped, so it returns to ${FIRST_STAGE_KEY}.`
+        : null,
       dropReason ? `Original drop reason: ${dropReason}` : null,
     ].filter(Boolean);
     await this.dealNoteRepo.insert({

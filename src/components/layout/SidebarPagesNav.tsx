@@ -7,6 +7,7 @@ import {
   FileCode2,
   FileStack,
   GitBranch,
+  Radar,
   Landmark,
   LayoutDashboard,
   Network,
@@ -19,6 +20,7 @@ import {
 import { WorkspaceLink } from '@/components/WorkspaceLink';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useSourcingPendingCount } from '@/hooks/useSourcingPendingCount';
 import {
   findTabByPath,
   groupedConsoleTabs,
@@ -37,6 +39,7 @@ import { SidebarCollapsibleSection } from './SidebarCollapsibleSection';
  */
 const TAB_ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
+  sourcing: Radar,
   pipeline: GitBranch,
   'fund-management': Landmark,
   ledger: Receipt,
@@ -49,6 +52,21 @@ const TAB_ICONS: Record<string, LucideIcon> = {
   graph: Network,
 };
 
+/** Caps a badge count so a large backlog can't stretch the nav row. */
+function formatBadgeCount(count: number): string {
+  return count > 99 ? '99+' : String(count);
+}
+
+/**
+ * Per-slug attention counts shown as a red badge on the nav item — today just
+ * Sourcing's Pending Confirmation backlog. Fetched only while Sourcing is in the
+ * nav, so a workspace with the pipeline flagged off makes no request.
+ */
+function useNavBadgeCounts(tabs: ConsoleTab[]): Record<string, number> {
+  const pending = useSourcingPendingCount(tabs.some((tab) => tab.slug === 'sourcing'));
+  return { sourcing: pending };
+}
+
 /**
  * One nav destination. Each entry is a real `<WorkspaceLink>`, so switching is a
  * Next.js soft navigation: the shell around it stays mounted and only the
@@ -59,17 +77,22 @@ function PageLink({
   tab,
   isActive,
   iconOnly,
+  badgeCount = 0,
   onNavigate,
 }: {
   tab: ConsoleTab;
   isActive: boolean;
   iconOnly: boolean;
+  /** Items needing attention; a red badge is shown when above zero. */
+  badgeCount?: number;
   onNavigate?: () => void;
 }) {
   const { revealConsole } = useLayoutControl();
   // Fall back rather than render `undefined` as a component: a new tab added to
   // the registry without an icon here must not take the whole list down with it.
   const Icon = TAB_ICONS[tab.slug] ?? Circle;
+  const badge = badgeCount > 0 ? formatBadgeCount(badgeCount) : null;
+  const badgeLabel = badge ? `${badgeCount} pending` : null;
 
   const link = (
     <WorkspaceLink
@@ -83,7 +106,7 @@ function PageLink({
         onNavigate?.();
       }}
       className={cn(
-        'flex items-center rounded-md text-sm transition-colors',
+        'relative flex items-center rounded-md text-sm transition-colors',
         iconOnly ? 'h-8 w-8 justify-center' : 'w-full gap-2 px-3 py-1.5',
         isActive
           ? 'bg-blue-500/10 font-medium text-blue-700 dark:text-blue-300'
@@ -94,6 +117,27 @@ function PageLink({
       {/* Kept in the DOM when collapsed so the link still has an accessible
           name — the tooltip alone would not give it one. */}
       <span className={cn('min-w-0 flex-1 truncate', iconOnly && 'sr-only')}>{tab.label}</span>
+      {badge &&
+        (iconOnly ? (
+          <>
+            {/* No room for a count on the rail — a dot on the icon's corner
+                flags it, and the count goes to screen readers and the tooltip. */}
+            <span
+              data-testid={`nav-badge-${tab.slug}`}
+              aria-hidden="true"
+              className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-600 ring-2 ring-sidebar"
+            />
+            <span className="sr-only">{badgeLabel}</span>
+          </>
+        ) : (
+          <span
+            data-testid={`nav-badge-${tab.slug}`}
+            aria-label={badgeLabel ?? undefined}
+            className="ml-auto flex-shrink-0 rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white tabular-nums"
+          >
+            {badge}
+          </span>
+        ))}
     </WorkspaceLink>
   );
 
@@ -101,7 +145,10 @@ function PageLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{tab.label}</TooltipContent>
+      <TooltipContent side="right">
+        {tab.label}
+        {badgeLabel && ` · ${badgeLabel}`}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -135,17 +182,20 @@ export function SidebarPagesNav({
   const featureFlags = useFeatureFlags();
 
   const activeSlug = findTabByPath(toLogicalPath(pathname))?.slug;
+  const visibleTabs = visibleConsoleTabs(featureFlags);
+  const badgeCounts = useNavBadgeCounts(visibleTabs);
 
   if (iconOnly) {
     return (
       <nav aria-label="Pages" className={cn('p-2', className)}>
         <ul className="flex flex-col items-center space-y-1">
-          {visibleConsoleTabs(featureFlags).map((tab) => (
+          {visibleTabs.map((tab) => (
             <li key={tab.slug}>
               <PageLink
                 tab={tab}
                 isActive={tab.slug === activeSlug}
                 iconOnly
+                badgeCount={badgeCounts[tab.slug]}
                 onNavigate={onNavigate}
               />
             </li>
@@ -166,6 +216,7 @@ export function SidebarPagesNav({
                   tab={tab}
                   isActive={tab.slug === activeSlug}
                   iconOnly={false}
+                  badgeCount={badgeCounts[tab.slug]}
                   onNavigate={onNavigate}
                 />
               </li>

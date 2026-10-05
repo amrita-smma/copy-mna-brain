@@ -91,24 +91,24 @@ function lastSystemPrompt(): string {
 // email, since mail clients run no JavaScript — and the agent must name the
 // file instead of retyping the document.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: 'be67fcb68e3f27118f41f7f8f481ef6ea52d5da45521946bd5257c02d9cbe035',
-  investment: '2ee9361b9c1bf4a44379a5bf352bfa26abcbdf5c9a90d14346cad8773f590f08',
-  combined: '98fcc2e0179e30b2c141466bee74b16a2afa432784739c6ee80981a800a3d7af',
-  vc: 'b4787cb7fdd8bd9e5f0b46adb1d4322681dfb38e30da378e0f6f2816ab593d8e',
+  mna: 'd66f0e75c1387b6632650031ef3b52a97b73d154706900ee62baad9275dfe3ad',
+  investment: '1824ec49c1ab9fa10121cda789cd9e97caf39a804dc44ad6f85c6eb0f33155bb',
+  combined: '9eeb93d79a49510f5d0ad5e63d8981c78504a54bcd3919a7955f85c65ddbaf68',
+  vc: '279428623eb6b0d9a4c736a72f7bf2260c36ef4fcddb3ee8d7a5089e2b18c622',
   // New flavour: the Minority Stakes Portfolio Manager — the M&A chat tool set
   // under a portfolio-construction prompt (sizing, concentration, minority
   // protections, exit paths).
-  minority: '7d3d489aa62f181b91f999fe8d21a4db9c3633b0d99d31534b459f56f634f2e3',
+  minority: '86b415ddc79eab65a858b4ab8082159b60f38ae7f99dc5e695bef68cded7ba6b',
   // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
   // returns calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '10c0ada3d8c69a513d509cb7ebd2b124a5c0ba7d64a4ca2fd46b3f6a503a2b82',
+  crowdfunding: '359e0074d0b96d50b4fcc3d75b037beab667ec0bdb3053503ed231e16a21e501',
 };
 // The Workforce prompt changed on purpose, for the same reason: a file handed
 // off with the task can be emailed with `attached_html`.
-const EXPECTED_WORKFORCE_HASH = '42ee5b840efbd6303d70202fdb5393677499ac771408c6c2408bb61b7dca354c';
+const EXPECTED_WORKFORCE_HASH = 'cfcd9c16370323e52dd5667102c9035003d77fc38d7d71036af0cc7f0dea4b55';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

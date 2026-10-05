@@ -23,7 +23,6 @@ import {
   type Tables,
 } from '@/lib/repositories';
 import {
-  ALL_STAGES,
   COMPANY_FILTER_DOC,
   companyFilterShape,
   mapCompanyFilters,
@@ -405,7 +404,7 @@ export async function buildCompanyExcelAttachment(
     !(spec.stage_in && spec.stage_in.length > 0) &&
     !spec.company_ids
   ) {
-    filters.stageIn = [...ALL_STAGES];
+    filters.stageNotIn = [];
   }
 
   const companies = await companyRepo.findForAgentStats(filters);

@@ -70,6 +70,8 @@ import {
   type RelationFilter,
 } from '@/lib/graph/graphFilterParams';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
+import { STAGE_LABELS } from '@/lib/constants';
 
 function NodeCombobox({
   nodes,
@@ -133,6 +135,7 @@ function CompanyMultiSelect({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const { code: stageCode } = usePipelineStages();
   const label =
     selected.length === 0
       ? placeholder
@@ -160,7 +163,7 @@ function CompanyMultiSelect({
                   <Check className={`mr-2 h-3 w-3 shrink-0 ${selected.includes(n.id) ? 'opacity-100' : 'opacity-0'}`} />
                   <span className="truncate">{n.name}</span>
                   <span className="ml-auto pl-2 text-[10px] text-muted-foreground shrink-0">
-                    {pipelineStageLabel(n.pipelineStage ?? NO_STAGE)}
+                    {pipelineStageLabel(n.pipelineStage ?? NO_STAGE, stageCode)}
                   </span>
                 </CommandItem>
               ))}
@@ -352,21 +355,10 @@ function MultiSelectFilter({
 const NO_RELATION_COLOR = '#94a3b8';
 const NO_RELATION_LABEL = 'No relationship';
 
-const PIPELINE_STAGE_LABELS: Record<string, string> = {
-  market_screening: 'Market Screening',
-  L0: 'L0',
-  L1: 'L1',
-  L2: 'L2',
-  L3: 'L3',
-  L4: 'L4',
-  L5: 'L5',
-  discovered: 'Discovered',
-  unreviewed: 'Unreviewed',
-};
-
-function pipelineStageLabel(stage: string): string {
+/** A node's stage for the filter and tooltip: a bucket by name, a workspace stage by its code. */
+function pipelineStageLabel(stage: string, code: (key: string) => string): string {
   if (stage === NO_STAGE) return 'No stage';
-  return PIPELINE_STAGE_LABELS[stage] ?? stage;
+  return STAGE_LABELS[stage] ?? code(stage);
 }
 
 // Lifecycle-status filter options. An empty selection shows both.
@@ -512,6 +504,7 @@ export default function CompanyGraph({
   const [initialFilters] = useState(() => decodeGraphFilters(searchParams));
 
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] });
+  const workspaceStages = usePipelineStages();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<GraphNode | null>(null);
@@ -806,7 +799,8 @@ export default function CompanyGraph({
       if (n.pipelineStage) set.add(n.pipelineStage);
       else hasMissing = true;
     }
-    const order = Object.keys(PIPELINE_STAGE_LABELS);
+    // Pre-pipeline buckets first, then the workspace's stages in pipeline order.
+    const order = ['market_screening', 'unreviewed', ...workspaceStages.liveKeys, 'discovered'];
     const sorted = Array.from(set).sort((a, b) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -816,7 +810,7 @@ export default function CompanyGraph({
       return ia - ib;
     });
     return hasMissing ? [...sorted, NO_STAGE] : sorted;
-  }, [graphData.nodes]);
+  }, [graphData.nodes, workspaceStages.liveKeys]);
 
   // When a "connected only" node is pinned, the set of node ids allowed through
   // the filter: the node itself plus every company sharing an edge with it.
@@ -1820,7 +1814,7 @@ export default function CompanyGraph({
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Pipeline stage</Label>
                 <MultiSelectFilter
-                  options={pipelineStages.map((s) => ({ value: s, label: pipelineStageLabel(s) }))}
+                  options={pipelineStages.map((s) => ({ value: s, label: pipelineStageLabel(s, workspaceStages.code) }))}
                   selected={pipelineStage}
                   onToggle={(v) => setPipelineStage((p) => toggledSet(p, v))}
                   onClear={() => setPipelineStage(new Set())}
@@ -1988,7 +1982,7 @@ export default function CompanyGraph({
                 <ul className="space-y-1.5 mb-3">
                   {([
                     [STAGE_COLOR_BLUE, 'L0 – L5'],
-                    [STAGE_COLOR_YELLOW, 'Market Screening / No stage'],
+                    [STAGE_COLOR_YELLOW, 'Market Scanning / No stage'],
                     [STAGE_COLOR_GREY, 'Discovered'],
                   ] as [string, string][]).map(([color, label]) => (
                     <li key={label} className="flex items-center gap-2">

@@ -1,5 +1,7 @@
 import type { DashboardActivityRepository } from '@/lib/repositories/dashboardActivityRepository';
 import { companyDisplayName } from '@/lib/companyDisplay';
+import type { PipelineStageRepository } from '@/lib/repositories/pipelineStageRepository';
+import { isInPipelineStage } from '@/lib/pipeline/stages';
 
 export type NewL0Company = Awaited<ReturnType<DashboardActivityRepository['getNewL0Companies']>>[number];
 export type AiSourcedCompany = Awaited<ReturnType<DashboardActivityRepository['getAiSourcedCompanies']>>[number];
@@ -26,11 +28,12 @@ export interface DashboardActivity {
 // ─── Added cohort (dashboard tally) ───────────────────────────────────────────
 
 /** One company in the "added" cohort — created in the window and currently a
- * pipeline deal (L0–L5), whether still active or already dropped. */
+ * pipeline deal (any workspace stage), whether still active or already dropped. */
 export type AddedCompany = Awaited<ReturnType<DashboardActivityRepository['getAddedCompanies']>>[number];
 
-/** The L0–L5 pipeline stages, in funnel order — the buckets of {@link DashboardOverview.stages}. */
-export const ADDED_COHORT_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
+/** The original L0–L5 pipeline stages, in funnel order — the buckets of
+ * {@link DashboardOverview.stages} when no workspace stage list is to hand. */
+export const ADDED_COHORT_STAGES: readonly string[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
 
 /** Where the cohort sits **today**, per stage. `inbound` / `outbound` count
  * *every* deal at the stage — active and dropped alike — split by source, and
@@ -55,7 +58,7 @@ export interface AddedStageBucket {
 
 /**
  * The dashboard's single source of truth for the three tally sections, all
- * derived from one cohort (companies created in the window, currently L0–L5):
+ * derived from one cohort (companies created in the window, currently at a pipeline stage):
  *
  * - `totalAdded` — "Total Companies Added" (#1) = the cohort size.
  * - `droppedTotal` — the recap's dropped subset (#2) = cohort members dropped.
@@ -190,9 +193,6 @@ function parsePipelineMoveAction(action: string | null): {
   return { from: null, to: null };
 }
 
-/** The stages that form the L0–L5 deal pipeline. */
-const PIPELINE_L_STAGES = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
-
 /**
  * True when a promotion log records a company entering L0 from a pre-L0 stage
  * (market_screening / unreviewed / discovered, or a from-less PROMOTED_TO_L0).
@@ -201,11 +201,29 @@ const PIPELINE_L_STAGES = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
  */
 export function isPreL0EntryMove(action: string | null): boolean {
   const { from, to } = parsePipelineMoveAction(action);
-  return to === 'L0' && (from === null || !PIPELINE_L_STAGES.has(from));
+  return to === 'L0' && !isInPipelineStage(from);
 }
 
 export class DashboardActivityService {
-  constructor(private repo: DashboardActivityRepository) {}
+  constructor(
+    private repo: DashboardActivityRepository,
+    // Optional: the workspace's pipeline stages, which order the cohort's
+    // stage buckets. Without it the six original stages are used.
+    private stageRepo?: PipelineStageRepository,
+  ) {}
+
+  /**
+   * Stage buckets for the cohort, in pipeline order: every live stage, plus a
+   * deleted stage only while a cohort member (a deal dropped there) sits in it.
+   */
+  private async cohortStageOrder(): Promise<{ live: string[]; deleted: string[] }> {
+    if (!this.stageRepo) return { live: [...ADDED_COHORT_STAGES], deleted: [] };
+    const rows = await this.stageRepo.list();
+    return {
+      live: rows.filter((r) => r.deleted_at === null).map((r) => r.key),
+      deleted: rows.filter((r) => r.deleted_at !== null).map((r) => r.key),
+    };
+  }
 
   async getActivity(from: Date, to: Date): Promise<DashboardActivity> {
     const [
@@ -248,7 +266,7 @@ export class DashboardActivityService {
    * The "added" cohort snapshot the dashboard's Total-Companies-Added, Recap,
    * and Pipeline-Stages sections all read from, so their numbers tally. The
    * cohort is every company created in `[from, to]` that is currently a pipeline
-   * deal (L0–L5); each member is bucketed by where it sits **today** — active
+   * deal (any workspace stage); each member is bucketed by where it sits **today** — active
    * deals under their current stage (split inbound / outbound), dropped deals
    * under the stage they were dropped at. Every member lands in exactly one
    * bucket, so `Σ(active + dropped) === totalAdded` and `Σ dropped ===
@@ -260,27 +278,34 @@ export class DashboardActivityService {
    * exact.
    */
   async getAddedCohort(from: Date, to: Date): Promise<DashboardOverview> {
-    const rows = await this.repo.getAddedCompanies(from, to);
+    const [rows, order] = await Promise.all([
+      this.repo.getAddedCompanies(from, to),
+      this.cohortStageOrder(),
+    ]);
 
+    const emptyBucket = (stage: string): AddedStageBucket => ({
+      stage,
+      inbound: 0,
+      outbound: 0,
+      total: 0,
+      activeInbound: 0,
+      activeOutbound: 0,
+      active: 0,
+      dropped: 0,
+    });
     const buckets = new Map<string, AddedStageBucket>(
-      ADDED_COHORT_STAGES.map((stage) => [
-        stage,
-        {
-          stage,
-          inbound: 0,
-          outbound: 0,
-          total: 0,
-          activeInbound: 0,
-          activeOutbound: 0,
-          active: 0,
-          dropped: 0,
-        },
-      ]),
+      order.live.map((stage) => [stage, emptyBucket(stage)]),
     );
+    const deletedStages = new Set(order.deleted);
 
     for (const row of rows) {
-      const bucket = buckets.get(String(row.pipeline_stage));
-      if (!bucket) continue; // defensive: repo already restricts to L0–L5
+      const stage = String(row.pipeline_stage);
+      let bucket = buckets.get(stage);
+      if (!bucket && deletedStages.has(stage)) {
+        bucket = emptyBucket(stage);
+        buckets.set(stage, bucket);
+      }
+      if (!bucket) continue; // defensive: repo already restricts to pipeline stages
       const isInbound = row.source?.toLowerCase() === 'inbound';
       // inbound / outbound / total count every deal at the stage, dropped included.
       if (isInbound) bucket.inbound += 1;
@@ -304,7 +329,11 @@ export class DashboardActivityService {
     return {
       totalAdded: rows.length,
       droppedTotal: droppedCompanies.length,
-      stages: ADDED_COHORT_STAGES.map((stage) => buckets.get(stage)!),
+      // Live stages first in pipeline order, then any deleted stage that still
+      // holds a dropped deal from the cohort.
+      stages: [...order.live, ...order.deleted]
+        .map((stage) => buckets.get(stage))
+        .filter((b): b is AddedStageBucket => b !== undefined),
       addedCompanies: rows,
       droppedCompanies,
     };

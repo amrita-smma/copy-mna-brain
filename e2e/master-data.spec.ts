@@ -149,7 +149,7 @@ test.describe('Master Data page', () => {
     await scopeToSeeded(page, marker);
 
     await page.getByRole('combobox').filter({ hasText: /Stage|All Stages/ }).click();
-    await page.getByRole('option', { name: 'L3 - Due Diligence' }).click();
+    await page.getByRole('option', { name: 'L3 · Due Diligence' }).click();
 
     // Count must be > 0 and the expected L3 company must be visible.
     const count = await getDisplayedCount(page);

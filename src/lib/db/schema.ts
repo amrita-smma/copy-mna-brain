@@ -62,20 +62,6 @@ export const jobType = pgEnum("job_type", [
   "company_vote",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
-export const pipelineStage = pgEnum("pipeline_stage", [
-  "market_screening",
-  // Companies auto-created from email attachments, pending triage into L0.
-  "unreviewed",
-  "L0",
-  "L1",
-  "L2",
-  "L3",
-  "L4",
-  "L5",
-  // Companies auto-created as one side of a relationship-graph edge. Not part
-  // of the L0–L5 deal pipeline; surfaced in its own Master Data section.
-  "discovered",
-]);
 export const screeningState = pgEnum("screening_state", [
   "pending",
   "completed",
@@ -396,7 +382,12 @@ export const companies = pgTable(
     geography: text(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
-    pipeline_stage: pipelineStage().default("L0").notNull(),
+    // A stage key. The pre-pipeline buckets (`market_screening`, `unreviewed`
+    // — companies auto-created from email attachments, pending triage — and
+    // `discovered` — one side of a relationship-graph edge) are fixed; every
+    // other value is a key from this workspace's `pipeline_stages`. Text, not
+    // the old `pipeline_stage` enum, so workspaces can add their own stages.
+    pipeline_stage: text().default("L0").notNull(),
     remarks: text(),
     thesis_content: text(),
     source: dealOrigin(),
@@ -495,7 +486,7 @@ export const companies = pgTable(
       ),
       idxCompaniesPipelineStage: index("idx_companies_pipeline_stage").using(
         "btree",
-        table.pipeline_stage.asc().nullsLast().op("enum_ops"),
+        table.pipeline_stage.asc().nullsLast().op("text_ops"),
       ),
       idxCompaniesSegment: index("idx_companies_segment").using(
         "btree",
@@ -4422,6 +4413,44 @@ export const insightTemplates = pgTable(
       idxInsightTemplatesWorkspaceId: index(
         "idx_insight_templates_workspace_id",
       ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+    };
+  },
+);
+
+// A workspace's deal pipeline stages, in `position` order. `key` is the
+// permanent identity stored in companies.pipeline_stage (L0–L5 for the six
+// original stages, `stg-<hex>` for added ones); `code` ("L0", "L6", ...) and
+// `name` are what users see and edit. Deleting a stage soft-deletes it so
+// dropped deals and stage history can still name it. Every workspace is seeded
+// with the six defaults by a trigger on `workspaces` insert.
+export const pipelineStages = pgTable(
+  "pipeline_stages",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text().notNull(),
+    code: text().notNull(),
+    name: text().notNull(),
+    description: text().default("").notNull(),
+    position: integer().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    deleted_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      uqPipelineStagesWorkspaceKey: uniqueIndex(
+        "uq_pipeline_stages_workspace_key",
+      ).on(table.workspace_id, table.key),
+      idxPipelineStagesWorkspacePosition: index(
+        "idx_pipeline_stages_workspace_position",
+      ).on(table.workspace_id, table.position),
     };
   },
 );

@@ -50,7 +50,7 @@ function sectorChatGuide(handle: string): string {
 
 ## Adding a New Company (Chat-Initiated)
 
-Adding companies to the pipeline is not ${handle}'s job, but you can pass it on. When asked how to add a company, answer in chat in short bullet points (never by navigating — there is no add-company form): the user can name the companies and any details right here, attach a teaser or screenshot, or upload a teaser in Smart Files. When they name companies, call \`propose_workforce_handoff\` instructing the Workforce to add each one, with the details actually given, at stage "unreviewed" (a human-initiated add, never market screening), with \`company_names: []\`.`;
+Adding companies to the pipeline is not ${handle}'s job, but you can pass it on. When asked how to add a company, answer in chat in short bullet points (never by navigating): the user can name the companies and any details right here, attach a teaser or screenshot, upload a teaser in Smart Files, or fill in the form under Add Company → Manual on the Pipeline page. When they name companies, call \`propose_workforce_handoff\` instructing the Workforce to add each one, carrying every detail actually given (segment, geography, what it does, website, ownership, source, financials with fiscal year, notes), at stage "unreviewed" (a human-initiated add, never market screening), with \`company_names: []\`.`;
 }
 
 function sectorWorkforceIntro(key: SectorAgentKey): string {

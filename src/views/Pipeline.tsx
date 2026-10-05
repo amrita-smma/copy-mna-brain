@@ -9,7 +9,7 @@ import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardContent,
@@ -17,7 +17,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -32,22 +31,21 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Clock,
-  FileText,
   Loader2,
   Plus,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  EyeOff,
   Settings,
+  HelpCircle,
+  ChevronDown,
+  PencilLine,
+  Sparkles,
+  Upload,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,11 +59,14 @@ import {
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
 import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
-import UpdateCompanyDialog from "@/components/pipeline/UpdateCompanyDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
-import L0AddCompany from "@/components/pipeline/L0AddCompany";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { usePublishSourcingPendingCount } from "@/hooks/useSourcingPendingCount";
+import { useRestoreDeal } from "@/components/pipeline/useRestoreDeal";
+import AddCompanyForm from "@/components/pipeline/AddCompanyForm";
+import { buildAddCompanyPrompt } from "@/lib/pipeline/addCompanyPrompt";
 import {
   Dialog,
   DialogContent,
@@ -89,21 +90,25 @@ import {
 import MarketScreeningStatus from "@/components/pipeline/MarketScreeningStatus";
 import MarketScreeningResults from "@/components/pipeline/MarketScreeningResults";
 import ScreeningProgressPanel from "@/components/pipeline/ScreeningProgressPanel";
-import { CollapsibleSection } from "@/components/common/CollapsibleSection";
 import { TriageBanner } from "@/components/pipeline/TriageBanner";
 import { BulkTriageModal } from "@/components/pipeline/BulkTriageModal";
-import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { cn } from "@/lib/utils";
+import {
+  matchesSearchScope,
+  matchesStageView,
+  parseStageView,
+  stageCellLabel,
+  stageSortRank,
+  type StageView,
+} from "@/lib/pipeline/stageView";
+import { screeningTargetKey } from "@/lib/pipeline/stages";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
 import posthog from "posthog-js";
 import {
   getCompanies,
   getCompaniesCount,
-  promoteCompany,
-  runCompanyL1Filters,
   dropDeal,
-  restoreDeal,
   updateCompany,
   getTracks,
   analyzeAiOpinion,
@@ -115,6 +120,9 @@ import {
 } from "@/lib/aiScreeningClient";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+
+/** Pipeline Status filter: every deal, live deals only, or dropped deals only. */
+export type PipelineViewMode = "all" | "active" | "dropped";
 
 export interface PipelineCompany {
   id: string;
@@ -179,84 +187,16 @@ export interface PipelineCompany {
   financials_raw?: import("@/lib/repositories").Tables<"company_financials">[];
 }
 
-const STAGES: DealStage[] = ["L0", "L1", "L2", "L3", "L4", "L5"];
+const PENDING_DESCRIPTION =
+  "Inbound leads awaiting confirmation before entering the pipeline at L0.";
 
-const stageDescriptions: Record<DealStage, string> = {
-  market_screening: "AI Market Scanning - AI-discovered companies",
-  unreviewed: "Unreviewed - Companies from email attachments pending triage",
-  L0: "Company Sourcing - Inbound & Outbound companies",
-  L1: "Automated Screening - Filter evaluation",
-  L2: "Initial Review - Manual assessment",
-  L3: "Deep Dive - Detailed analysis",
-  L4: "Due Diligence - Final verification",
-  L5: "Closing - Deal completion",
-  discovered: "Discovered - Surfaced via the relationship graph",
-};
+/** The selected stage's description is cut to this length, with "Show more" opening the full list. */
+const STAGE_DESCRIPTION_PREVIEW_CHARS = 160;
 
-const stageColors: Record<
-  DealStage,
-  { bg: string; text: string; bgLight: string; textLight: string }
-> = {
-  market_screening: {
-    bg: "bg-blue-500",
-    text: "text-white",
-    bgLight: "bg-blue-500/15",
-    textLight: "text-blue-600",
-  },
-  unreviewed: {
-    bg: "bg-amber-500",
-    text: "text-white",
-    bgLight: "bg-amber-500/15",
-    textLight: "text-amber-600",
-  },
-  L0: {
-    bg: "bg-stage-l0",
-    text: "text-white",
-    bgLight: "bg-stage-l0/15",
-    textLight: "text-stage-l0",
-  },
-  L1: {
-    bg: "bg-stage-l1",
-    text: "text-white",
-    bgLight: "bg-stage-l1/15",
-    textLight: "text-stage-l1",
-  },
-  L2: {
-    bg: "bg-stage-l2",
-    text: "text-white",
-    bgLight: "bg-stage-l2/15",
-    textLight: "text-stage-l2",
-  },
-  L3: {
-    bg: "bg-stage-l3",
-    text: "text-white",
-    bgLight: "bg-stage-l3/15",
-    textLight: "text-stage-l3",
-  },
-  L4: {
-    bg: "bg-stage-l4",
-    text: "text-white",
-    bgLight: "bg-stage-l4/15",
-    textLight: "text-stage-l4",
-  },
-  L5: {
-    bg: "bg-stage-l5",
-    text: "text-white",
-    bgLight: "bg-stage-l5/15",
-    textLight: "text-stage-l5",
-  },
-  discovered: {
-    bg: "bg-amber-500",
-    text: "text-white",
-    bgLight: "bg-amber-500/15",
-    textLight: "text-amber-600",
-  },
-};
+type SourcingTab = "pending" | "scanning";
 
-const getRevenueChange = (year2: number | null, year3: number | null) => {
-  if (year2 === null || year3 === null || year2 === 0) return null;
-  return ((year3 - year2) / year2) * 100;
-};
+const SOURCING_TAB_CLASS =
+  "shrink-0 rounded-none border-b-2 border-transparent px-3 py-2 -mb-px text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 // "Resurface at" presets offered when dropping a deal.
 const RESURFACE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -293,66 +233,54 @@ const computeResurfaceAt = (
   return d.toISOString();
 };
 
-const L1StatusBadge = ({ status }: { status: L1Status | null }) => {
-  if (!status) return <Badge variant="outline">Pending</Badge>;
+interface PipelineProps {
+  /**
+   * `sourcing` renders the Sourcing page: the Pending Confirmation bucket and
+   * AI Market Scanning, on the same deal data, row actions and dialogs as the
+   * pipeline table.
+   */
+  page?: "pipeline" | "sourcing";
+}
 
-  const getStatusStyles = (status: L1Status) => {
-    switch (status) {
-      case "Pass":
-        return "bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30";
-      case "Inconclusive":
-        return "bg-amber-500/20 text-amber-600 border-amber-500/30 hover:bg-amber-500/30";
-      case "Fail":
-        return "bg-red-500/20 text-red-600 border-red-500/30 hover:bg-red-500/30";
-      default:
-        return "";
-    }
-  };
-
-  const icons: Record<L1Status, any> = {
-    Pass: CheckCircle2,
-    Fail: XCircle,
-    Inconclusive: AlertCircle,
-  };
-
-  const Icon = icons[status];
-  const customStyles = getStatusStyles(status);
-
-  return (
-    <Badge variant="outline" className={`gap-1 ${customStyles}`}>
-      <Icon className="h-3 w-3" />
-      {status}
-    </Badge>
-  );
-};
-
-export default function Pipeline() {
+export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
+  const isSourcing = page === "sourcing";
   const searchParams = useSearchParams();
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
+  const sourcingHref = useWorkspaceHref("/sourcing");
   const chatHref = useWorkspaceHref("/chat");
-  const { analyzeWithAI } = useChatContext();
+  const smartFilesHref = useWorkspaceHref("/smart-files");
+  const { newChat, prefillComposer } = useChatContext();
   const { focusCopilot } = useLayoutControl();
   const isMobile = useIsMobile();
-  const handleAddCompanyClick = () => {
-    analyzeWithAI("How do I add a new company?");
-    if (isMobile) {
-      router.push(chatHref);
-      return;
-    }
-    focusCopilot();
-  };
-  const initialTab = searchParams.get("stage") || "L0";
-  const [activeTab, setActiveTab] = useState<DealStage>(
-    initialTab as DealStage,
+  const pipelineStages = usePipelineStages();
+  const { restore: restoreWithStagePrompt, restoreStageDialog } = useRestoreDeal();
+  const { liveKeys: stageKeys, captainKeys } = pipelineStages;
+  // Screening promotes L0 deals into whichever stage follows L0, so that is
+  // the tab that offers the screening-result filter (L1 by default). Unset
+  // until the stages load, so the built-in fallback can't pick the wrong tab.
+  const screeningStage = pipelineStages.loading ? null : screeningTargetKey(stageKeys);
+  // Sourcing only ever shows the pending bucket; nothing there changes it. A
+  // `?stage=` naming an added stage is kept until the stages load, then
+  // checked below.
+  const [stageView, setStageView] = useState<StageView>(() =>
+    isSourcing ? "pending" : parseStageView(searchParams.get("stage"), [searchParams.get("stage") ?? ""]),
+  );
+  const [sourcingTab, setSourcingTab] = useState<SourcingTab>(() =>
+    searchParams.get("tab") === "scanning" ? "scanning" : "pending",
   );
   const [companies, setCompanies] = useState<PipelineCompany[]>([]);
   const [loading, setLoading] = useState(true);
+  // True once a fetch has succeeded — until then `companies` is an empty
+  // placeholder, not a real zero, and must not reach the sidebar badge.
+  const [companiesLoaded, setCompaniesLoaded] = useState(false);
   const [updatingCompanyIds, setUpdatingCompanyIds] = useState<Set<string>>(
     new Set(),
   );
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sectorFilterValue, setSectorFilterValue] = useState<string>("all");
+  // Pipeline keeps its search in `?q=` so a search can be shared or bookmarked.
+  const [searchQuery, setSearchQuery] = useState(() =>
+    isSourcing ? "" : (searchParams.get("q") ?? ""),
+  );
   const [selectedCompany, setSelectedCompany] =
     useState<PipelineCompany | null>(null);
   // When true, the company detail dialog opens directly into the Details tab
@@ -373,12 +301,6 @@ export default function Pipeline() {
   const [newCandidatesCount, setNewCandidatesCount] = useState(0);
 
   // Section visibility
-  const [showL0Pipeline, setShowL0Pipeline] = useState(true);
-  const [showMarketScanning, setShowMarketScanning] = useState(true);
-  const [showMarketResults, setShowMarketResults] = useLocalStorage(
-    "pipeline:show-market-results",
-    true,
-  );
   const [showScreeningProgress, setShowScreeningProgress] = useLocalStorage(
     "pipeline:show-screening-progress",
     true,
@@ -391,8 +313,11 @@ export default function Pipeline() {
   // L1 status filter
   const [l1StatusFilter, setL1StatusFilter] = useState<"all" | L1Status>("all");
 
-  // Active vs Dropped view
-  const [viewMode, setViewMode] = useState<"active" | "dropped">("active");
+  // Pipeline Status filter. Pipeline opens on All (live and dropped deals
+  // together); Sourcing has no status filter and only lists live deals.
+  const [viewMode, setViewMode] = useState<PipelineViewMode>(
+    isSourcing ? "active" : "all",
+  );
 
   // Sector filter
   const [sectorFilter, setSectorFilter] = useState<string>("all");
@@ -402,17 +327,29 @@ export default function Pipeline() {
     {},
   );
 
-  // Source sub-tab (replaces filter dropdown — real tabs now)
+  // Inbound vs outbound — two tables with different columns, so one at a time.
   const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">(
     "inbound",
   );
-  const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
+  const [stageHelpOpen, setStageHelpOpen] = useState(false);
+  // Origin (document type) filter — Sourcing's pending table only.
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
   // Tracks (investment theses) + matched-track filter
   const [tracks, setTracks] = useState<Track[]>([]);
   const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
   const [addCompanyOpen, setAddCompanyOpen] = useState(false);
+  // "Add Company → Ask AI": a fresh chat with the add-company brief staged in
+  // the composer for the user to fill in and send — not sent on their behalf.
+  const handleAddCompanyWithAI = () => {
+    newChat();
+    prefillComposer(buildAddCompanyPrompt(tracks));
+    if (isMobile) {
+      router.push(chatHref);
+      return;
+    }
+    focusCopilot();
+  };
   const [trackFilter, setTrackFilter] = useState<string[]>([]);
   // Bumped after Track Settings saves so the AI Market Scanning banner refetches.
   const [tracksRefreshKey, setTracksRefreshKey] = useState(0);
@@ -426,12 +363,6 @@ export default function Pipeline() {
   const [promotingCompany, setPromotingCompany] =
     useState<PipelineCompany | null>(null);
   const [dialogMode, setDialogMode] = useState<"promote" | "demote">("promote");
-
-  // Update company dialog state
-  const [editingCompany, setEditingCompany] = useState<PipelineCompany | null>(
-    null,
-  );
-  const [editAndPromote, setEditAndPromote] = useState(false);
 
   // Drop deal dialog state
   const [dropDealCompany, setDropDealCompany] =
@@ -524,6 +455,7 @@ export default function Pipeline() {
         })) || [];
 
       setCompanies(formatted);
+      setCompaniesLoaded(true);
     } catch (error: any) {
       console.error("Error fetching companies:", error);
       toast.error("Failed to load companies");
@@ -565,19 +497,54 @@ export default function Pipeline() {
 
   useEffect(() => {
     fetchCompanies();
-    fetchNewCandidatesCount();
-  }, []);
+    // The new-candidates count is only shown on Sourcing's AI Market Scanning tab.
+    if (isSourcing) fetchNewCandidatesCount();
+  }, [isSourcing]);
 
-  const handleTabChange = (value: string) => {
-    // Capture pipeline stage change event
+  const pipelineUrl = (view: StageView, query: string) => {
+    const params = new URLSearchParams({ stage: view });
+    if (query.trim()) params.set("q", query.trim());
+    return `${pipelineHref}?${params.toString()}`;
+  };
+
+  const handleStageViewChange = (value: StageView) => {
     posthog.capture("pipeline_stage_changed", {
-      from_stage: activeTab,
+      from_stage: stageView,
       to_stage: value,
     });
 
-    setActiveTab(value as DealStage);
+    setStageView(value);
+    // Pending Confirmation is inbound-only, so it always opens the inbound table.
+    if (value === "pending") setSourceFilter("inbound");
     setCurrentPage(1);
-    router.push(`${pipelineHref}?stage=${value}`);
+    router.push(pipelineUrl(value, searchQuery));
+  };
+
+  // A `?stage=` for a stage this workspace doesn't have (deleted, or a stale
+  // link) falls back to every stage once the stage list has loaded.
+  useEffect(() => {
+    if (isSourcing || pipelineStages.loading) return;
+    if (stageView === "all" || stageView === "pending") return;
+    if (!stageKeys.includes(stageView)) {
+      setStageView("all");
+      router.replace(pipelineUrl("all", searchQuery));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-check only when the stage list or view changes
+  }, [pipelineStages.loading, stageKeys, stageView, isSourcing]);
+
+  // A search looks through every stage, Pending Confirmation included, and
+  // the stage filter is disabled while it runs; the selected stage is left as
+  // it was, so clearing the search goes back to it.
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    // The source picker shows during a search; Pending Confirmation is
+    // inbound-only, so clearing back to it resets the source.
+    if (value.trim() === "" && stageView === "pending") {
+      setSourceFilter("inbound");
+    }
+    // replaceState, not the router: a keystroke shouldn't add history entries
+    // or refetch the page.
+    window.history.replaceState(null, "", pipelineUrl(stageView, value));
   };
 
   // Load tracks (investment theses) once, for matching + filtering + editing.
@@ -597,10 +564,11 @@ export default function Pipeline() {
     searchQuery,
     sectorFilter,
     l1StatusFilter,
-    activeTab,
+    stageView,
     viewMode,
     sourceFilter,
     trackFilter,
+    docTypeFilter,
     columnFilters,
   ]);
 
@@ -608,7 +576,7 @@ export default function Pipeline() {
   // option lists (and therefore selections) no longer apply.
   useEffect(() => {
     setColumnFilters({});
-  }, [activeTab, viewMode, sourceFilter]);
+  }, [stageView, viewMode, sourceFilter]);
 
   const handleColumnFilterChange = (field: string, values: string[]) => {
     setColumnFilters((prev) => {
@@ -621,6 +589,9 @@ export default function Pipeline() {
 
   const isDropped = (c: PipelineCompany) => c.status === "dropped";
   const isActive = (c: PipelineCompany) => !isDropped(c);
+  const matchesViewMode = (c: PipelineCompany) =>
+    viewMode === "all" ||
+    (viewMode === "dropped" ? isDropped(c) : isActive(c));
 
   // Workflow status options: per-source defaults ∪ distinct values already
   // saved on the single `workflow_status` column.
@@ -666,21 +637,33 @@ export default function Pipeline() {
     advisor: (c) => c.advisor || null,
     is_live: (c) => (isDealLive(c) ? "Live" : "Not live"),
     stake: (c) => c.stake || null,
-    // Deal Sponsor (L0–L2) / Deal Captain (L3+): the stored per-company
-    // override, else the matched Track's PIC(s). Mirrors the table cell so the
-    // filter options match what's actually displayed.
-    deal_lead: (c) => effectiveDealLead(c, activeTab, tracks),
+    stage: (c) => stageCellLabel(c.pipeline_stage, pipelineStages.code),
+    // Deal Sponsor (L0–L2) / Deal Captain (L3+), read at the row's own stage
+    // since All Stages mixes both: the stored per-company override, else the
+    // matched Track's PIC(s). Mirrors the table cell so the filter options
+    // match what's actually displayed.
+    deal_lead: (c) => effectiveDealLead(c, c.pipeline_stage, tracks, captainKeys),
   };
 
   const EMPTY_FILTER_VALUE = "__empty__";
 
+  const isSearching = searchQuery.trim() !== "";
+  // Pipeline's search ignores the stage filter; Sourcing searches its own
+  // Pending Confirmation list.
+  const searchesAllStages = !isSourcing && isSearching;
+  const matchesStageScope = (company: PipelineCompany) =>
+    searchesAllStages
+      ? matchesSearchScope(company)
+      : matchesStageView(company, stageView);
+
   // Pool the column-filter option lists are derived from: everything in the
-  // current stage/source/view, before search and the column filters themselves.
+  // current stage/source/view, before the search text and the column filters
+  // themselves.
   const columnFilterPool = companies.filter(
     (company) =>
-      company.pipeline_stage === activeTab &&
+      matchesStageScope(company) &&
       company.source === sourceFilter &&
-      (viewMode === "dropped" ? isDropped(company) : isActive(company)),
+      matchesViewMode(company),
   );
 
   const getColumnFilterOptions = (field: string) => {
@@ -723,33 +706,25 @@ export default function Pipeline() {
       return selected.includes(value);
     });
 
-  const filteredCompanies = companies.filter((company) => {
-    const matchesStage =
-      company.pipeline_stage === activeTab ||
-      (activeTab === "L0" && company.pipeline_stage === "unreviewed");
-    const q = searchQuery.toLowerCase();
+  // Every filter except the stage view (and the L1-only screening result), so
+  // a search can count its matches per stage tab. `source` overrides the
+  // selected source for the other-source hint, which also skips the column
+  // filters — those belong to the table on screen and reset on a source switch.
+  const matchesNonStageFilters = (
+    company: PipelineCompany,
+    opts: { source?: "inbound" | "outbound"; skipColumnFilters?: boolean } = {},
+  ) => {
+    const q = searchQuery.trim().toLowerCase();
     const matchesSearch =
       companyDisplayName(company, "").toLowerCase().includes(q) ||
       (company.project_name || "").toLowerCase().includes(q) ||
       (company.segment || "").toLowerCase().includes(q);
-    const matchesL1Status =
-      l1StatusFilter === "all" ||
-      company.l1_screening_result === l1StatusFilter;
     const matchesSector =
       sectorFilter === "all" || company.segment === sectorFilter;
-    const matchesSource = company.source === sourceFilter;
+    const matchesSource = company.source === (opts.source ?? sourceFilter);
     const matchesDocType =
       docTypeFilter === "all" || company.doc_type === docTypeFilter;
-    // L0 inbound is split across two sub-tabs: the Unreviewed tab shows
-    // pipeline_stage='unreviewed' companies; the Inbound tab shows L0 ones.
-    const matchesReviewState =
-      activeTab !== "L0" || sourceFilter !== "inbound"
-        ? true
-        : showUnreviewedOnly
-          ? company.pipeline_stage === "unreviewed"
-          : company.pipeline_stage !== "unreviewed";
-    const matchesView =
-      viewMode === "dropped" ? isDropped(company) : isActive(company);
+    const matchesView = matchesViewMode(company);
     const companyTrackIds = resolveTrackIds(company, tracks);
     const matchesTrack =
       trackFilter.length === 0 ||
@@ -757,18 +732,43 @@ export default function Pipeline() {
         companyTrackIds.length === 0) ||
       companyTrackIds.some((id) => trackFilter.includes(id));
     return (
-      matchesStage &&
       matchesSearch &&
-      matchesL1Status &&
       matchesSector &&
       matchesSource &&
       matchesDocType &&
-      matchesReviewState &&
       matchesView &&
       matchesTrack &&
-      matchesColumnFilters(company)
+      (opts.skipColumnFilters || matchesColumnFilters(company))
     );
-  });
+  };
+
+  // The screening-result dropdown only shows on the screening stage's tab, so
+  // it only applies there (and not during a search, which spans every stage).
+  const matchesL1Status = (company: PipelineCompany) =>
+    searchesAllStages ||
+    stageView !== screeningStage ||
+    l1StatusFilter === "all" ||
+    company.l1_screening_result === l1StatusFilter;
+
+  const filteredCompanies = companies.filter(
+    (company) =>
+      matchesStageScope(company) &&
+      matchesL1Status(company) &&
+      matchesNonStageFilters(company),
+  );
+
+  // While searching on Pipeline: matches in the other source's table.
+  const otherSource = sourceFilter === "inbound" ? "outbound" : "inbound";
+  const otherSourceMatchCount = searchesAllStages
+    ? companies.filter(
+        (company) =>
+          matchesSearchScope(company) &&
+          matchesNonStageFilters(company, {
+            source: otherSource,
+            skipColumnFilters: true,
+          }),
+      ).length
+    : 0;
 
   // Apply sorting
   const sortedCompanies = [...filteredCompanies].sort((a, b) => {
@@ -819,8 +819,12 @@ export default function Pipeline() {
         bVal = (b.entered_by_name || "").toLowerCase();
         break;
       case "deal_lead":
-        aVal = (effectiveDealLead(a, activeTab, tracks) || "").toLowerCase();
-        bVal = (effectiveDealLead(b, activeTab, tracks) || "").toLowerCase();
+        aVal = (effectiveDealLead(a, a.pipeline_stage, tracks, captainKeys) || "").toLowerCase();
+        bVal = (effectiveDealLead(b, b.pipeline_stage, tracks, captainKeys) || "").toLowerCase();
+        break;
+      case "stage":
+        aVal = stageSortRank(a.pipeline_stage, stageKeys);
+        bVal = stageSortRank(b.pipeline_stage, stageKeys);
         break;
       case "banker":
         aVal = (a.banker ?? a.banker_source ?? "").toLowerCase();
@@ -898,8 +902,24 @@ export default function Pipeline() {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
+  // L0 and Pending Confirmation inbound show every row on one page.
   const splitInboundReviewSections =
-    activeTab === "L0" && sourceFilter === "inbound" && viewMode !== "dropped";
+    !searchesAllStages &&
+    (stageView === "L0" || stageView === "pending") &&
+    sourceFilter === "inbound" &&
+    viewMode !== "dropped";
+
+  // "Sort by" preset: Newest is the default order (created date, or dropped
+  // date in the Dropped view); Oldest is that same date ascending. Any other
+  // column sort shows as a custom sort.
+  const dateSortField = viewMode === "dropped" ? "dropped_on" : "created";
+  const sortPreset: "newest" | "oldest" | "" = !sortField
+    ? "newest"
+    : sortField === dateSortField
+      ? sortDirection === "asc"
+        ? "oldest"
+        : "newest"
+      : "";
   const visibleCompanies = splitInboundReviewSections
     ? sortedCompanies
     : paginatedCompanies;
@@ -910,27 +930,59 @@ export default function Pipeline() {
   // isn't rewritten on every keystroke-driven re-render.
   useSetPageDetail(
     useMemo(() => {
+      if (isSourcing) {
+        if (sourcingTab === 'scanning') {
+          return 'The Sourcing page, AI Market Scanning tab: the market scan status and the AI-discovered companies waiting to be added to L0.';
+        }
+        const filters = [
+          docTypeFilter !== 'all' ? `origin ${docTypeFilter}` : null,
+          trackFilter.length > 0 ? `${trackFilter.length} track filter(s)` : null,
+          searchQuery.trim() ? `search "${searchQuery.trim()}"` : null,
+        ].filter(Boolean);
+        return [
+          'The Sourcing page, Pending Confirmation tab: unreviewed inbound deals awaiting triage before they enter L0',
+          filters.length > 0 ? `, filtered to: ${filters.join(', ')}.` : '.',
+          ` ${sortedCompanies.length} deal(s) match.`,
+        ].join('');
+      }
+      const stageScope = isSearching
+        ? 'every pipeline stage and Pending Confirmation (a search ignores the stage filter)'
+        : stageView === 'all'
+          ? 'every pipeline stage'
+          : stageView === 'pending'
+            ? 'Pending Confirmation (unreviewed inbound deals)'
+            : `stage ${pipelineStages.label(stageView)}`;
       const filters = [
-        `stage ${activeTab}`,
+        stageScope,
         sourceFilter,
-        viewMode === 'dropped' ? 'dropped deals' : 'active deals',
+        viewMode === 'all'
+          ? 'active and dropped deals'
+          : viewMode === 'dropped'
+            ? 'dropped deals'
+            : 'active deals',
         sectorFilter !== 'all' ? `sector ${sectorFilter}` : null,
-        l1StatusFilter !== 'all' ? `L1 status ${l1StatusFilter}` : null,
-        docTypeFilter !== 'all' ? `doc type ${docTypeFilter}` : null,
+        stageView === screeningStage && l1StatusFilter !== 'all'
+          ? `screening result ${l1StatusFilter}`
+          : null,
         trackFilter.length > 0 ? `${trackFilter.length} track filter(s)` : null,
-        searchQuery.trim() ? `search "${searchQuery.trim()}"` : null,
+        isSearching ? `search "${searchQuery.trim()}"` : null,
       ].filter(Boolean);
       return [
         `The deal pipeline table, filtered to: ${filters.join(', ')}.`,
         `${sortedCompanies.length} deal(s) match; ${visibleCompanies.length} shown on this page.`,
       ].join(' ');
     }, [
-      activeTab,
+      isSourcing,
+      sourcingTab,
+      docTypeFilter,
+      stageView,
+      pipelineStages,
+      screeningStage,
+      isSearching,
       sourceFilter,
       viewMode,
       sectorFilter,
       l1StatusFilter,
-      docTypeFilter,
       trackFilter.length,
       searchQuery,
       sortedCompanies.length,
@@ -938,9 +990,8 @@ export default function Pipeline() {
     ]),
   );
 
-  // MB-225: unreviewed inbound companies for the current stage/view — independent
-  // of the active sub-tab so the Unreviewed tab badge and triage modal stay correct
-  // even while the Inbound (reviewed-only) tab is selected.
+  // MB-225: every active unreviewed inbound company, independent of the
+  // current filters, so the triage modal always covers the whole bucket.
   const allUnreviewedCompanies = companies.filter(
     (c) =>
       c.pipeline_stage === "unreviewed" &&
@@ -970,7 +1021,7 @@ export default function Pipeline() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, searchQuery, sectorFilter, l1StatusFilter]);
+  }, [stageView, searchQuery, sectorFilter, l1StatusFilter]);
 
   // Live onlyL0 pending-screening set over SSE (replaces a 5s poll). One
   // connection pushes the L0 screenings list whenever any state changes; we
@@ -1013,18 +1064,6 @@ export default function Pipeline() {
       fetchCompanies({ silent: true });
     },
   );
-
-  const runL1Filters = async (dealId: string) => {
-    try {
-      const data = await runCompanyL1Filters(dealId);
-      const result = data as { status: string } | null;
-      toast.success(`Filter completed: ${result?.status || "Unknown"}`);
-      fetchCompanies();
-    } catch (error: any) {
-      console.error("Error running filters:", error);
-      toast.error("Failed to run filters");
-    }
-  };
 
   const runScreeningForCompany = async (company: PipelineCompany) => {
     if (runningScreeningCompanyIds.has(company.id)) return;
@@ -1087,79 +1126,33 @@ export default function Pipeline() {
     }
   };
 
-  const promoteToNextStage = async (
-    companyId: string,
-    currentStage: DealStage,
-  ) => {
-    const stageIndex = STAGES.indexOf(currentStage);
-    if (stageIndex >= STAGES.length - 1) {
-      toast.error("Already at final stage");
-      return;
-    }
-
-    const nextStage = STAGES[stageIndex + 1];
-
-    try {
-      await promoteCompany(companyId, {
-        currentStage,
-        nextStage,
-      });
-
-      toast.success(`Promoted to ${nextStage}`);
-      fetchCompanies();
-    } catch (error: any) {
-      console.error("Error promoting company:", error);
-      toast.error("Failed to promote company");
-    }
-  };
-
   // Stage the promote/demote dialog will move `promotingCompany` to. Mirrors
   // the row-menu logic in the Inbound/Outbound tables — including the
-  // inbound-only fallback out of L0 into Inbound Pending Review — so the
+  // inbound-only fallback out of L0 into Pending Confirmation — so the
   // dialog can never target a stage the menu that opened it wouldn't offer.
   // `null` (nothing to move to) keeps the dialog unmounted entirely.
   const stageMoveTarget: DealStage | null = promotingCompany
     ? dialogMode === "demote"
-      ? demoteTargetForStage(promotingCompany.pipeline_stage, {
-        demoteL0ToReview: promotingCompany.source === "inbound",
-      })
-      : promoteTargetForStage(promotingCompany.pipeline_stage)
+      ? demoteTargetForStage(
+        promotingCompany.pipeline_stage,
+        { demoteL0ToReview: promotingCompany.source === "inbound" },
+        stageKeys,
+      )
+      : promoteTargetForStage(promotingCompany.pipeline_stage, stageKeys)
     : null;
-
-  const stageCount = (stage: DealStage) =>
-    companies.filter((c) => c.pipeline_stage === stage && isActive(c)).length;
-  const sourceCount = (stage: DealStage, src: "inbound" | "outbound") =>
-    companies.filter(
-      (c) =>
-        c.pipeline_stage === stage &&
-        c.source === src &&
-        (viewMode === "dropped" ? isDropped(c) : isActive(c)),
-    ).length;
-
-  // "New" = recently added (created within the last NEW_WINDOW_DAYS days).
-  const NEW_WINDOW_DAYS = 7;
-  const isRecentlyAdded = (c: PipelineCompany) => {
-    if (!c.created_at) return false;
-    const created = new Date(c.created_at).getTime();
-    if (Number.isNaN(created)) return false;
-    return Date.now() - created <= NEW_WINDOW_DAYS * 86_400_000;
-  };
-  const sourceNewCount = (stage: DealStage, src: "inbound" | "outbound") =>
-    companies.filter(
-      (c) =>
-        c.pipeline_stage === stage &&
-        c.source === src &&
-        (viewMode === "dropped" ? isDropped(c) : isActive(c)) &&
-        isRecentlyAdded(c),
-    ).length;
 
   const handleRestoreDeal = async (company: PipelineCompany) => {
     try {
-      await restoreDeal(company.id, { currentStage: company.pipeline_stage });
+      const { restored, stage } = await restoreWithStagePrompt({
+        id: company.id,
+        name: companyDisplayName(company, "This deal"),
+        currentStage: company.pipeline_stage,
+      });
+      if (!restored) return;
       posthog.capture("deal_restored", {
         deal_id: company.id,
         company_name: companyDisplayName(company, ""),
-        to_stage: company.pipeline_stage,
+        to_stage: stage,
       });
       toast.success(`Restored ${companyDisplayName(company, "company")}`);
       fetchCompanies();
@@ -1169,906 +1162,634 @@ export default function Pipeline() {
     }
   };
 
-  const renderViewToggle = () => {
-    const isDroppedView = viewMode === "dropped";
-    return (
-      <div className="ml-auto shrink-0 inline-flex h-9 items-center rounded-md border p-0.5">
-        <button
-          type="button"
-          data-testid="pipeline-view-toggle-active"
-          aria-pressed={!isDroppedView}
-          onClick={() => setViewMode("active")}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-sm px-3 h-full text-sm font-medium transition-colors",
-            !isDroppedView
-              ? "bg-emerald-500 text-white"
-              : "text-muted-foreground hover:text-emerald-600",
-          )}
-        >
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full shrink-0",
-              !isDroppedView ? "bg-white" : "bg-emerald-500",
-            )}
-          />
-          Active
-        </button>
-        <button
-          type="button"
-          data-testid="pipeline-view-toggle-dropped"
-          aria-pressed={isDroppedView}
-          onClick={() => setViewMode("dropped")}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-sm px-3 h-full text-sm font-medium transition-colors",
-            isDroppedView
-              ? "bg-red-500 text-white"
-              : "text-muted-foreground hover:text-red-600",
-          )}
-        >
-          <span
-            className={cn(
-              "h-2 w-2 rounded-full shrink-0",
-              isDroppedView ? "bg-white" : "bg-red-500",
-            )}
-          />
-          Dropped
-        </button>
-      </div>
-    );
+  const pendingCount = allUnreviewedCompanies.length;
+
+  // Keep the sidebar's Sourcing badge in step with triage/promote/drop here.
+  const publishPendingCount = usePublishSourcingPendingCount();
+  useEffect(() => {
+    if (companiesLoaded) publishPendingCount(pendingCount);
+  }, [companiesLoaded, pendingCount, publishPendingCount]);
+
+  const pendingActive = stageView === "pending";
+
+  // Stage the tables are scoped to, or undefined when rows span stages. The
+  // Pending Confirmation bucket sits under L0, so it shares L0's columns.
+  const tableStage: DealStage | undefined =
+    searchesAllStages
+      ? undefined
+      : stageView === "pending"
+      ? "L0"
+      : stageView === "all"
+        ? undefined
+        : stageView;
+
+  // AI screening runs on L0 deals, so its progress panel shows on the views
+  // that cover L0.
+  const showScreeningPanel =
+    stageView === "all" || stageView === "L0" || stageView === "pending";
+
+  const handleSourcingTabChange = (tab: SourcingTab) => {
+    setSourcingTab(tab);
+    router.replace(`${sourcingHref}?tab=${tab}`);
   };
 
-  const SOURCE_TABS: {
-    value: "inbound" | "outbound";
-    label: string;
-    dot: string;
-    activeText: string;
-    activeBorder: string;
-    badge: string;
-  }[] = [
-      {
-        value: "inbound",
-        label: "Inbound",
-        dot: "bg-blue-600",
-        activeText: "text-blue-700",
-        activeBorder: "border-blue-700",
-        badge: "bg-blue-100 text-blue-700",
-      },
-      {
-        value: "outbound",
-        label: "Outbound",
-        dot: "bg-amber-600",
-        activeText: "text-amber-700",
-        activeBorder: "border-amber-700",
-        badge: "bg-amber-100 text-amber-700",
-      },
-    ];
+  const stageDescription =
+    stageView === "all"
+      ? null
+      : stageView === "pending"
+        ? PENDING_DESCRIPTION
+        : pipelineStages.description(stageView) || null;
+  // The description reads as one line under the tabs; the full text (lists
+  // and all) is in the Pipeline Stages help dialog.
+  const stageDescriptionFlat = stageDescription?.replace(/\s*\n+\s*/g, " ").trim() ?? "";
+  const stageDescriptionTruncated =
+    stageDescriptionFlat.length > STAGE_DESCRIPTION_PREVIEW_CHARS;
+  const stageDescriptionPreview = stageDescriptionTruncated
+    ? `${stageDescriptionFlat.slice(0, STAGE_DESCRIPTION_PREVIEW_CHARS).trimEnd()}…`
+    : stageDescriptionFlat;
 
-  const renderSourceTabs = (stage: DealStage) => (
-    <div className="flex items-stretch gap-1 border-b mb-4">
-      {SOURCE_TABS.map((t) => {
-        const active = sourceFilter === t.value;
-        const newCount = sourceNewCount(stage, t.value);
-        return (
-          <button
-            key={t.value}
-            type="button"
-            data-testid={`pipeline-source-${t.value}-tab`}
-            onClick={() => {
-              setSourceFilter(t.value);
-              setCurrentPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-all",
-              active
-                ? cn(t.activeText, t.activeBorder)
-                : "text-muted-foreground border-transparent hover:text-foreground",
-            )}
-          >
-            <span className={cn("h-1.5 w-1.5 rounded-full", t.dot)} />
-            {t.label}
-            <span
-              className={cn(
-                "rounded-full px-1.5 py-0.5 text-xs font-semibold",
-                active ? t.badge : "bg-muted text-muted-foreground",
-              )}
-            >
-              {sourceCount(stage, t.value)}
-            </span>
-            {newCount > 0 && (
-              <span
-                className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700"
-                title={`${newCount} added in the last ${NEW_WINDOW_DAYS} days`}
+  // The stage filter's tabs: every stage, then each live stage as "L0 · Company Sourcing".
+  const stageTabs: { value: StageView; label: string }[] = [
+    { value: "all", label: "All Stages" },
+    ...pipelineStages.live.map((stage) => ({
+      value: stage.key,
+      label: pipelineStages.label(stage.key),
+    })),
+  ];
+  const stageHelpItems: { key: string; label: string; description: string }[] = [
+    { key: "pending", label: "Pending Confirmation", description: PENDING_DESCRIPTION },
+    ...pipelineStages.live.map((stage) => ({
+      key: stage.key,
+      label: pipelineStages.label(stage.key),
+      description: stage.description,
+    })),
+  ];
+
+  const openCompanyDetail = (company: PipelineCompany) => {
+    posthog.capture("company_detail_viewed", {
+      company_id: company.id,
+      company_name: companyDisplayName(company, ""),
+      pipeline_stage: company.pipeline_stage,
+    });
+    setOpenDetailInEdit(false);
+    setSelectedCompany(company);
+  };
+
+  // Props shared by the inbound and outbound tables.
+  const tableProps = {
+    tracks,
+    stage: tableStage,
+    viewMode,
+    updatingCompanyIds,
+    onRunScreening: runScreeningForCompany,
+    runningScreeningCompanyIds,
+    onAnalyzeAiOpinion: runAiOpinionForCompany,
+    analyzingAiOpinionIds,
+    sortField,
+    sortDirection,
+    onSort: toggleSort,
+    onSortColumn: setSortColumn,
+    columnFilters,
+    filterOptions,
+    onColumnFilterChange: handleColumnFilterChange,
+    onOpenDetail: openCompanyDetail,
+    onStatusChange: handleStatusChange,
+    onUpdate: (company: PipelineCompany) => {
+      setOpenDetailInEdit(true);
+      setSelectedCompany(company);
+    },
+    onPromote: (company: PipelineCompany) => {
+      setDialogMode("promote");
+      setPromotingCompany(company);
+      setPromoteDialogOpen(true);
+    },
+    onDemote: (company: PipelineCompany) => {
+      setDialogMode("demote");
+      setPromotingCompany(company);
+      setPromoteDialogOpen(true);
+    },
+    onDrop: (company: PipelineCompany) => setDropDealCompany(company),
+    onRestore: handleRestoreDeal,
+  };
+
+  // The deal table and its pager, shared by Pipeline and Sourcing.
+  const companiesTable =
+    loading ? (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    ) : (
+      <>
+        <div className="overflow-x-auto">
+          {sourceFilter === "inbound" ? (
+            <InboundCompaniesTable
+              {...tableProps}
+              companies={visibleCompanies}
+              statusOptions={inboundStatusOptions}
+              groupByReviewState={false}
+              onTriageAll={() => setShowTriageModal(true)}
+            />
+          ) : (
+            <OutboundCompaniesTable
+              {...tableProps}
+              companies={visibleCompanies}
+              statusOptions={outboundStatusOptions}
+            />
+          )}
+        </div>
+        {!splitInboundReviewSections && totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 border-t">
+            <p className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages} (
+              {sortedCompanies.length} companies)
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                data-testid="pipeline-pagination-prev-button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((p) => Math.max(1, p - 1))
+                }
+                disabled={currentPage === 1}
               >
-                {newCount} new
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                data-testid="pipeline-pagination-next-button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </>
+    );
 
   return (
     <>
-      <div className="p-6 space-y-6 animate-fade-in">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Deal Pipeline</h1>
-            <p className="text-muted-foreground">
-              Track companies through all stages
-            </p>
+      {/* The SQE Suite surface palette (MB-648 prototypes): a full-bleed
+          header band over the flat page colour, with the cards below. */}
+      <div className="suite-surface min-h-full bg-background animate-fade-in">
+        <div className="suite-hero px-6 pb-7 pt-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                {isSourcing ? "Sourcing" : "Deal Pipeline"}
+              </h1>
+              <p className="text-muted-foreground">
+                {isSourcing
+                  ? "Candidates not yet promoted into L0 sourcing"
+                  : "Track companies through all stages"}
+              </p>
+            </div>
+            <Button
+              data-testid={
+                isSourcing ? "sourcing-track-button" : "pipeline-configure-button"
+              }
+              variant="outline"
+              onClick={() => setTrackSettingsOpen(true)}
+              className="gap-2 bg-card text-muted-foreground"
+            >
+              <Settings className="h-4 w-4" />
+              {isSourcing ? "Track" : "Configure"}
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setTrackSettingsOpen(true)}
-            className="gap-2"
-          >
-            <Settings className="h-4 w-4" />
-            Track Settings
-          </Button>
         </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={handleTabChange}
-          className="w-full"
-        >
-          <TabsList
-            data-testid="pipeline-stage-tabs"
-            className="grid w-full grid-cols-6"
-          >
-            {STAGES.map((stage) => (
-              <TabsTrigger
-                key={stage}
-                data-testid={`pipeline-tab-${stage.toLowerCase()}`}
-                value={stage}
-                className={`relative transition-all ${activeTab === stage
-                  ? `${stageColors[stage].bg} ${stageColors[stage].text} data-[state=active]:${stageColors[stage].bg} data-[state=active]:${stageColors[stage].text}`
-                  : `${stageColors[stage].bgLight} ${stageColors[stage].textLight} hover:opacity-80`
-                  }`}
+        <div className="space-y-6 p-6">
+        {isSourcing ? (
+          <>
+            <Tabs
+              value={sourcingTab}
+              onValueChange={(value) =>
+                handleSourcingTabChange(value as SourcingTab)
+              }
+            >
+              <TabsList
+                data-testid="sourcing-tabs"
+                className="h-auto w-full justify-start gap-1 rounded-none border-b bg-transparent p-0"
               >
-                {stage}
-                <Badge
-                  variant="secondary"
-                  className={`ml-2 h-5 min-w-5 px-1.5 text-xs ${activeTab === stage
-                    ? "bg-white/20 text-white"
-                    : `${stageColors[stage].bg} text-white`
-                    }`}
+                <TabsTrigger
+                  data-testid="sourcing-tab-pending"
+                  value="pending"
+                  className={SOURCING_TAB_CLASS}
                 >
-                  {stageCount(stage)}
-                </Badge>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-          {STAGES.map((stage) => (
-            <TabsContent key={stage} value={stage} className="mt-6 space-y-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-xl">
-                        {stage} - {stageDescriptions[stage].split(" - ")[0]}
-                      </CardTitle>
-                      <CardDescription>
-                        {stageDescriptions[stage].split(" - ")[1]}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {/* L0 Specific Layout */}
-                  {stage === "L0" ? (
-                    <div className="space-y-6">
-                      {/* Market Screening Status Banner */}
-                      {/* Market Screening Status Banner */}
-                      <MarketScreeningStatus
-                        onScanComplete={() => {
-                          setMarketScreeningRefresh((prev) => prev + 1);
-                          fetchNewCandidatesCount();
-                        }}
-                        newCandidatesCount={newCandidatesCount}
-                        isVisible={showMarketScanning}
-                        onToggle={() =>
-                          setShowMarketScanning(!showMarketScanning)
-                        }
-                        refreshKey={tracksRefreshKey}
-                      />
-
-                      {/* AI-Discovered Companies Results */}
-                      <MarketScreeningResults
-                        refreshTrigger={marketScreeningRefresh}
-                        onAddedToPipeline={() => {
-                          fetchCompanies();
-                          fetchNewCandidatesCount();
-                        }}
-                        collapsed={!showMarketResults}
-                        onToggleCollapse={() =>
-                          setShowMarketResults(!showMarketResults)
-                        }
-                        tracks={tracks}
-                      />
-
-                      {/* L0 Pipeline Companies */}
-                      <Card className="border-dashed">
-                        <CardHeader className="pb-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="min-w-0">
-                                <CardTitle className="text-lg">
-                                  L0 Pipeline Companies
-                                </CardTitle>
-                                <CardDescription>
-                                  Companies sourced and ready for screening
-                                </CardDescription>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 ml-auto">
-                              {/* MB-223: Triage Unreviewed — persistent header button */}
-                              {allUnreviewedCompanies.length > 0 && (
-                                <Button
-                                  data-testid="pipeline-triage-unreviewed-button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                  onClick={() => setShowTriageModal(true)}
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                  Triage Unreviewed
-                                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-white">
-                                    {allUnreviewedCompanies.length}
-                                  </span>
-                                </Button>
-                              )}
-                              {showL0Pipeline && (
-                                <Button
-                                  data-testid="pipeline-add-company-button"
-                                  onClick={handleAddCompanyClick}
-                                >
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Add Company
-                                </Button>
-                              )}
-                              {/* Visibility toggle — always rightmost */}
-                              <Button
-                                data-testid="pipeline-l0-toggle-visibility-button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setShowL0Pipeline(!showL0Pipeline)
-                                }
-                                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                {showL0Pipeline ? (
-                                  <EyeOff className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Eye className="h-3.5 w-3.5" />
-                                )}
-                                {showL0Pipeline ? "Hide" : "Show"}
-                                {showL0Pipeline ? (
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                ) : (
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        {showL0Pipeline && (
-                          <CardContent className="px-0 pb-0">
-                            {/* MB-225: Unreviewed / Inbound / Outbound sub-tabs */}
-                            <div className="flex border-b px-6">
-                              <button
-                                type="button"
-                                data-testid="pipeline-l0-unreviewed-tab"
-                                onClick={() => {
-                                  setSourceFilter("inbound");
-                                  setShowUnreviewedOnly(true);
-                                  setDocTypeFilter("all");
-                                  setCurrentPage(1);
-                                }}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "inbound" &&
-                                    showUnreviewedOnly
-                                    ? "border-amber-600 text-amber-700"
-                                    : "border-transparent text-muted-foreground hover:text-foreground",
-                                )}
-                              >
-                                <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                                Inbound Pending Review
-                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
-                                  {allUnreviewedCompanies.length}
-                                </span>
-                              </button>
-                              <div className="my-2 w-px bg-border mx-1" />
-                              <button
-                                type="button"
-                                data-testid="pipeline-l0-inbound-tab"
-                                onClick={() => {
-                                  setSourceFilter("inbound");
-                                  setShowUnreviewedOnly(false);
-                                  setDocTypeFilter("all");
-                                  setCurrentPage(1);
-                                }}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "inbound" &&
-                                    !showUnreviewedOnly
-                                    ? "border-blue-600 text-blue-700"
-                                    : "border-transparent text-muted-foreground hover:text-foreground",
-                                )}
-                              >
-                                <span className="h-2 w-2 rounded-full bg-blue-600 shrink-0" />
-                                Inbound
-                                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700">
-                                  {sourceCount("L0", "inbound")}
-                                </span>
-                              </button>
-                              <div className="my-2 w-px bg-border mx-1" />
-                              <button
-                                type="button"
-                                data-testid="pipeline-l0-outbound-tab"
-                                onClick={() => {
-                                  setSourceFilter("outbound");
-                                  setShowUnreviewedOnly(false);
-                                  setDocTypeFilter("all");
-                                  setCurrentPage(1);
-                                }}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                                  sourceFilter === "outbound"
-                                    ? "border-amber-600 text-amber-700"
-                                    : "border-transparent text-muted-foreground hover:text-foreground",
-                                )}
-                              >
-                                <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                                Outbound
-                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
-                                  {sourceCount("L0", "outbound")}
-                                </span>
-                              </button>
-                            </div>
-                            <div className="px-6 pt-4">
-                              {/* Filters */}
-                              <div className="flex items-center gap-4 mb-1.5 flex-wrap">
-                                <div className="relative flex-1 max-w-sm">
-                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                  <Input
-                                    placeholder="Search companies or sectors..."
-                                    value={searchQuery}
-                                    onChange={(e) =>
-                                      setSearchQuery(e.target.value)
-                                    }
-                                    className="pl-9"
-                                  />
-                                </div>
-                                {/* Filter by matched Track */}
-                                {tracks.length > 0 && (
-                                  <TrackMultiSelect
-                                    tracks={tracks}
-                                    value={trackFilter}
-                                    onChange={setTrackFilter}
-                                    variant="filter"
-                                    placeholder="All Tracks"
-                                    className="w-44 h-9"
-                                    includeUnassigned
-                                  />
-                                )}
-                                {/* Origin (document type) filter — only on inbound */}
-                                {sourceFilter === "inbound" && (
-                                  <Select
-                                    value={docTypeFilter}
-                                    onValueChange={setDocTypeFilter}
-                                  >
-                                    <SelectTrigger className="w-40 h-9">
-                                      <SelectValue placeholder="Origin" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="all">
-                                        All Origins
-                                      </SelectItem>
-                                      {DOC_TYPE_OPTIONS.map((opt) => (
-                                        <SelectItem
-                                          key={opt.value}
-                                          value={opt.value}
-                                        >
-                                          {opt.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                )}
-                                {renderViewToggle()}
-                                {/* Column-config gear portals in here (see tables). */}
-                                <div
-                                  id="pipeline-columns-config"
-                                  className="shrink-0 flex items-center"
-                                />
-                              </div>
-
-                              {/* MB-224: Triage Banner */}
-                              {sourceFilter === "inbound" && (
-                                <TriageBanner
-                                  companies={sortedCompanies}
-                                  onTriageClick={() => setShowTriageModal(true)}
-                                />
-                              )}
-
-                              {loading ? (
-                                <div className="flex items-center justify-center py-12">
-                                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                                </div>
-                              ) : sourceFilter === "inbound" ? (
-                                <>
-                                  <div className="overflow-x-auto">
-                                    <InboundCompaniesTable
-                                      companies={visibleCompanies}
-                                      tracks={tracks}
-                                      stage="L0"
-                                      viewMode={viewMode}
-                                      groupByReviewState={false}
-                                      updatingCompanyIds={updatingCompanyIds}
-                                      statusOptions={inboundStatusOptions}
-                                      onRunScreening={runScreeningForCompany}
-                                      runningScreeningCompanyIds={
-                                        runningScreeningCompanyIds
-                                      }
-                                      onAnalyzeAiOpinion={
-                                        runAiOpinionForCompany
-                                      }
-                                      analyzingAiOpinionIds={
-                                        analyzingAiOpinionIds
-                                      }
-                                      sortField={sortField}
-                                      sortDirection={sortDirection}
-                                      onSort={toggleSort}
-                                      onSortColumn={setSortColumn}
-                                      columnFilters={columnFilters}
-                                      filterOptions={filterOptions}
-                                      onColumnFilterChange={
-                                        handleColumnFilterChange
-                                      }
-                                      onOpenDetail={(company) => {
-                                        posthog.capture(
-                                          "company_detail_viewed",
-                                          {
-                                            company_id: company.id,
-                                            company_name: companyDisplayName(
-                                              company,
-                                              "",
-                                            ),
-                                            pipeline_stage:
-                                              company.pipeline_stage,
-                                          },
-                                        );
-                                        setOpenDetailInEdit(false);
-                                        setSelectedCompany(company);
-                                      }}
-                                      onStatusChange={handleStatusChange}
-                                      onTriageAll={() =>
-                                        setShowTriageModal(true)
-                                      }
-                                      onKeep={(company) => {
-                                        setEditAndPromote(true);
-                                        setEditingCompany(company);
-                                      }}
-                                      onUpdate={(company) => {
-                                        setOpenDetailInEdit(true);
-                                        setSelectedCompany(company);
-                                      }}
-                                      onPromote={(company) => {
-                                        setDialogMode("promote");
-                                        setPromotingCompany(company);
-                                        setPromoteDialogOpen(true);
-                                      }}
-                                      onDemote={(company) => {
-                                        setDialogMode("demote");
-                                        setPromotingCompany(company);
-                                        setPromoteDialogOpen(true);
-                                      }}
-                                      onDrop={(company) =>
-                                        setDropDealCompany(company)
-                                      }
-                                      onRestore={handleRestoreDeal}
-                                    />
-                                  </div>
-                                  {!splitInboundReviewSections &&
-                                    totalPages > 1 && (
-                                      <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                        <p className="text-sm text-muted-foreground">
-                                          Page {currentPage} of {totalPages} (
-                                          {sortedCompanies.length} companies)
-                                        </p>
-                                        <div className="flex items-center gap-2">
-                                          <Button
-                                            data-testid="pipeline-pagination-prev-button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() =>
-                                              setCurrentPage((p) =>
-                                                Math.max(1, p - 1),
-                                              )
-                                            }
-                                            disabled={currentPage === 1}
-                                          >
-                                            <ChevronLeft className="h-4 w-4" />
-                                          </Button>
-                                          <Button
-                                            data-testid="pipeline-pagination-next-button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() =>
-                                              setCurrentPage((p) =>
-                                                Math.min(totalPages, p + 1),
-                                              )
-                                            }
-                                            disabled={
-                                              currentPage === totalPages
-                                            }
-                                          >
-                                            <ChevronRight className="h-4 w-4" />
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    )}
-                                </>
-                              ) : (
-                                <>
-                                  <div className="overflow-x-auto">
-                                    <OutboundCompaniesTable
-                                      companies={paginatedCompanies}
-                                      tracks={tracks}
-                                      stage="L0"
-                                      viewMode={viewMode}
-                                      updatingCompanyIds={updatingCompanyIds}
-                                      statusOptions={outboundStatusOptions}
-                                      onRunScreening={runScreeningForCompany}
-                                      runningScreeningCompanyIds={
-                                        runningScreeningCompanyIds
-                                      }
-                                      onAnalyzeAiOpinion={
-                                        runAiOpinionForCompany
-                                      }
-                                      analyzingAiOpinionIds={
-                                        analyzingAiOpinionIds
-                                      }
-                                      sortField={sortField}
-                                      sortDirection={sortDirection}
-                                      onSort={toggleSort}
-                                      onSortColumn={setSortColumn}
-                                      columnFilters={columnFilters}
-                                      filterOptions={filterOptions}
-                                      onColumnFilterChange={
-                                        handleColumnFilterChange
-                                      }
-                                      onOpenDetail={(company) => {
-                                        posthog.capture(
-                                          "company_detail_viewed",
-                                          {
-                                            company_id: company.id,
-                                            company_name: companyDisplayName(
-                                              company,
-                                              "",
-                                            ),
-                                            pipeline_stage:
-                                              company.pipeline_stage,
-                                          },
-                                        );
-                                        setOpenDetailInEdit(false);
-                                        setSelectedCompany(company);
-                                      }}
-                                      onStatusChange={handleStatusChange}
-                                      onUpdate={(company) => {
-                                        setOpenDetailInEdit(true);
-                                        setSelectedCompany(company);
-                                      }}
-                                      onPromote={(company) => {
-                                        setDialogMode("promote");
-                                        setPromotingCompany(company);
-                                        setPromoteDialogOpen(true);
-                                      }}
-                                      onDemote={(company) => {
-                                        setDialogMode("demote");
-                                        setPromotingCompany(company);
-                                        setPromoteDialogOpen(true);
-                                      }}
-                                      onDrop={(company) =>
-                                        setDropDealCompany(company)
-                                      }
-                                      onRestore={handleRestoreDeal}
-                                    />
-                                  </div>
-                                  {totalPages > 1 && (
-                                    <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                      <p className="text-sm text-muted-foreground">
-                                        Page {currentPage} of {totalPages} (
-                                        {sortedCompanies.length} companies)
-                                      </p>
-                                      <div className="flex items-center gap-2">
-                                        <Button
-                                          data-testid="pipeline-pagination-prev-button"
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() =>
-                                            setCurrentPage((p) =>
-                                              Math.max(1, p - 1),
-                                            )
-                                          }
-                                          disabled={currentPage === 1}
-                                        >
-                                          <ChevronLeft className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                          data-testid="pipeline-pagination-next-button"
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() =>
-                                            setCurrentPage((p) =>
-                                              Math.min(totalPages, p + 1),
-                                            )
-                                          }
-                                          disabled={currentPage === totalPages}
-                                        >
-                                          <ChevronRight className="h-4 w-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>{" "}
-                            {/* px-6 pt-4 */}
-                          </CardContent>
-                        )}
-                      </Card>
-
-                      <ScreeningProgressPanel
-                        refreshTrigger={screeningProgressRefresh}
-                        onScreeningComplete={() => {
-                          fetchCompanies();
-                        }}
-                        onCompanyClick={(companyId) => {
-                          const company = companies.find(
-                            (c) => c.id === companyId,
-                          );
-                          if (company) {
-                            setOpenDetailInEdit(false);
-                            setSelectedCompany(company);
-                          }
-                        }}
-                        collapsed={!showScreeningProgress}
-                        onToggleCollapse={() =>
-                          setShowScreeningProgress(!showScreeningProgress)
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      {/* Filters for L1-L5 stages */}
-                      <div className="flex items-center gap-4 mb-4 flex-wrap">
-                        <div className="relative flex-1 max-w-sm">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search companies or sectors..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-9"
-                          />
-                        </div>
-                        {stage === "L1" && (
-                          <Select
-                            value={l1StatusFilter}
-                            onValueChange={(v) => setL1StatusFilter(v as any)}
-                          >
-                            <SelectTrigger className="w-40">
-                              <SelectValue placeholder="Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Status</SelectItem>
-                              <SelectItem value="Pass">Pass</SelectItem>
-                              <SelectItem value="Fail">Fail</SelectItem>
-                              <SelectItem value="Inconclusive">
-                                Inconclusive
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                        {renderViewToggle()}
-                        {/* Column-config gear portals in here (see tables). */}
-                        <div
-                          id="pipeline-columns-config"
-                          className="shrink-0 flex items-center"
-                        />
-                      </div>
-
-                      {renderSourceTabs(stage)}
-
-                      {/* Table for L1-L5 stages */}
-                      {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                        </div>
-                      ) : sourceFilter === "inbound" ? (
-                        <>
-                          <div className="overflow-x-auto">
-                            <InboundCompaniesTable
-                              companies={paginatedCompanies}
-                              tracks={tracks}
-                              stage={stage}
-                              viewMode={viewMode}
-                              updatingCompanyIds={updatingCompanyIds}
-                              statusOptions={inboundStatusOptions}
-                              onRunScreening={runScreeningForCompany}
-                              runningScreeningCompanyIds={
-                                runningScreeningCompanyIds
-                              }
-                              onAnalyzeAiOpinion={runAiOpinionForCompany}
-                              analyzingAiOpinionIds={analyzingAiOpinionIds}
-                              sortField={sortField}
-                              sortDirection={sortDirection}
-                              onSort={toggleSort}
-                              onSortColumn={setSortColumn}
-                              columnFilters={columnFilters}
-                              filterOptions={filterOptions}
-                              onColumnFilterChange={handleColumnFilterChange}
-                              onOpenDetail={(company) => {
-                                posthog.capture("company_detail_viewed", {
-                                  company_id: company.id,
-                                  company_name: companyDisplayName(company, ""),
-                                  pipeline_stage: company.pipeline_stage,
-                                });
-                                setOpenDetailInEdit(false);
-                                setSelectedCompany(company);
-                              }}
-                              onStatusChange={handleStatusChange}
-                              onUpdate={(company) => {
-                                setOpenDetailInEdit(true);
-                                setSelectedCompany(company);
-                              }}
-                              onPromote={(company) => {
-                                setDialogMode("promote");
-                                setPromotingCompany(company);
-                                setPromoteDialogOpen(true);
-                              }}
-                              onDemote={(company) => {
-                                setDialogMode("demote");
-                                setPromotingCompany(company);
-                                setPromoteDialogOpen(true);
-                              }}
-                              onDrop={(company) => setDropDealCompany(company)}
-                              onRestore={handleRestoreDeal}
-                            />
-                          </div>
-                          {totalPages > 1 && (
-                            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                              <p className="text-sm text-muted-foreground">
-                                Page {currentPage} of {totalPages} (
-                                {sortedCompanies.length} companies)
-                              </p>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  data-testid="pipeline-pagination-prev-button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setCurrentPage((p) => Math.max(1, p - 1))
-                                  }
-                                  disabled={currentPage === 1}
-                                >
-                                  <ChevronLeft className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  data-testid="pipeline-pagination-next-button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setCurrentPage((p) =>
-                                      Math.min(totalPages, p + 1),
-                                    )
-                                  }
-                                  disabled={currentPage === totalPages}
-                                >
-                                  <ChevronRight className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="overflow-x-auto">
-                            <OutboundCompaniesTable
-                              companies={paginatedCompanies}
-                              tracks={tracks}
-                              stage={stage}
-                              viewMode={viewMode}
-                              updatingCompanyIds={updatingCompanyIds}
-                              statusOptions={outboundStatusOptions}
-                              onRunScreening={runScreeningForCompany}
-                              runningScreeningCompanyIds={
-                                runningScreeningCompanyIds
-                              }
-                              onAnalyzeAiOpinion={runAiOpinionForCompany}
-                              analyzingAiOpinionIds={analyzingAiOpinionIds}
-                              sortField={sortField}
-                              sortDirection={sortDirection}
-                              onSort={toggleSort}
-                              onSortColumn={setSortColumn}
-                              columnFilters={columnFilters}
-                              filterOptions={filterOptions}
-                              onColumnFilterChange={handleColumnFilterChange}
-                              onOpenDetail={(company) => {
-                                posthog.capture("company_detail_viewed", {
-                                  company_id: company.id,
-                                  company_name: companyDisplayName(company, ""),
-                                  pipeline_stage: company.pipeline_stage,
-                                });
-                                setOpenDetailInEdit(false);
-                                setSelectedCompany(company);
-                              }}
-                              onStatusChange={handleStatusChange}
-                              onUpdate={(company) => {
-                                setOpenDetailInEdit(true);
-                                setSelectedCompany(company);
-                              }}
-                              onPromote={(company) => {
-                                setDialogMode("promote");
-                                setPromotingCompany(company);
-                                setPromoteDialogOpen(true);
-                              }}
-                              onDemote={(company) => {
-                                setDialogMode("demote");
-                                setPromotingCompany(company);
-                                setPromoteDialogOpen(true);
-                              }}
-                              onDrop={(company) => setDropDealCompany(company)}
-                              onRestore={handleRestoreDeal}
-                            />
-                          </div>
-                          {totalPages > 1 && (
-                            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                              <p className="text-sm text-muted-foreground">
-                                Page {currentPage} of {totalPages} (
-                                {sortedCompanies.length} companies)
-                              </p>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  data-testid="pipeline-pagination-prev-button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setCurrentPage((p) => Math.max(1, p - 1))
-                                  }
-                                  disabled={currentPage === 1}
-                                >
-                                  <ChevronLeft className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  data-testid="pipeline-pagination-next-button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setCurrentPage((p) =>
-                                      Math.min(totalPages, p + 1),
-                                    )
-                                  }
-                                  disabled={currentPage === totalPages}
-                                >
-                                  <ChevronRight className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </>
+                  Pending Confirmation
+                  {pendingCount > 0 && (
+                    <span className="ml-1.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                      {pendingCount}
+                    </span>
                   )}
+                </TabsTrigger>
+                <TabsTrigger
+                  data-testid="sourcing-tab-scanning"
+                  value="scanning"
+                  className={SOURCING_TAB_CLASS}
+                >
+                  AI Market Scanning
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            {sourcingTab === "pending" ? (
+              <Card className="shadow-md">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                    Pending Confirmation
+                    <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                      {pendingCount}
+                    </span>
+                  </CardTitle>
+                  <CardDescription>
+                    Companies awaiting initial screening decision
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative min-w-[220px] flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        data-testid="sourcing-search-input"
+                        placeholder="Search companies or sectors..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <Select value={docTypeFilter} onValueChange={setDocTypeFilter}>
+                      <SelectTrigger
+                        data-testid="sourcing-origin-select"
+                        className="w-40 h-9"
+                      >
+                        <SelectValue placeholder="Origin" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Origins</SelectItem>
+                        {DOC_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {/* Column-config gear portals in here (see tables). */}
+                    <div
+                      id="pipeline-columns-config"
+                      className="shrink-0 flex items-center"
+                    />
+                  </div>
+
+                  {/* MB-224: Triage Banner */}
+                  <TriageBanner
+                    companies={sortedCompanies}
+                    onTriageClick={() => setShowTriageModal(true)}
+                  />
+
+                  {companiesTable}
                 </CardContent>
               </Card>
-            </TabsContent>
-          ))}
-        </Tabs>
+            ) : (
+              <>
+                <MarketScreeningStatus
+                  onScanComplete={() => {
+                    setMarketScreeningRefresh((prev) => prev + 1);
+                    fetchNewCandidatesCount();
+                  }}
+                  newCandidatesCount={newCandidatesCount}
+                  refreshKey={tracksRefreshKey}
+                />
+
+                {/* AI-Discovered Companies Results */}
+                <MarketScreeningResults
+                  refreshTrigger={marketScreeningRefresh}
+                  onAddedToPipeline={() => {
+                    fetchCompanies();
+                    fetchNewCandidatesCount();
+                  }}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <Card className="shadow-md">
+              <CardHeader className="pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-lg">Pipeline Companies</CardTitle>
+                    <CardDescription>Manage your deals in the pipeline</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 ml-auto">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button data-testid="pipeline-add-company-button" size="sm">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Company
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          data-testid="pipeline-add-company-manual"
+                          onSelect={() => setAddCompanyOpen(true)}
+                        >
+                          <PencilLine className="mr-2 h-4 w-4" />
+                          Manual
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          data-testid="pipeline-add-company-ask-ai"
+                          onSelect={handleAddCompanyWithAI}
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Ask AI
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          data-testid="pipeline-add-company-drop-file"
+                          onSelect={() => router.push(smartFilesHref)}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          Drop File
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    data-testid="pipeline-search-input"
+                    placeholder="Search companies or sectors..."
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <button
+                      type="button"
+                      data-testid="pipeline-pending-chip"
+                      aria-pressed={pendingActive}
+                      disabled={searchesAllStages}
+                      onClick={() =>
+                        handleStageViewChange(pendingActive ? "all" : "pending")
+                      }
+                      className={cn(
+                        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        pendingActive
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Pending Confirmation
+                      {pendingCount > 0 && (
+                        <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-red-700 dark:bg-red-950 dark:text-red-300">
+                          {pendingCount}
+                        </span>
+                      )}
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      data-testid="pipeline-stage-help-button"
+                      className="h-6 w-6 shrink-0 text-muted-foreground"
+                      title="What are pipeline stages?"
+                      aria-label="What are pipeline stages?"
+                      onClick={() => setStageHelpOpen(true)}
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </Button>
+                    <span className="shrink-0 text-xs font-bold tracking-wider text-muted-foreground">
+                      STAGE
+                    </span>
+                    <Tabs
+                      value={stageView}
+                      onValueChange={(value) =>
+                        handleStageViewChange(parseStageView(value, stageKeys))
+                      }
+                      className="min-w-0"
+                    >
+                      <TabsList
+                        data-testid="pipeline-stage-tabs"
+                        className="h-auto max-w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0"
+                      >
+                        {stageTabs.map((tab) => (
+                          <TabsTrigger
+                            key={tab.value}
+                            data-testid={`pipeline-tab-${tab.value.toLowerCase()}`}
+                            value={tab.value}
+                            disabled={searchesAllStages}
+                            className="shrink-0 gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none disabled:cursor-not-allowed"
+                          >
+                            {tab.label}
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                  {searchesAllStages && (
+                    <p
+                      data-testid="pipeline-search-scope-hint"
+                      className="text-xs text-muted-foreground"
+                    >
+                      Searching every stage, including Pending Confirmation.
+                      Clear the search to filter by stage.
+                    </p>
+                  )}
+                  {otherSourceMatchCount > 0 && (
+                    <p
+                      data-testid="pipeline-other-source-hint"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {otherSourceMatchCount}{" "}
+                      {otherSourceMatchCount === 1 ? "match" : "matches"} in{" "}
+                      {otherSource === "inbound" ? "Inbound" : "Outbound"}
+                      {" — "}
+                      <button
+                        type="button"
+                        className="font-semibold text-primary hover:underline"
+                        onClick={() => setSourceFilter(otherSource)}
+                      >
+                        Show
+                      </button>
+                    </p>
+                  )}
+                  {stageDescription && !searchesAllStages && (
+                    <p
+                      data-testid="pipeline-stage-description"
+                      className="text-xs text-muted-foreground"
+                    >
+                      <span className="font-semibold">Description: </span>
+                      {stageDescriptionPreview}
+                      {stageDescriptionTruncated && (
+                        <button
+                          type="button"
+                          data-testid="pipeline-stage-description-more"
+                          className="ml-1 font-semibold text-primary hover:underline"
+                          onClick={() => setStageHelpOpen(true)}
+                        >
+                          Show more
+                        </button>
+                      )}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Pending Confirmation is inbound-only, so there is no source to
+                      pick — except during a search, which spans every stage. */}
+                  {(stageView !== "pending" || searchesAllStages) && (
+                    <Select
+                      value={sourceFilter}
+                      onValueChange={(value) =>
+                        setSourceFilter(value as "inbound" | "outbound")
+                      }
+                    >
+                      <SelectTrigger
+                        data-testid="pipeline-source-select"
+                        className="w-36 h-9"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="inbound">Inbound</SelectItem>
+                        <SelectItem value="outbound">Outbound</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select
+                    value={viewMode}
+                    onValueChange={(value) =>
+                      setViewMode(value as PipelineViewMode)
+                    }
+                  >
+                    <SelectTrigger
+                      data-testid="pipeline-status-select"
+                      className="w-44 h-9"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Pipeline Status</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="dropped">Dropped</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {tracks.length > 0 && (
+                    <TrackMultiSelect
+                      tracks={tracks}
+                      value={trackFilter}
+                      onChange={setTrackFilter}
+                      variant="filter"
+                      placeholder="All Tracks"
+                      className="w-44 h-9"
+                      includeUnassigned
+                    />
+                  )}
+                  {stageView === screeningStage && !searchesAllStages && (
+                    <Select
+                      value={l1StatusFilter}
+                      onValueChange={(v) => setL1StatusFilter(v as "all" | L1Status)}
+                    >
+                      <SelectTrigger className="w-40 h-9">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="Pass">Pass</SelectItem>
+                        <SelectItem value="Fail">Fail</SelectItem>
+                        <SelectItem value="Inconclusive">Inconclusive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select
+                    value={sortPreset}
+                    onValueChange={(value) => {
+                      if (value === "newest") setSortField(null);
+                      else setSortColumn(dateSortField, "asc");
+                    }}
+                  >
+                    <SelectTrigger
+                      data-testid="pipeline-sort-select"
+                      className="w-44 h-9"
+                    >
+                      <SelectValue placeholder="Sort by: Column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="newest">Sort by: Newest</SelectItem>
+                      <SelectItem value="oldest">Sort by: Oldest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Column-config gear portals in here (see tables). */}
+                  <div
+                    id="pipeline-columns-config"
+                    className="shrink-0 flex items-center"
+                  />
+                </div>
+
+                {companiesTable}
+              </CardContent>
+            </Card>
+
+            {showScreeningPanel && (
+              <>
+                <ScreeningProgressPanel
+                  refreshTrigger={screeningProgressRefresh}
+                  onScreeningComplete={() => {
+                    fetchCompanies();
+                  }}
+                  onCompanyClick={(companyId) => {
+                    const company = companies.find((c) => c.id === companyId);
+                    if (company) {
+                      setOpenDetailInEdit(false);
+                      setSelectedCompany(company);
+                    }
+                  }}
+                  collapsed={!showScreeningProgress}
+                  onToggleCollapse={() =>
+                    setShowScreeningProgress(!showScreeningProgress)
+                  }
+                />
+            </>
+        )}
+        </>
+        )}
+
+        {/* Opened only from the Pipeline view, never on Sourcing. */}
+        {!isSourcing && (
+          <Dialog open={stageHelpOpen} onOpenChange={setStageHelpOpen}>
+            <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Pipeline Stages</DialogTitle>
+                <DialogDescription>
+                  What each stage means and what&apos;s needed to move forward.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                {stageHelpItems.map((item) => (
+                  <div key={item.key} className="rounded-lg border bg-card px-4 py-3">
+                    <div className="font-semibold">{item.label}</div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                      {item.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {selectedCompany && (
           <CompanyDetailDialog
@@ -2087,30 +1808,6 @@ export default function Pipeline() {
           />
         )}
 
-        {editingCompany && (
-          <UpdateCompanyDialog
-            company={editingCompany}
-            tracks={tracks}
-            open={!!editingCompany}
-            onOpenChange={(open) => {
-              if (!open) {
-                setEditingCompany(null);
-                setEditAndPromote(false);
-              }
-            }}
-            onUpdate={async () => {
-              await refetchAfterCompanyUpdate(editingCompany.id);
-              setEditAndPromote(false);
-            }}
-            statusOptions={
-              editingCompany.source === "outbound"
-                ? outboundStatusOptions
-                : inboundStatusOptions
-            }
-            promoteOnSave={editAndPromote}
-          />
-        )}
-
         <TrackSettingsDialog
           open={trackSettingsOpen}
           onOpenChange={setTrackSettingsOpen}
@@ -2118,27 +1815,31 @@ export default function Pipeline() {
             fetchTracks();
             setTracksRefreshKey((k) => k + 1);
           }}
+          // Deleting a stage moves its deals; reordering changes the tabs.
+          onStagesChanged={() => fetchCompanies({ silent: true })}
         />
+        {restoreStageDialog}
 
-        <Dialog open={addCompanyOpen} onOpenChange={setAddCompanyOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add Company to L0 Pipeline</DialogTitle>
-              <DialogDescription>
-                Add a single company manually or import multiple from a
-                CSV/Excel file. New L0 companies are matched to tracks
-                automatically.
-              </DialogDescription>
-            </DialogHeader>
-            <L0AddCompany
-              onSuccess={() => {
-                setAddCompanyOpen(false);
-                fetchCompanies();
-                fetchNewCandidatesCount();
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+        {/* Opened only from the Pipeline view, never on Sourcing. */}
+        {!isSourcing && (
+          <Dialog open={addCompanyOpen} onOpenChange={setAddCompanyOpen}>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add Company to L0 Pipeline</DialogTitle>
+                <DialogDescription>
+                  New L0 companies are matched to tracks automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <AddCompanyForm
+                onCancel={() => setAddCompanyOpen(false)}
+                onSuccess={() => {
+                  setAddCompanyOpen(false);
+                  fetchCompanies();
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
 
         {/* MB-223: Bulk Triage Modal */}
         <BulkTriageModal
@@ -2313,6 +2014,7 @@ export default function Pipeline() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        </div>
       </div>
     </>
   );

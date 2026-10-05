@@ -24,6 +24,12 @@ vi.mock('@/lib/repositories', () => ({
   },
 }));
 
+vi.mock('./stageLabels', () => ({
+  loadStageLabeler: vi.fn(async () => (stage: string | null | undefined) =>
+    stage === 'stg-post' ? 'L6 · Post-Close' : (stage ?? null),
+  ),
+}));
+
 import { getCompanyDetails } from './get_company_details';
 import { parseCompanyMentions } from '@/lib/navigation/companyMentions';
 
@@ -168,5 +174,16 @@ describe('getCompanyDetails', () => {
     expect(result).toContain('**Result:** pass');
     expect(result).toContain('Strong fit');
     expect(result).toContain('Promising');
+  });
+
+  it("names the pipeline stage by the workspace's code and name, not its key", async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c-1', target: 'Acme', pipeline_stage: 'stg-post' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('**Pipeline Stage:** L6 · Post-Close');
+    expect(result).not.toContain('stg-post');
   });
 });

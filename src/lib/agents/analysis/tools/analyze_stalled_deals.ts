@@ -8,14 +8,21 @@ import type {
   StalledDealAnalysis,
   StageTimelineEvent,
 } from "@/lib/services";
-import { STAGE_LABELS } from "@/lib/constants";
-import type { DealStage } from "@/lib/types";
+import {
+  stageCode,
+  stageLabel as workspaceStageLabel,
+  type PipelineStageDef,
+} from "@/lib/pipeline/stages";
 
-/** "L2 (Initial Review)" — falls back to the raw code for unknown stages. */
-function stageLabel(stage: string | null): string {
+/** "L2 · Deep Dive" in the workspace's own naming — the raw key for unknown stages. */
+function stageLabel(stages: PipelineStageDef[], stage: string | null): string {
   if (!stage) return "-";
-  const label = STAGE_LABELS[stage as DealStage];
-  return label ? `${stage} (${label})` : stage;
+  return workspaceStageLabel(stages, stage);
+}
+
+/** The stage's code ("L2"), "-" when absent. */
+function code(stages: PipelineStageDef[], stage: string | null): string {
+  return stage ? stageCode(stages, stage) : "-";
 }
 
 /** YYYY-MM-DD from an ISO timestamp, or "-" when absent/invalid. */
@@ -25,15 +32,17 @@ function shortDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10);
 }
 
-function renderTimeline(deal: StalledDealAnalysis): string {
+function renderTimeline(deal: StalledDealAnalysis, stages: PipelineStageDef[]): string {
   const steps: string[] = [];
   for (const ev of deal.timeline as StageTimelineEvent[]) {
-    const move = ev.fromStage ? `${ev.fromStage} → ${ev.stage}` : `→ ${ev.stage}`;
+    const move = ev.fromStage
+      ? `${code(stages, ev.fromStage)} → ${code(stages, ev.stage)}`
+      : `→ ${code(stages, ev.stage)}`;
     steps.push(`${shortDate(ev.enteredAt)}: ${move}`);
   }
   // No recorded stage moves — the deal has sat in its stage since it was added.
   if (steps.length === 0) {
-    return `  - ${shortDate(deal.enteredStageAt)}: added to pipeline at ${deal.currentStage ?? "?"} (no stage changes since)`;
+    return `  - ${shortDate(deal.enteredStageAt)}: added to pipeline at ${deal.currentStage ? code(stages, deal.currentStage) : "?"} (no stage changes since)`;
   }
   return steps.map((s) => `  - ${s}`).join("\n");
 }
@@ -50,7 +59,7 @@ export const analyzeStalledDeals = tool(
     stage,
   }: {
     stalled_weeks?: number;
-    stage?: DealStage;
+    stage?: string;
   }) => {
     logger.debug(
       `🔧 TOOL CALLED: analyze_stalled_deals(stalled_weeks=${stalled_weeks}, stage='${stage}')`,
@@ -58,24 +67,24 @@ export const analyzeStalledDeals = tool(
 
     try {
       const db = createDb();
-      const { stalledDealService } = createContainer(
+      const { stalledDealService, pipelineStageService } = createContainer(
         db,
         await getActiveWorkspaceId(),
       );
 
       const thresholdDays = Math.round(stalled_weeks * 7);
-      const report = await stalledDealService.getStalledDeals({
-        thresholdDays,
-        stage,
-      });
+      const [report, stages] = await Promise.all([
+        stalledDealService.getStalledDeals({ thresholdDays, stage }),
+        pipelineStageService.list(),
+      ]);
 
       if (report.totalActive === 0) {
         return stage
-          ? `No active deals found in stage ${stage}.`
-          : "No active deals found in the L0–L5 pipeline.";
+          ? `No active deals found in stage ${stageLabel(stages, stage)}.`
+          : "No active deals found in the pipeline.";
       }
 
-      const scope = stage ? `stage ${stage}` : "the L0–L5 pipeline";
+      const scope = stage ? `stage ${stageLabel(stages, stage)}` : "the pipeline";
       const stalled = report.deals.filter((d) => d.isStalled);
 
       let out = `## Stalled Deals Analysis\n\n`;
@@ -88,14 +97,14 @@ export const analyzeStalledDeals = tool(
         for (const d of stalled) {
           const name = d.target || d.projectName || "N/A";
           const since = `${shortDate(d.enteredStageAt)}${d.enteredStageBasis === "created_at" ? " (est.)" : ""}`;
-          out += `| ${name} | ${d.currentStage ?? "-"} | ${d.daysInStage} | ${since} | ${d.segment || "-"} | ${d.geography || "-"} |\n`;
+          out += `| ${name} | ${code(stages, d.currentStage)} | ${d.daysInStage} | ${since} | ${d.segment || "-"} | ${d.geography || "-"} |\n`;
         }
 
         out += `\n### Timelines\n\n`;
         for (const d of stalled) {
           const name = d.target || d.projectName || "N/A";
-          out += `**${name}** — currently ${stageLabel(d.currentStage)}, ${d.daysInStage} days in stage\n`;
-          out += `${renderTimeline(d)}\n\n`;
+          out += `**${name}** — currently ${stageLabel(stages, d.currentStage)}, ${d.daysInStage} days in stage\n`;
+          out += `${renderTimeline(d, stages)}\n\n`;
         }
       } else {
         out += `No deals are currently stalled. 🎉\n\n`;
@@ -108,7 +117,7 @@ export const analyzeStalledDeals = tool(
         out += `| --- | --- | --- | --- |\n`;
         for (const d of active) {
           const name = d.target || d.projectName || "N/A";
-          out += `| ${name} | ${d.currentStage ?? "-"} | ${d.daysInStage} | ${shortDate(d.enteredStageAt)} |\n`;
+          out += `| ${name} | ${code(stages, d.currentStage)} | ${d.daysInStage} | ${shortDate(d.enteredStageAt)} |\n`;
         }
       }
 
@@ -125,11 +134,11 @@ export const analyzeStalledDeals = tool(
     name: "analyze_stalled_deals",
     description: `Analyze "stalled" deals — active pipeline deals that have been sitting in the same stage for too long.
 
-Pulls every currently active deal (status = active) in the L0–L5 funnel, computes how long each has been in its CURRENT stage (from the stage-move history, falling back to the date the deal was added), and flags any that have been parked for 2+ weeks (configurable). Returns a markdown report: a summary count, a table of stalled deals ordered by days-in-stage, a per-deal stage timeline, and a compact table of the remaining within-threshold active deals.
+Pulls every currently active deal (status = active) in the pipeline (every workspace stage, including ones the workspace added), computes how long each has been in its CURRENT stage (from the stage-move history, falling back to the date the deal was added), and flags any that have been parked for 2+ weeks (configurable). Returns a markdown report: a summary count, a table of stalled deals ordered by days-in-stage, a per-deal stage timeline, and a compact table of the remaining within-threshold active deals.
 
 Parameters:
     stalled_weeks: Number of weeks in a single stage before a deal counts as stalled (default: 2).
-    stage: Optionally restrict the analysis to one pipeline stage (L0–L5). Omit to cover the whole L0–L5 funnel.
+    stage: Optionally restrict the analysis to one pipeline stage key (L0–L5 or a key from list_pipeline_stages). Omit to cover the whole pipeline.
 
 Use this to spot deals losing momentum, prioritize follow-ups, or answer "which deals are stuck?".`,
     schema: z.object({
@@ -141,9 +150,12 @@ Use this to spot deals losing momentum, prioritize follow-ups, or answer "which 
           "Weeks in the same stage before a deal is flagged as stalled (default 2)",
         ),
       stage: z
-        .enum(["L0", "L1", "L2", "L3", "L4", "L5"])
+        .string()
+        .min(1)
         .optional()
-        .describe("Restrict analysis to a single pipeline stage (L0–L5)"),
+        .describe(
+          "Restrict analysis to a single pipeline stage key (L0–L5, or a key the workspace added — see list_pipeline_stages)",
+        ),
     }),
   },
 );

@@ -48,7 +48,8 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
-import { CompanyL0RequirementsError, CompanyService, IN_PIPELINE_STAGES } from './companyService';
+import { CompanyL0RequirementsError, CompanyService } from './companyService';
+import { isInPipelineStage } from '@/lib/pipeline/stages';
 import type { TrackMatchingService } from './trackMatchingService';
 import type {
   FundUpdateApplyService,
@@ -3575,8 +3576,8 @@ function isEntityDecisionRemapped(
       }
 
       const existing = result.company as Tables<'companies'>;
-      if (IN_PIPELINE_STAGES.has(existing.pipeline_stage ?? '')) {
-        // Company is actively worked in the L0–L5 pipeline — extracted
+      if (isInPipelineStage(existing.pipeline_stage)) {
+        // Company is actively worked in the pipeline (L0 onward) — extracted
         // changes need explicit human approval via the review dialog.
         reviewPayloads.push(this.companyMatchPayload(existing));
         continue;
@@ -3912,7 +3913,7 @@ function isEntityDecisionRemapped(
    * mint the company it talks about, seeded from whatever the agent already
    * extracted.
    *
-   * The new company lands in `unreviewed` (Inbound Pending Review) rather than
+   * The new company lands in `unreviewed` (Pending Confirmation) rather than
    * L0 — one click cannot satisfy the L0 required-field set, and triage is
    * exactly where a company sourced from a non-target document belongs.
    *

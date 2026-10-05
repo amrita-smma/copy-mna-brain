@@ -3,7 +3,7 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { auth } from '@/auth';
-import { CompanyDroppedError } from '@/lib/services/companyService';
+import { CompanyDroppedError, PipelineStageUnavailableError } from '@/lib/services/companyService';
 
 interface PromoteBulkBody {
   deals?: Array<{ id?: unknown; currentStage?: unknown }>;
@@ -37,6 +37,9 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     if (error instanceof CompanyDroppedError) {
       return NextResponse.json({ error: error.message, droppedIds: error.droppedIds }, { status: 409 });
+    }
+    if (error instanceof PipelineStageUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error(error);
     const message = error instanceof Error ? error.message : 'Failed to promote deals';

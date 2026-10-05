@@ -139,6 +139,7 @@ describe('groupedConsoleTabs', () => {
     expect(groups.map((g) => g.id)).toEqual(CONSOLE_TAB_GROUPS.map((g) => g.id));
     expect(groups.find((g) => g.id === 'deal-flow')?.tabs.map((t) => t.slug)).toEqual([
       'dashboard',
+      'sourcing',
       'pipeline',
       'master-data',
       'crm',

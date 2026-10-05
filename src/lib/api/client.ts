@@ -93,9 +93,15 @@ export async function apiRequest<T>(
 
     const message =
       payload?.error || payload?.message || `Request failed (${res.status})`;
-    const err = new Error(message) as Error & { missingFields?: string[], status?: number };
+    const err = new Error(message) as Error & {
+      missingFields?: string[];
+      status?: number;
+      code?: string;
+    };
     err.status = res.status;
     if (Array.isArray(payload?.missingFields)) err.missingFields = payload.missingFields;
+    // A machine-readable reason the caller can branch on (e.g. restore_stage_required).
+    if (typeof payload?.code === "string") err.code = payload.code;
     throw err;
   }
 

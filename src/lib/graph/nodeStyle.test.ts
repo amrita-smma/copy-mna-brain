@@ -38,9 +38,12 @@ describe('nodeColor', () => {
     expect(nodeColor(node({ pipelineStage: undefined }))).toBe(STAGE_COLOR_YELLOW);
   });
 
-  it('paints discovered and unrecognised stages grey', () => {
+  it('paints discovered stubs grey', () => {
     expect(nodeColor(node({ pipelineStage: 'discovered' }))).toBe(STAGE_COLOR_GREY);
-    expect(nodeColor(node({ pipelineStage: 'L6' }))).toBe(STAGE_COLOR_GREY);
+  });
+
+  it('paints a stage the workspace added blue, like the original pipeline stages', () => {
+    expect(nodeColor(node({ pipelineStage: 'stg-3f9a1c2e' }))).toBe(STAGE_COLOR_BLUE);
   });
 });
 

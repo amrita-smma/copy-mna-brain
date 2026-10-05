@@ -285,3 +285,22 @@ describe('effectiveDealLead', () => {
     expect(effectiveDealLead(leadCompany(), 'L3', TRACKS)).toBeNull();
   });
 });
+
+describe('dealLeadField — workspace stage order', () => {
+  it('treats a stage the workspace added after L3 as a Captain stage', () => {
+    const captainStages = ['L3', 'L4', 'stg-postclose', 'L5'];
+    expect(dealLeadField('stg-postclose', captainStages)).toBe('deal_captain');
+    expect(dealLeadLabel('stg-postclose', captainStages)).toBe('Deal Captain');
+  });
+
+  it('treats a stage added before L3 as a Sponsor stage', () => {
+    expect(dealLeadField('stg-expert-calls', ['L3', 'L4', 'L5'])).toBe('deal_sponsor');
+  });
+
+  it('defaults the captain fallback to the sponsor at an added Captain stage', () => {
+    const company = { deal_sponsor_name: 'Sam Sponsor', deal_captain_name: null };
+    expect(effectiveDealLead(company, 'stg-postclose', [], ['L3', 'stg-postclose'])).toBe(
+      'Sam Sponsor',
+    );
+  });
+});

@@ -23,6 +23,7 @@ type TableMap = {
   files: typeof schema.files;
   investment_thesis: typeof schema.investmentThesis;
   track_variables: typeof schema.trackVariables;
+  pipeline_stages: typeof schema.pipelineStages;
   inven_cache: typeof schema.invenCache;
   jobs: typeof schema.jobs;
   job_logs: typeof schema.jobLogs;

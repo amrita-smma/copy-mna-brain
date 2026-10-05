@@ -386,7 +386,17 @@ function narrativePieces(
 
 // ── Static card chrome ─────────────────────────────────────────────────────
 
-const STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
+const DEFAULT_STAGES: ReadonlyArray<{ key: string; code: string }> = [
+  'L0',
+  'L1',
+  'L2',
+  'L3',
+  'L4',
+  'L5',
+].map((key) => ({ key, code: key }));
+
+/** Width the stage track may take: six 26pt chips, as the card was designed. */
+const STAGE_TRACK_W = 6 * 27;
 
 const BADGE = 13;
 
@@ -480,7 +490,12 @@ function metaBoxRow(
   });
 }
 
-function headerElements(title: string, subtitle: string, currentStage: string): PptxElement[] {
+function headerElements(
+  title: string,
+  subtitle: string,
+  currentStage: string,
+  stages: ReadonlyArray<{ key: string; code: string }>,
+): PptxElement[] {
   const els: PptxElement[] = [];
   const right = SLIDE_W - PAD;
 
@@ -491,10 +506,11 @@ function headerElements(title: string, subtitle: string, currentStage: string): 
 
   // Stage track, laid out right-to-left from the "Seeking approval" caption.
   const CAPTION_W = 92;
-  const CHIP_W = 26;
+  // Chips shrink to keep a workspace with more stages inside the designed width.
+  const CHIP_W = Math.min(26, Math.floor(STAGE_TRACK_W / Math.max(stages.length, 1)) - 1);
   const CHIP_H = 17;
   const chipsRight = right - CAPTION_W - 6;
-  const chipsLeft = chipsRight - STAGES.length * (CHIP_W + 1);
+  const chipsLeft = chipsRight - stages.length * (CHIP_W + 1);
   els.push(
     plainText('→ Seeking approval', chipsRight + 6, PAD + 3, CAPTION_W, 12, {
       fontSize: 8.5,
@@ -502,12 +518,12 @@ function headerElements(title: string, subtitle: string, currentStage: string): 
       color: BLUE,
     }),
   );
-  STAGES.forEach((stage, i) => {
+  stages.forEach((stage, i) => {
     const x = chipsLeft + i * (CHIP_W + 1);
-    const active = stage === currentStage;
+    const active = stage.key === currentStage;
     els.push(rect(x, PAD, CHIP_W, CHIP_H, active ? BLUE : CHIP_BG));
     els.push(
-      plainText(stage, x, PAD + 3, CHIP_W, 11, {
+      plainText(stage.code, x, PAD + 3, CHIP_W, 11, {
         fontSize: 8.5,
         bold: true,
         color: active ? WHITE : CHIP_INK,
@@ -618,6 +634,13 @@ export interface CompanyCardSlideInput {
   trackVariables?: CompanyCardTrackVariable[];
   /** Absolute URL to the company's dedicated page in the app, e.g. `${appUrl}/pipeline/${companyId}`. */
   companyUrl?: string;
+  /**
+   * The workspace's live stages in pipeline order, drawn as the header's stage
+   * track (code per chip). Defaults to the six original stages.
+   */
+  stages?: ReadonlyArray<{ key: string; code: string }>;
+  /** Stage keys from L3 onward in the workspace's order — where the lead is the Deal Captain. */
+  captainStageKeys?: readonly string[];
 }
 
 /** One finished card slide. */
@@ -923,7 +946,8 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
 
   const title = companyDisplayTitle(company, 'Company');
   const sector = company.segment || '—';
-  const currentStage = (company.pipeline_stage || 'L0').toUpperCase();
+  const currentStage = company.pipeline_stage || 'L0';
+  const stages = input.stages ?? DEFAULT_STAGES;
   const cap = (v: string) => `${v[0].toUpperCase()}${v.slice(1)}`;
 
   const subtitle =
@@ -955,7 +979,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
   const metaRow2 = metaBoxRow(
     [
       { label: 'Source', value: sourceValue },
-      { label: dealLeadLabel(currentStage), value: input.dealLead || '—' },
+      { label: dealLeadLabel(currentStage, input.captainStageKeys), value: input.dealLead || '—' },
       {
         label: 'Deal Status',
         value: isLive ? `Live${advisor ? ` (${advisor})` : ''}` : 'Not live',
@@ -1043,7 +1067,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
   const firstSlide: CompanyCardSlide = {
     title: `${title} — Company Card`,
     elements: [
-      ...headerElements(title, subtitle, currentStage),
+      ...headerElements(title, subtitle, currentStage, stages),
       ...metaRow1,
       ...metaRow2,
       ...renderColumn([overviewHeading, ...overview.taken, financials, dealStructure], 0, BODY_TOP),

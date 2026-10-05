@@ -239,10 +239,12 @@ describe('buildCompanyExcelAttachment', () => {
 
   // findForAgentStats drops `discovered` stubs unless a stage filter names them,
   // so include_pre_pipeline has to spell the stages out to mean anything here.
-  it('names every stage so include_pre_pipeline actually reaches discovered rows', async () => {
+  it('scopes to every stage so include_pre_pipeline actually reaches discovered rows', async () => {
     await buildCompanyExcelAttachment({ include_pre_pipeline: true });
 
-    expect(findForAgentStats.mock.calls[0][0].stageIn).toContain('discovered');
+    // An explicit (empty) exclusion list tells the repository the caller chose
+    // the stage scope, so it stops dropping discovered rows by default.
+    expect(findForAgentStats.mock.calls[0][0].stageNotIn).toEqual([]);
   });
 
   it('lets an explicit stage win over include_pre_pipeline', async () => {

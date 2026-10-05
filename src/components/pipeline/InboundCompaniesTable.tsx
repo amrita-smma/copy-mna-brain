@@ -14,24 +14,11 @@ import { formatMoneyMn } from "@/lib/currency";
 import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  MoreVertical,
   ArrowRight,
-  ArrowLeft,
-  Pencil,
   Trash2,
-  RotateCcw,
   Landmark,
   Inbox,
   XCircle,
-  Sparkles,
-  Loader2,
 } from "lucide-react";
 import {
   ColumnHeaderContent,
@@ -48,56 +35,40 @@ import {
   type ColumnFilter,
 } from "@/components/table";
 import { cn } from "@/lib/utils";
-import { useNearRightEdge } from "@/hooks/useNearRightEdge";
 import type { Tables } from "@/lib/repositories";
 import type { DealStage } from "@/lib/types";
 import {
   demoteTargetForStage,
   promoteTargetForStage,
-  stageMoveLabel,
 } from "@/lib/constants";
-import type { PipelineCompany } from "@/views/Pipeline";
+import type { PipelineCompany, PipelineViewMode } from "@/views/Pipeline";
+import { stageCellLabel } from "@/lib/pipeline/stageView";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
-import { AskAIButton } from "@/components/chat/AskAIButton";
+import {
+  DealLeadCell,
+  PipelineCompanyTitle,
+  PipelineRowActions,
+  PipelineStatusCell,
+  formatCreatedAt,
+  pipelineMoveItems,
+  stickyActionsCellClass,
+  stickyActionsHeadClass,
+  stickyCompanyCellClass,
+  stickyCompanyHeadClass,
+  type PipelineMoveItem,
+} from "@/components/pipeline/PipelineRowActions";
 import { useChatContext } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
-import { companyDisplayName, companyDisplayTitle } from "@/lib/companyDisplay";
+import { companyDisplayName } from "@/lib/companyDisplay";
 import {
   persistedTrackIds,
   trackDisplayName,
-  matchedTrackPics,
-  dealLeadField,
   dealLeadLabel,
   type TrackLike,
 } from "@/lib/tracks/matchTracks";
-
-/**
- * Read-only Deal Sponsor (L0–L2) / Deal Captain (L3+) cell. The stored
- * per-company override wins; when empty, the matched Track's PIC shows as the
- * (muted) default. Editing happens only in the company card, never inline.
- */
-function DealLeadCell({
-  company,
-  tracks,
-  stage,
-}: {
-  company: PipelineCompany;
-  tracks: TrackLike[];
-  stage: DealStage;
-}) {
-  const field = dealLeadField(stage);
-  // The stored columns are uuid FKs; display uses the resolved user name.
-  const stored = company[`${field}_name`];
-  const fallbackPics = matchedTrackPics(company, tracks);
-  const fallback = fallbackPics.length > 0 ? fallbackPics.join(", ") : null;
-  return (
-    <span className="text-sm text-muted-foreground">
-      {stored || fallback || "—"}
-    </span>
-  );
-}
 
 /**
  * Matched-track pills for a company. Shows ONLY the persisted matches assigned
@@ -173,8 +144,12 @@ const latestFin = (
 interface InboundCompaniesTableProps {
   companies: PipelineCompany[];
   tracks: TrackLike[];
-  stage: DealStage;
-  viewMode: "active" | "dropped";
+  /**
+   * The stage every row is in, or undefined when the rows span stages (All
+   * Stages, or a search). Each row's Deal Lead always reads its own stage.
+   */
+  stage?: DealStage;
+  viewMode: PipelineViewMode;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
   sortField: string | null;
@@ -190,7 +165,6 @@ interface InboundCompaniesTableProps {
   /** Group rows into Unreviewed/Reviewed sections with banner headers. Default true. */
   groupByReviewState?: boolean;
   onTriageAll?: () => void;
-  onKeep?: (company: PipelineCompany) => void | Promise<void>;
   onUpdate: (company: PipelineCompany) => void;
   onPromote: (company: PipelineCompany) => void;
   onDemote: (company: PipelineCompany) => void;
@@ -222,7 +196,6 @@ export default function InboundCompaniesTable({
   onStatusChange,
   groupByReviewState = true,
   onTriageAll,
-  onKeep,
   onUpdate,
   onPromote,
   onDemote,
@@ -238,7 +211,8 @@ export default function InboundCompaniesTable({
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const { analyzeWithAI } = useChatContext();
   const { focusCopilot } = useLayoutControl();
-  const { nearEdge, edgeHandlers } = useNearRightEdge();
+  const pipelineStages = usePipelineStages();
+  const { liveKeys: stageKeys, captainKeys } = pipelineStages;
 
   // "Dive deeper" hands the existing AI Opinion verdict to the copilot and
   // reveals the pane (collapsing the main full-screen view) so the discussion
@@ -253,18 +227,16 @@ export default function InboundCompaniesTable({
     focusCopilot();
   };
   // Targets are resolved per row, not from the table's `stage` prop: the L0
-  // inbound table renders both the Pending Review (`unreviewed`) and the
+  // inbound table renders both the Pending Confirmation (`unreviewed`) and the
   // reviewed (`L0`) sections, so the two groups move in different directions.
-  // An L0 row demotes back to Pending Review; an `unreviewed` row has nowhere
+  // An L0 row demotes back to Pending Confirmation; an `unreviewed` row has nowhere
   // further back to go.
   const promoteTargetFor = (company: PipelineCompany) =>
-    promoteTargetForStage(company.pipeline_stage ?? stage);
+    promoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
   const demoteTargetFor = (company: PipelineCompany) =>
-    demoteTargetForStage(company.pipeline_stage ?? stage, {
-      demoteL0ToReview: true,
-    });
+    demoteTargetForStage(company.pipeline_stage ?? stage, { demoteL0ToReview: true }, stageKeys);
 
-  const picColumnLabel = dealLeadLabel(stage);
+  const picColumnLabel = stage ? dealLeadLabel(stage, captainKeys) : "Deal Lead";
 
   // Sort / filter descriptors for a managed column — surfaced in the column's
   // right-click menu by the managed header (left-click selects for grouping).
@@ -280,16 +252,45 @@ export default function InboundCompaniesTable({
   });
 
   // Managed (reorderable / hideable / groupable) data columns. The sticky
-  // Ask-AI, Company, and Actions columns are pinned and rendered outside this
+  // Company and Actions columns are pinned and rendered outside this
   // set. `viewMode` swaps the Status column for Source + Drop Reason.
   const columns = useMemo<ColumnDef<PipelineCompany>[]>(() => {
     const numeric = "text-right font-mono";
     const cols: ColumnDef<PipelineCompany>[] = [
       {
+        id: "stage",
+        label: "Stage",
+        sort: sortDesc("stage"), filter: filterDesc("stage"),
+        cell: (c) => (
+          <span className="text-sm text-muted-foreground">
+            {stageCellLabel(c.pipeline_stage, pipelineStages.code)}
+          </span>
+        ),
+      },
+      {
+        id: "pipeline_status",
+        label: "Pipeline Status",
+        cellClassName: "whitespace-nowrap",
+        cell: (c) => <PipelineStatusCell dropped={c.status === "dropped"} />,
+      },
+      {
+        id: "created",
+        label: "Created At",
+        sort: sortDesc("created"),
+        cellClassName: "text-sm whitespace-nowrap",
+        cell: (c) => formatCreatedAt(c.created_at),
+      },
+      {
         id: "deal_lead",
         label: picColumnLabel,
         sort: sortDesc("deal_lead"), filter: filterDesc("deal_lead"),
-        cell: (c) => <DealLeadCell company={c} tracks={tracks} stage={stage} />,
+        cell: (c) => (
+          <DealLeadCell
+            company={c}
+            tracks={tracks}
+            captainKeys={captainKeys}
+          />
+        ),
       },
       {
         id: "entered_by",
@@ -526,13 +527,6 @@ export default function InboundCompaniesTable({
           ),
       },
       {
-        id: "created",
-        label: "Created",
-        sort: sortDesc("created"),
-        cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
-        cell: (c) => formatDate(c.created_at),
-      },
-      {
         id: "last_activity",
         label: isDropped ? "Dropped On" : "Last Activity",
         sort: sortDesc(isDropped ? "dropped_on" : "last_activity"),
@@ -562,7 +556,6 @@ export default function InboundCompaniesTable({
   }, [
     isDropped,
     picColumnLabel,
-    stage,
     tracks,
     statusOptions,
     sortField,
@@ -572,13 +565,18 @@ export default function InboundCompaniesTable({
     filterOptions,
     analyzingAiOpinionIds,
     onAnalyzeAiOpinion,
+    pipelineStages,
   ]);
 
-  const mgr = useColumnLayout(`pipeline-inbound:${viewMode}`, columns);
+  const mgr = useColumnLayout(
+    // "All" shares the Active layout, so saved column layouts carry over.
+    `pipeline-inbound:${isDropped ? "dropped" : "active"}`,
+    columns,
+  );
 
-  // colSpan for the section header / gap / empty rows: 2 pinned leading
-  // (Ask-AI + Company) + visible managed columns + 1 pinned trailing (Actions).
-  const fullColSpan = 3 + mgr.visibleCount;
+  // colSpan for the section header / gap / empty rows: 1 pinned leading
+  // (Company) + visible managed columns + 1 pinned trailing (Actions).
+  const fullColSpan = 2 + mgr.visibleCount;
   const unreviewedCompanies = isDropped
     ? []
     : companies.filter((company) => company.pipeline_stage === "unreviewed");
@@ -649,17 +647,10 @@ export default function InboundCompaniesTable({
     <ColumnManagerProvider value={mgr}>
       {/* Gear is portaled into the shared filter row (see Pipeline.tsx). */}
       <ColumnConfigGear portalTargetId="pipeline-columns-config" />
-      <Table {...edgeHandlers}>
+      <Table>
         <ManagedTableHeader
           leading={[
-            <TableHead
-              key="askai"
-              className="w-[40px] sticky left-0 z-20 bg-card"
-            />,
-            <TableHead
-              key="company"
-              className="sticky left-[40px] z-20 bg-card border-r"
-            >
+            <TableHead key="company" className={stickyCompanyHeadClass}>
               <ColumnHeaderContent
                 label="Company"
                 sortField="name"
@@ -670,10 +661,9 @@ export default function InboundCompaniesTable({
             </TableHead>,
           ]}
           trailing={
-            <TableHead
-              key="actions"
-              className="w-[44px] sticky right-0 z-20 bg-transparent"
-            />
+            <TableHead key="actions" className={stickyActionsHeadClass}>
+              Actions
+            </TableHead>
           }
         />
       <TableBody>
@@ -688,8 +678,10 @@ export default function InboundCompaniesTable({
           </TableRow>
         )}
         {groupedCompanies.map((company, index) => {
-          const stickyBg = "bg-card group-hover:bg-muted";
           const isUpdating = updatingCompanyIds.has(company.id);
+          // Per row, not per view: the "All" status view mixes live and
+          // dropped deals.
+          const rowDropped = company.status === "dropped";
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.pipeline_stage === "unreviewed";
@@ -699,7 +691,6 @@ export default function InboundCompaniesTable({
           const hasMatchedTracks =
             persistedTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
-          const displayTitle = companyDisplayTitle(company, "");
           const hasFinancials =
             rev.value != null ||
             ebitda.value != null ||
@@ -734,159 +725,82 @@ export default function InboundCompaniesTable({
               >
               <TableCell
                 className={cn(
-                  "pr-0 sticky left-0 z-10",
+                  stickyCompanyCellClass,
                   isUnreviewed && "border-l-2 border-l-amber-400",
-                  stickyBg,
                 )}
               >
-                <AskAIButton
-                  variant="icon"
-                  label="Analyze using AI"
-                  onClick={() =>
+                <PipelineCompanyTitle
+                  company={company}
+                  onClick={() => onOpenDetail(company)}
+                />
+                {hasFlags && (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {company.possible_duplicate_company_id && (
+                      <DuplicatePopup
+                        possibleDuplicateId={
+                          company.possible_duplicate_company_id
+                        }
+                      />
+                    )}
+                    {!hasFinancials && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                        <XCircle className="h-3.5 w-3.5" />
+                        Financials missing
+                      </span>
+                    )}
+                  </div>
+                )}
+              </TableCell>
+              <ManagedRowCells row={company} index={index} />
+              <TableCell className={stickyActionsCellClass}>
+                <PipelineRowActions
+                  onEdit={() => onUpdate(company)}
+                  editLabel={!rowDropped && isUnreviewed ? "Edit" : "Update"}
+                  onView={() => onOpenDetail(company)}
+                  onAsk={() =>
                     analyzeWithAI(
                       `Analyze ${displayName} and provide insights about it as a potential deal.`,
                     )
                   }
+                  moveItems={
+                    !rowDropped && isUnreviewed
+                      ? // Unreviewed inbound rows mirror the AI-Discovered
+                        // menu: Add to L0 · Delete (Delete is a soft drop).
+                        ([
+                          {
+                            key: "add",
+                            label: "Add to L0",
+                            icon: ArrowRight,
+                            onSelect: () => onPromote(company),
+                          },
+                          {
+                            key: "delete",
+                            label: "Delete",
+                            icon: Trash2,
+                            onSelect: () => onDrop(company),
+                            destructive: true,
+                            separatorBefore: true,
+                          },
+                        ] satisfies PipelineMoveItem[])
+                      : pipelineMoveItems({
+                          isDropped: rowDropped,
+                          promoteTarget: promoteTargetFor(company),
+                          demoteTarget: demoteTargetFor(company),
+                          onPromote: () => onPromote(company),
+                          onDemote: () => onDemote(company),
+                          onDrop: () => onDrop(company),
+                          onRestore: () => onRestore(company),
+                          code: pipelineStages.code,
+                          screening: onRunScreening && {
+                            running: !!runningScreeningCompanyIds?.has(
+                              company.id,
+                            ),
+                            hasMatchedTracks,
+                            onRun: () => onRunScreening(company),
+                          },
+                        })
+                  }
                 />
-              </TableCell>
-              <TableCell className={cn("sticky left-[40px] z-10 border-r", stickyBg)}>
-                {displayTitle ? (
-                  <>
-                    <button
-                      onClick={() => onOpenDetail(company)}
-                      className="font-medium text-left hover:text-primary hover:underline transition-colors"
-                    >
-                      {displayTitle}
-                    </button>
-                    {hasFlags && (
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        {company.possible_duplicate_company_id && (
-                          <DuplicatePopup
-                            possibleDuplicateId={
-                              company.possible_duplicate_company_id
-                            }
-                          />
-                        )}
-                        {!hasFinancials && (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                            <XCircle className="h-3.5 w-3.5" />
-                            Financials missing
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <ManagedRowCells row={company} index={index} />
-              <TableCell className="text-right sticky right-0 z-10 bg-transparent">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Actions"
-                      className={cn(
-                        "h-7 w-7 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100",
-                        nearEdge ? "opacity-100" : "opacity-0",
-                      )}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {isDropped ? (
-                      <>
-                        <DropdownMenuItem onClick={() => onUpdate(company)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Update
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => onRestore(company)}>
-                          <RotateCcw className="mr-2 h-4 w-4" />
-                          Restore deal
-                        </DropdownMenuItem>
-                      </>
-                    ) : isUnreviewed ? (
-                      // Unreviewed inbound rows mirror the AI-Discovered menu:
-                      // Add to L0 · Edit · Delete (Delete is a soft drop).
-                      <>
-                        <DropdownMenuItem onClick={() => onPromote(company)}>
-                          <ArrowRight className="mr-2 h-4 w-4" />
-                          Add to L0
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onUpdate(company)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => onDrop(company)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                          Delete
-                        </DropdownMenuItem>
-                      </>
-                    ) : (
-                      <>
-                        {onRunScreening && (
-                          <>
-                            {runningScreeningCompanyIds?.has(company.id) ? (
-                              <DropdownMenuItem
-                                disabled
-                                className="text-muted-foreground"
-                              >
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" />
-                                AI Screening Running
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem
-                                disabled={!hasMatchedTracks}
-                                onClick={() => onRunScreening(company)}
-                                title={
-                                  hasMatchedTracks
-                                    ? undefined
-                                    : "No matched tracks to screen against"
-                                }
-                              >
-                                <Sparkles className="mr-2 h-4 w-4 text-blue-600" />
-                                Run AI Screening
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
-                        {promoteTargetFor(company) && (
-                          <DropdownMenuItem onClick={() => onPromote(company)}>
-                            <ArrowRight className="mr-2 h-4 w-4" />
-                            Promote to {stageMoveLabel(promoteTargetFor(company))}
-                          </DropdownMenuItem>
-                        )}
-                        {demoteTargetFor(company) && (
-                          <DropdownMenuItem onClick={() => onDemote(company)}>
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Demote to {stageMoveLabel(demoteTargetFor(company))}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => onUpdate(company)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Update
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => onDrop(company)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                          Drop deal
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </TableCell>
             </TableRow>
             </Fragment>

@@ -125,14 +125,14 @@ describe('getCompanyStats', () => {
     );
   });
 
-  it('defaults the cohort to the L0–L5 funnel when no stage is specified', async () => {
+  it('defaults the cohort to every pipeline stage when no stage is specified', async () => {
     findForAgentStatsMock.mockResolvedValue([]);
 
     await getCompanyStats.invoke({});
 
     expect(findForAgentStatsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+        stageNotIn: ['market_screening', 'unreviewed', 'discovered'],
       }),
     );
     expect(findForAgentStatsMock.mock.calls[0][0].stage).toBeUndefined();

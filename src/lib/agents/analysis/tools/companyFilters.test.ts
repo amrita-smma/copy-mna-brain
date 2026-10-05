@@ -158,27 +158,32 @@ describe('mapCompanyFilters', () => {
 });
 
 describe('applyStageDefault', () => {
-  it('defaults the cohort to the L0–L5 funnel', () => {
-    expect(applyStageDefault({}, {}).stageIn).toEqual([
-      'L0',
-      'L1',
-      'L2',
-      'L3',
-      'L4',
-      'L5',
-    ]);
+  it('defaults the cohort to every pipeline stage, added ones included, by excluding the pre-pipeline buckets', () => {
+    const filters = applyStageDefault({}, {});
+    expect(filters.stageIn).toBeUndefined();
+    expect(filters.stageNotIn).toEqual(['market_screening', 'unreviewed', 'discovered']);
   });
 
   it('widens to every stage with include_pre_pipeline', () => {
-    expect(applyStageDefault({}, { include_pre_pipeline: true }).stageIn).toContain(
-      'market_screening',
-    );
+    const filters = applyStageDefault({}, { include_pre_pipeline: true });
+    expect(filters.stageIn).toBeUndefined();
+    expect(filters.stageNotIn).toEqual([]);
   });
 
   it('leaves an explicit stage, stage_in, or id list alone', () => {
     expect(applyStageDefault({}, { stage: 'L2' }).stageIn).toBeUndefined();
     expect(applyStageDefault({}, { stage_in: ['L4'] }).stageIn).toBeUndefined();
     expect(applyStageDefault({}, { company_ids: ['c1'] }).stageIn).toBeUndefined();
+    expect(applyStageDefault({}, { stage: 'L2' }).stageNotIn).toBeUndefined();
+  });
+
+  it('accepts a stage key the workspace added', () => {
+    const schema = companyFilterSchema;
+    expect(schema.parse({ stage: 'stg-3f9a1c2e' }).stage).toBe('stg-3f9a1c2e');
+    expect(schema.parse({ stage_in: ['L3', 'stg-3f9a1c2e'] }).stage_in).toEqual([
+      'L3',
+      'stg-3f9a1c2e',
+    ]);
   });
 });
 

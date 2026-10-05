@@ -20,6 +20,13 @@ import {
 } from '@/lib/pptx/companyCardSlides';
 import { companyDisplayTitle } from '@/lib/companyDisplay';
 import { effectiveDealLead, type TrackLike } from '@/lib/tracks/matchTracks';
+import type { PipelineStageRepository } from '@/lib/repositories';
+import {
+  CAPTAIN_FROM_STAGE_KEY,
+  liveStages,
+  stageKeysFrom,
+  type PipelineStageDef,
+} from '@/lib/pipeline/stages';
 
 export class CompanyNotFoundForCardError extends Error {
   constructor(public readonly query: string) {
@@ -48,24 +55,55 @@ export class CompanyCardSlideService {
     private readonly trackVariableService: TrackVariableService,
     private readonly workspaceService: WorkspaceService,
     private readonly workspaceId: string,
+    // Optional: the workspace's stages, for the card's stage track and the
+    // Sponsor/Captain label. Without it the six original stages are drawn.
+    private readonly pipelineStageRepo?: PipelineStageRepository,
   ) {}
+
+  private stagesPromise: Promise<PipelineStageDef[]> | null = null;
+
+  /** Read once per service instance: an email of several cards builds each by id. */
+  private pipelineStages(): Promise<PipelineStageDef[]> {
+    if (!this.pipelineStageRepo) return Promise.resolve([]);
+    this.stagesPromise ??= this.pipelineStageRepo
+      .list()
+      .then((rows) =>
+        rows.map((r) => ({
+          key: r.key,
+          code: r.code,
+          name: r.name,
+          description: r.description,
+          position: r.position,
+          deleted: r.deleted_at !== null,
+        })),
+      )
+      .catch((err: unknown) => {
+        this.stagesPromise = null;
+        throw err;
+      });
+    return this.stagesPromise;
+  }
 
   /** Build the card slides for a company id. */
   async buildById(companyId: string): Promise<CompanyCardDeck> {
-    const [company, analysis, tracks, currency] = await Promise.all([
+    const [company, analysis, tracks, currency, stageDefs] = await Promise.all([
       this.companyService.findByIdDTO(companyId),
       this.companyAnalysisService.findByCompanyId(companyId),
       this.investmentThesisService.list(),
       this.workspaceService.getDefaultCurrency(this.workspaceId),
+      this.pipelineStages(),
     ]);
+    const stages = stageDefs.length > 0 ? liveStages(stageDefs) : undefined;
+    const captainStageKeys =
+      stageDefs.length > 0 ? stageKeysFrom(stageDefs, CAPTAIN_FROM_STAGE_KEY) : undefined;
 
     const trackVariables = await this.resolveTrackVariables(
       company.slide_track_variable_ids ?? [],
       company.track_specific_variables ?? {},
     );
 
-    const stage = (company.pipeline_stage || 'L0').toUpperCase();
-    const dealLead = effectiveDealLead(company, stage, tracks as TrackLike[]);
+    const stage = company.pipeline_stage || 'L0';
+    const dealLead = effectiveDealLead(company, stage, tracks as TrackLike[], captainStageKeys);
 
     const appUrl = (
       process.env.APP_URL ??
@@ -84,6 +122,8 @@ export class CompanyCardSlideService {
         dealLead,
         trackVariables,
         companyUrl: `${appUrl}/pipeline/${companyId}`,
+        stages,
+        captainStageKeys,
       }),
     };
   }

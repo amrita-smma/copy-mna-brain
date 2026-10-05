@@ -32,6 +32,27 @@ const DEFAULT_STAGE: AddableStage = "market_screening";
 
 const DEFAULT_SOURCE = "outbound" as const;
 const ALLOWED_SOURCES = ["inbound", "outbound"] as const;
+const MAX_FINANCIAL_ROWS = 5;
+
+// Free-text company columns the tool records at create time, alongside
+// target/segment/geography/source. Blank strings are dropped, not stored.
+const DETAIL_TEXT_FIELDS = [
+  "company_focus",
+  "website",
+  "ownership",
+  "comments",
+  "remarks",
+  "thesis_content",
+  "watchlist_status",
+] as const;
+type DetailTextField = (typeof DETAIL_TEXT_FIELDS)[number];
+
+interface FinancialRow {
+  fiscal_year: number;
+  revenue_usd_mn?: number;
+  ebitda_usd_mn?: number;
+  ev_usd_mn?: number;
+}
 
 // Per-stage company_logs action so the activity feed / audit trail can tell how
 // a company entered (CREATED_AS_MARKET_SCREENING for AI-screened intake;
@@ -69,6 +90,9 @@ export const addCompany = tool(
     geography,
     source,
     note,
+    watchlist_id,
+    financials,
+    ...details
   }: {
     target: string;
     stage?: string;
@@ -76,7 +100,9 @@ export const addCompany = tool(
     geography?: string;
     source?: string;
     note?: string;
-  }) => {
+    watchlist_id?: number;
+    financials?: FinancialRow[];
+  } & Partial<Record<DetailTextField, string>>) => {
     const resolvedStage = (stage ?? DEFAULT_STAGE) as AddableStage;
     logger.debug(
       `🔧 TOOL CALLED: add_company(target='${target}', stage='${resolvedStage}')`,
@@ -94,6 +120,28 @@ export const addCompany = tool(
     const normalizedSource = (source ?? DEFAULT_SOURCE).trim().toLowerCase();
     if (!ALLOWED_SOURCES.includes(normalizedSource as (typeof ALLOWED_SOURCES)[number])) {
       return `**Error:** source must be one of ${ALLOWED_SOURCES.join(", ")}; got "${source}".`;
+    }
+
+    const rows = financials ?? [];
+    const seenYears = new Set<number>();
+    for (const row of rows) {
+      if (seenYears.has(row.fiscal_year)) {
+        return `**Error:** fiscal_year ${row.fiscal_year} appears more than once in \`financials\`. Combine the metrics for a year into one row.`;
+      }
+      seenYears.add(row.fiscal_year);
+      if (
+        row.revenue_usd_mn === undefined &&
+        row.ebitda_usd_mn === undefined &&
+        row.ev_usd_mn === undefined
+      ) {
+        return `**Error:** the \`financials\` row for ${row.fiscal_year} sets no figures. Include at least one of revenue_usd_mn, ebitda_usd_mn, ev_usd_mn, or drop the row.`;
+      }
+    }
+
+    const detailFields: Partial<Record<DetailTextField, string>> = {};
+    for (const key of DETAIL_TEXT_FIELDS) {
+      const value = details[key]?.trim();
+      if (value) detailFields[key] = value;
     }
 
     try {
@@ -119,6 +167,8 @@ export const addCompany = tool(
           segment: trimmedSegment,
           geography: trimmedGeography,
           source: normalizedSource as (typeof ALLOWED_SOURCES)[number],
+          ...detailFields,
+          ...(watchlist_id !== undefined ? { watchlist_id } : {}),
           pipeline_stage: resolvedStage,
           status: "active",
         } as never,
@@ -127,7 +177,27 @@ export const addCompany = tool(
 
       logger.debug(`✓ Created ${trimmedTarget} (${created.id}) at ${resolvedStage}`);
       const noteSuffix = trimmedNote ? ` Note: ${trimmedNote}` : "";
-      return `Added "${trimmedTarget}" to the database at ${resolvedStage} (id: ${created.id}).${noteSuffix}`;
+      const added = `Added "${trimmedTarget}" to the database at ${resolvedStage} (id: ${created.id}).`;
+
+      // A second service call, so a second commit: the company row can land
+      // while the financials write fails. `updateFinancials` owns the
+      // EBITDA-margin / EV-EBITDA recompute, so it stays a service call.
+      if (rows.length > 0) {
+        try {
+          await companyService.updateFinancials(
+            created.id,
+            rows,
+            [],
+            "UPDATED_FINANCIALS_BY_AI_WORKFORCE",
+          );
+        } catch (error) {
+          logger.error(`add_company financials error: ${(error as Error).message}`);
+          return `${added} **Error:** the company was created but its financials failed to save: ${(error as Error).message}. Retry them with update_company_details.${noteSuffix}`;
+        }
+        const years = rows.map((r) => `FY${r.fiscal_year}`).join(", ");
+        return `${added} Financials saved for ${years}.${noteSuffix}`;
+      }
+      return `${added}${noteSuffix}`;
     } catch (error) {
       logger.error(`add_company error: ${(error as Error).message}`);
       return `**Error:** ${(error as Error).message}`;
@@ -153,7 +223,14 @@ Args:
     segment: Optional sector/segment classification. Keep it BROAD, not hyper-specific — a category many companies can share (e.g. "Semiconductor", "CMP Slurry", "Petrochemical"), not a narrow niche unique to one company. Over-specific segments create minimal overlap and make cohort grouping useless. Always in English, even if source material is in another language.
     geography: Optional headquarters country — EXACTLY ONE country name (e.g. "South Korea", "United States"). Never combine multiple countries, regions, cities, or facility/R&D locations. Always in English, even if source material is in another language.
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
+    company_focus: Optional 1-2 line description of what the company does.
+    website, ownership: Optional (ownership e.g. "family office", "PE-backed", "public").
+    comments, remarks, thesis_content: Optional free-text notes recorded on the company.
+    watchlist_id, watchlist_status: Optional watchlist reference.
+    financials: Optional per-fiscal-year figures in USD millions, max ${MAX_FINANCIAL_ROWS} rows: [{ fiscal_year, revenue_usd_mn?, ebitda_usd_mn?, ev_usd_mn? }]. One row per year, each with at least one figure. EBITDA margin and EV/EBITDA are computed for you.
     note: Optional triage note. Recorded informationally on the action message; not persisted to the row.
+
+Record every detail the instruction gives at create time — do not drop website, ownership, financials or notes and leave them for a later edit. Never invent a value the instruction does not state.
 
 Returns:
     A success message with the new company id, or a duplicate-found message, or an error string.`,
@@ -183,6 +260,44 @@ Returns:
         .enum(ALLOWED_SOURCES)
         .optional()
         .describe("Origin tag: outbound (default, AI-discovered) or inbound"),
+      company_focus: z
+        .string()
+        .optional()
+        .describe("What the company does, in 1-2 lines"),
+      website: z.string().optional().describe("Company website"),
+      ownership: z
+        .string()
+        .optional()
+        .describe('Ownership, e.g. "family office", "PE-backed", "public"'),
+      comments: z.string().optional().describe("Free-text comments"),
+      remarks: z.string().optional().describe("Free-text remarks"),
+      thesis_content: z
+        .string()
+        .optional()
+        .describe("Thesis notes recorded on the company"),
+      watchlist_id: z.number().int().optional().describe("Watchlist ID"),
+      watchlist_status: z.string().optional().describe("Watchlist status"),
+      financials: z
+        .array(
+          z.object({
+            fiscal_year: z
+              .number()
+              .int()
+              .min(1990)
+              .max(2100)
+              .describe("Fiscal year the figures belong to"),
+            revenue_usd_mn: z.number().finite().optional().describe("Revenue in USD millions"),
+            ebitda_usd_mn: z.number().finite().optional().describe("EBITDA in USD millions"),
+            ev_usd_mn: z
+              .number()
+              .finite()
+              .optional()
+              .describe("Enterprise value in USD millions"),
+          }),
+        )
+        .max(MAX_FINANCIAL_ROWS)
+        .optional()
+        .describe("Per-fiscal-year figures in USD millions, one row per year"),
       note: z
         .string()
         .optional()

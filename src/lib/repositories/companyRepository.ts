@@ -104,6 +104,8 @@ export interface CompanyFilters {
   excludeStage?: string;
   stageNotNull?: boolean;
   excludeDropped?: boolean;
+  /** Exact match on `companies.source`; a null source matches neither. */
+  source?: "inbound" | "outbound";
   createdAfter?: string;
   orderBy?: string;
   orderDir?: "asc" | "desc";
@@ -147,6 +149,13 @@ export interface CompanyAgentFilters {
   stage?: string;
   /** Match any of several pipeline stages (exact). Combined with OR. */
   stageIn?: string[];
+  /**
+   * Exclude these stages. Setting it (even to `[]`) also means the caller has
+   * chosen the stage scope, so `discovered` rows are not dropped by default —
+   * `[]` is "every stage". The agent tools' default cohort excludes the
+   * pre-pipeline buckets this way, so a workspace's added stages are covered.
+   */
+  stageNotIn?: string[];
   name?: string;
   /** Partial match against any of the company's stored alternative names. */
   alias?: string;
@@ -283,6 +292,7 @@ function buildFilterWhere(filters: CompanyFilters, workspaceId: string): SQL | u
   if (filters.excludeDropped) {
     conditions.push(ne(companies.status, "dropped"));
   }
+  if (filters.source) conditions.push(eq(companies.source, filters.source));
   if (filters.createdAfter)
     conditions.push(gte(companies.created_at, filters.createdAfter));
   if (filters.targetSearch && filters.targetSearch.trim().length > 0) {
@@ -741,6 +751,8 @@ export class CompanyRepository {
       push(eq(companies.pipeline_stage, filters.stage as DealStage));
     if (filters.stageIn && filters.stageIn.length > 0)
       push(inArray(companies.pipeline_stage, filters.stageIn as DealStage[]));
+    if (filters.stageNotIn && filters.stageNotIn.length > 0)
+      push(notInArray(companies.pipeline_stage, filters.stageNotIn));
     if (filters.name) {
       const term = `%${filters.name}%`;
       push(
@@ -944,6 +956,7 @@ export class CompanyRepository {
     // would silently drop companies the user asked for by id.
     if (
       !filters.ids &&
+      !filters.stageNotIn &&
       filters.stage !== "discovered" &&
       !filters.stageIn?.includes("discovered")
     ) {
@@ -984,6 +997,7 @@ export class CompanyRepository {
     // e.g. an Excel export of rows query_companies already returned).
     if (
       !filters.ids &&
+      !filters.stageNotIn &&
       filters.stage !== "discovered" &&
       !filters.stageIn?.includes("discovered")
     ) {
@@ -1129,6 +1143,21 @@ export class CompanyRepository {
       .from(companies)
       .where(and(...conditions));
     return Number(row?.value ?? 0);
+  }
+
+  /** Ids of the active (not dropped) companies at a pipeline stage. */
+  async findActiveIdsByStage(stage: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.pipeline_stage, stage),
+          eq(companies.status, "active"),
+          eq(companies.workspace_id, this.workspaceId),
+        ),
+      );
+    return rows.map((r) => r.id);
   }
 
   async findDroppedIds(ids: string[]): Promise<string[]> {

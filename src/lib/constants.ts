@@ -1,5 +1,6 @@
 import type { analysisJobStatus } from './db/schema';
 import type { DealStage } from './types';
+import { BUILTIN_PIPELINE_STAGE_KEYS } from './pipeline/stages';
 
 export const ANALYSIS_JOB_STATUS = ['pending', 'processing', 'completed', 'failed'] as const;
 export type AnalysisJobStatus = (typeof ANALYSIS_JOB_STATUS)[number];
@@ -19,38 +20,36 @@ export const ANALYSIS_IN_PROGRESS_STATUSES: readonly AnalysisJobStatus[] = ['pen
 export const isAnalysisInProgress = (status: AnalysisJobStatus | null | undefined): boolean =>
   status != null && ANALYSIS_IN_PROGRESS_STATUSES.includes(status);
 
-/** Ordered pipeline stages (excludes market_screening). Source of truth for promote/demote navigation. */
-export const PIPELINE_STAGES: DealStage[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
-
 /**
  * Which way a stage move travels along the pipeline.
  *
  * One code path (`CompanyService.promote`) serves both directions, so the
  * telemetry it emits has to work the direction out from the stages themselves.
- * Stages outside `PIPELINE_STAGES` (`market_screening`, `unreviewed`,
+ * Stages outside `stageOrder` (`market_screening`, `unreviewed`,
  * `discovered`, or an absent current stage) rank below L0, so entering the
  * pipeline always reads as a promotion.
  */
 export function stageMoveDirection(
   currentStage: string | undefined | null,
   nextStage: string,
+  /** The workspace's live stage keys in pipeline order. */
+  stageOrder: readonly string[] = BUILTIN_PIPELINE_STAGE_KEYS,
 ): 'promote' | 'demote' {
-  const rank = (stage: string | undefined | null) =>
-    stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
+  const rank = (stage: string | undefined | null) => (stage ? stageOrder.indexOf(stage) : -1);
   return rank(nextStage) < rank(currentStage) ? 'demote' : 'promote';
 }
 
 /**
- * The pre-pipeline bucket a deal sits in before anyone has triaged it — the
- * Pipeline's "Inbound Pending Review" sub-tab. Demoting out of L0 sends a deal
- * back here rather than nowhere (L0 is the first committed pipeline stage, so
- * there is no L-minus-one to step back to).
+ * The pre-pipeline bucket a deal sits in before anyone has triaged it — shown
+ * as "Pending Confirmation" (Sourcing's first tab, and the chip on Pipeline).
+ * Demoting out of L0 sends a deal back here rather than nowhere (L0 is the
+ * first committed pipeline stage, so there is no L-minus-one to step back to).
  */
 export const UNREVIEWED_STAGE: DealStage = 'unreviewed';
 
 /**
  * Stage a deal moves to when promoted one step, or `null` when there is
- * nowhere further to go (L5, or a stage outside the promote/demote ladder).
+ * nowhere further to go (the last stage in `stageOrder`, or a stage outside it).
  *
  * `unreviewed` sits one rung below L0, so a pending-review deal promotes into
  * L0 — not into L1, which is what reading the *table's* stage instead of the
@@ -58,33 +57,37 @@ export const UNREVIEWED_STAGE: DealStage = 'unreviewed';
  */
 export function promoteTargetForStage(
   stage: string | undefined | null,
+  /** The workspace's live stage keys in pipeline order (L0 always first). */
+  stageOrder: readonly string[] = BUILTIN_PIPELINE_STAGE_KEYS,
 ): DealStage | null {
-  if (stage === UNREVIEWED_STAGE) return PIPELINE_STAGES[0];
-  const index = stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
-  if (index < 0 || index >= PIPELINE_STAGES.length - 1) return null;
-  return PIPELINE_STAGES[index + 1];
+  if (stage === UNREVIEWED_STAGE) return stageOrder[0] ?? null;
+  const index = stage ? stageOrder.indexOf(stage) : -1;
+  if (index < 0 || index >= stageOrder.length - 1) return null;
+  return stageOrder[index + 1];
 }
 
 /**
  * Stage a deal moves to when demoted one step, or `null` when there is nowhere
  * to fall back to.
  *
- * L0 demotes out of the committed pipeline and back to `unreviewed` ("Inbound
- * Pending Review"). That only makes sense for inbound-sourced deals — the
- * Pending Review section is inbound-only, so an outbound deal demoted out of
+ * L0 demotes out of the committed pipeline and back to `unreviewed` ("Pending
+ * Confirmation"). That only makes sense for inbound-sourced deals — the
+ * Pending Confirmation bucket is inbound-only, so an outbound deal demoted out of
  * L0 would have no visible home. Outbound callers pass
  * `demoteL0ToReview: false` and get `null` at L0, i.e. no demote action.
  */
 export function demoteTargetForStage(
   stage: string | undefined | null,
   opts?: { demoteL0ToReview?: boolean },
+  /** The workspace's live stage keys in pipeline order (L0 always first). */
+  stageOrder: readonly string[] = BUILTIN_PIPELINE_STAGE_KEYS,
 ): DealStage | null {
-  const index = stage ? PIPELINE_STAGES.indexOf(stage as DealStage) : -1;
+  const index = stage ? stageOrder.indexOf(stage) : -1;
   if (index < 0) return null;
   if (index === 0) {
     return opts?.demoteL0ToReview ? UNREVIEWED_STAGE : null;
   }
-  return PIPELINE_STAGES[index - 1];
+  return stageOrder[index - 1];
 }
 
 /**
@@ -93,9 +96,13 @@ export function demoteTargetForStage(
  * `unreviewed` needs spelling out, since "Demote to unreviewed" doesn't point
  * at the section the deal actually lands in.
  */
-export function stageMoveLabel(stage: string | undefined | null): string {
+export function stageMoveLabel(
+  stage: string | undefined | null,
+  /** Maps a stage key to the code users see (`usePipelineStages().code`). */
+  code: (key: string) => string = (key) => key,
+): string {
   if (!stage) return '';
-  return stage === UNREVIEWED_STAGE ? 'Inbound Pending Review' : stage;
+  return stage === UNREVIEWED_STAGE ? 'Pending Confirmation' : code(stage);
 }
 
 /**
@@ -161,15 +168,13 @@ export const ROLE_VIEWER_ID = '00000000-0000-0000-0000-000000000103';
  */
 export const NO_ACTIVE_WORKSPACE_ID = '00000000-0000-0000-0000-000000000000';
 
-export const STAGE_LABELS: Record<DealStage | 'Acquired', string> = {
+/**
+ * Fixed display names for the pre-pipeline buckets — the stage values that are
+ * not workspace pipeline stages. Pipeline stage names are per workspace: read
+ * them from `usePipelineStages` (client) or `pipeline_stages` (server).
+ */
+export const STAGE_LABELS: Readonly<Record<string, string>> = {
   market_screening: 'Market Scanning',
   unreviewed: 'Unreviewed',
-  L0: 'Sourcing',
-  L1: 'Screening',
-  L2: 'Initial Review',
-  L3: 'Due Diligence',
-  L4: 'Negotiation',
-  L5: 'Closing',
   discovered: 'Discovered',
-  Acquired: 'Acquired',
 };

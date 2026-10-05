@@ -683,7 +683,7 @@ async function markWaitingStep(
   });
   await kickDispatcher(db);
   // The reason is the human-readable fallback; toolName/toolArgs let the email
-  // render the structured proposal card (e.g. promote_to_l1 → L0→L1).
+  // render the structured proposal card (e.g. promote_to_l1 → L0 to the next stage).
   await makeNotifier(db, workspaceId).notifyTaskWaitingApproval(runId, {
     action: reason,
     toolName,

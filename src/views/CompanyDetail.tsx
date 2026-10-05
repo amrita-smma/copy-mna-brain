@@ -107,8 +107,9 @@ import {
   useDealDocumentProcessingPoll,
 } from '@/components/Files/DocumentInsightsPanel';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
-import { DealStage } from '@/lib/types';
-import { OWNERSHIP_OPTIONS, STAGE_LABELS, isAnalysisInProgress } from '@/lib/constants';
+import { OWNERSHIP_OPTIONS, isAnalysisInProgress } from '@/lib/constants';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
+import { stageSelectOptions } from '@/lib/pipeline/stages';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
   addCompanyLink,
@@ -121,10 +122,10 @@ import {
   getTracks,
   getUsers,
   updateCompany,
-  restoreDeal,
   type Track,
   type UserSummary,
 } from '@/lib/api/pipeline';
+import { useRestoreDeal } from '@/components/pipeline/useRestoreDeal';
 import DropDealDialog from '@/components/pipeline/DropDealDialog';
 
 const websiteHref = (url: string) =>
@@ -135,11 +136,6 @@ const isoToDateInput = (iso: string | null | undefined): string => {
   if (!iso) return '';
   const d = new Date(iso);
   return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
-};
-
-const getStageLabel = (stage: string | null): string => {
-  const key = (stage || 'L0') as DealStage;
-  return STAGE_LABELS[key] ?? key;
 };
 
 interface CompanyData {
@@ -396,6 +392,10 @@ export default function CompanyDetail() {
   };
 
   const [company, setCompany] = useState<CompanyData | null>(null);
+  const { restore: restoreWithStagePrompt, restoreStageDialog } = useRestoreDeal();
+  const pipelineStages = usePipelineStages();
+  const getStageLabel = (stage: string | null): string =>
+    pipelineStages.displayLabel(stage || 'L0');
 
   // Name the deal on screen for the copilot, so "this company" resolves without
   // the user having to type the name — and so the agent can pass the id straight
@@ -645,10 +645,23 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     // board's restore action.
     setIsTogglingDealStatus(true);
     try {
-      await restoreDeal(company.id, { currentStage: company.pipeline_stage });
+      const { restored, stage } = await restoreWithStagePrompt({
+        id: company.id,
+        name: companyDisplayName(company, 'This deal'),
+        currentStage: company.pipeline_stage,
+      });
+      if (!restored) return;
       toast.success(`Restored ${companyDisplayName(company, 'company')}`);
       setCompany((prev) =>
-        prev ? { ...prev, status: 'active', dropped_at: null, dropped_reason: null } : prev,
+        prev
+          ? {
+              ...prev,
+              status: 'active',
+              dropped_at: null,
+              dropped_reason: null,
+              pipeline_stage: stage ?? prev.pipeline_stage,
+            }
+          : prev,
       );
     } catch (err: unknown) {
       console.error('Error restoring deal:', err);
@@ -1893,8 +1906,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     <Select value={editForm.pipeline_stage} onValueChange={(v) => setEditForm({ ...editForm, pipeline_stage: v })} disabled={isSaving}>
                       <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as DealStage[]).map((s) => (
-                          <SelectItem key={s} value={s}>{s} — {STAGE_LABELS[s] ?? s}</SelectItem>
+                        {stageSelectOptions(pipelineStages.liveKeys, editForm.pipeline_stage).map((s) => (
+                          <SelectItem key={s} value={s}>{getStageLabel(s)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1914,19 +1927,19 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   {(() => {
                     const stage =
                       isEditing && editForm ? editForm.pipeline_stage : company.pipeline_stage;
-                    const field = dealLeadField(stage);
+                    const field = dealLeadField(stage, pipelineStages.captainKeys);
                     const pics = matchedTrackPics(company, tracks);
                     const fallback = pics.length > 0 ? pics.join(', ') : null;
                     return (
                       <>
-                        <p className="text-xs text-muted-foreground">{dealLeadLabel(stage)}</p>
+                        <p className="text-xs text-muted-foreground">{dealLeadLabel(stage, pipelineStages.captainKeys)}</p>
                         {isEditing && editForm ? (
                           <div className="mt-1">
                             <UserSelectCombobox
                               value={editForm[field] || null}
                               users={users}
                               placeholder={
-                                fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage)}…`
+                                fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage, pipelineStages.captainKeys)}…`
                               }
                               searchPlaceholder="Search a team member…"
                               emptyText="No team members found."
@@ -1936,7 +1949,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                           </div>
                         ) : (
                           <p className="text-sm font-medium break-words">
-                            {effectiveDealLead(company, stage, tracks) ?? '—'}
+                            {effectiveDealLead(company, stage, tracks, pipelineStages.captainKeys) ?? '—'}
                           </p>
                         )}
                       </>
@@ -2561,6 +2574,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </div>
         </DialogContent>
       </Dialog>
+
+      {restoreStageDialog}
 
       {company && (
         <DropDealDialog

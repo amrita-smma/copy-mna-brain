@@ -1023,6 +1023,13 @@
       "when": 1790640000000,
       "tag": "20260929000000_fl_corporate_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1791072000000,
+      "tag": "20261004000000_pipeline_stages",
+      "breakpoints": true
     }
   ]
 }

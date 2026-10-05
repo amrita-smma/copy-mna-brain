@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import { createDb } from "@/lib/server/db";
 import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from "@/lib/workspace";
 import { createContainer } from "@/lib/services";
-import { CompanyL0RequirementsError } from "@/lib/services/companyService";
+import {
+  CompanyL0RequirementsError,
+  PipelineStageUnavailableError,
+} from "@/lib/services/companyService";
 import { UserRepository } from "@/lib/repositories/userRepository";
 
 function parseBool(value: string | null) {
@@ -24,6 +27,10 @@ export async function GET(req: NextRequest) {
     const excludeStage = params.get("excludeStage") ?? undefined;
     const stageNotNull = parseBool(params.get("stageNotNull"));
     const excludeDropped = parseBool(params.get("excludeDropped"));
+    // Only the two deal_origin values — anything else would fail the enum cast.
+    const rawSource = params.get("source");
+    const source =
+      rawSource === "inbound" || rawSource === "outbound" ? rawSource : undefined;
     const createdAfter = params.get("createdAfter") ?? undefined;
     const orderBy = params.get("orderBy") ?? "updated_at";
     const orderDir = (params.get("orderDir") ?? "desc") as "asc" | "desc";
@@ -66,6 +73,7 @@ export async function GET(req: NextRequest) {
         excludeStage,
         stageNotNull,
         excludeDropped,
+        source,
         createdAfter,
       });
       return NextResponse.json({ data: { count } });
@@ -139,6 +147,9 @@ export async function POST(req: NextRequest) {
     if (error instanceof NoActiveWorkspaceError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
+    if (error instanceof PipelineStageUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     const cause = error instanceof Error ? error.cause : undefined;
     console.error('[POST /api/companies]', cause ?? error);
     // Surface the underlying DB error (drizzle wraps the real Postgres message
@@ -177,6 +188,9 @@ export async function PATCH(req: NextRequest) {
     const data = await companyService.updateMany(ids, updates, logAction);
     return NextResponse.json({ data });
   } catch (error: unknown) {
+    if (error instanceof PipelineStageUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof CompanyL0RequirementsError) {
       return NextResponse.json(
         { error: error.message, missingFields: error.missingFields },

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DashboardActivityRepository } from './dashboardActivityRepository';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 
 const mockDb = {
   select: vi.fn().mockReturnThis(),
@@ -274,5 +276,29 @@ describe('DashboardActivityRepository.getDiscoveredCompanies', () => {
     );
 
     expect(result).toEqual(rows);
+  });
+});
+
+describe('DashboardActivityRepository.getAddedCompanies — pipeline scope', () => {
+  it('counts every stage except the pre-pipeline buckets, so added and deleted stages are in the cohort', async () => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnThis();
+    mockDb.from.mockReturnThis();
+    mockDb.innerJoin.mockReturnThis();
+    mockDb.leftJoin.mockReturnThis();
+    mockDb.where.mockReturnThis();
+    mockDb.orderBy.mockResolvedValueOnce([]);
+    const repo = new DashboardActivityRepository(mockDb as never, 'workspace-1');
+
+    await repo.getAddedCompanies(new Date('2026-01-01'), new Date('2026-01-08'));
+
+    // The cohort filter is the where() that scopes pipeline_stage (others build joins).
+    const queries = mockDb.where.mock.calls.map((c) => new PgDialect().sqlToQuery(c[0] as SQL));
+    const cohort = queries.find((q) => q.sql.includes('"pipeline_stage"'));
+    expect(cohort).toBeDefined();
+    const { sql: rendered, params } = cohort!;
+    expect(rendered).toContain('"pipeline_stage" not in');
+    expect(params).toEqual(expect.arrayContaining(['market_screening', 'unreviewed', 'discovered']));
+    expect(params).not.toContain('L0');
   });
 });

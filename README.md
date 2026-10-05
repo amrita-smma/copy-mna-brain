@@ -224,6 +224,28 @@ A distraction-free, full-screen file viewer for PDF and PPTX files — the file 
 
 All three are session-authenticated via `auth()`.
 
+## Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)
+
+The deal funnel is split across two sidebar pages, both gated by `PIPELINE_ENABLED`:
+
+- **Sourcing** (`/sourcing`) holds deals that are not yet in L0. Its **Pending Confirmation** tab lists unreviewed inbound deals (`pipeline_stage = 'unreviewed'`) with search, an Origin (document type) filter, the triage banner and the Triage Unreviewed modal. Its **AI Market Scanning** tab holds the market-scan status and the AI-discovered companies. `?tab=scanning` opens the second tab.
+- **Pipeline** (`/pipeline`) holds the deal table. The stage filter offers All Stages (the default), each of the workspace's stages (see below), and a Pending Confirmation chip that shows the same unreviewed bucket inline. The dropdown row picks the source (inbound or outbound table), the status (active or dropped), the tracks, the sort and the columns. `?stage=` takes `all`, `pending` or a stage key; the parsing, matching and per-stage counting rules live in `src/lib/pipeline/stageView.ts`.
+- **Pipeline search** combines with the stage filter. The first keystroke widens the filter to All Stages; each stage tab and the Pending chip then show how many matches they hold, and clicking one narrows the results without clearing the search. Clearing the search restores the stage the user started from, unless they picked another stage mid-search. When the other source's table also has matches, a "N matches in Outbound — Show" line switches to it. The search text lives in `?q=` (written with `history.replaceState`, so typing adds no history entries).
+
+`src/views/Sourcing.tsx` renders `Pipeline` with `page="sourcing"`, so both pages share one data load, the same row actions and the same dialogs (company detail, update, promote/demote, drop, triage).
+
+### Configurable pipeline stages (MB-651)
+
+Each workspace names, numbers, describes, orders, adds and deletes its own deal stages, from **Configure → Pipeline Settings** on the Pipeline page (the Configuration dialog, beside Investment Track).
+
+- **Storage.** `pipeline_stages` holds one row per workspace stage: `key`, `code` (the editable number, e.g. `L3`, unique among live stages), `name` (≤ 40 chars), `description` (plain text), `position` and `deleted_at`. A trigger on `workspaces` insert seeds the six defaults (L0 Company Sourcing … L5 Closing), so every insert path gets them. `companies.pipeline_stage` is text: a stage `key`, or one of the fixed pre-pipeline buckets `market_screening`, `unreviewed`, `discovered`.
+- **Keys never change.** The six original stages keep the keys `L0`–`L5`; added stages get `stg-<hex>`. Renaming or renumbering a stage changes only `code` / `name`, so companies, logs and links stay valid.
+- **Rules stay on their stage.** The L0 entry checks and track matching, and Acquired-at-L5, follow the original key wherever the stage is moved. Range rules follow position: the Deal Captain applies from L3 onward and the stale-deal SLA covers L0 through L3, in the workspace's order (a stage added after L3 is a Captain stage).
+- **Screening promotes into the stage after L0.** AI screening is the gate out of L0, so its promote (the Screening Progress panel and the workforce `promote_to_l1` tool) targets whichever live stage follows L0 — L1 by default — and the screening-result filter sits on that stage's tab. Deleting, moving or inserting a stage before L1 never strands it; only a workspace with nothing after L0 loses the promote. Helpers live in `src/lib/pipeline/stages.ts` (`screeningTargetKey`, `stageKeysFrom`, `stageKeysThrough`, `isInPipelineStage`).
+- **L0 is locked**: it can be renamed but not moved or deleted, because confirmed deals enter there and demoting out of it returns a deal to Pending Confirmation.
+- **Deleting** a stage moves its active deals to a stage the user picks (logged as ordinary `PROMOTED_FROM_x_TO_y` moves) and soft-deletes the row. Dropped deals stay at the deleted stage and keep its name; restoring one asks which stage to restore it to (`restore_stage_required`), and the resurface cron brings one back at L0. No move, bulk move or Current Stage edit can target a deleted stage.
+- **Code.** `PipelineStageService` (`/api/pipeline-stages`, `/api/pipeline-stages/[key]`, `/api/pipeline-stages/[key]/move`) owns the changes; views read the stages through `usePipelineStages()`; the agent tools accept any stage key and `list_pipeline_stages` maps the codes users say to keys.
+
 ## One company-filter vocabulary across the analysis tools
 
 `src/lib/agents/analysis/tools/companyFilters.ts` owns the single filter
@@ -249,7 +271,8 @@ now derives from one place:
 - **`COMPANY_FILTER_DOC`** — the filter reference injected verbatim into each
   tool's description, so the model reads one identical list regardless of which
   tool it reaches for. `COMPANY_STAGE_DEFAULT_DOC` is deliberately separate: the
-  read tools default to the L0–L5 committed funnel, while the Excel export has
+  read tools default to the committed funnel (every workspace stage, excluding
+  the pre-pipeline buckets), while the Excel export has
   **no** stage default so "email me the whole pipeline" means the whole pipeline.
 - **`resolveCompanyGraphFilter`** — relationship-graph filters (`connected_to`,
   `relation_type`, `has_relationships`) live in Neo4j, not Postgres. This

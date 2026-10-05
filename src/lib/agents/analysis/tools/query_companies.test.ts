@@ -121,14 +121,14 @@ describe('queryCompanies', () => {
     expect(passed.stageIn).toBeUndefined();
   });
 
-  it('defaults the cohort to the L0–L5 funnel when no stage is specified', async () => {
+  it('defaults the cohort to every pipeline stage when no stage is specified', async () => {
     searchForAgentMock.mockResolvedValue([]);
 
     await queryCompanies.invoke({ segment: 'Tech' });
 
     expect(searchForAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        stageIn: ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+        stageNotIn: ['market_screening', 'unreviewed', 'discovered'],
       }),
     );
     expect(searchForAgentMock.mock.calls[0][0].stage).toBeUndefined();
@@ -239,7 +239,8 @@ describe('queryCompanies', () => {
 
     await queryCompanies.invoke({ include_pre_pipeline: true });
 
-    expect(searchForAgentMock.mock.calls[0][0].stageIn).toContain('market_screening');
+    expect(searchForAgentMock.mock.calls[0][0].stageIn).toBeUndefined();
+    expect(searchForAgentMock.mock.calls[0][0].stageNotIn).toEqual([]);
   });
 
   it('forwards stage_in as-is instead of applying the default cohort', async () => {

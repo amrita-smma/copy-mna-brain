@@ -17,6 +17,7 @@ import {
   FileRepository,
   InvestmentThesisRepository,
   TrackVariableRepository,
+  PipelineStageRepository,
   JobRepository,
   ResetPasswordTokenRepository,
   UserRepository,
@@ -87,6 +88,7 @@ import { ClientHealthService } from './clientHealthService';
 import { CriteriaService } from './criteriaService';
 import { InvestmentThesisService } from './investmentThesisService';
 import { TrackVariableService } from './trackVariableService';
+import { PipelineStageService } from './pipelineStageService';
 import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
 import { RecentFileService } from './recentFileService';
@@ -145,6 +147,7 @@ export interface Container {
   criteriaService: CriteriaService;
   investmentThesisService: InvestmentThesisService;
   trackVariableService: TrackVariableService;
+  pipelineStageService: PipelineStageService;
   marketScanningRoutineService: MarketScanningRoutineService;
   dealDocumentService: DealDocumentService;
   recentFileService: RecentFileService;
@@ -222,6 +225,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const fileRepo = new FileRepository(db, workspaceId);
   const thesisRepo = new InvestmentThesisRepository(db, workspaceId);
   const trackVariableRepo = new TrackVariableRepository(db, workspaceId);
+  const pipelineStageRepo = new PipelineStageRepository(db, workspaceId);
   const jobRepo = new JobRepository(db);
   const userRepo = new UserRepository(db);
   const resetTokenRepo = new ResetPasswordTokenRepository(db);
@@ -274,6 +278,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     // A pipeline stage move regenerates the AI Company Card against the latest
     // information (see CompanyService.promote / promoteMany / updateFromDTO).
     companyAnalysisService,
+    pipelineStageRepo,
+  );
+  const pipelineStageService = new PipelineStageService(
+    pipelineStageRepo,
+    companyRepo,
+    companyService,
   );
   const companyCardSlideService = new CompanyCardSlideService(
     companyService,
@@ -282,6 +292,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackVariableService,
     workspaceService,
     workspaceId,
+    pipelineStageRepo,
   );
   const companyVoteRepo = new CompanyVoteRepository(db, workspaceId);
   const companyVoteService = new CompanyVoteService(
@@ -355,7 +366,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const alphasenseToolCallService = new AlphasenseToolCallService(alphasenseToolCallRepo);
 
   const dashboardActivityRepo = new DashboardActivityRepository(db, workspaceId);
-  const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo);
+  const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo, pipelineStageRepo);
 
   const dashboardInsightsRepo = new DashboardInsightsRepository(db, workspaceId);
   const appSettingsRepo = new AppSettingsRepository(db);
@@ -363,6 +374,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     dashboardInsightsRepo,
     appSettingsRepo,
     thesisRepo,
+    pipelineStageRepo,
   );
 
   const apiKeyRepo = new ApiKeyRepository(db);
@@ -377,6 +389,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     dealNoteRepo,
     userRepo,
     thesisRepo,
+    undefined,
+    undefined,
+    pipelineStageRepo,
   );
 
   fileService.setCRMService(crmService);
@@ -386,7 +401,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
 
 
-  const stalledDealService = new StalledDealService(companyRepo, companyLogRepo);
+  const stalledDealService = new StalledDealService(companyRepo, companyLogRepo, pipelineStageRepo);
 
   const dailyPulseRepo = new DailyPulseRepository(db, workspaceId);
   const dailyPulseService = new DailyPulseService(workspaceId, dailyPulseRepo);
@@ -586,6 +601,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     criteriaService,
     investmentThesisService,
     trackVariableService,
+    pipelineStageService,
     marketScanningRoutineService,
     dealDocumentService,
     recentFileService,

@@ -138,6 +138,54 @@
   }
 }
 
+/* SQE Suite surface palette (MB-648), scoped to the Pipeline and Sourcing
+   pages: the prototype's neutral ramp (page n50 / card n0 / border n200) in
+   light, and n1000 / n950 / n800 in dark. Only the surface tokens change, so
+   --primary stays the app-wide Azure. Portaled dialogs and menus sit outside
+   this scope and keep the app theme. */
+@layer base {
+  .suite-surface {
+    --background: 220 33% 98%; /* n50 #F9FAFC */
+    --foreground: 214 21% 15%; /* n950 #1E252E */
+    --card: 0 0% 100%;
+    --card-foreground: 214 21% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 214 21% 15%;
+    --secondary: 218 29% 95%; /* n100 #EDF0F5 */
+    --secondary-foreground: 214 21% 15%;
+    --muted: 218 29% 95%;
+    --muted-foreground: 215 13% 57%; /* n500 #8490A1 */
+    --border: 218 24% 87%; /* n200 #D5DBE5 */
+    --input: 217 20% 77%; /* n300 #BAC3D1 */
+  }
+
+  .dark .suite-surface {
+    --background: 213 19% 9%; /* n1000 #13171C */
+    --foreground: 0 0% 100%;
+    --card: 214 21% 15%; /* n950 #1E252E */
+    --card-foreground: 0 0% 100%;
+    --popover: 214 21% 15%;
+    --popover-foreground: 0 0% 100%;
+    --secondary: 213 18% 20%; /* n900 #29313B */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 213 18% 20%;
+    --muted-foreground: 216 16% 69%; /* n400 #A4AEBD */
+    --border: 214 16% 28%; /* n800 #3B4552 */
+    --input: 214 16% 37%; /* n700 #505D6E */
+  }
+
+  /* The page header band above the cards. */
+  .suite-hero {
+    background-image: linear-gradient(135deg, #e6f0fd, #f9fafc); /* blue-50 → n50 */
+  }
+
+  /* The prototype keeps the light gradient in dark mode too, which leaves its
+     white title unreadable; this is the dark counterpart (blue-950 → n1000). */
+  .dark .suite-hero {
+    background-image: linear-gradient(135deg, #00234d, #13171c);
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alpha2ToFlag, countryFlag } from './countryFlag';
+import { alpha2ToFlag, countryCode, countryFlag } from './countryFlag';
 
 describe('alpha2ToFlag', () => {
   it('maps a two-letter code to its regional-indicator flag', () => {
@@ -11,6 +11,19 @@ describe('alpha2ToFlag', () => {
     expect(alpha2ToFlag('')).toBe('🌐');
     expect(alpha2ToFlag('USA')).toBe('🌐');
     expect(alpha2ToFlag('1A')).toBe('🌐');
+  });
+});
+
+describe('countryCode', () => {
+  it('resolves a country name or alias to its alpha-2 code', () => {
+    expect(countryCode('Indonesia')).toBe('ID');
+    expect(countryCode('USA')).toBe('US');
+    expect(countryCode('Korea')).toBe('KR');
+  });
+
+  it('returns null for a region or a list of countries', () => {
+    expect(countryCode('Asia Pacific')).toBeNull();
+    expect(countryCode('Malaysia, Singapore')).toBeNull();
   });
 });
 

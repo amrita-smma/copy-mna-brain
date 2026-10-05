@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PIPELINE_STAGES,
   UNREVIEWED_STAGE,
   demoteTargetForStage,
   promoteTargetForStage,
   stageMoveDirection,
   stageMoveLabel,
 } from './constants';
+import { BUILTIN_PIPELINE_STAGE_KEYS } from './pipeline/stages';
 
 describe('stageMoveDirection', () => {
   it('reads a forward move along the pipeline as a promotion', () => {
@@ -32,7 +32,7 @@ describe('stageMoveDirection', () => {
 
   it('treats dropping out of the pipeline back to a pre-L0 stage as a demotion', () => {
     expect(stageMoveDirection('L2', 'unreviewed')).toBe('demote');
-    // The L0 -> Inbound Pending Review fallback, which has no L-minus-one to
+    // The L0 -> Pending Confirmation fallback, which has no L-minus-one to
     // step back to and so leaves the pipeline entirely.
     expect(stageMoveDirection('L0', 'unreviewed')).toBe('demote');
   });
@@ -43,9 +43,9 @@ describe('stageMoveDirection', () => {
   });
 
   it('agrees with the declared pipeline order at every adjacent step', () => {
-    for (let i = 1; i < PIPELINE_STAGES.length; i++) {
-      expect(stageMoveDirection(PIPELINE_STAGES[i - 1], PIPELINE_STAGES[i])).toBe('promote');
-      expect(stageMoveDirection(PIPELINE_STAGES[i], PIPELINE_STAGES[i - 1])).toBe('demote');
+    for (let i = 1; i < BUILTIN_PIPELINE_STAGE_KEYS.length; i++) {
+      expect(stageMoveDirection(BUILTIN_PIPELINE_STAGE_KEYS[i - 1], BUILTIN_PIPELINE_STAGE_KEYS[i])).toBe('promote');
+      expect(stageMoveDirection(BUILTIN_PIPELINE_STAGE_KEYS[i], BUILTIN_PIPELINE_STAGE_KEYS[i - 1])).toBe('demote');
     }
   });
 });
@@ -78,7 +78,7 @@ describe('demoteTargetForStage', () => {
     expect(demoteTargetForStage('L5')).toBe('L4');
   });
 
-  it('demotes L0 back to Inbound Pending Review when that bucket is available', () => {
+  it('demotes L0 back to Pending Confirmation when that bucket is available', () => {
     expect(demoteTargetForStage('L0', { demoteL0ToReview: true })).toBe(UNREVIEWED_STAGE);
   });
 
@@ -102,7 +102,7 @@ describe('demoteTargetForStage', () => {
   });
 
   it('reads as a demotion to stageMoveDirection at every step it produces', () => {
-    for (const stage of PIPELINE_STAGES) {
+    for (const stage of BUILTIN_PIPELINE_STAGE_KEYS) {
       const target = demoteTargetForStage(stage, { demoteL0ToReview: true });
       if (!target) continue;
       expect(stageMoveDirection(stage, target)).toBe('demote');
@@ -111,12 +111,12 @@ describe('demoteTargetForStage', () => {
 });
 
 describe('stageMoveLabel', () => {
-  it('spells out the pending-review bucket', () => {
-    expect(stageMoveLabel(UNREVIEWED_STAGE)).toBe('Inbound Pending Review');
+  it('names the unreviewed bucket as Pending Confirmation', () => {
+    expect(stageMoveLabel(UNREVIEWED_STAGE)).toBe('Pending Confirmation');
   });
 
   it('leaves pipeline stages as their bare L-code', () => {
-    for (const stage of PIPELINE_STAGES) {
+    for (const stage of BUILTIN_PIPELINE_STAGE_KEYS) {
       expect(stageMoveLabel(stage)).toBe(stage);
     }
   });
@@ -124,5 +124,28 @@ describe('stageMoveLabel', () => {
   it('renders an absent stage as an empty string', () => {
     expect(stageMoveLabel(undefined)).toBe('');
     expect(stageMoveLabel(null)).toBe('');
+  });
+});
+
+describe('promote/demote over a workspace stage order', () => {
+  const ORDER = ['L0', 'L1', 'stg-calls', 'L3'];
+
+  it('steps through an added stage in both directions', () => {
+    expect(promoteTargetForStage('L1', ORDER)).toBe('stg-calls');
+    expect(promoteTargetForStage('stg-calls', ORDER)).toBe('L3');
+    expect(demoteTargetForStage('L3', undefined, ORDER)).toBe('stg-calls');
+  });
+
+  it('has nowhere to promote from the last stage, and pending promotes into the first', () => {
+    expect(promoteTargetForStage('L3', ORDER)).toBeNull();
+    expect(promoteTargetForStage('unreviewed', ORDER)).toBe('L0');
+  });
+
+  it('reads direction from the workspace order', () => {
+    expect(stageMoveDirection('L3', 'stg-calls', ORDER)).toBe('demote');
+  });
+
+  it('labels a move with the stage code', () => {
+    expect(stageMoveLabel('stg-calls', () => 'L1b')).toBe('L1b');
   });
 });

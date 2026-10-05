@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { loadStageLabeler } from "./stageLabels";
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
@@ -10,9 +11,8 @@ import {
 } from "@/lib/repositories";
 import {
   COMPANY_FILTER_DOC,
-  COMPANY_STAGES,
   COMPANY_STAGE_DEFAULT_DOC,
-  PIPELINE_STAGES,
+  PRE_PIPELINE_STAGE_KEYS,
   companyFilterShape,
   mapCompanyFilters,
   mergeGraphFilter,
@@ -37,14 +37,18 @@ const GROUP_BY_DIMENSIONS = [
 type GroupByDimension = (typeof GROUP_BY_DIMENSIONS)[number];
 
 /** Pull the bucket key for a company along a given dimension. */
-function dimensionKey(c: Company, dim: GroupByDimension): string {
+function dimensionKey(
+  c: Company,
+  dim: GroupByDimension,
+  stageText: (stage: string | null | undefined) => string | null,
+): string {
   switch (dim) {
     case "segment":
       return c.segment || "Unknown";
     case "geography":
       return c.geography || "Unknown";
     case "stage":
-      return c.pipeline_stage || "Unknown";
+      return stageText(c.pipeline_stage) || "Unknown";
     case "source":
       return c.source || "Unknown";
     case "status":
@@ -171,6 +175,7 @@ export const getCompanyStats = tool(
       const workspaceId = await getActiveWorkspaceId();
       const companyRepo = new CompanyRepository(db, workspaceId);
       const financialRepo = new CompanyFinancialRepository(db, workspaceId);
+      const stageText = await loadStageLabeler(db, workspaceId);
 
       // Graph filters live in Neo4j; resolve them into an id include/exclude
       // list before Postgres sees the cohort.
@@ -186,7 +191,7 @@ export const getCompanyStats = tool(
       const hasFilter = Object.values(filters).some((v) => v !== undefined);
 
       // Unless the caller explicitly scopes a stage (or pins exact ids), default
-      // the cohort to the L0–L5 committed origination funnel. Earlier triage
+      // the cohort to the committed origination funnel (every workspace stage). Earlier triage
       // buckets (market_screening, unreviewed, discovered) are excluded from the
       // default snapshot so pipeline stats reflect real deals, not raw intake.
       if (
@@ -194,9 +199,7 @@ export const getCompanyStats = tool(
         !(filterArgs.stage_in && filterArgs.stage_in.length > 0) &&
         !filterArgs.company_ids
       ) {
-        filters.stageIn = filterArgs.include_pre_pipeline
-          ? [...COMPANY_STAGES]
-          : [...PIPELINE_STAGES];
+        filters.stageNotIn = filterArgs.include_pre_pipeline ? [] : [...PRE_PIPELINE_STAGE_KEYS];
       }
 
       const companies = await companyRepo.findForAgentStats(filters);
@@ -283,7 +286,7 @@ export const getCompanyStats = tool(
           total,
           revBy,
           ebitdaBy,
-          (c) => dimensionKey(c, dim),
+          (c) => dimensionKey(c, dim, stageText),
         );
       }
 

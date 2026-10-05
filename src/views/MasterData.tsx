@@ -25,7 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { deleteCompanyById, getCompanies, restoreDeal } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
+import { useRestoreDeal } from '@/components/pipeline/useRestoreDeal';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
 import {
   Database,
   Search,
@@ -104,20 +106,9 @@ interface CompanyWithDeal {
   status: string | null;
 }
 
-const stageLabels: Record<DealStage | 'Acquired', string> = {
-  market_screening: 'Market Screening',
-  unreviewed: 'Unreviewed',
-  L0: 'Sourcing',
-  L1: 'Screening',
-  L2: 'Initial Review',
-  L3: 'Due Diligence',
-  L4: 'Negotiation',
-  L5: 'Closing',
-  discovered: 'Discovered',
-  Acquired: 'Acquired',
-};
-
-const stageColors: Record<DealStage | 'Acquired', string> = {
+/** Badge colour by stage; a stage the workspace added uses STAGE_COLOR_FALLBACK. */
+const STAGE_COLOR_FALLBACK = 'bg-slate-500';
+const stageColors: Record<string, string> = {
   market_screening: 'bg-blue-500',
   unreviewed: 'bg-amber-500',
   L0: 'bg-stage-l0',
@@ -171,8 +162,12 @@ const getRevenueChange = (year2: number | null, year3: number | null): { directi
 
 export default function MasterData() {
   const [companies, setCompanies] = useState<CompanyWithDeal[]>([]);
+  const { restore: restoreWithStagePrompt, restoreStageDialog } = useRestoreDeal();
+  const pipelineStages = usePipelineStages();
+  /** A stage value as text: a workspace stage by code and name, a bucket by its name. */
+  const stageText = pipelineStages.displayLabel;
   // Companies the relationship-graph tooling auto-created (stage "discovered").
-  // They sit outside the L0–L5 pipeline, so they get their own section below.
+  // They sit outside the pipeline stages, so they get their own section below.
   const [discoveredCompanies, setDiscoveredCompanies] = useState<CompanyWithDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -265,7 +260,10 @@ export default function MasterData() {
     try {
       const [data, discovered] = await Promise.all([
         getCompanies({
-          stageIn: ['market_screening', 'unreviewed', 'L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+          // Every stage except relationship-graph stubs, which load separately
+          // below — so stages the workspace added are included.
+          stageNotNull: true,
+          excludeStage: 'discovered',
           orderBy: 'created_at',
           orderDir: 'desc',
         }),
@@ -316,9 +314,16 @@ export default function MasterData() {
   const reactivateCompany = async (company: CompanyWithDeal) => {
     setReactivatingId(company.id);
     try {
-      await restoreDeal(company.id, { currentStage: company.current_stage });
+      const { restored, stage } = await restoreWithStagePrompt({
+        id: company.id,
+        name: companyDisplayName(company, 'This deal'),
+        currentStage: company.current_stage,
+      });
+      if (!restored) return;
       setCompanies((prev) =>
-        prev.map((c) => (c.id === company.id ? { ...c, status: 'active' } : c)),
+        prev.map((c) =>
+          c.id === company.id ? { ...c, status: 'active', current_stage: stage ?? c.current_stage } : c,
+        ),
       );
       toast({
         title: 'Deal reactivated',
@@ -367,8 +372,7 @@ export default function MasterData() {
 
   const droppedCompanies = companies.filter(c => c.status === 'dropped');
   const activeCompanies = companies.filter(c =>
-    c.status !== 'dropped' &&
-    ['market_screening', 'unreviewed', 'L0', 'L1', 'L2', 'L3', 'L4', 'L5'].includes(c.current_stage as string)
+    c.status !== 'dropped' && !!c.current_stage && c.current_stage !== 'discovered'
   );
 
   const countActiveAtStage = (stage: string) =>
@@ -378,16 +382,12 @@ export default function MasterData() {
     total: activeCompanies.length + droppedCompanies.length,
     active: activeCompanies.length,
     drop: droppedCompanies.length,
-    byStage: {
-      market_screening: countActiveAtStage('market_screening'),
-      unreviewed: countActiveAtStage('unreviewed'),
-      L0: countActiveAtStage('L0'),
-      L1: countActiveAtStage('L1'),
-      L2: countActiveAtStage('L2'),
-      L3: countActiveAtStage('L3'),
-      L4: countActiveAtStage('L4'),
-      L5: countActiveAtStage('L5'),
-    },
+    byStage: Object.fromEntries(
+      ['market_screening', 'unreviewed', ...pipelineStages.liveKeys].map((stage) => [
+        stage,
+        countActiveAtStage(stage),
+      ]),
+    ) as Record<string, number>,
   };
 
   const totalPages = Math.max(1, Math.ceil(filteredCompanies.length / itemsPerPage));
@@ -489,14 +489,14 @@ export default function MasterData() {
         cell: (company) => {
           const displayStage = getDisplayStage(company);
           return displayStage ? (
-            <Badge className={`${stageColors[displayStage as DealStage | 'Acquired']} text-white`}>
+            <Badge className={`${stageColors[displayStage] ?? STAGE_COLOR_FALLBACK} text-white`}>
               {displayStage === 'Acquired' ? (
                 <span className="flex items-center gap-1">
                   <CheckCircle2 className="h-3 w-3" />
                   Acquired
                 </span>
               ) : (
-                `${displayStage} - ${stageLabels[displayStage as DealStage]}`
+                stageText(displayStage)
               )}
             </Badge>
           ) : (
@@ -688,7 +688,7 @@ export default function MasterData() {
                 <div className="flex gap-2 flex-wrap">
                   {Object.entries(stats.byStage).map(([stage, count]) => (
                     <Badge key={stage} variant="secondary" className="text-xs">
-                      {stage}: {count}
+                      {stageText(stage)}: {count}
                     </Badge>
                   ))}
                 </div>
@@ -721,14 +721,13 @@ export default function MasterData() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Stages</SelectItem>
-                      <SelectItem value="market_screening">Market Screening</SelectItem>
+                      <SelectItem value="market_screening">{stageText('market_screening')}</SelectItem>
                       <SelectItem value="unreviewed">Unreviewed</SelectItem>
-                      <SelectItem value="L0">L0 - Sourcing</SelectItem>
-                      <SelectItem value="L1">L1 - Screening</SelectItem>
-                      <SelectItem value="L2">L2 - Initial Review</SelectItem>
-                      <SelectItem value="L3">L3 - Due Diligence</SelectItem>
-                      <SelectItem value="L4">L4 - Negotiation</SelectItem>
-                      <SelectItem value="L5">L5 - Closing</SelectItem>
+                      {pipelineStages.live.map((stage) => (
+                        <SelectItem key={stage.key} value={stage.key}>
+                          {pipelineStages.label(stage.key)}
+                        </SelectItem>
+                      ))}
                       <SelectItem value="Acquired">Acquired</SelectItem>
                     </SelectContent>
                   </Select>
@@ -816,10 +815,8 @@ export default function MasterData() {
                       )}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {displayStage ? (
-                          <Badge className={`${stageColors[displayStage as DealStage | 'Acquired']} text-white`}>
-                            {displayStage === 'Acquired'
-                              ? 'Acquired'
-                              : `${displayStage} - ${stageLabels[displayStage as DealStage]}`}
+                          <Badge className={`${stageColors[displayStage] ?? STAGE_COLOR_FALLBACK} text-white`}>
+                            {displayStage === 'Acquired' ? 'Acquired' : stageText(displayStage)}
                           </Badge>
                         ) : (
                           <Badge variant="outline">Not in Pipeline</Badge>
@@ -1007,7 +1004,7 @@ export default function MasterData() {
         </Card>
 
         {/* Discovered Companies — auto-created via the relationship graph,
-            outside the L0–L5 pipeline. Shown as their own section. */}
+            outside the pipeline stages. Shown as their own section. */}
         {discoveredCompanies.length > 0 && (
           <Card>
             <CardHeader>
@@ -1016,7 +1013,7 @@ export default function MasterData() {
                 Discovered Companies ({filteredDiscovered.length})
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                Companies surfaced through the relationship graph. Not yet part of the L0–L5 deal pipeline.
+                Companies surfaced through the relationship graph. Not yet part of the deal pipeline.
               </p>
             </CardHeader>
             <CardContent>
@@ -1043,7 +1040,7 @@ export default function MasterData() {
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium">{displayName || '—'}</span>
                             <Badge className={`${stageColors.discovered} text-white`}>
-                              {stageLabels.discovered}
+                              {stageText('discovered')}
                             </Badge>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
@@ -1135,6 +1132,8 @@ export default function MasterData() {
             }}
           />
         )}
+
+        {restoreStageDialog}
 
         {dropDealCompany && (
           <DropDealDialog

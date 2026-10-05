@@ -46,21 +46,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
 
 /** Cards per section. The page is a jumping-off point, not a full list view. */
 const SECTION_LIMIT = 8;
-
-const STAGE_LABELS: Record<string, string> = {
-  market_screening: 'Market Screening',
-  unreviewed: 'Unreviewed',
-  L0: 'Sourcing',
-  L1: 'Screening',
-  L2: 'Initial Review',
-  L3: 'Due Diligence',
-  L4: 'Negotiation',
-  L5: 'Closing',
-  discovered: 'Discovered',
-};
 
 const ROLE_LABELS: Record<ProfileCompanyRole, string> = {
   captain: 'Deal Captain',
@@ -489,6 +478,7 @@ function CompanyCard({
   company: ProfileCompanyItem;
   onOpen: () => void;
 }) {
+  const { displayLabel } = usePipelineStages();
   const activity = relativeTime(company.lastActivityAt);
   return (
     <ItemCard onOpen={onOpen} testId={`profile-company-${company.id}`}>
@@ -507,7 +497,7 @@ function CompanyCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <Badge variant="outline">
-          {STAGE_LABELS[company.stage] ?? company.stage}
+          {displayLabel(company.stage)}
         </Badge>
         {company.roles.map((role) => (
           <Badge key={role} variant="secondary">

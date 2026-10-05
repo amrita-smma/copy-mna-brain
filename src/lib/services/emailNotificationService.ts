@@ -89,14 +89,18 @@ export function deriveApprovalDetails(
       reasonRaw && note
         ? `${reasonRaw}\n\nNote: ${note}`
         : reasonRaw || (note ? `Note: ${note}` : undefined);
+    // The tool promotes into whichever stage follows L0 in the workspace, and
+    // the call args don't carry it, so the card names it by position.
     return {
-      action: company ? `Promote ${company} to L1` : 'Promote company to L1',
+      action: company
+        ? `Promote ${company} to the next stage`
+        : 'Promote company to the next stage',
       company,
-      proposedAction: 'Move to stage L1',
+      proposedAction: 'Move to the stage after L0',
       reason,
       changeField: 'Pipeline Stage',
       beforeValue: 'L0',
-      afterValue: 'L1',
+      afterValue: 'Next stage',
     };
   }
   if (toolName === ASK_OWNER_TOOL_NAME) {

@@ -213,6 +213,35 @@ describe('buildCompanyCardSlides', () => {
     expect(text).not.toContain('Deal Sponsor:');
   });
 
+  it("draws the workspace's own stages by code and marks the current one by key", () => {
+    const stages = [
+      { key: 'L0', code: 'L0' },
+      { key: 'L1', code: 'L1' },
+      { key: 'stg-calls', code: 'L1b' },
+      { key: 'L3', code: 'L3' },
+    ];
+    const [slide] = buildCompanyCardSlides(
+      input({ company: { ...company, pipeline_stage: 'stg-calls' }, stages }),
+    );
+    expect(findText(slide, 'L1b')!.color).toBe('FFFFFF');
+    expect(findText(slide, 'L1')!.color).toBe('64748B');
+    // A stage the workspace deleted (L2 here) is not drawn.
+    expect(findText(slide, 'L2')).toBeUndefined();
+    expect(slideText(slide)).not.toContain('STG-CALLS');
+  });
+
+  it('uses the Deal Captain label at a stage the workspace added after L3', () => {
+    const text = deckText(
+      buildCompanyCardSlides(
+        input({
+          company: { ...company, pipeline_stage: 'stg-post' },
+          captainStageKeys: ['L3', 'L4', 'L5', 'stg-post'],
+        }),
+      ),
+    );
+    expect(text).toContain('Deal Captain:');
+  });
+
   it('marks the deal live and names the advisor when one is engaged', () => {
     const text = deckText(
       buildCompanyCardSlides(input({ company: { ...company, advisor: 'Rothschild' } })),

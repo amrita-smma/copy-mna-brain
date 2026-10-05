@@ -19,38 +19,19 @@
  */
 import { z } from 'zod';
 import type { CompanyAgentFilters } from '@/lib/repositories';
+import { PRE_PIPELINE_STAGES } from '@/lib/pipeline/stages';
 import {
   RELATION_TYPES,
   type RelationType,
 } from '@/lib/repositories/companyRelationRepository';
 
-/** Every pipeline stage a company can sit in. */
-export const COMPANY_STAGES = [
-  'market_screening',
-  'unreviewed',
-  'discovered',
-  'L0',
-  'L1',
-  'L2',
-  'L3',
-  'L4',
-  'L5',
-] as const;
+/** The pre-pipeline intake buckets — everything outside the committed funnel. */
+export const PRE_PIPELINE_STAGE_KEYS: readonly string[] = [...PRE_PIPELINE_STAGES];
 
-/** The L0–L5 committed origination funnel — the default cohort for the tools. */
-export const PIPELINE_STAGES: readonly string[] = [
-  'L0',
-  'L1',
-  'L2',
-  'L3',
-  'L4',
-  'L5',
-];
+const STAGE_KEY_DOC =
+  'Pipeline stage key: L0–L5, a key the workspace added (stg-…; get it from list_pipeline_stages — users name stages by their code, e.g. "L6"), or a pre-pipeline bucket (market_screening, unreviewed, discovered)';
 
-/** Every stage including the pre-pipeline intake buckets. */
-export const ALL_STAGES: readonly string[] = [...COMPANY_STAGES];
-
-const stageEnum = z.enum(COMPANY_STAGES);
+const stageKey = z.string().min(1).describe(STAGE_KEY_DOC);
 
 // ───────────────────────────────────────────────────────────────────────────
 // Postgres column filters
@@ -95,16 +76,18 @@ export const companyFilterShape = {
     .describe('Ownership (partial match, e.g. "family office", "PE", "public")'),
 
   // ── Pipeline position ──
-  stage: stageEnum.optional().describe('Pipeline stage (exact match)'),
+  stage: stageKey.optional().describe(`Pipeline stage (exact match). ${STAGE_KEY_DOC}`),
   stage_in: z
-    .array(stageEnum)
+    .array(stageKey)
     .optional()
-    .describe('Match any of several pipeline stages, e.g. ["L3","L4","L5"]'),
+    .describe(
+      'Match any of several pipeline stage keys, e.g. ["L3","L4","L5"]. For "L3 onward" in a workspace that added stages, take the keys in order from list_pipeline_stages.',
+    ),
   include_pre_pipeline: z
     .boolean()
     .optional()
     .describe(
-      'If true and neither stage nor stage_in is given, search ALL stages (including market_screening / unreviewed / discovered) instead of defaulting to L0–L5',
+      'If true and neither stage nor stage_in is given, search ALL stages (including market_screening / unreviewed / discovered) instead of defaulting to the pipeline stages',
     ),
   status: z.enum(['active', 'dropped']).optional().describe('Record status (exact match)'),
   watchlist_status: z.string().optional().describe('Watchlist status (partial match)'),
@@ -328,9 +311,9 @@ export function mapCompanyFilters(args: CompanyFilterArgs): CompanyAgentFilters 
 
 /**
  * Apply the shared stage default: unless the caller pinned a stage (or an exact
- * id set), scope the cohort to the L0–L5 committed funnel so results reflect
- * real deals rather than raw intake. `include_pre_pipeline` opts back into the
- * full set of stages.
+ * id set), scope the cohort to the committed funnel — every workspace stage,
+ * added ones included — so results reflect real deals rather than raw intake.
+ * `include_pre_pipeline` opts back into every stage.
  */
 export function applyStageDefault(
   filters: CompanyAgentFilters,
@@ -341,7 +324,7 @@ export function applyStageDefault(
   }
   return {
     ...filters,
-    stageIn: [...(args.include_pre_pipeline ? ALL_STAGES : PIPELINE_STAGES)],
+    stageNotIn: args.include_pre_pipeline ? [] : [...PRE_PIPELINE_STAGE_KEYS],
   };
 }
 
@@ -387,7 +370,7 @@ export const COMPANY_FILTER_DOC = `Every filter is optional and AND-combined. Th
  * the Excel export deliberately covers every stage so "email me the whole
  * pipeline" means the whole pipeline.
  */
-export const COMPANY_STAGE_DEFAULT_DOC = `Stage default: with no stage, stage_in, or company_ids, the cohort is the L0–L5 committed funnel. Pass include_pre_pipeline=true to include market_screening / unreviewed / discovered, or set stage / stage_in explicitly.`;
+export const COMPANY_STAGE_DEFAULT_DOC = `Stage default: with no stage, stage_in, or company_ids, the cohort is the committed funnel (every pipeline stage, including any the workspace added). Pass include_pre_pipeline=true to include market_screening / unreviewed / discovered, or set stage / stage_in explicitly.`;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Relationship-graph filters

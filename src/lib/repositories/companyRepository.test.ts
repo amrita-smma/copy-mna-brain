@@ -945,3 +945,78 @@ describe('CompanyRepository.countOwnedByUser', () => {
     expect(text).toContain('"company_assignees"."user_id" is not null');
   });
 });
+
+describe('CompanyRepository.findForAgentStats — stage exclusion', () => {
+  it('excludes the given stages, so stages a workspace added are kept', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findForAgentStats({ stageNotIn: ['market_screening', 'unreviewed', 'discovered'] });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"pipeline_stage" not in');
+    expect(params).toEqual(expect.arrayContaining(['market_screening', 'unreviewed', 'discovered']));
+    expect(rendered).not.toContain('"pipeline_stage" in');
+  });
+
+  it('treats an empty exclusion list as every stage, discovered stubs included', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.findForAgentStats({ stageNotIn: [] });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).not.toContain('"pipeline_stage"');
+    expect(params).not.toContain('discovered');
+  });
+});
+
+describe('CompanyRepository.findActiveIdsByStage', () => {
+  it('returns the ids of active companies at the stage in this workspace', async () => {
+    const where = vi.fn().mockResolvedValue([{ id: 'c1' }, { id: 'c2' }]);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const repo = new CompanyRepository({ select } as never, 'workspace-1');
+
+    await expect(repo.findActiveIdsByStage('stg-calls')).resolves.toEqual(['c1', 'c2']);
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"pipeline_stage" =');
+    expect(rendered).toContain('"status" =');
+    expect(rendered).toContain('"workspace_id" =');
+    expect(params).toEqual(expect.arrayContaining(['stg-calls', 'active', 'workspace-1']));
+  });
+});
+
+describe('CompanyRepository.count', () => {
+  function makeCountDb(value: number | string) {
+    const where = vi.fn().mockResolvedValue([{ value }]);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    return { db: { select } as never, where };
+  }
+
+  it('filters on an exact source alongside stage and the dropped exclusion', async () => {
+    const { db, where } = makeCountDb('5');
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    const result = await repo.count({ stage: 'unreviewed', source: 'inbound', excludeDropped: true });
+
+    expect(result).toBe(5);
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).toContain('"companies"."source" = ');
+    expect(clause.params).toEqual(
+      expect.arrayContaining(['workspace-1', 'unreviewed', 'inbound', 'dropped']),
+    );
+  });
+
+  it('leaves source unconstrained when no source is given', async () => {
+    const { db, where } = makeCountDb(0);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.count({ stage: 'unreviewed' });
+
+    const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+    expect(clause.sql).not.toContain('"companies"."source"');
+  });
+});

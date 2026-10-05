@@ -432,7 +432,8 @@ test.describe('Dashboard page', () => {
 
     await expect(main.getByText('Pipeline Stages')).toBeVisible();
 
-    const stageLabels = ['Sourcing', 'Screening', 'Initial Review', 'Due Diligence', 'Negotiation', 'Closing'];
+    // The default stage names every workspace is seeded with (pipeline_stages).
+    const stageLabels = ['Company Sourcing', 'Preliminary Review', 'Deep Dive', 'Due Diligence', 'IC Review', 'Closing'];
     for (const label of stageLabels) {
       await expect(main.getByText(label).first()).toBeVisible();
     }

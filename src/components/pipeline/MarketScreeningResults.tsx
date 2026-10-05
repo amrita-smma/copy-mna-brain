@@ -5,13 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { formatMoneyMn } from '@/lib/currency';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Table,
   TableBody,
   TableCell,
@@ -28,16 +21,24 @@ import {
   type ColumnDef,
 } from '@/components/table';
 import { toast } from 'sonner';
-import { Loader2, Zap, Target, Sparkles, Trash2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, MoreVertical, ArrowRight, Pencil } from 'lucide-react';
+import { Loader2, Zap, Target, Sparkles, Trash2, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
 import PromoteDialog from './PromoteDialog';
-import { AskAIButton } from '@/components/chat/AskAIButton';
+import {
+  PipelineRowActions,
+  stickyActionsCellClass,
+  stickyActionsHeadClass,
+  stickyCompanyCellClass,
+  stickyCompanyHeadClass,
+} from '@/components/pipeline/PipelineRowActions';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
 import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
-import type { TrackLike } from '@/lib/tracks/matchTracks';
+
+// Sticky cells follow this table's blue row hover with an opaque tint.
+const stickyHoverClass = 'group-hover:bg-blue-50 dark:group-hover:bg-blue-950';
 
 interface MarketScreeningResult {
   id: string;
@@ -110,9 +111,6 @@ interface MarketScreeningResult {
 interface MarketScreeningResultsProps {
   refreshTrigger: number;
   onAddedToPipeline: () => void;
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
-  tracks?: TrackLike[];
 }
 
 const latestFin = (
@@ -131,7 +129,7 @@ const latestFin = (
 
 const ITEMS_PER_PAGE = 10;
 
-export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline, collapsed = false, onToggleCollapse }: MarketScreeningResultsProps) {
+export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline }: MarketScreeningResultsProps) {
   const { analyzeWithAI } = useChatContext();
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
@@ -257,8 +255,8 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     />
   );
 
-  // Managed (reorderable / hideable / groupable) data columns. The Ask-AI,
-  // Company, and Actions columns are pinned and rendered outside this set.
+  // Managed (reorderable / hideable / groupable) data columns. The Company
+  // and Actions columns are pinned and rendered outside this set.
   const columns = useMemo<ColumnDef<MarketScreeningResult>[]>(() => [
     {
       id: 'segment',
@@ -318,11 +316,8 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   const mgr = useColumnLayout('market-screening-results', columns);
 
   const ModernHeader = ({ showDescription = false }: { showDescription?: boolean }) => (
-    <CardHeader className="pb-4 relative">
-      <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-400/20 dark:bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-5 -left-5 w-24 h-24 bg-blue-400/15 dark:bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
-
-      <div className="relative flex items-center justify-between">
+    <CardHeader className="pb-4">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="relative group">
             <div className={cn(
@@ -350,260 +345,232 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
             </CardDescription>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          {/* Visibility toggle — always rightmost */}
-          {onToggleCollapse && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleCollapse}
-              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-            >
-              {collapsed ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              {collapsed ? 'Show' : 'Hide'}
-              {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-            </Button>
-          )}
-        </div>
       </div>
     </CardHeader>
   );
 
   if (loading) {
     return (
-      <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
+      <Card className="relative overflow-hidden shadow-md">
         <ModernHeader />
-        {!collapsed && (
-          <CardContent>
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-            </div>
-          </CardContent>
-        )}
+        <CardContent>
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          </div>
+        </CardContent>
       </Card>
     );
   }
 
   if (results.length === 0) {
     return (
-      <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
+      <Card className="relative overflow-hidden shadow-md">
         <ModernHeader showDescription />
-        {!collapsed && (
-          <CardContent>
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <div className="relative mb-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-200 to-blue-200 dark:from-blue-800/50 dark:to-blue-800/50">
-                  <Sparkles className="h-8 w-8 text-blue-500 dark:text-blue-400" />
-                </div>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <div className="relative mb-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-200 to-blue-200 dark:from-blue-800/50 dark:to-blue-800/50">
+                <Sparkles className="h-8 w-8 text-blue-500 dark:text-blue-400" />
               </div>
-              <p className="font-medium">No companies discovered yet</p>
-              <p className="text-sm">Configure your investment thesis and run a scan</p>
             </div>
-          </CardContent>
-        )}
+            <p className="font-medium">No companies discovered yet</p>
+            <p className="text-sm">Configure your investment thesis and run a scan</p>
+          </div>
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="relative overflow-hidden border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 via-blue-50/30 to-blue-50/20 dark:from-blue-950/30 dark:via-blue-950/20 dark:to-blue-950/10 shadow-lg shadow-blue-500/5">
+    <Card className="relative overflow-hidden shadow-md">
       <ModernHeader />
 
       <CardContent>
-        {!collapsed && (
-          <ColumnManagerProvider value={mgr}>
-            <div className="flex items-center justify-end px-2 py-1.5">
-              <ColumnConfigGear />
-            </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <ManagedTableHeader
-                  rowClassName="hover:bg-transparent"
-                  leading={[
-                    <TableHead key="askai" className="w-[40px]" />,
-                    <TableHead key="company">
-                      <ColumnHeaderContent
-                        label="Company"
-                        sortField="target"
-                        activeSortField={sortField}
-                        sortDirection={sortDirection}
-                        onSort={toggleSort}
-                      />
-                    </TableHead>,
-                  ]}
-                  trailing={<TableHead key="actions" className="text-right">Actions</TableHead>}
-                />
-                <TableBody>
-                  {paginatedResults.map((result, index) => {
-                    const displayName = companyDisplayName(result, "this company");
-                    return (
-                      <TableRow
-                        key={result.id}
-                        className={cn(
-                          "transition-colors hover:bg-blue-50/50 dark:hover:bg-blue-900/10"
-                        )}
-                      >
-                        <TableCell className="pr-0">
-                          <AskAIButton
-                            variant="icon"
-                            label="Analyze using AI"
-                            onClick={() =>
-                              analyzeWithAI(
-                                `Analyze ${displayName} and provide insights about it as a potential deal.`
-                              )
-                            }
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <button
-                              onClick={() => {
-                                setDetailInEdit(false);
-                                setSelectedResult(result);
-                              }}
-                              className="font-medium text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                            >
-                              {displayName === "this company" ? "—" : displayName}
-                            </button>
-                          </div>
-                        </TableCell>
-                        <ManagedRowCells row={result} index={index} />
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setCompanyToPromote(result)}>
-                                <ArrowRight className="mr-2 h-4 w-4" />
-                                Add to L0
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setDetailInEdit(true);
-                                  setSelectedResult(result);
-                                }}
-                              >
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => dismissResult(result.id)}
-                                className="text-destructive focus:text-destructive"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                <span className="text-sm text-muted-foreground">
-                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, sortedResults.length)} of {sortedResults.length} companies
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="text-sm font-medium px-2">
-                    {currentPage} / {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {selectedResult && (
-              <CompanyDetailDialog
-                key={selectedResult.id}
-                company={{
-                  id: selectedResult.id,
-                  target: selectedResult.target,
-                  project_name: selectedResult.project_name ?? null,
-                  segment: selectedResult.segment,
-                  website: selectedResult.website ?? null,
-                  watchlist_status: null,
-                  pipeline_stage: selectedResult.pipeline_stage as DealStage,
-                  revenue_2021_usd_mn: selectedResult.revenue_2021_usd_mn,
-                  revenue_2022_usd_mn: selectedResult.revenue_2022_usd_mn,
-                  revenue_2023_usd_mn: selectedResult.revenue_2023_usd_mn,
-                  revenue_2024_usd_mn: selectedResult.revenue_2024_usd_mn,
-                  ebitda_2021_usd_mn: selectedResult.ebitda_2021_usd_mn,
-                  ebitda_2022_usd_mn: selectedResult.ebitda_2022_usd_mn,
-                  ebitda_2023_usd_mn: selectedResult.ebitda_2023_usd_mn,
-                  ebitda_2024_usd_mn: selectedResult.ebitda_2024_usd_mn,
-                  ev_2024: selectedResult.ev_2024,
-                  l1_screening_result: null,
-                  remarks: selectedResult.remarks,
-                  created_at: selectedResult.created_at,
-                  updated_at: selectedResult.created_at,
-                  source: selectedResult.source,
-                  status: null,
-                  dropped_reason: null,
-                  dropped_at: null,
-                  promoted_reasons: null,
-                  ownership: selectedResult.ownership,
-                  geography: selectedResult.geography,
-                  // Pipeline edit fields — must be passed through so the inline
-                  // editor doesn't blank them on save (it reads from this prop).
-                  deal_type: selectedResult.deal_type ?? null,
-                  entered_by: selectedResult.entered_by ?? null,
-                  entered_by_name: selectedResult.entered_by_name ?? null,
-                  last_activity_at: selectedResult.last_activity_at ?? null,
-                  banker: selectedResult.banker ?? null,
-                  doc_type: selectedResult.doc_type ?? null,
-                  stake: selectedResult.stake ?? null,
-                  deal_size: selectedResult.deal_size ?? null,
-                  workflow_status: selectedResult.workflow_status ?? null,
-                  key_rationale: selectedResult.key_rationale ?? null,
-                  deal_sponsor: selectedResult.deal_sponsor ?? null,
-                  deal_sponsor_name: selectedResult.deal_sponsor_name ?? null,
-                  deal_captain: selectedResult.deal_captain ?? null,
-                  deal_captain_name: selectedResult.deal_captain_name ?? null,
-                  matched_track_ids: selectedResult.matched_track_ids ?? null,
-                  track_specific_variables: selectedResult.track_specific_variables ?? null,
-                  slide_track_variable_ids: selectedResult.slide_track_variable_ids ?? null,
-                  financials_raw: selectedResult.financials_raw,
-                }}
-                open={!!selectedResult}
-                onOpenChange={(open) => {
-                  if (!open) {
-                    setSelectedResult(null);
-                    setDetailInEdit(false);
-                  }
-                }}
-                onUpdate={() => fetchResults({ silent: true })}
-                initialTab={detailInEdit ? 'details' : 'overview'}
-                initialEditing={detailInEdit}
+        <ColumnManagerProvider value={mgr}>
+          <div className="flex items-center justify-end px-2 py-1.5">
+            <ColumnConfigGear />
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <ManagedTableHeader
+                rowClassName="hover:bg-transparent"
+                leading={[
+                  <TableHead key="company" className={stickyCompanyHeadClass}>
+                    <ColumnHeaderContent
+                      label="Company"
+                      sortField="target"
+                      activeSortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={toggleSort}
+                    />
+                  </TableHead>,
+                ]}
+                trailing={
+                  <TableHead key="actions" className={stickyActionsHeadClass}>
+                    Actions
+                  </TableHead>
+                }
               />
-            )}
-          </ColumnManagerProvider>
-        )}
+              <TableBody>
+                {paginatedResults.map((result, index) => {
+                  const displayName = companyDisplayName(result, "this company");
+                  return (
+                    <TableRow
+                      key={result.id}
+                      className={cn(
+                        "group transition-colors hover:bg-blue-50/50 dark:hover:bg-blue-900/10"
+                      )}
+                    >
+                      <TableCell className={cn(stickyCompanyCellClass, stickyHoverClass)}>
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => {
+                              setDetailInEdit(false);
+                              setSelectedResult(result);
+                            }}
+                            className="font-medium text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          >
+                            {displayName === "this company" ? "—" : displayName}
+                          </button>
+                        </div>
+                      </TableCell>
+                      <ManagedRowCells row={result} index={index} />
+                      <TableCell className={cn(stickyActionsCellClass, stickyHoverClass)}>
+                        <PipelineRowActions
+                          editLabel="Edit"
+                          onEdit={() => {
+                            setDetailInEdit(true);
+                            setSelectedResult(result);
+                          }}
+                          onView={() => {
+                            setDetailInEdit(false);
+                            setSelectedResult(result);
+                          }}
+                          onAsk={() =>
+                            analyzeWithAI(
+                              `Analyze ${displayName} and provide insights about it as a potential deal.`
+                            )
+                          }
+                          moveItems={[
+                            {
+                              key: 'add',
+                              label: 'Add to L0',
+                              icon: ArrowRight,
+                              onSelect: () => setCompanyToPromote(result),
+                            },
+                            {
+                              key: 'delete',
+                              label: 'Delete',
+                              icon: Trash2,
+                              onSelect: () => dismissResult(result.id),
+                              destructive: true,
+                              separatorBefore: true,
+                            },
+                          ]}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+              <span className="text-sm text-muted-foreground">
+                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, sortedResults.length)} of {sortedResults.length} companies
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium px-2">
+                  {currentPage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {selectedResult && (
+            <CompanyDetailDialog
+              key={selectedResult.id}
+              company={{
+                id: selectedResult.id,
+                target: selectedResult.target,
+                project_name: selectedResult.project_name ?? null,
+                segment: selectedResult.segment,
+                website: selectedResult.website ?? null,
+                watchlist_status: null,
+                pipeline_stage: selectedResult.pipeline_stage as DealStage,
+                revenue_2021_usd_mn: selectedResult.revenue_2021_usd_mn,
+                revenue_2022_usd_mn: selectedResult.revenue_2022_usd_mn,
+                revenue_2023_usd_mn: selectedResult.revenue_2023_usd_mn,
+                revenue_2024_usd_mn: selectedResult.revenue_2024_usd_mn,
+                ebitda_2021_usd_mn: selectedResult.ebitda_2021_usd_mn,
+                ebitda_2022_usd_mn: selectedResult.ebitda_2022_usd_mn,
+                ebitda_2023_usd_mn: selectedResult.ebitda_2023_usd_mn,
+                ebitda_2024_usd_mn: selectedResult.ebitda_2024_usd_mn,
+                ev_2024: selectedResult.ev_2024,
+                l1_screening_result: null,
+                remarks: selectedResult.remarks,
+                created_at: selectedResult.created_at,
+                updated_at: selectedResult.created_at,
+                source: selectedResult.source,
+                status: null,
+                dropped_reason: null,
+                dropped_at: null,
+                promoted_reasons: null,
+                ownership: selectedResult.ownership,
+                geography: selectedResult.geography,
+                // Pipeline edit fields — must be passed through so the inline
+                // editor doesn't blank them on save (it reads from this prop).
+                deal_type: selectedResult.deal_type ?? null,
+                entered_by: selectedResult.entered_by ?? null,
+                entered_by_name: selectedResult.entered_by_name ?? null,
+                last_activity_at: selectedResult.last_activity_at ?? null,
+                banker: selectedResult.banker ?? null,
+                doc_type: selectedResult.doc_type ?? null,
+                stake: selectedResult.stake ?? null,
+                deal_size: selectedResult.deal_size ?? null,
+                workflow_status: selectedResult.workflow_status ?? null,
+                key_rationale: selectedResult.key_rationale ?? null,
+                deal_sponsor: selectedResult.deal_sponsor ?? null,
+                deal_sponsor_name: selectedResult.deal_sponsor_name ?? null,
+                deal_captain: selectedResult.deal_captain ?? null,
+                deal_captain_name: selectedResult.deal_captain_name ?? null,
+                matched_track_ids: selectedResult.matched_track_ids ?? null,
+                track_specific_variables: selectedResult.track_specific_variables ?? null,
+                slide_track_variable_ids: selectedResult.slide_track_variable_ids ?? null,
+                financials_raw: selectedResult.financials_raw,
+              }}
+              open={!!selectedResult}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setSelectedResult(null);
+                  setDetailInEdit(false);
+                }
+              }}
+              onUpdate={() => fetchResults({ silent: true })}
+              initialTab={detailInEdit ? 'details' : 'overview'}
+              initialEditing={detailInEdit}
+            />
+          )}
+        </ColumnManagerProvider>
       </CardContent>
 
       {companyToPromote && (

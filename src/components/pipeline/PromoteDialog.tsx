@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { DealStage } from "@/lib/types";
 import { stageMoveLabel } from "@/lib/constants";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { promoteCompany } from "@/lib/api/pipeline";
 import { apiRequest } from "@/lib/api/client";
 
@@ -59,7 +60,8 @@ export default function PromoteDialog({
   const [missingFields, setMissingFields] = useState<string[]>([]);
   // `unreviewed` is the demote target out of L0; spell it as the section the
   // deal actually lands in rather than the raw stage value.
-  const nextStageLabel = stageMoveLabel(nextStage);
+  const { code: stageCode } = usePipelineStages();
+  const nextStageLabel = stageMoveLabel(nextStage, stageCode);
 
   const handlePromote = async () => {
     setIsSubmitting(true);
@@ -209,13 +211,13 @@ export default function PromoteDialog({
             {mode === "demote" ? (
               <>
                 Move <span className="font-medium">{companyName}</span> back
-                from {stageMoveLabel(currentStage)} to {nextStageLabel}.
+                from {stageMoveLabel(currentStage, stageCode)} to {nextStageLabel}.
               </>
             ) : (
               <>
                 Add supporting information before promoting{" "}
                 <span className="font-medium">{companyName}</span> from{" "}
-                {stageMoveLabel(currentStage)} to {nextStageLabel}.
+                {stageMoveLabel(currentStage, stageCode)} to {nextStageLabel}.
               </>
             )}
           </DialogDescription>

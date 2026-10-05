@@ -1,4 +1,5 @@
 import type { GraphNode, RelationType } from '@/lib/repositories/companyRelationRepository';
+import { isInPipelineStage } from '@/lib/pipeline/stages';
 
 /**
  * Shared presentation layer for the company relationship graph — colours,
@@ -29,15 +30,14 @@ export const UNKNOWN_RELATION_COLOR = '#64748b';
 
 export const STAGE_COLOR_GREY = '#94a3b8'; // discovered
 export const STAGE_COLOR_YELLOW = '#eab308'; // market_screening / no stage
-export const STAGE_COLOR_BLUE = '#1f5fe0'; // L0–L5
+export const STAGE_COLOR_BLUE = '#1f5fe0'; // pipeline stages (L0 onward, added ones included)
 
 /** Node colour by pipeline stage. */
 export function nodeColor(node: GraphNode): string {
   const stage = node.pipelineStage;
   if (!stage || stage === 'market_screening' || stage === 'unreviewed') return STAGE_COLOR_YELLOW;
   if (stage === 'discovered') return STAGE_COLOR_GREY;
-  if (/^L[0-5]$/.test(stage)) return STAGE_COLOR_BLUE;
-  return STAGE_COLOR_GREY;
+  return isInPipelineStage(stage) ? STAGE_COLOR_BLUE : STAGE_COLOR_GREY;
 }
 
 // ─── EV-based node sizing ─────────────────────────────────────────────────────

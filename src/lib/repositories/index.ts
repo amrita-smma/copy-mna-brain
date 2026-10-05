@@ -15,6 +15,7 @@ export * from './dealLinkRepository';
 export * from './dealNoteRepository';
 export * from './investmentThesisRepository';
 export * from './trackVariableRepository';
+export * from './pipelineStageRepository';
 export * from './jobRepository';
 export * from './userRepository';
 export * from './resetPasswordTokenRepository';

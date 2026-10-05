@@ -207,3 +207,34 @@ describe('StalledDealService.getStalledDeals', () => {
     });
   });
 });
+
+describe('StalledDealService — workspace stages', () => {
+  it('scans the live workspace stages, added ones included and deleted ones not', async () => {
+    findForAgentStats.mockResolvedValue([]);
+    const stageRepo = {
+      list: vi.fn().mockResolvedValue([
+        { key: 'L0', deleted_at: null },
+        { key: 'stg-calls', deleted_at: null },
+        { key: 'L1', deleted_at: '2026-06-10T00:00:00.000Z' },
+      ]),
+    };
+    const service = new StalledDealService(
+      { findForAgentStats } as unknown as CompanyRepository,
+      { findByCompanyIds } as unknown as CompanyLogRepository,
+      stageRepo as never,
+    );
+
+    await service.getStalledDeals();
+
+    expect(findForAgentStats).toHaveBeenCalledWith(
+      expect.objectContaining({ stageIn: ['L0', 'stg-calls'] }),
+    );
+  });
+
+  it('parses a move into an added stage from its log', () => {
+    expect(parseStageDestination('PROMOTED_FROM_L1_TO_stg-calls')).toEqual({
+      from: 'L1',
+      to: 'stg-calls',
+    });
+  });
+});

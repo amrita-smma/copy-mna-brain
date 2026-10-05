@@ -34,9 +34,28 @@ describe("initLayout", () => {
     expect(initLayout(ALL).order).toEqual(ALL);
   });
 
-  it("appends newly-added columns after the stored order", () => {
+  it("places a newly-added column right after its declared predecessor", () => {
+    const state = initLayout(ALL, { order: ["a", "d", "e"] });
+    expect(state.order).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("follows the stored position of the predecessor in a reordered layout", () => {
     const state = initLayout(ALL, { order: ["c", "a"] });
-    expect(state.order).toEqual(["c", "a", "b", "d", "e"]);
+    expect(state.order).toEqual(["c", "d", "e", "a", "b"]);
+  });
+
+  it("puts a new column first when no declared column precedes it", () => {
+    const state = initLayout(ALL, { order: ["b", "c", "d", "e"] });
+    expect(state.order).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("inserts after the predecessor's whole group so the group stays intact", () => {
+    const state = initLayout(["a", "x", "b", "c", "d"], {
+      order: ["a", "b", "c", "d"],
+      groups: [{ id: "g1", collapsed: false, columnIds: ["b", "a"] }],
+    });
+    expect(state.order).toEqual(["a", "b", "x", "c", "d"]);
+    expect(state.groups).toHaveLength(1);
   });
 
   it("drops stored ids that no longer exist from order, hidden and groups", () => {

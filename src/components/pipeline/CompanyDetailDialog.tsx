@@ -78,10 +78,8 @@ import {
   hasDocumentInsights,
   useDealDocumentProcessingPoll,
 } from "@/components/Files/DocumentInsightsPanel";
-import { DealStage } from "@/lib/types";
 import {
   OWNERSHIP_OPTIONS,
-  STAGE_LABELS,
   isAnalysisInProgress,
   type AnalysisJobStatus,
 } from "@/lib/constants";
@@ -127,11 +125,8 @@ import {
 import TrackMultiSelect from "@/components/pipeline/TrackMultiSelect";
 import { companyDisplayName, companyDisplayTitle, companyInitials } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
-
-const getStageLabel = (stage: string | null): string => {
-  const key = (stage || "L0") as DealStage;
-  return STAGE_LABELS[key] ?? key;
-};
+import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { stageSelectOptions } from "@/lib/pipeline/stages";
 
 const websiteHref = (url: string) =>
   /^https?:\/\//i.test(url) ? url : `https://${url}`;
@@ -446,6 +441,9 @@ export default function CompanyDetailDialog({
   initialTab = "overview",
   initialEditing = false,
 }: CompanyDetailDialogProps) {
+  const pipelineStages = usePipelineStages();
+  const getStageLabel = (stage: string | null): string =>
+    pipelineStages.displayLabel(stage || "L0");
   const router = useRouter();
   const pipelineHref = useWorkspaceHref("/pipeline");
   const currency = useWorkspaceCurrency();
@@ -2171,9 +2169,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as DealStage[]).map((s) => (
+                          {stageSelectOptions(pipelineStages.liveKeys, editForm.pipeline_stage).map((s) => (
                             <SelectItem key={s} value={s}>
-                              {s} — {STAGE_LABELS[s] ?? s}
+                              {getStageLabel(s)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -2208,13 +2206,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         isEditing && editForm
                           ? editForm.pipeline_stage
                           : company.pipeline_stage;
-                      const field = dealLeadField(stage);
+                      const field = dealLeadField(stage, pipelineStages.captainKeys);
                       const pics = matchedTrackPics(company, tracks);
                       const fallback = pics.length > 0 ? pics.join(', ') : null;
                       return (
                         <>
                           <p className="text-xs text-muted-foreground">
-                            {dealLeadLabel(stage)}
+                            {dealLeadLabel(stage, pipelineStages.captainKeys)}
                           </p>
                           {isEditing && editForm ? (
                             <div className="mt-1">
@@ -2224,7 +2222,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                                 placeholder={
                                   fallback
                                     ? `${fallback} (from track)`
-                                    : `Set ${dealLeadLabel(stage)}…`
+                                    : `Set ${dealLeadLabel(stage, pipelineStages.captainKeys)}…`
                                 }
                                 searchPlaceholder="Search a team member…"
                                 emptyText="No team members found."
@@ -2236,7 +2234,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                             </div>
                           ) : (
                             <p className="text-sm font-medium break-words">
-                              {effectiveDealLead(company, stage, tracks) ?? '—'}
+                              {effectiveDealLead(company, stage, tracks, pipelineStages.captainKeys) ?? '—'}
                             </p>
                           )}
                         </>

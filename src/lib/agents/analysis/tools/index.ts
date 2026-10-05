@@ -8,6 +8,7 @@ import { queryCompanies } from "./query_companies";
 import { getCompanyStats } from "./get_company_stats";
 import { getCompanyDetails } from "./get_company_details";
 import { analyzeStalledDeals } from "./analyze_stalled_deals";
+import { listPipelineStages } from "./list_pipeline_stages";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { SERVER_TOOLS } from "./server_tools";
@@ -73,6 +74,7 @@ export {
   getCompanyStats,
   getCompanyDetails,
   analyzeStalledDeals,
+  listPipelineStages,
   lookupCrm,
   crmInsights,
   SERVER_TOOLS,
@@ -156,6 +158,7 @@ export const tools = [
   getCompanyDetails,
   getInvestmentTheses,
   analyzeStalledDeals,
+  listPipelineStages,
   lookupCrm,
   crmInsights,
   ...SERVER_TOOLS,
@@ -379,6 +382,11 @@ export function getToolDescriptions(): string {
       name: "analyze_stalled_deals",
       description:
         "Analyze active deals stuck in the same pipeline stage for too long (default 2+ weeks): summary count, a table of stalled deals by days-in-stage, per-deal stage timelines, and the remaining within-threshold actives",
+    },
+    {
+      name: "list_pipeline_stages",
+      description:
+        "List the workspace's pipeline stages in order — code, name and key. Workspaces rename, reorder, add and delete stages, so read this before filtering by a stage the user names and pass its key",
     },
     {
       name: "lookup_crm",

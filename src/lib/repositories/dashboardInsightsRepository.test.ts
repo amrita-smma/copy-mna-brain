@@ -354,3 +354,43 @@ describe('DashboardInsightsRepository.getHitlStats', () => {
     expect(result).toEqual({ resolved: 23, pending: 2 });
   });
 });
+
+describe('DashboardInsightsRepository — workspace funnel stages', () => {
+  let repo: DashboardInsightsRepository;
+
+  beforeEach(() => {
+    resetDb();
+    repo = new DashboardInsightsRepository(mockDb as never, 'workspace-1');
+  });
+
+  it('counts entries into the stages it is given, reading any stage key from the logs', async () => {
+    mockDb.execute.mockResolvedValueOnce({ rows: [] });
+
+    await repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO, ['L0', 'stg-calls']);
+
+    const { sql: rendered, params } = new PgDialect().sqlToQuery(
+      mockDb.execute.mock.calls[0][0] as SQL,
+    );
+    expect(rendered).toContain("'_TO_(.+)$'");
+    expect(params).toEqual(expect.arrayContaining(['L0', 'stg-calls']));
+    expect(params).not.toContain('L5');
+  });
+
+  it('scopes the stage counts to the given stages', async () => {
+    mockDb.groupBy.mockResolvedValueOnce([]);
+
+    await repo.getStageCounts(WINDOW_FROM, WINDOW_TO, ['L0', 'stg-calls']);
+
+    const { params } = new PgDialect().sqlToQuery(mockDb.where.mock.calls[0][0] as SQL);
+    expect(params).toEqual(expect.arrayContaining(['L0', 'stg-calls']));
+    expect(params).not.toContain('L5');
+  });
+
+  it('returns [] without querying when there are no stages', async () => {
+    await expect(repo.getStageCounts(WINDOW_FROM, WINDOW_TO, [])).resolves.toEqual([]);
+    await expect(repo.getStageEntryCounts(WINDOW_FROM, WINDOW_TO, [])).resolves.toEqual([]);
+    await expect(repo.getStaleCandidates(WINDOW_FROM, WINDOW_TO, [])).resolves.toEqual([]);
+    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+});

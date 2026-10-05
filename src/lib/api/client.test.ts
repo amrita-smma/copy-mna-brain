@@ -196,3 +196,41 @@ describe('apiRequest 401 handling', () => {
     expect(signOutMock).not.toHaveBeenCalled();
   });
 });
+
+describe('apiRequest error code', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = vi.fn();
+    stubLocation('/w/combined/pipeline');
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.unstubAllGlobals();
+  });
+
+  it('carries a machine-readable code from the error body so callers can branch on it', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'Choose a stage', code: 'restore_stage_required' }),
+        { status: 409 },
+      ),
+    );
+
+    await expect(apiRequest('/api/companies/c1/restore', { method: 'POST' })).rejects.toMatchObject({
+      message: 'Choose a stage',
+      status: 409,
+      code: 'restore_stage_required',
+    });
+  });
+
+  it('leaves code unset when the body has none', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'boom' }), { status: 500 }),
+    );
+
+    const err = await apiRequest('/api/x').catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBeUndefined();
+  });
+});

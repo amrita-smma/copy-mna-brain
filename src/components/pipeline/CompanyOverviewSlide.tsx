@@ -1,5 +1,6 @@
 "use client";
 
+import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
@@ -117,7 +118,6 @@ export interface EditSectionRequest {
   instruction: string;
 }
 
-const STAGES = ["L0", "L1", "L2", "L3", "L4", "L5"] as const;
 
 /** Format a date-only value ("YYYY-MM-DD") as "MMM d, yyyy" without TZ shifts. */
 const fmtDate = (value: string | null | undefined): string => {
@@ -501,7 +501,8 @@ export default function CompanyOverviewSlide({
   };
   const title = companyDisplayTitle(company, "Company");
   const sector = company.segment || "—";
-  const currentStage = (company.pipeline_stage || "L0").toUpperCase();
+  const currentStage = company.pipeline_stage || "L0";
+  const pipelineStages = usePipelineStages();
   const financials = buildFinancials(company);
 
   // Track variables the user flagged (via the eye toggle) to surface here. We
@@ -565,7 +566,7 @@ export default function CompanyOverviewSlide({
 
   // Deal Sponsor (L0–L2) / Deal Captain (L3+): per-company override, falling
   // back to the matched Track's PIC.
-  const dealLead = effectiveDealLead(company, currentStage, tracks);
+  const dealLead = effectiveDealLead(company, currentStage, tracks, pipelineStages.captainKeys);
 
   const dealStructure: string[] = [
     `Deal type: ${company.deal_type ? company.deal_type[0].toUpperCase() + company.deal_type.slice(1) : "—"}`,
@@ -592,17 +593,17 @@ export default function CompanyOverviewSlide({
 
         {/* Stage track */}
         <div className="flex flex-wrap items-center gap-px text-[10px] font-semibold text-muted-foreground lg:shrink-0 lg:justify-end">
-          {STAGES.map((s) => (
+          {pipelineStages.live.map((s) => (
             <span
-              key={s}
+              key={s.key}
               className={
                 "border border-border px-2.5 py-1 " +
-                (s === currentStage
+                (s.key === currentStage
                   ? "bg-blue-800 text-white border-blue-800"
                   : "bg-muted/40")
               }
             >
-              {s}
+              {s.code}
             </span>
           ))}
           <span className="ml-2 inline-flex items-center gap-1 text-blue-800">
@@ -644,7 +645,7 @@ export default function CompanyOverviewSlide({
         </div>
         <div className="rounded border border-border bg-muted/40 px-2.5 py-1.5 text-[11px]">
           <span className="font-semibold text-blue-900 dark:text-blue-300">
-            {dealLeadLabel(currentStage)}:
+            {dealLeadLabel(currentStage, pipelineStages.captainKeys)}:
           </span>{" "}
           {dealLead || "—"}
         </div>

@@ -5,7 +5,7 @@ import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
-import { IN_PIPELINE_STAGES } from "@/lib/services/companyService";
+import { isInPipelineStage } from "@/lib/pipeline/stages";
 
 const NEXT_STAGE = "L0" as const;
 
@@ -55,7 +55,7 @@ export const promoteToL0 = tool(
       }
 
       const stage = company.pipeline_stage ?? null;
-      if (stage && IN_PIPELINE_STAGES.has(stage)) {
+      if (isInPipelineStage(stage)) {
         return `Cannot promote "${company.target}" to ${NEXT_STAGE}: it is already in the pipeline (stage: ${stage}).`;
       }
 

@@ -25,7 +25,7 @@ describe('WORKFORCE_HITL_INTERRUPT_ON', () => {
         name: 'promote_to_l1',
         args: { company_name: 'Acme' },
       }),
-    ).toBe('Promote Acme from L0 to L1?');
+    ).toBe('Promote Acme from L0 to the next stage?');
   });
 
   it('gates ask_owner with edit only (approve would run on agent-written args; reject orphans parallel calls)', () => {

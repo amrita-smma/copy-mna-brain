@@ -1,4 +1,5 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import { PRE_PIPELINE_STAGES } from '@/lib/pipeline/stages';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   aiWorkforceQueue,
@@ -241,7 +242,7 @@ export class DashboardActivityRepository {
 
   /**
    * The dashboard "added" cohort: every company **created within the window**
-   * that is currently a pipeline deal (`pipeline_stage ∈ L0–L5`), regardless of
+   * that is currently a pipeline deal (any workspace stage, not a pre-pipeline bucket), regardless of
    * `status`. Dropped deals keep the stage they were dropped at, so they stay in
    * the cohort and can be bucketed by that stage downstream. Pre-pipeline stages
    * (`market_screening` / `discovered` / `unreviewed`) are excluded.
@@ -287,7 +288,10 @@ export class DashboardActivityRepository {
       .where(
         and(
           eq(companies.workspace_id, this.workspaceId),
-          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+          // A pipeline deal: any workspace stage — deleted ones included, so a
+          // deal dropped at a since-deleted stage still counts — but not a
+          // pre-pipeline bucket.
+          notInArray(companies.pipeline_stage, [...PRE_PIPELINE_STAGES]),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
         ),

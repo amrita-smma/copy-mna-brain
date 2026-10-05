@@ -10,6 +10,7 @@ import type {
   DealNoteRepository,
   DealLinkRepository,
   FileRepository,
+  PipelineStageRepository,
   Tables,
   TablesInsert,
   TablesUpdate,
@@ -26,20 +27,43 @@ import type { UserRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
 import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
 import { stageMoveDirection } from '@/lib/constants';
+import {
+  BUILTIN_PIPELINE_STAGE_KEYS,
+  CAPTAIN_FROM_STAGE_KEY,
+  FIRST_STAGE_KEY,
+  PRE_PIPELINE_STAGES,
+  isInPipelineStage,
+  liveStageKeys,
+  stageKeysFrom,
+  type PipelineStageDef,
+} from '@/lib/pipeline/stages';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 
-const L0_STAGE: DealStage = 'L0';
-// Stages above L0. A move into L0 from one of these is a *demotion*, not a fresh
-// entry, so it must NOT re-trigger track matching (the company was matched when
-// it first entered L0).
-const POST_L0_STAGES: ReadonlySet<string> = new Set(['L1', 'L2', 'L3', 'L4', 'L5']);
-// Stages inside the active pipeline. Moving a pre-L0 company (market_screening /
-// unreviewed / discovered) into any of these is a pipeline entry and must pass
-// the same L0 required-field gate as an explicit promote. Exported so file
-// ingestion can gate HITL review on it: changes to a company actively in the
-// pipeline (L0–L5) require human approval; pre-pipeline companies auto-accept.
-export const IN_PIPELINE_STAGES: ReadonlySet<string> = new Set([L0_STAGE, ...POST_L0_STAGES]);
+const L0_STAGE: DealStage = FIRST_STAGE_KEY;
+
+/** A stage move or restore targets a stage the workspace has deleted, or never had. */
+export class PipelineStageUnavailableError extends Error {
+  readonly stage: string;
+  constructor(stage: string) {
+    super(`Pipeline stage "${stage}" does not exist or has been deleted.`);
+    this.name = 'PipelineStageUnavailableError';
+    this.stage = stage;
+  }
+}
+
+/**
+ * Restoring a dropped deal whose stage was deleted while it was dropped needs
+ * a stage to restore it into; the caller asks the user and retries with one.
+ */
+export class RestoreStageRequiredError extends Error {
+  readonly stage: string;
+  constructor(stage: string) {
+    super(`The deal's stage "${stage}" has been deleted. Choose a stage to restore it to.`);
+    this.name = 'RestoreStageRequiredError';
+    this.stage = stage;
+  }
+}
 
 /** One pipeline stage's headcount, split by deal origin. */
 export interface StageCount {
@@ -72,9 +96,10 @@ export interface FinancialUpsertInput {
   fiscal_year: number;
   revenue_usd_mn?: number | null;
   ebitda_usd_mn?: number | null;
-  // Enterprise value for the year. Only the AI Workforce's
-  // `update_company_details` tool sets this today — the FE financials editor
-  // sends revenue/EBITDA only, and an omitted key keeps the stored value.
+  // Enterprise value for the year. Set by the AI Workforce's
+  // `update_company_details` tool and the Pipeline manual add-company form —
+  // the FE financials editor sends revenue/EBITDA only, and an omitted key
+  // keeps the stored value.
   ev_usd_mn?: number | null;
 }
 
@@ -148,7 +173,70 @@ export class CompanyService {
     // AI Company Card so it reflects whatever has landed since it was written.
     // Left out in contexts that never move a company between stages.
     private readonly companyAnalysisService?: CompanyAnalysisService,
+    // Optional: the workspace's pipeline stages, for validating stage moves and
+    // ordering range rules (Deal Captain from L3 onward). Without it the six
+    // original stages are assumed.
+    private readonly pipelineStageRepo?: PipelineStageRepository,
   ) {}
+
+  private stagesPromise: Promise<PipelineStageDef[]> | null = null;
+
+  /**
+   * The workspace's stages, or the six originals when no stage repository is
+   * wired. Read once per service instance — containers are built per request —
+   * so a loop of stage moves (bulk triage) does not re-read them per deal.
+   */
+  private pipelineStages(): Promise<PipelineStageDef[]> {
+    this.stagesPromise ??= this.loadPipelineStages().catch((err: unknown) => {
+      this.stagesPromise = null;
+      throw err;
+    });
+    return this.stagesPromise;
+  }
+
+  private async loadPipelineStages(): Promise<PipelineStageDef[]> {
+    if (!this.pipelineStageRepo) {
+      return BUILTIN_PIPELINE_STAGE_KEYS.map((key, position) => ({
+        key,
+        code: key,
+        name: key,
+        description: '',
+        position,
+        deleted: false,
+      }));
+    }
+    const rows = await this.pipelineStageRepo.list();
+    return rows.map((r) => ({
+      key: r.key,
+      code: r.code,
+      name: r.name,
+      description: r.description,
+      position: r.position,
+      deleted: r.deleted_at !== null,
+    }));
+  }
+
+  /**
+   * Throw unless `stage` is somewhere a deal can be moved to: a live
+   * workspace stage or a pre-pipeline bucket. Stops a stale browser tab, a
+   * bulk card or an agent from moving a deal into a deleted stage.
+   */
+  private assertStageAvailable(stages: PipelineStageDef[], stage: string): void {
+    if (PRE_PIPELINE_STAGES.has(stage)) return;
+    if (!liveStageKeys(stages).includes(stage)) {
+      throw new PipelineStageUnavailableError(stage);
+    }
+  }
+
+  /**
+   * The stage check for writes that take a whole row or patch (create, bulk
+   * update): only when the payload sets `pipeline_stage`. Since the column is
+   * text, the database no longer rejects an unknown stage itself.
+   */
+  private async assertStageWritable(row: { pipeline_stage?: unknown }): Promise<void> {
+    if (typeof row.pipeline_stage !== 'string') return;
+    this.assertStageAvailable(await this.pipelineStages(), row.pipeline_stage);
+  }
 
   /**
    * Kick off a Company Card regeneration after a pipeline stage move.
@@ -287,7 +375,7 @@ export class CompanyService {
     return this.companyRepo.findIdAndTargetPage(filters);
   }
 
-  count(filters: Pick<CompanyFilters, 'id' | 'stage' | 'stageIn' | 'excludeStage' | 'stageNotNull' | 'excludeDropped' | 'createdAfter'>) {
+  count(filters: Pick<CompanyFilters, 'id' | 'stage' | 'stageIn' | 'excludeStage' | 'stageNotNull' | 'excludeDropped' | 'source' | 'createdAfter'>) {
     return this.companyRepo.count(filters);
   }
 
@@ -440,6 +528,7 @@ export class CompanyService {
   async createFromDTO(input: CompanyDTOInput, logAction?: string): Promise<CompanyDTO> {
     this.assertHasCompanyIdentity(input);
     const split = splitCompanyDTO(input);
+    await this.assertStageWritable(split.company);
     const inserted = await this.companyRepo.insert(
       split.company as TablesInsert<'companies'>,
     );
@@ -472,9 +561,16 @@ export class CompanyService {
     // and to detect a stage move worth regenerating the card for).
     const priorCompany =
       typeof nextStage === 'string' ? (await this.companyRepo.findById(id)) : null;
-    if (typeof nextStage === 'string' && IN_PIPELINE_STAGES.has(nextStage)) {
+    if (
+      typeof nextStage === 'string' &&
+      priorCompany &&
+      (priorCompany.pipeline_stage ?? '') !== nextStage
+    ) {
+      this.assertStageAvailable(await this.pipelineStages(), nextStage);
+    }
+    if (typeof nextStage === 'string' && isInPipelineStage(nextStage)) {
       const existing = priorCompany!;
-      const wasPreL0 = !IN_PIPELINE_STAGES.has(existing.pipeline_stage ?? '');
+      const wasPreL0 = !isInPipelineStage(existing.pipeline_stage);
       if (wasPreL0) {
         this.assertL0Requirements({
           ...existing,
@@ -560,6 +656,7 @@ export class CompanyService {
   }
 
   async create(company: TablesInsert<'companies'>, logAction?: string) {
+    await this.assertStageWritable(company);
     const data = await this.companyRepo.insert(company);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: data.id, action: logAction });
@@ -568,6 +665,7 @@ export class CompanyService {
   }
 
   async update(id: string, updates: TablesUpdate<'companies'>, logAction?: string) {
+    await this.assertStageWritable(updates);
     const data = await this.companyRepo.update(id, updates);
     if (logAction) {
       await this.companyLogRepo.insert({ company_id: id, action: logAction });
@@ -576,6 +674,7 @@ export class CompanyService {
   }
 
   async updateMany(ids: string[], updates: TablesUpdate<'companies'>, logAction?: string) {
+    await this.assertStageWritable(updates);
     const data = await this.companyRepo.updateMany(ids, updates);
     if (logAction) {
       await this.companyLogRepo.insertMany(
@@ -616,10 +715,15 @@ export class CompanyService {
   ) {
     await this.guardWritable(id);
 
+    const stages = await this.pipelineStages();
+    this.assertStageAvailable(stages, nextStage);
+
     // Always fetch upfront — needed for L0 validation and promotionReason append.
     const existing = await this.companyRepo.findById(id);
 
-    const isEnteringL0 = nextStage === L0_STAGE && !POST_L0_STAGES.has(currentStage ?? '');
+    // Coming down to L0 from a later stage is a demotion, not a fresh entry, so
+    // it must NOT re-run the entry checks or track matching.
+    const isEnteringL0 = nextStage === L0_STAGE && !isInPipelineStage(currentStage);
     if (isEnteringL0) {
       // Hard-block: all required fields must be present before L0 entry.
       this.assertL0Requirements(existing);
@@ -633,10 +737,10 @@ export class CompanyService {
     const companyUpdate: TablesUpdate<'companies'> = {
       pipeline_stage: nextStage as DealStage,
     };
-    // Deal Captain is shown from L3 onwards; on entry to L3+ it inherits the
-    // Deal Sponsor unless a captain has already been set.
-    const entersCaptainStage =
-      nextStage === 'L3' || nextStage === 'L4' || nextStage === 'L5';
+    // Deal Captain is shown from L3 onwards — L3 and every stage the workspace
+    // orders after it; on entry to one of those it inherits the Deal Sponsor
+    // unless a captain has already been set.
+    const entersCaptainStage = stageKeysFrom(stages, CAPTAIN_FROM_STAGE_KEY).includes(nextStage);
     if (trimmedPromotionReason || entersCaptainStage) {
       const existing = await this.companyRepo.findById(id);
       if (trimmedPromotionReason) {
@@ -683,7 +787,7 @@ export class CompanyService {
     // Captured here rather than in `PromoteDialog` so an ad blocker can't drop
     // it, and so stage moves made by the agent tools and bulk triage — which
     // have no browser at all — are counted too.
-    const direction = stageMoveDirection(currentStage, nextStage);
+    const direction = stageMoveDirection(currentStage, nextStage, liveStageKeys(stages));
     captureWorkspaceEvent({
       workspaceId: this.workspaceId,
       distinctId: opts?.triggeredByUserId ?? 'server',
@@ -808,6 +912,9 @@ export class CompanyService {
   ) {
     if (deals.length === 0) return;
     const ids = deals.map((d) => d.id);
+    const stages = await this.pipelineStages();
+    this.assertStageAvailable(stages, nextStage);
+    const stageOrder = liveStageKeys(stages);
     await this.guardWritableMany(ids);
     await this.companyRepo.updateMany(ids, {
       pipeline_stage: nextStage as DealStage,
@@ -830,7 +937,7 @@ export class CompanyService {
         workspaceId: this.workspaceId,
         distinctId: triggeredByUserId ?? 'server',
         event:
-          stageMoveDirection(currentStage, nextStage) === 'demote'
+          stageMoveDirection(currentStage, nextStage, stageOrder) === 'demote'
             ? 'deal_demoted'
             : 'deal_promoted',
         properties: {
@@ -854,7 +961,21 @@ export class CompanyService {
     return this.companyRepo.countUnreviewed(source);
   }
 
-  async restoreDeal(id: string, currentStage: string | undefined) {
+  /**
+   * Bring a dropped deal back into the pipeline. It returns to the stage it
+   * was dropped at, unless that stage has since been deleted: then the caller
+   * must name a live `targetStage` (the UI asks the user), else
+   * `RestoreStageRequiredError`.
+   */
+  async restoreDeal(id: string, currentStage: string | undefined, targetStage?: string) {
+    const stages = await this.pipelineStages();
+    let restoreTo = currentStage;
+    if (targetStage) {
+      this.assertStageAvailable(stages, targetStage);
+      restoreTo = targetStage;
+    } else if (currentStage && isInPipelineStage(currentStage) && !liveStageKeys(stages).includes(currentStage)) {
+      throw new RestoreStageRequiredError(currentStage);
+    }
     await this.companyRepo.update(id, {
       status: 'active',
       dropped_reason: null,
@@ -862,10 +983,11 @@ export class CompanyService {
       // A manual restore cancels any pending scheduled resurface.
       resurface_at: null,
       dropped_by: null,
+      ...(restoreTo && restoreTo !== currentStage ? { pipeline_stage: restoreTo } : {}),
     });
     await this.companyLogRepo.insert({
       company_id: id,
-      action: currentStage ? `RESTORED_TO_${currentStage}` : 'RESTORED',
+      action: restoreTo ? `RESTORED_TO_${restoreTo}` : 'RESTORED',
     });
   }
 

@@ -107,6 +107,11 @@ export function AppShell({
   // deeplinks both point at it.
   const isLandingRoute = logicalPath === '/' || logicalPath.startsWith('/chat');
   const activeTab = findTabByPath(logicalPath);
+  // The Pipeline and Sourcing lists are dense tables, so they sit on the flat
+  // SQE Suite page colour instead of the gradient and earth photo, in both
+  // themes (MB-648). Exact match: deal and company detail pages keep it.
+  const backgroundVariant =
+    logicalPath === '/pipeline' || logicalPath === '/sourcing' ? 'plain' : 'default';
 
   // Chat history is the whole point of the sidebar now, so it starts open. New
   // key rather than reusing `layout:sidebar-open`, whose stored `false` was a
@@ -249,7 +254,7 @@ export function AppShell({
 
   return (
     <ProtectedRoute initialUser={initialUser}>
-      <LivingBackground variant="default" />
+      <LivingBackground variant={backgroundVariant} />
       <PageContextProvider>
         <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
           <NavigationActionHandler onNavigate={handleAgentNavigate} />

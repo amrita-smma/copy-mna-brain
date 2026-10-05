@@ -901,3 +901,52 @@ describe('DashboardActivityService.getAddedCohort', () => {
     expect(o.droppedCompanies.map((c) => c.id)).toEqual(['new', 'old']);
   });
 });
+
+describe('DashboardActivityService.getAddedCohort — workspace stages', () => {
+  const stageRepo = {
+    list: vi.fn().mockResolvedValue([
+      { key: 'L0', deleted_at: null },
+      { key: 'stg-calls', deleted_at: null },
+      { key: 'L1', deleted_at: '2026-06-10T00:00:00.000Z' },
+      { key: 'L2', deleted_at: null },
+    ]),
+  };
+
+  it('buckets by the live stages in order, plus a deleted stage holding a dropped deal', async () => {
+    const repo = new MockRepo();
+    for (const fn of Object.values(repo)) fn.mockResolvedValue([]);
+    repo.getAddedCompanies.mockResolvedValue([
+      addedRow('a', { stage: 'stg-calls' }),
+      addedRow('b', { stage: 'L1', status: 'dropped', droppedAt: '2026-06-05T00:00:00.000Z' }),
+    ]);
+    const service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+      stageRepo as never,
+    );
+
+    const o = await service.getAddedCohort(FROM, TO);
+
+    expect(o.stages.map((s) => s.stage)).toEqual(['L0', 'stg-calls', 'L2', 'L1']);
+    expect(o.stages.find((s) => s.stage === 'L1')?.dropped).toBe(1);
+    // Every member lands in a bucket, so the buckets still sum to the total.
+    expect(o.stages.reduce((n, s) => n + s.total, 0)).toBe(o.totalAdded);
+  });
+
+  it('leaves out a deleted stage with no cohort members', async () => {
+    const repo = new MockRepo();
+    for (const fn of Object.values(repo)) fn.mockResolvedValue([]);
+    const service = new DashboardActivityService(
+      repo as unknown as DashboardActivityRepository,
+      stageRepo as never,
+    );
+    const o = await service.getAddedCohort(FROM, TO);
+    expect(o.stages.map((s) => s.stage)).toEqual(['L0', 'stg-calls', 'L2']);
+  });
+});
+
+describe('isPreL0EntryMove — added stages', () => {
+  it('reads a demotion from an added stage into L0 as a stage move, not a new deal', () => {
+    expect(isPreL0EntryMove('PROMOTED_FROM_stg-calls_TO_L0')).toBe(false);
+    expect(isPreL0EntryMove('PROMOTED_FROM_unreviewed_TO_L0')).toBe(true);
+  });
+});

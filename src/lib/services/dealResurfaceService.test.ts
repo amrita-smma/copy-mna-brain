@@ -289,3 +289,54 @@ describe('DealResurfaceService.processDue', () => {
     );
   });
 });
+
+describe('DealResurfaceService — deleted stages', () => {
+  function buildWithStages(deletedRefs: string[]) {
+    const findDeletedStageRefs = vi.fn().mockResolvedValue(new Set(deletedRefs));
+    const service = new DealResurfaceService(
+      new MockCompanyRepo() as unknown as CompanyRepository,
+      new MockCompanyLogRepo() as unknown as CompanyLogRepository,
+      new MockDealNoteRepo() as unknown as DealNoteRepository,
+      new MockUserRepo() as unknown as UserRepository,
+      new MockThesisRepo() as unknown as InvestmentThesisRepository,
+      enqueue,
+      'https://app.example.com',
+      { findDeletedStageRefs } as never,
+    );
+    return { service, findDeletedStageRefs };
+  }
+
+  it('resurfaces a deal whose stage was deleted into L0 and says why', async () => {
+    findDueForResurface.mockResolvedValue([
+      makeCompany({ id: 'c1', workspace_id: 'ws-a', pipeline_stage: 'L2' } as never),
+    ]);
+    const { service } = buildWithStages(['ws-a:L2']);
+
+    await service.processDue(new Date('2026-07-04T00:00:00.000Z'));
+
+    expect(companyUpdate).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({ status: 'active', pipeline_stage: 'L0' }),
+    );
+    expect(logInsert).toHaveBeenCalledWith({ company_id: 'c1', action: 'RESURFACED_TO_L0' });
+    expect(noteInsert.mock.calls[0][0].content).toContain('was deleted');
+  });
+
+  it('keeps a deal at its live stage and looks stages up once for the whole sweep', async () => {
+    findDueForResurface.mockResolvedValue([
+      makeCompany({ id: 'c1', workspace_id: 'ws-a', pipeline_stage: 'L1' } as never),
+      makeCompany({ id: 'c2', workspace_id: 'ws-b', pipeline_stage: 'L1' } as never),
+    ]);
+    // L1 is deleted in ws-b only.
+    const { service, findDeletedStageRefs } = buildWithStages(['ws-b:L1']);
+
+    await service.processDue(new Date('2026-07-04T00:00:00.000Z'));
+
+    expect(findDeletedStageRefs).toHaveBeenCalledTimes(1);
+    expect(findDeletedStageRefs).toHaveBeenCalledWith(['ws-a', 'ws-b'], ['L1']);
+    const c1 = companyUpdate.mock.calls.find((c) => c[0] === 'c1')![1];
+    const c2 = companyUpdate.mock.calls.find((c) => c[0] === 'c2')![1];
+    expect(c1).not.toHaveProperty('pipeline_stage');
+    expect(c2).toMatchObject({ pipeline_stage: 'L0' });
+  });
+});

@@ -25,11 +25,17 @@ const COUNTRY_ALIASES: Record<string, string> = {
   korea: 'South Korea',
 };
 
+/** ISO 3166-1 alpha-2 code for a geography value (country name or raw code), or
+ * null when it names no single country (e.g. regions like "Asia Pacific"). */
+export function countryCode(value: string): string | null {
+  const normalised = COUNTRY_ALIASES[value.trim().toLowerCase()] ?? value;
+  return countryToAlpha2(normalised);
+}
+
 /** Flag emoji for a geography value: resolves the country name (or raw code) to
  * an ISO 3166-1 alpha-2 code, then derives the emoji. Globe fallback for values
  * with no country (e.g. regions like "Asia Pacific") or unrecognised input. */
 export function countryFlag(value: string): string {
-  const normalised = COUNTRY_ALIASES[value.trim().toLowerCase()] ?? value;
-  const code = countryToAlpha2(normalised);
+  const code = countryCode(value);
   return code ? alpha2ToFlag(code) : '🌐';
 }

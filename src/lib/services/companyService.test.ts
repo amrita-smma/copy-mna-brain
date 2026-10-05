@@ -11,7 +11,14 @@ import type {
   FileRepository,
   Tables,
 } from "@/lib/repositories";
-import { CompanyDroppedError, CompanyL0RequirementsError, CompanyService } from "./companyService";
+import {
+  CompanyDroppedError,
+  CompanyL0RequirementsError,
+  CompanyService,
+  PipelineStageUnavailableError,
+  RestoreStageRequiredError,
+} from "./companyService";
+import type { PipelineStageRepository, PipelineStageRow } from "@/lib/repositories";
 
 vi.mock("@/lib/s3", () => ({ deleteFile: vi.fn() }));
 
@@ -463,7 +470,7 @@ describe("CompanyService.promote — demoting out of L0", () => {
     vi.mocked(repos.companyRepo.update).mockResolvedValue([makeCompany()]);
   });
 
-  it("moves the company back to the unreviewed (Inbound Pending Review) bucket", async () => {
+  it("moves the company back to the unreviewed (Pending Confirmation) bucket", async () => {
     await service.promote("company-1", "L0", "unreviewed");
     expect(repos.companyRepo.update).toHaveBeenCalledWith(
       "company-1",
@@ -2200,5 +2207,229 @@ describe("CompanyService.countByStage", () => {
   it("returns [] when the workspace has no companies", async () => {
     const { service } = buildWithRows([]);
     await expect(service.countByStage()).resolves.toEqual([]);
+  });
+});
+
+function stageRow(key: string, position: number, deleted = false): PipelineStageRow {
+  return {
+    id: `id-${key}`,
+    workspace_id: TEST_WORKSPACE_ID,
+    key,
+    code: key,
+    name: key,
+    description: "",
+    position,
+    created_at: "2026-10-04T00:00:00Z",
+    updated_at: "2026-10-04T00:00:00Z",
+    deleted_at: deleted ? "2026-10-04T00:00:00Z" : null,
+  };
+}
+
+/**
+ * L0, L1, L2, a custom stage between L2 and L3, L3 (deleted when asked),
+ * L4, L5 and a custom stage after L5.
+ */
+function makeStageRepo(opts: { l3Deleted?: boolean } = {}) {
+  const rows = [
+    stageRow("L0", 0),
+    stageRow("L1", 1),
+    stageRow("L2", 2),
+    stageRow("stg-mid", 3),
+    stageRow("L3", 4, opts.l3Deleted),
+    stageRow("L4", 5),
+    stageRow("L5", 6),
+    stageRow("stg-late", 7),
+  ];
+  return { list: vi.fn().mockResolvedValue(rows) } as unknown as PipelineStageRepository;
+}
+
+function buildServiceWithStages(
+  repos: ReturnType<typeof makeRepos>,
+  stageRepo: PipelineStageRepository,
+  trackMatchingService?: ReturnType<typeof makeTrackMatchingService>,
+) {
+  return new CompanyService(
+    TEST_WORKSPACE_ID,
+    repos.companyRepo,
+    repos.companyLogRepo,
+    repos.dealDocRepo,
+    repos.dealNoteRepo,
+    repos.dealLinkRepo,
+    repos.companyFinancialRepo,
+    repos.companyFxAdjustmentRepo,
+    repos.companyScreeningDerivedRepo,
+    trackMatchingService as never,
+    undefined,
+    repos.fileRepo,
+    undefined,
+    stageRepo,
+  );
+}
+
+const SPONSOR = "5f0e3f9a-1111-4222-8333-444455556666";
+
+describe("CompanyService — workspace pipeline stages", () => {
+  let repos: ReturnType<typeof makeRepos>;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    vi.mocked(repos.companyRepo.update).mockResolvedValue([makeCompany()]);
+  });
+
+  it("refuses to promote into a deleted stage", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(service.promote("company-1", "L2", "L3")).rejects.toBeInstanceOf(
+      PipelineStageUnavailableError,
+    );
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses to promote into a stage the workspace never had", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await expect(service.promote("company-1", "L2", "stg-unknown")).rejects.toBeInstanceOf(
+      PipelineStageUnavailableError,
+    );
+  });
+
+  it("allows demoting into the pre-pipeline Pending Confirmation bucket", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await service.promote("company-1", "L0", "unreviewed");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ pipeline_stage: "unreviewed" }),
+    );
+  });
+
+  it("promotes into a custom stage and logs the move with its key", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await service.promote("company-1", "L2", "stg-mid");
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PROMOTED_FROM_L2_TO_stg-mid" }),
+    );
+  });
+
+  it("sets Deal Captain on entry to a custom stage ordered after L3", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: SPONSOR, deal_captain: null }),
+    );
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await service.promote("company-1", "L5", "stg-late");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ deal_captain: SPONSOR }),
+    );
+  });
+
+  it("does not set Deal Captain on entry to a custom stage ordered before L3", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: SPONSOR, deal_captain: null }),
+    );
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await service.promote("company-1", "L2", "stg-mid");
+    expect(vi.mocked(repos.companyRepo.update).mock.calls[0][1]).not.toHaveProperty("deal_captain");
+  });
+
+  it("keeps the Deal Captain range anchored where L3 sat after L3 is deleted", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ deal_sponsor: SPONSOR, deal_captain: null }),
+    );
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await service.promote("company-1", "L2", "L4");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ deal_captain: SPONSOR }),
+    );
+  });
+
+  it("treats a demotion from a custom stage into L0 as a demotion, not an L0 entry", async () => {
+    const trackMatching = makeTrackMatchingService();
+    // Missing every L0 field: an entry would be blocked by the requirements guard.
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany({ target: null }));
+    const service = buildServiceWithStages(repos, makeStageRepo(), trackMatching);
+    await service.promote("company-1", "stg-mid", "L0");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ pipeline_stage: "L0" }),
+    );
+    expect(trackMatching.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("reads the stage list once across several moves on one service", async () => {
+    const stageRepo = makeStageRepo();
+    const service = buildServiceWithStages(repos, stageRepo);
+    await service.promote("company-1", "L1", "L2");
+    await service.promote("company-1", "L2", "stg-mid");
+    expect(stageRepo.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a bulk move into a deleted stage before writing anything", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(
+      service.promoteMany([{ id: "company-1", currentStage: "L2" }], "L3"),
+    ).rejects.toBeInstanceOf(PipelineStageUnavailableError);
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Current Stage edit into a deleted stage", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany({ pipeline_stage: "L2" }));
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(
+      service.updateFromDTO("company-1", { pipeline_stage: "L3" } as never),
+    ).rejects.toBeInstanceOf(PipelineStageUnavailableError);
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("asks for a stage when restoring a deal whose stage was deleted", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(service.restoreDeal("company-1", "L3")).rejects.toBeInstanceOf(
+      RestoreStageRequiredError,
+    );
+    expect(repos.companyRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("restores a deal whose stage was deleted into the chosen stage", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await service.restoreDeal("company-1", "L3", "L4");
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ status: "active", pipeline_stage: "L4" }),
+    );
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
+      company_id: "company-1",
+      action: "RESTORED_TO_L4",
+    });
+  });
+
+  it("refuses to restore into a deleted stage", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(service.restoreDeal("company-1", "L2", "L3")).rejects.toBeInstanceOf(
+      PipelineStageUnavailableError,
+    );
+  });
+
+  it("restores a deal at a live stage without moving it", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await service.restoreDeal("company-1", "stg-mid");
+    expect(vi.mocked(repos.companyRepo.update).mock.calls[0][1]).not.toHaveProperty("pipeline_stage");
+  });
+
+  it("refuses to create a company at a deleted stage", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo({ l3Deleted: true }));
+    await expect(
+      service.createFromDTO({ target: "Acme", pipeline_stage: "L3" } as never),
+    ).rejects.toBeInstanceOf(PipelineStageUnavailableError);
+    expect(repos.companyRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bulk update into an unknown stage but allows one that leaves the stage alone", async () => {
+    const service = buildServiceWithStages(repos, makeStageRepo());
+    await expect(
+      service.updateMany(["company-1"], { pipeline_stage: "L9" } as never),
+    ).rejects.toBeInstanceOf(PipelineStageUnavailableError);
+    expect(repos.companyRepo.updateMany).not.toHaveBeenCalled();
+
+    vi.mocked(repos.companyRepo.updateMany).mockResolvedValue([]);
+    await service.updateMany(["company-1"], { remarks: "note" } as never);
+    expect(repos.companyRepo.updateMany).toHaveBeenCalled();
   });
 });

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getStalledDeals, createDb, createContainer, getActiveWorkspaceId } =
+const { getStalledDeals, listStages, createDb, createContainer, getActiveWorkspaceId } =
   vi.hoisted(() => ({
     getStalledDeals: vi.fn(),
+    listStages: vi.fn(),
     createDb: vi.fn(),
     createContainer: vi.fn(),
     getActiveWorkspaceId: vi.fn(),
@@ -24,11 +25,13 @@ function call(args: { stalled_weeks?: number; stage?: string } = {}) {
 describe("analyze_stalled_deals", () => {
   beforeEach(() => {
     getStalledDeals.mockReset();
+    listStages.mockReset().mockResolvedValue([]);
     createDb.mockReset().mockReturnValue({});
     getActiveWorkspaceId.mockReset().mockResolvedValue("workspace-a");
-    createContainer
-      .mockReset()
-      .mockReturnValue({ stalledDealService: { getStalledDeals } });
+    createContainer.mockReset().mockReturnValue({
+      stalledDealService: { getStalledDeals },
+      pipelineStageService: { list: listStages },
+    });
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -152,5 +155,42 @@ describe("analyze_stalled_deals", () => {
     const result = await call();
 
     expect(result).toBe("**Error:** boom");
+  });
+
+  it("names stages by the workspace's codes and names, not their keys", async () => {
+    listStages.mockResolvedValue([
+      { key: "L1", code: "L1", name: "Preliminary Review", description: "", position: 1, deleted: false },
+      { key: "stg-calls", code: "L1b", name: "Expert Calls", description: "", position: 2, deleted: false },
+    ]);
+    getStalledDeals.mockResolvedValue({
+      asOf: "2026-07-10T00:00:00.000Z",
+      thresholdDays: 14,
+      totalActive: 1,
+      stalledCount: 1,
+      deals: [
+        {
+          companyId: "c1",
+          target: "Acme",
+          projectName: null,
+          currentStage: "stg-calls",
+          enteredStageAt: "2026-06-01T00:00:00.000Z",
+          enteredStageBasis: "log",
+          daysInStage: 39,
+          isStalled: true,
+          segment: null,
+          geography: null,
+          timeline: [
+            { stage: "stg-calls", fromStage: "L1", enteredAt: "2026-06-01T00:00:00.000Z" },
+          ],
+        },
+      ],
+    });
+
+    const result = await call({ stage: "stg-calls" });
+
+    expect(result).toContain("stage L1b · Expert Calls");
+    expect(result).toContain("L1 → L1b");
+    expect(result).toContain("| Acme | L1b |");
+    expect(result).not.toContain("stg-calls");
   });
 });

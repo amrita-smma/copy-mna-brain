@@ -45,7 +45,7 @@ vi.mock('@/lib/services', async (importOriginal) => {
 });
 
 import { NextRequest } from 'next/server';
-import { POST } from './route';
+import { GET, POST } from './route';
 
 function makePostRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/companies', {
@@ -219,5 +219,35 @@ describe('POST /api/companies route', () => {
         undefined,
       );
     });
+  });
+});
+
+describe('GET /api/companies route (countOnly)', () => {
+  const countMock = vi.fn();
+
+  beforeEach(() => {
+    createDbMock.mockReset().mockReturnValue({ sentinel: 'mockDb' });
+    getActiveWorkspaceIdMock.mockReset().mockResolvedValue('ws-1');
+    countMock.mockReset().mockResolvedValue(4);
+    createContainerMock.mockReset().mockReturnValue({ companyService: { count: countMock } });
+  });
+
+  function get(query: string) {
+    return GET(new NextRequest(`http://localhost/api/companies?countOnly=true&${query}`));
+  }
+
+  it('passes a deal_origin source and excludeDropped through to the count', async () => {
+    const res = await get('stage=unreviewed&source=inbound&excludeDropped=true');
+
+    expect(await res.json()).toEqual({ data: { count: 4 } });
+    expect(countMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'unreviewed', source: 'inbound', excludeDropped: true }),
+    );
+  });
+
+  it('ignores a source that is not a deal_origin value instead of failing the enum cast', async () => {
+    await get('source=bogus');
+
+    expect(countMock).toHaveBeenCalledWith(expect.objectContaining({ source: undefined }));
   });
 });

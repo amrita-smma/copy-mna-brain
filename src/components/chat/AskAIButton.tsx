@@ -16,8 +16,9 @@ interface AskAIButtonProps {
   /**
    * "icon" (default) renders a compact sparkles icon button (used in dense stat
    * cards). "button" renders a labeled pill with the sparkles icon plus text.
+   * "text" renders a borderless sparkles + "Ask" control for row action bars.
    */
-  variant?: "icon" | "button";
+  variant?: "icon" | "button" | "text";
   className?: string;
 }
 
@@ -51,6 +52,24 @@ export function AskAIButton({
     }
     focusCopilot();
   };
+
+  if (variant === "text") {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-label={label}
+        title={label}
+        className={cn(
+          "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          className,
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5 shrink-0" />
+        Ask
+      </button>
+    );
+  }
 
   if (variant === "button") {
     return (

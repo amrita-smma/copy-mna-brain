@@ -34,18 +34,18 @@ const uniq = (ids: string[]): string[] => Array.from(new Set(ids));
 
 /**
  * Reconcile a (possibly stale) stored layout against the current set of column
- * ids. New columns are appended in their declared order; ids that no longer
- * exist are dropped from order/hidden/groups. Always returns a valid state.
+ * ids. A column that is new since the layout was saved is placed right after
+ * its nearest declared predecessor (after that predecessor's whole group, so a
+ * group is never split), or first when nothing declared precedes it. Ids that
+ * no longer exist are dropped from order/hidden/groups. Always returns a valid
+ * state.
  */
 export function initLayout(
   allIds: string[],
   stored?: Partial<ColumnLayoutState> | null,
 ): ColumnLayoutState {
   const known = new Set(allIds);
-  const storedOrder = (stored?.order ?? []).filter((id) => known.has(id));
-  const seen = new Set(storedOrder);
-  // Append any columns that exist now but weren't in the stored order.
-  const order = [...storedOrder, ...allIds.filter((id) => !seen.has(id))];
+  const order = uniq((stored?.order ?? []).filter((id) => known.has(id)));
 
   const hidden = uniq((stored?.hidden ?? []).filter((id) => known.has(id)));
 
@@ -57,7 +57,26 @@ export function initLayout(
     }))
     .filter((g) => g.columnIds.length >= 2);
 
-  return normalize({ order: uniq(order), hidden, groups });
+  // Index just past `id`, or past the last member of the group holding it.
+  const insertionAfter = (id: string) => {
+    const group = groups.find((g) => g.columnIds.includes(id));
+    const members = group ? group.columnIds : [id];
+    return Math.max(...members.map((m) => order.indexOf(m))) + 1;
+  };
+
+  allIds.forEach((id, declaredIndex) => {
+    if (order.includes(id)) return;
+    let at = 0;
+    for (let i = declaredIndex - 1; i >= 0; i--) {
+      if (order.includes(allIds[i])) {
+        at = insertionAfter(allIds[i]);
+        break;
+      }
+    }
+    order.splice(at, 0, id);
+  });
+
+  return normalize({ order, hidden, groups });
 }
 
 /**

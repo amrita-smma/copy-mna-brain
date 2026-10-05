@@ -20,6 +20,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
+import { FIRST_STAGE_KEY, screeningTargetKey } from '@/lib/pipeline/stages';
 import { DealStage } from '@/lib/types';
 import { getScreenings } from '@/lib/api/pipeline';
 
@@ -83,6 +85,14 @@ export default function ScreeningProgressPanel({
   const [completedPage, setCompletedPage] = useState(0);
   const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
   const [promotingCompany, setPromotingCompany] = useState<{ id: string; name: string; stage?: string } | null>(null);
+  // Screening promotes passed L0 deals into whichever stage follows L0 (L1 by
+  // default). A workspace with nothing after L0 gets no promote button here
+  // rather than a failing one. Nothing is offered until the stages load: the
+  // built-in fallback would name L1 even where another stage follows L0.
+  const { liveKeys, code: stageCode, loading: stagesLoading } = usePipelineStages();
+  const screeningTarget = stagesLoading ? null : screeningTargetKey(liveKeys);
+  const canPromote = screeningTarget !== null;
+  const targetLabel = screeningTarget ? stageCode(screeningTarget) : '';
   const ITEMS_PER_PAGE = 5;
 
   const fetchScreenings = async () => {
@@ -221,7 +231,7 @@ export default function ScreeningProgressPanel({
 
     // We no longer delete screening data, just refresh the list.
     // The list filters out non-L0 companies, so this company will disappear.
-    toast.success(`${promotingCompany.name} promoted to L1`);
+    toast.success(`${promotingCompany.name} promoted to ${targetLabel}`);
 
     setPromotingCompany(null);
     onScreeningComplete?.();
@@ -229,7 +239,7 @@ export default function ScreeningProgressPanel({
   };
 
   return (
-    <Card className="border-blue-200 bg-gradient-to-r from-blue-50/50 to-blue-50/50 dark:from-blue-950/20 dark:to-blue-950/20 dark:border-blue-800">
+    <Card className="shadow-md">
       <CardHeader className="pb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -242,9 +252,9 @@ export default function ScreeningProgressPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {passedCount > 0 && (
+            {passedCount > 0 && canPromote && (
               <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-                {passedCount} ready for L1
+                {passedCount} ready for {targetLabel}
               </Badge>
             )}
             {/* Visibility toggle — always rightmost */}
@@ -313,15 +323,17 @@ export default function ScreeningProgressPanel({
                       <Badge variant="secondary">
                         In Progress
                       </Badge>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
-                        onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
-                      >
-                        <ArrowRight className="h-3 w-3 mr-1" />
-                        Promote to L1
-                      </Button>
+                      {canPromote && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
+                          onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
+                        >
+                          <ArrowRight className="h-3 w-3 mr-1" />
+                          Promote to {targetLabel}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -400,15 +412,17 @@ export default function ScreeningProgressPanel({
                           Inconclusive
                         </Badge>
                       )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
-                        onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
-                      >
-                        <ArrowRight className="h-3 w-3 mr-1" />
-                        Promote to L1
-                      </Button>
+                      {canPromote && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
+                          onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
+                        >
+                          <ArrowRight className="h-3 w-3 mr-1" />
+                          Promote to {targetLabel}
+                        </Button>
+                      )}
                     </div>
                   </div>
                   );
@@ -444,14 +458,14 @@ export default function ScreeningProgressPanel({
         </CardContent>
       )}
 
-      {promotingCompany && (
+      {promotingCompany && screeningTarget && (
         <PromoteDialog
           open={promoteDialogOpen}
           onOpenChange={setPromoteDialogOpen}
           dealId={promotingCompany.id}
           companyName={promotingCompany.name}
-          currentStage="L0"
-          nextStage="L1"
+          currentStage={FIRST_STAGE_KEY}
+          nextStage={screeningTarget}
           onSuccess={handlePromoteSuccess}
         />
       )}

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findByNameFuzzy, promote, createDb, createContainer } = vi.hoisted(
-  () => ({
+const { findByNameFuzzy, promote, listStages, createDb, createContainer } =
+  vi.hoisted(() => ({
     findByNameFuzzy: vi.fn(),
     promote: vi.fn(),
+    listStages: vi.fn(),
     createDb: vi.fn(),
     createContainer: vi.fn(),
-  }),
-);
+  }));
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
@@ -25,6 +25,19 @@ vi.mock("@/lib/repositories", async (importOriginal) => {
 });
 
 import { promoteToL1 } from "./promote_to_l1";
+import type { PipelineStageDef } from "@/lib/pipeline/stages";
+
+function stage(
+  key: string,
+  position: number,
+  extra: Partial<PipelineStageDef> = {},
+): PipelineStageDef {
+  return { key, code: key, name: key, description: "", position, deleted: false, ...extra };
+}
+
+const DEFAULT_STAGES = ["L0", "L1", "L2", "L3", "L4", "L5"].map((key, i) =>
+  stage(key, i),
+);
 
 const DEFAULT_REASON =
   "Revenue $42M FY2024, EBITDA margin 18%; fits APAC semicap thesis.";
@@ -44,9 +57,11 @@ describe("promote_to_l1 (workforce tool)", () => {
   beforeEach(() => {
     findByNameFuzzy.mockReset();
     promote.mockReset();
+    listStages.mockReset().mockResolvedValue(DEFAULT_STAGES);
     createDb.mockReset().mockReturnValue({});
     createContainer.mockReset().mockReturnValue({
       companyService: { promote },
+      pipelineStageService: { list: listStages },
     });
   });
 
@@ -206,5 +221,68 @@ describe("promote_to_l1 (workforce tool)", () => {
 
     expect(String(result)).toMatch(/\*\*Error:\*\* db down/);
     errSpy.mockRestore();
+  });
+
+  it("explains that the target stage was just deleted instead of returning a raw error", async () => {
+    findByNameFuzzy.mockResolvedValue({ id: "c1", target: "Acme", pipeline_stage: "L0", status: "active" });
+    const { PipelineStageUnavailableError } = await import("@/lib/services/companyService");
+    promote.mockImplementation(async () => {
+      throw new PipelineStageUnavailableError("L1");
+    });
+
+    const result = String(await call({ company_name: "Acme" }));
+
+    expect(result).toMatch(/Cannot promote "Acme" to L1: this workspace has just deleted that stage/);
+    expect(result).not.toMatch(/\*\*Error:\*\*/);
+  });
+
+  it("promotes into a stage the workspace inserted after L0, named by its code", async () => {
+    listStages.mockResolvedValueOnce([
+      stage("L0", 0),
+      stage("stg-a1b2", 1, { code: "L0b" }),
+      stage("L1", 2),
+    ]);
+    findByNameFuzzy.mockResolvedValueOnce({ id: "c-5", target: "Acme", pipeline_stage: "L0" });
+    promote.mockResolvedValueOnce(undefined);
+
+    const result = String(await call({ company_name: "Acme" }));
+
+    expect(promote).toHaveBeenCalledWith(
+      "c-5",
+      "L0",
+      "stg-a1b2",
+      `Reason: ${DEFAULT_REASON}`,
+      undefined,
+      undefined,
+      undefined,
+      DEFAULT_REASON,
+    );
+    expect(result).toMatch(/Promoted "Acme" from L0 to L0b/);
+    expect(result).not.toMatch(/stg-/);
+  });
+
+  it("promotes into whatever follows L0 when the workspace deleted L1", async () => {
+    listStages.mockResolvedValueOnce([
+      stage("L0", 0),
+      stage("L1", 1, { deleted: true }),
+      stage("L2", 2),
+    ]);
+    findByNameFuzzy.mockResolvedValueOnce({ id: "c-6", target: "Acme", pipeline_stage: "L0" });
+    promote.mockResolvedValueOnce(undefined);
+
+    const result = String(await call({ company_name: "Acme" }));
+
+    expect(promote.mock.calls[0]?.[2]).toBe("L2");
+    expect(result).toMatch(/Promoted "Acme" from L0 to L2/);
+  });
+
+  it("refuses without promoting when L0 is the workspace's only live stage", async () => {
+    listStages.mockResolvedValueOnce([stage("L0", 0), stage("L1", 1, { deleted: true })]);
+    findByNameFuzzy.mockResolvedValueOnce({ id: "c-7", target: "Acme", pipeline_stage: "L0" });
+
+    const result = String(await call({ company_name: "Acme" }));
+
+    expect(result).toMatch(/^Cannot promote "Acme": this workspace has no pipeline stage after L0/);
+    expect(promote).not.toHaveBeenCalled();
   });
 });

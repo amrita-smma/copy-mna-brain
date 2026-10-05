@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findByNameFuzzy, create, createDb, createContainer } = vi.hoisted(
+const { findByNameFuzzy, create, updateFinancials, createDb, createContainer } = vi.hoisted(
   () => ({
     findByNameFuzzy: vi.fn(),
     create: vi.fn(),
+    updateFinancials: vi.fn(),
     createDb: vi.fn(),
     createContainer: vi.fn(),
   }),
@@ -36,6 +37,20 @@ async function call(args: {
   geography?: string;
   source?: string;
   note?: string;
+  company_focus?: string;
+  website?: string;
+  ownership?: string;
+  comments?: string;
+  remarks?: string;
+  thesis_content?: string;
+  watchlist_id?: number;
+  watchlist_status?: string;
+  financials?: Array<{
+    fiscal_year: number;
+    revenue_usd_mn?: number;
+    ebitda_usd_mn?: number;
+    ev_usd_mn?: number;
+  }>;
 }) {
   return addCompany.invoke(args as never);
 }
@@ -44,9 +59,10 @@ describe("add_company (workforce tool)", () => {
   beforeEach(() => {
     findByNameFuzzy.mockReset();
     create.mockReset();
+    updateFinancials.mockReset().mockResolvedValue({});
     createDb.mockReset().mockReturnValue({});
     createContainer.mockReset().mockReturnValue({
-      companyService: { create },
+      companyService: { create, updateFinancials },
     });
   });
 
@@ -226,6 +242,89 @@ describe("add_company (workforce tool)", () => {
     expect(String(result)).toMatch(
       /Note: Surfaced from APAC scan, no financials yet\./,
     );
+  });
+
+  it("records the company details given at create time, dropping blank ones", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({
+      target: "Acme",
+      stage: "unreviewed",
+      company_focus: " Makes CMP slurry. ",
+      website: "https://acme.example",
+      ownership: "PE-backed",
+      comments: "Met at SEMICON",
+      remarks: "   ",
+      thesis_content: "Fits the roll-up",
+      watchlist_id: 42,
+      watchlist_status: "watching",
+    });
+
+    const args = create.mock.calls[0][0] as Record<string, unknown>;
+    expect(args).toMatchObject({
+      company_focus: "Makes CMP slurry.",
+      website: "https://acme.example",
+      ownership: "PE-backed",
+      comments: "Met at SEMICON",
+      thesis_content: "Fits the roll-up",
+      watchlist_id: 42,
+      watchlist_status: "watching",
+    });
+    expect(args).not.toHaveProperty("remarks");
+    expect(updateFinancials).not.toHaveBeenCalled();
+  });
+
+  it("saves financials for the new company through the service and names the years", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    const rows = [{ fiscal_year: 2025, revenue_usd_mn: 25.5, ebitda_usd_mn: 4, ev_usd_mn: 60 }];
+
+    const result = await call({ target: "Acme", stage: "unreviewed", financials: rows });
+
+    expect(updateFinancials).toHaveBeenCalledWith(
+      "c-new",
+      rows,
+      [],
+      "UPDATED_FINANCIALS_BY_AI_WORKFORCE",
+    );
+    expect(String(result)).toMatch(/Added "Acme".*Financials saved for FY2025\./);
+  });
+
+  it("reports the partial state when the company lands but the financials write fails", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    updateFinancials.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await call({
+      target: "Acme",
+      financials: [{ fiscal_year: 2025, revenue_usd_mn: 10 }],
+    });
+
+    expect(String(result)).toMatch(/Added "Acme".*id: c-new/);
+    expect(String(result)).toMatch(/financials failed to save: db down/);
+    expect(String(result)).toMatch(/update_company_details/);
+  });
+
+  it("rejects a financials year listed twice before creating anything", async () => {
+    const result = await call({
+      target: "Acme",
+      financials: [
+        { fiscal_year: 2025, revenue_usd_mn: 10 },
+        { fiscal_year: 2025, ebitda_usd_mn: 2 },
+      ],
+    });
+
+    expect(String(result)).toMatch(/fiscal_year 2025 appears more than once/);
+    expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a financials row with no figures before creating anything", async () => {
+    const result = await call({ target: "Acme", financials: [{ fiscal_year: 2025 }] });
+
+    expect(String(result)).toMatch(/sets no figures/);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("returns an **Error:** string when the service throws (does not propagate)", async () => {

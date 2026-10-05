@@ -51,6 +51,16 @@ export const CONSOLE_TABS: ConsoleTab[] = [
     purpose: 'Overview KPIs and recent activity across the pipeline.',
   },
   {
+    // Shares Pipeline's flag: it is the pre-L0 half of the same deal funnel.
+    slug: 'sourcing',
+    path: '/sourcing',
+    label: 'Sourcing',
+    group: 'deal-flow',
+    flag: 'PIPELINE_ENABLED',
+    purpose:
+      'Deals not yet in L0: unreviewed inbound companies awaiting triage (Pending Confirmation) and AI Market Scanning with its AI-discovered companies.',
+  },
+  {
     slug: 'pipeline',
     path: '/pipeline',
     label: 'Pipeline',

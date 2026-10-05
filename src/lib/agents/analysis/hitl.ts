@@ -51,7 +51,9 @@ export const WORKFORCE_HITL_INTERRUPT_ON = {
     description: (toolCall: ToolCallLike): string => {
       const args = (toolCall.args ?? {}) as { company_name?: string };
       const co = args.company_name ?? '(unknown)';
-      return `Promote ${co} from L0 to L1?`;
+      // The tool promotes into whichever stage follows L0 in the workspace;
+      // the call args don't carry it, so the question doesn't name it.
+      return `Promote ${co} from L0 to the next stage?`;
     },
   },
   [ASK_OWNER_TOOL_NAME]: {

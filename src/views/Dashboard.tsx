@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { isInPipelineStage } from "@/lib/pipeline/stages";
 import { WorkspaceLink } from "@/components/WorkspaceLink";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useRouter } from "next/navigation";
@@ -75,21 +77,22 @@ import { AskAIButton } from "@/components/chat/AskAIButton";
 import { companyDisplayName, companyInitials } from "@/lib/companyDisplay";
 
 interface StageCounts {
+  /** Stage key (links to `/pipeline?stage=`). */
   stage: string;
+  /** The stage's code as users see it ("L3"). */
+  code: string;
   label: string;
   count: number;
   inbound?: number;
   outbound?: number;
 }
 
-const PIPELINE_STAGES: { stage: string; label: string; color: string }[] = [
-  { stage: "L0", label: "Sourcing", color: "bg-blue-500" },
-  { stage: "L1", label: "Screening", color: "bg-blue-500" },
-  { stage: "L2", label: "Initial Review", color: "bg-amber-500" },
-  { stage: "L3", label: "Due Diligence", color: "bg-green-500" },
-  { stage: "L4", label: "Negotiation", color: "bg-teal-500" },
-  { stage: "L5", label: "Closing", color: "bg-pink-500" },
-];
+/** A pipeline stage as the dashboard's stage cards list it, in workspace order. */
+interface DashboardStage {
+  stage: string;
+  code: string;
+  label: string;
+}
 
 // Solid pill colors for the L1–L5 stage columns (inbound = darker, outbound = lighter).
 const stagePillColors: Record<string, { inbound: string; outbound: string }> = {
@@ -505,14 +508,16 @@ const stageChipColors: Record<string, string> = {
   L5: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
 };
 
-// Stages below L0 (e.g. "unreviewed") aren't part of the L0–L5 funnel — surface
-// them as "pre-L0" so drop messaging reads "Dropped at pre-L0".
-function stageLabel(stage: string): string {
-  return stage in stageChipColors ? stage : "pre-L0";
+// Stages below L0 (e.g. "unreviewed") aren't part of the pipeline — surface
+// them as "pre-L0" so drop messaging reads "Dropped at pre-L0". Workspace
+// stages show by their code.
+function stageChipLabel(stage: string, code: (key: string) => string): string {
+  return isInPipelineStage(stage) ? code(stage) : "pre-L0";
 }
 
 function StageChip({ stage }: { stage: string }) {
-  const label = stageLabel(stage);
+  const { code } = usePipelineStages();
+  const label = stageChipLabel(stage, code);
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold ${stageChipColors[stage] ?? "bg-muted text-muted-foreground"}`}
@@ -688,6 +693,16 @@ export default function Dashboard({
   const [loading, setLoading] = useState(true);
   const [activityInitialising, setActivityInitialising] = useState(true);
   const [stageCounts, setStageCounts] = useState<StageCounts[]>([]);
+  const workspaceStages = usePipelineStages();
+  const pipelineStageList = useMemo(
+    (): DashboardStage[] =>
+      workspaceStages.live.map((s) => ({ stage: s.key, code: s.code, label: s.name || s.code })),
+    [workspaceStages.live],
+  );
+  // Read inside fetchPipelineData without making the stage list a dependency,
+  // so the stage list loading doesn't refetch the counts.
+  const pipelineStageListRef = useRef(pipelineStageList);
+  pipelineStageListRef.current = pipelineStageList;
   const [activity, setActivity] = useState<DashboardActivity | null>(null);
   // Cohort snapshot backing the tally sections (Total Companies Added, Recap,
   // Pipeline Stages). All three derive from this single payload so they tally.
@@ -776,10 +791,11 @@ export default function Dashboard({
       const byStage = new Map(stageTotals.map((s) => [s.stage, s]));
 
       setStageCounts(
-        PIPELINE_STAGES.map(({ stage, label }) => {
+        pipelineStageListRef.current.map(({ stage, code, label }) => {
           const data = byStage.get(stage);
           return {
             stage,
+            code,
             label,
             count: data?.count ?? 0,
             inbound: data?.inbound ?? 0,
@@ -1069,24 +1085,7 @@ export default function Dashboard({
 
   // ─── Cohort-based pipeline stage counts ─────────────────────────────────────
   // Everything below reads from `overview` (the added cohort) so the Total
-  // Companies Added, Recap, and Pipeline Stages sections tally: the per-stage
-  // `count`/inbound/outbound are the ACTIVE deals sitting in each stage today,
-  // and `droppedByStage` is the cohort deals dropped at each stage. Their sum
-  // equals `displayTotal` (= overview.totalAdded) by construction.
-
-  const displayStageCounts = useMemo((): StageCounts[] => {
-    const byStage = new Map(overview?.stages.map((s) => [s.stage, s]) ?? []);
-    return PIPELINE_STAGES.map(({ stage, label }) => {
-      const b = byStage.get(stage);
-      return {
-        stage,
-        label,
-        count: b?.active ?? 0,
-        inbound: b?.activeInbound ?? 0,
-        outbound: b?.activeOutbound ?? 0,
-      };
-    });
-  }, [overview]);
+  // Companies Added, Recap, and Pipeline Stages sections tally.
 
   // Cumulative funnel counts for the Pipeline Stages card. A deal at a later
   // stage passed through every earlier one, so each stage rolls in itself plus
@@ -1094,10 +1093,11 @@ export default function Dashboard({
   // source — the card no longer separates dropped out.
   const cumulativeStageCounts = useMemo((): StageCounts[] => {
     const byStage = new Map(overview?.stages.map((s) => [s.stage, s]) ?? []);
-    const raw = PIPELINE_STAGES.map(({ stage, label }) => {
+    const raw = pipelineStageList.map(({ stage, code, label }) => {
       const b = byStage.get(stage);
       return {
         stage,
+        code,
         label,
         inbound: b?.inbound ?? 0,
         outbound: b?.outbound ?? 0,
@@ -1115,13 +1115,14 @@ export default function Dashboard({
       );
       return {
         stage: item.stage,
+        code: item.code,
         label: item.label,
         count: rolled.total,
         inbound: rolled.inbound,
         outbound: rolled.outbound,
       };
     });
-  }, [overview]);
+  }, [overview, pipelineStageList]);
 
   const displayTotal = overview?.totalAdded ?? 0;
   // L0 rolls in every later stage, so its cumulative counts equal the whole
@@ -1129,26 +1130,6 @@ export default function Dashboard({
   const displayL0 = cumulativeStageCounts[0]?.count || 0;
   const displayL0Inbound = cumulativeStageCounts[0]?.inbound ?? 0;
   const displayL0Outbound = cumulativeStageCounts[0]?.outbound ?? 0;
-  const droppedByStage = (overview?.stages ?? []).reduce(
-    (acc, s) => {
-      if (s.dropped > 0) acc[s.stage] = s.dropped;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
-  const stageConversions = PIPELINE_STAGES.slice(0, -1).map((stage, i) => {
-    const promoted =
-      displayStageCounts.find((s) => s.stage === PIPELINE_STAGES[i + 1].stage)
-        ?.count ?? 0;
-    const dropped = droppedByStage[stage.stage] ?? 0;
-    const denom = promoted + dropped;
-    return {
-      label: `${stage.stage} → ${PIPELINE_STAGES[i + 1].stage}`,
-      pct: denom > 0 ? Math.round((promoted / denom) * 100) : 0,
-      promoted,
-      denom,
-    };
-  });
   const pctOfTotal = (n: number) =>
     displayTotal > 0 ? Math.round((n / displayTotal) * 100) : 0;
 
@@ -1798,7 +1779,7 @@ export default function Dashboard({
                                     </div>
                                     {d.pipeline_stage && (
                                       <p className="text-xs text-muted-foreground mt-1">
-                                        Dropped at {stageLabel(d.pipeline_stage)}
+                                        Dropped at {stageChipLabel(d.pipeline_stage, workspaceStages.code)}
                                       </p>
                                     )}
                                   </div>
@@ -2020,7 +2001,7 @@ export default function Dashboard({
                               </div>
                             </div>
                             <div className="mt-1 text-sm font-bold">
-                              {item.stage}
+                              {item.code}
                             </div>
                             <div className="text-center text-[10px] text-muted-foreground">
                               {item.label}

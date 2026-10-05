@@ -168,20 +168,31 @@ export function matchedTrackPics(
 
 export type DealLeadField = 'deal_sponsor' | 'deal_captain';
 
+/** The original Captain stages (L3 onward), used when no workspace stage list is to hand. */
+export const DEFAULT_CAPTAIN_STAGE_KEYS: readonly string[] = ['L3', 'L4', 'L5'];
+
 /**
  * Which per-company column backs the Deal Sponsor/Captain at a given stage:
- * "deal_captain" at L3+, "deal_sponsor" everywhere else (L0–L2 and the
- * pre-pipeline stages: market_screening, unreviewed, discovered).
+ * "deal_captain" from L3 onward, "deal_sponsor" everywhere else (stages before
+ * L3 and the pre-pipeline stages: market_screening, unreviewed, discovered).
+ *
+ * `captainStageKeys` is the workspace's L3-onward range in its own stage order
+ * (`stageKeysFrom(stages, CAPTAIN_FROM_STAGE_KEY)`), so a stage the workspace
+ * added after L3 is a Captain stage too.
  */
-export function dealLeadField(stage: string | null | undefined): DealLeadField {
-  return stage === 'L3' || stage === 'L4' || stage === 'L5'
-    ? 'deal_captain'
-    : 'deal_sponsor';
+export function dealLeadField(
+  stage: string | null | undefined,
+  captainStageKeys: readonly string[] = DEFAULT_CAPTAIN_STAGE_KEYS,
+): DealLeadField {
+  return stage && captainStageKeys.includes(stage) ? 'deal_captain' : 'deal_sponsor';
 }
 
 /** Column label for the Deal Sponsor/Captain at a given stage. */
-export function dealLeadLabel(stage: string | null | undefined): string {
-  return dealLeadField(stage) === 'deal_sponsor' ? 'Deal Sponsor' : 'Deal Captain';
+export function dealLeadLabel(
+  stage: string | null | undefined,
+  captainStageKeys: readonly string[] = DEFAULT_CAPTAIN_STAGE_KEYS,
+): string {
+  return dealLeadField(stage, captainStageKeys) === 'deal_sponsor' ? 'Deal Sponsor' : 'Deal Captain';
 }
 
 /**
@@ -200,10 +211,12 @@ export function effectiveDealLead(
   },
   stage: string | null | undefined,
   tracks: TrackLike[],
+  captainStageKeys: readonly string[] = DEFAULT_CAPTAIN_STAGE_KEYS,
 ): string | null {
-  const stored = company[`${dealLeadField(stage)}_name`]?.trim();
+  const field = dealLeadField(stage, captainStageKeys);
+  const stored = company[`${field}_name`]?.trim();
   if (stored) return stored;
-  if (dealLeadField(stage) === 'deal_captain') {
+  if (field === 'deal_captain') {
     const sponsor = company.deal_sponsor_name?.trim();
     if (sponsor) return sponsor;
   }

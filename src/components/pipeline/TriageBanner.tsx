@@ -35,16 +35,16 @@ export function TriageBanner({ companies, onTriageClick }: TriageBannerProps) {
     .map(([type, n]) => `${n} ${n === 1 ? DOC_TYPE_LABELS[type] ?? type : (DOC_TYPE_LABELS[type] ?? type) + "s"}`);
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm">
-      <div className="flex items-center gap-3 text-amber-800">
+    <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 dark:border-amber-900 dark:bg-amber-950 py-2.5 text-sm">
+      <div className="flex items-center gap-3 text-amber-800 dark:text-amber-200">
         <div className="flex items-center gap-1.5 font-medium">
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-white">
             {unreviewed.length}
           </span>
           new {unreviewed.length === 1 ? "company" : "companies"} from email attachments
         </div>
-        <span className="text-amber-600">—</span>
-        <div className="flex items-center gap-2 text-amber-700">
+        <span className="text-amber-600 dark:text-amber-500">—</span>
+        <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
           {Object.entries(counts).map(([type, n]) => (
             <span key={type} className="flex items-center gap-1">
               {DOC_TYPE_ICONS[type]}
@@ -56,7 +56,7 @@ export function TriageBanner({ companies, onTriageClick }: TriageBannerProps) {
       <Button
         size="sm"
         variant="outline"
-        className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+        className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-card dark:text-amber-200 dark:hover:bg-amber-900"
         onClick={onTriageClick}
       >
         Triage Unreviewed

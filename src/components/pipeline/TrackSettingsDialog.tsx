@@ -31,6 +31,7 @@ import {
 import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import ScreeningCriteriaManager from "@/components/pipeline/ScreeningCriteriaManager";
 import TrackVariablesManager from "@/components/pipeline/TrackVariablesManager";
+import PipelineStageSettings from "@/components/pipeline/PipelineStageSettings";
 import { trackDisplayName } from "@/lib/tracks/matchTracks";
 
 interface WorkingTrack {
@@ -41,12 +42,22 @@ interface WorkingTrack {
   isNew?: boolean;
 }
 
+type ConfigurationTab = "track" | "pipeline";
+
 interface TrackSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after tracks are persisted so the parent can refetch. */
   onSaved: () => void;
+  /**
+   * Called after a Pipeline Settings change that moves companies or reorders
+   * stages (delete, move, new stage), so the parent can refetch its deals.
+   */
+  onStagesChanged?: () => void;
 }
+
+const CONFIG_TAB_CLASS =
+  "rounded-none border-b-2 border-transparent px-1 pb-2.5 pt-0 -mb-px text-sm font-semibold text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 const toWorking = (t: Track): WorkingTrack => ({
   id: t.id,
@@ -61,11 +72,22 @@ const summary = (content: string) => {
   return c.length > 48 ? `${c.slice(0, 48)}…` : c;
 };
 
+/**
+ * The Pipeline page's Configuration dialog: the Investment Track editor (the
+ * theses used to auto-match deals) and Pipeline Settings (the workspace's
+ * deal stages, MB-651).
+ */
 export default function TrackSettingsDialog({
   open,
   onOpenChange,
   onSaved,
+  onStagesChanged,
 }: TrackSettingsDialogProps) {
+  // Every open starts on the Investment Track tab.
+  const [tab, setTab] = useState<ConfigurationTab>("track");
+  useEffect(() => {
+    if (open) setTab("track");
+  }, [open]);
   const [tracks, setTracks] = useState<WorkingTrack[]>([]);
   const [original, setOriginal] = useState<Record<string, WorkingTrack>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -218,203 +240,227 @@ export default function TrackSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[80vw] p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-4 border-b">
-          <DialogTitle>Track Settings</DialogTitle>
+          <DialogTitle>Configuration</DialogTitle>
           <DialogDescription>
             Manage the investment theses used to auto-match inbound and outbound
-            deals.
+            deals, and the stages of your deal pipeline.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-[60vh]">
-          {/* Track list */}
-          <aside className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
-            <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Tracks
-            </div>
-            <div className="flex-1 overflow-y-auto px-2 space-y-1">
-              {loading ? (
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as ConfigurationTab)}
+          className="w-full"
+        >
+          <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b bg-transparent px-6 pt-3">
+            <TabsTrigger value="track" className={CONFIG_TAB_CLASS}>
+              Investment Track
+            </TabsTrigger>
+            <TabsTrigger value="pipeline" className={CONFIG_TAB_CLASS}>
+              Pipeline Settings
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="pipeline" className="mt-0">
+            <PipelineStageSettings
+              onStagesChanged={onStagesChanged}
+              onCancel={() => onOpenChange(false)}
+            />
+          </TabsContent>
+
+          <TabsContent value="track" className="mt-0">
+            <div className="flex h-[60vh]">
+              {/* Track list */}
+              <aside className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
+                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Tracks
                 </div>
-              ) : tracks.length === 0 ? (
-                <p className="px-2 py-3 text-xs text-muted-foreground">
-                  No tracks yet.
-                </p>
-              ) : (
-                tracks.map((t) => (
-                  <div
-                    key={t.id}
-                    className={cn(
-                      "group flex items-center gap-1 rounded-md border transition-colors",
-                      t.id === activeId
-                        ? "bg-blue-300 border-blue-300 shadow-sm"
-                        : "border-transparent hover:bg-blue-100",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setActiveId(t.id)}
-                      className="min-w-0 flex-1 text-left px-2.5 py-2"
-                    >
+                <div className="flex-1 overflow-y-auto px-2 space-y-1">
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    </div>
+                  ) : tracks.length === 0 ? (
+                    <p className="px-2 py-3 text-xs text-muted-foreground">
+                      No tracks yet.
+                    </p>
+                  ) : (
+                    tracks.map((t) => (
                       <div
+                        key={t.id}
                         className={cn(
-                          "text-xs font-semibold truncate",
-                          t.id === activeId && "text-blue-950",
-                        )}
-                      >
-                        {t.title.trim() || "Untitled track"}
-                      </div>
-                      <div
-                        className={cn(
-                          "text-[10.5px] truncate",
+                          "group flex items-center gap-1 rounded-md border transition-colors",
                           t.id === activeId
-                            ? "text-blue-800"
-                            : "text-muted-foreground",
+                            ? "bg-blue-300 border-blue-300 shadow-sm"
+                            : "border-transparent hover:bg-blue-100",
                         )}
                       >
-                        {summary(t.content)}
+                        <button
+                          type="button"
+                          onClick={() => setActiveId(t.id)}
+                          className="min-w-0 flex-1 text-left px-2.5 py-2"
+                        >
+                          <div
+                            className={cn(
+                              "text-xs font-semibold truncate",
+                              t.id === activeId && "text-blue-950",
+                            )}
+                          >
+                            {t.title.trim() || "Untitled track"}
+                          </div>
+                          <div
+                            className={cn(
+                              "text-[10.5px] truncate",
+                              t.id === activeId
+                                ? "text-blue-800"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {summary(t.content)}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeTrack(t)}
+                          disabled={saving}
+                          aria-label={`Delete ${t.title.trim() || "track"}`}
+                          className="shrink-0 mr-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeTrack(t)}
-                      disabled={saving}
-                      aria-label={`Delete ${t.title.trim() || "track"}`}
-                      className="shrink-0 mr-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    ))
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addTrack}
+                  className="m-2 border-dashed"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  New track
+                </Button>
+              </aside>
+
+              {/* Editor */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {active ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="track-name">
+                        Track name <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="track-name"
+                        value={active.title}
+                        onChange={(e) => patchActive({ title: e.target.value })}
+                        disabled={saving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>PIC</Label>
+                      <StatusCombobox
+                        value={active.pic || null}
+                        options={userNames}
+                        optionHints={userEmailsByName}
+                        placeholder="Set PIC…"
+                        searchPlaceholder="Search or type a name…"
+                        emptyText="No team members found."
+                        onChange={(v) => patchActive({ pic: v })}
+                        disabled={saving}
+                      />
+                    </div>
+                    <Tabs defaultValue="thesis" className="w-full">
+                      <TabsList className="h-auto gap-1 rounded-full bg-blue-100 p-1">
+                        <TabsTrigger
+                          value="thesis"
+                          className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
+                        >
+                          Investment Thesis
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="criteria"
+                          className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
+                        >
+                          AI Screening Criteria
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="variables"
+                          className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
+                        >
+                          Variables
+                        </TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="thesis" className="mt-4">
+                        <Textarea
+                          id="track-thesis"
+                          value={active.content}
+                          onChange={(e) => patchActive({ content: e.target.value })}
+                          rows={12}
+                          placeholder="Describe the investment thesis — target sectors, geographies, deal characteristics…"
+                          className="resize-none overflow-y-auto"
+                          disabled={saving}
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="criteria" className="mt-4">
+                        {active.isNew ? (
+                          <p className="text-sm text-muted-foreground">
+                            Save this track first to add screening criteria to it.
+                          </p>
+                        ) : (
+                          <ScreeningCriteriaManager
+                            thesisId={active.id}
+                            criterias={criterias}
+                            onChange={setCriterias}
+                            disabled={saving}
+                          />
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="variables" className="mt-4">
+                        {active.isNew ? (
+                          <p className="text-sm text-muted-foreground">
+                            Save this track first to add variables to it.
+                          </p>
+                        ) : (
+                          <TrackVariablesManager
+                            trackId={active.id}
+                            variables={trackVariables}
+                            onChange={setTrackVariables}
+                            disabled={saving}
+                          />
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  </>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    Select a track or create a new one.
                   </div>
-                ))
-              )}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addTrack}
-              className="m-2 border-dashed"
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              New track
-            </Button>
-          </aside>
-
-          {/* Editor */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {active ? (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="track-name">
-                    Track name <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="track-name"
-                    value={active.title}
-                    onChange={(e) => patchActive({ title: e.target.value })}
-                    disabled={saving}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>PIC</Label>
-                  <StatusCombobox
-                    value={active.pic || null}
-                    options={userNames}
-                    optionHints={userEmailsByName}
-                    placeholder="Set PIC…"
-                    searchPlaceholder="Search or type a name…"
-                    emptyText="No team members found."
-                    onChange={(v) => patchActive({ pic: v })}
-                    disabled={saving}
-                  />
-                </div>
-                <Tabs defaultValue="thesis" className="w-full">
-                  <TabsList className="h-auto gap-1 rounded-full bg-blue-100 p-1">
-                    <TabsTrigger
-                      value="thesis"
-                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
-                    >
-                      Investment Thesis
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="criteria"
-                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
-                    >
-                      AI Screening Criteria
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="variables"
-                      className="rounded-full text-blue-700 hover:text-blue-900 data-[state=active]:bg-blue-300 data-[state=active]:text-blue-950 data-[state=active]:shadow-sm"
-                    >
-                      Variables
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="thesis" className="mt-4">
-                    <Textarea
-                      id="track-thesis"
-                      value={active.content}
-                      onChange={(e) => patchActive({ content: e.target.value })}
-                      rows={12}
-                      placeholder="Describe the investment thesis — target sectors, geographies, deal characteristics…"
-                      className="resize-none overflow-y-auto"
-                      disabled={saving}
-                    />
-                  </TabsContent>
-
-                  <TabsContent value="criteria" className="mt-4">
-                    {active.isNew ? (
-                      <p className="text-sm text-muted-foreground">
-                        Save this track first to add screening criteria to it.
-                      </p>
-                    ) : (
-                      <ScreeningCriteriaManager
-                        thesisId={active.id}
-                        criterias={criterias}
-                        onChange={setCriterias}
-                        disabled={saving}
-                      />
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="variables" className="mt-4">
-                    {active.isNew ? (
-                      <p className="text-sm text-muted-foreground">
-                        Save this track first to add variables to it.
-                      </p>
-                    ) : (
-                      <TrackVariablesManager
-                        trackId={active.id}
-                        variables={trackVariables}
-                        onChange={setTrackVariables}
-                        disabled={saving}
-                      />
-                    )}
-                  </TabsContent>
-                </Tabs>
-              </>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Select a track or create a new one.
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-            Save Tracks
-          </Button>
-        </div>
+            <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleSave} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                Save Tracks
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

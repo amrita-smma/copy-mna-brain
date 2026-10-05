@@ -1,8 +1,9 @@
 import type {
   CompanyLogRepository,
   CompanyRepository,
+  PipelineStageRepository,
 } from '@/lib/repositories';
-import { PIPELINE_STAGES } from '@/lib/constants';
+import { BUILTIN_PIPELINE_STAGE_KEYS } from '@/lib/pipeline/stages';
 
 /** One stage transition on a deal's timeline, newest-last. */
 export interface StageTimelineEvent {
@@ -55,7 +56,7 @@ export interface GetStalledDealsOptions {
   asOf?: Date;
   /** Stalled cutoff in days. Defaults to 14 (2 weeks). */
   thresholdDays?: number;
-  /** Restrict to a single pipeline stage (L0–L5). */
+  /** Restrict to a single pipeline stage key. */
   stage?: string;
 }
 
@@ -153,7 +154,16 @@ export class StalledDealService {
   constructor(
     private readonly companyRepo: CompanyRepository,
     private readonly companyLogRepo: CompanyLogRepository,
+    // Optional: the workspace's pipeline stages, so added stages are scanned
+    // too. Without it the six original stages are.
+    private readonly stageRepo?: PipelineStageRepository,
   ) {}
+
+  private async liveStageKeys(): Promise<string[]> {
+    if (!this.stageRepo) return [...BUILTIN_PIPELINE_STAGE_KEYS];
+    const rows = await this.stageRepo.list();
+    return rows.filter((r) => r.deleted_at === null).map((r) => r.key);
+  }
 
   async getStalledDeals(
     opts: GetStalledDealsOptions = {},
@@ -164,8 +174,8 @@ export class StalledDealService {
     const companies = await this.companyRepo.findForAgentStats({
       status: 'active',
       stage: opts.stage,
-      // Absent an explicit stage, scope to the committed L0–L5 funnel.
-      stageIn: opts.stage ? undefined : [...PIPELINE_STAGES],
+      // Absent an explicit stage, scope to the workspace's live pipeline stages.
+      stageIn: opts.stage ? undefined : await this.liveStageKeys(),
     });
 
     // Bulk-fetch logs for the whole cohort, then group by company.

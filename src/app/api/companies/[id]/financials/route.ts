@@ -9,6 +9,7 @@ const FinancialRow = z.object({
   fiscal_year: z.number().int().min(1990).max(2100),
   revenue_usd_mn: z.number().finite().nullable().optional(),
   ebitda_usd_mn: z.number().finite().nullable().optional(),
+  ev_usd_mn: z.number().finite().nullable().optional(),
 });
 
 const Body = z

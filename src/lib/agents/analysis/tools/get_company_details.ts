@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { loadStageLabeler } from "./stageLabels";
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
@@ -43,6 +44,7 @@ export const getCompanyDetails = tool(
       const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
       const financialRepo = new CompanyFinancialRepository(db, await getActiveWorkspaceId());
       const screeningRepo = new CompanyScreeningDerivedRepository(db, await getActiveWorkspaceId());
+      const stageText = await loadStageLabeler(db, await getActiveWorkspaceId());
       const c = id
         ? await companyRepo.findByIdOrNull(id)
         : await companyRepo.findByNameFuzzy(trimmed);
@@ -88,7 +90,7 @@ export const getCompanyDetails = tool(
 - **Ownership:** ${c.ownership || "N/A"}
 - **Website:** ${c.website || "N/A"}
 - **Watchlist Status:** ${c.watchlist_status || "N/A"}
-- **Pipeline Stage:** ${c.pipeline_stage || "N/A"}
+- **Pipeline Stage:** ${stageText(c.pipeline_stage) || "N/A"}
 
 ### Revenue (USD Millions)
 | Year | ${yearHeader} |

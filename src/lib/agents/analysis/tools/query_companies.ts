@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { loadStageLabeler } from "./stageLabels";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { logger } from "../../logger";
@@ -97,6 +98,7 @@ export const queryCompanies = tool(
           )
         : null;
 
+      const stageText = await loadStageLabeler(db, workspaceId);
       const headerCells = [
         "ID",
         "Target",
@@ -128,7 +130,7 @@ export const queryCompanies = tool(
           c.project_name || "-",
           c.segment || "-",
           c.geography || "-",
-          c.pipeline_stage || "-",
+          stageText(c.pipeline_stage) || "-",
           c.status || "-",
           opinion,
           rev,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePipelineStages } from '@/hooks/usePipelineStages';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -349,8 +350,8 @@ function InsightsContent({
               const onTarget = proratedTarget > 0 && count >= proratedTarget;
               return (
                 <div key={stage.stage} className="flex items-center gap-3">
-                  <span className="w-6 shrink-0 font-mono text-xs font-semibold text-muted-foreground">
-                    {stage.stage}
+                  <span className="min-w-6 max-w-[5rem] shrink-0 truncate font-mono text-xs font-semibold text-muted-foreground">
+                    {stageCode(stage.stage)}
                   </span>
                   <div className="relative flex-1 h-5 rounded bg-muted overflow-hidden">
                     <div
@@ -413,6 +414,7 @@ function InsightsContent({
         <StaleThresholdsModal
           open={staleModalOpen}
           onOpenChange={setStaleModalOpen}
+          stages={settings.staleStages}
           current={settings.staleThresholds}
           meta={settings.meta}
           onSave={(staleThresholds) =>
@@ -484,7 +486,7 @@ function InsightsContent({
                       <div className="text-[11px] text-muted-foreground">{deal.reason}</div>
                     </div>
                     <span className="shrink-0 rounded border bg-muted px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground">
-                      {deal.stage}
+                      {stageCode(deal.stage)}
                     </span>
                     <span
                       className={`shrink-0 font-mono text-[13px] font-semibold ${
@@ -997,6 +999,7 @@ function TargetSettingsModal({
   meta: InsightsSettingsMeta;
   onSave: (next: Record<string, number>) => Promise<void>;
 }) {
+  const { code: stageCode } = usePipelineStages();
   // Draft input values (strings) seeded from the current targets each time the
   // modal opens, so an abandoned edit doesn't persist.
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -1047,7 +1050,7 @@ function TargetSettingsModal({
           {stages.map((s) => (
             <div key={s.stage} className="space-y-1">
               <Label htmlFor={`target-${s.stage}`} className="text-xs text-muted-foreground">
-                {s.stage}
+                {stageCode(s.stage)}
               </Label>
               <Input
                 id={`target-${s.stage}`}
@@ -1181,24 +1184,23 @@ function ConversionSettingsModal({
   );
 }
 
-/** SLA-tracked stages a deal can be flagged stale in, in display order. Kept in
- * sync with `STALE_STAGES` in the service (duplicated to avoid pulling the
- * server module's runtime imports into this client bundle). */
-const STALE_THRESHOLD_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
-
 function StaleThresholdsModal({
   open,
   onOpenChange,
+  stages,
   current,
   meta,
   onSave,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The SLA-tracked stages (L0 through L3 in the workspace's order), from the settings API. */
+  stages: string[];
   current: Record<string, number>;
   meta: InsightsSettingsMeta;
   onSave: (next: Record<string, number>) => Promise<void>;
 }) {
+  const { code: stageCode } = usePipelineStages();
   // Draft input values (strings) seeded from the current thresholds each time
   // the modal opens, so an abandoned edit doesn't persist.
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -1208,7 +1210,7 @@ function StaleThresholdsModal({
     if (open) {
       setDraft(
         Object.fromEntries(
-          STALE_THRESHOLD_STAGES.map((s) => [s, String(current[s] ?? '')]),
+          stages.map((s) => [s, String(current[s] ?? '')]),
         ),
       );
     }
@@ -1218,10 +1220,13 @@ function StaleThresholdsModal({
   const handleSave = async () => {
     // Parse each field; fall back to the current value when blank/invalid so a
     // stray field can't zero out a threshold.
+    // A stage left blank that never had a threshold (one the workspace added)
+    // stays untracked instead of being saved as 0 days.
     const next: Record<string, number> = {};
-    for (const stage of STALE_THRESHOLD_STAGES) {
+    for (const stage of stages) {
       const parsed = Number.parseInt(draft[stage] ?? '', 10);
-      next[stage] = Number.isFinite(parsed) && parsed >= 0 ? parsed : current[stage] ?? 0;
+      if (Number.isFinite(parsed) && parsed >= 0) next[stage] = parsed;
+      else if (current[stage] != null) next[stage] = current[stage];
     }
     setSaving(true);
     try {
@@ -1249,10 +1254,10 @@ function StaleThresholdsModal({
         )}
 
         <div className="grid grid-cols-2 gap-3 py-1">
-          {STALE_THRESHOLD_STAGES.map((stage) => (
+          {stages.map((stage) => (
             <div key={stage} className="space-y-1">
               <Label htmlFor={`stale-${stage}`} className="text-xs text-muted-foreground">
-                {stage} (days)
+                {stageCode(stage)} (days)
               </Label>
               <Input
                 id={`stale-${stage}`}

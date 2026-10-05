@@ -69,7 +69,28 @@ const MOCK_COMPANIES: Company[] = [
   baseCompany({ id: 'co-8', target: 'Wonka', segment: 'Consumer', pipeline_stage: 'L5' }),
 ];
 
+// The six stages every workspace starts with (seeded into pipeline_stages).
+const MOCK_STAGES = [
+  ['L0', 'Company Sourcing', 'Initial company identification and sourcing.'],
+  ['L1', 'Preliminary Review', 'First-pass review against the investment thesis.'],
+  ['L2', 'Deep Dive', 'Deeper analysis of financials and market position.'],
+  ['L3', 'Due Diligence', 'Full due diligence and data room review.'],
+  ['L4', 'IC Review', 'Investment committee presentation and decision.'],
+  ['L5', 'Closing', 'Deal closing and documentation.'],
+].map(([key, name, description], position) => ({
+  key,
+  code: key,
+  name,
+  description,
+  position,
+  deleted: false,
+}));
+
 const mockApis = async (page: Page, companies: Company[]) => {
+  await page.route('**/api/pipeline-stages**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: MOCK_STAGES }) }),
+  );
+
   await page.route('**/api/companies**', (route) => {
     const req = route.request();
     const method = req.method();
@@ -160,13 +181,14 @@ test.describe('Pipeline page', () => {
     await expect(page.getByText('Track companies through all stages')).toBeVisible();
 
     for (const stage of ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']) {
-      await expect(page.getByRole('tab', { name: new RegExp(`^${stage}\\s`) })).toBeVisible();
+      await expect(page.getByRole('tab', { name: new RegExp(`^${stage} · `) })).toBeVisible();
     }
 
-    // Count badges within each tab trigger (2 in L0, 2 in L1, 1 in L2–L5).
-    await expect(page.getByRole('tab', { name: /^L0\s+2$/ })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /^L1\s+2$/ })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /^L2\s+1$/ })).toBeVisible();
+    // With no ?stage= the page opens on every stage at once.
+    await expect(page.getByRole('tab', { name: 'All Stages' })).toHaveAttribute('data-state', 'active');
+    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Wonka', exact: true })).toBeVisible();
+    await expect(page.getByTestId('pipeline-pending-chip')).toBeVisible();
   });
 
   test('User opens the Pipeline with ?stage=L2', async ({ page }) => {
@@ -178,8 +200,10 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline?stage=L2'),
     ]);
 
-    await expect(page.getByRole('tab', { name: /^L2\s+1$/ })).toHaveAttribute('data-state', 'active');
-    await expect(page.getByRole('heading', { name: /L2 - Initial Review/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'L2 · Deep Dive' })).toHaveAttribute('data-state', 'active');
+    await expect(page.getByTestId('pipeline-stage-description')).toHaveText(
+      'Description: Deeper analysis of financials and market position.',
+    );
     await expect(page.getByRole('button', { name: 'Stark Industries', exact: true })).toBeVisible();
   });
 
@@ -192,12 +216,43 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline?stage=L1'),
     ]);
 
-    await page.getByRole('tab', { name: /^L3\s+1$/ }).click();
+    await page.getByRole('tab', { name: 'L3 · Due Diligence' }).click();
     await expect(page).toHaveURL(/\/pipeline\?stage=L3/);
     await expect(page.getByRole('button', { name: 'Wayne Enterprises', exact: true })).toBeVisible();
   });
 
-  test('User searches within a stage', async ({ page }) => {
+  test('User searches across every stage, including Pending Confirmation', async ({ page }) => {
+    const companies = [
+      ...MOCK_COMPANIES,
+      baseCompany({ id: 'pending-w', target: 'Wayne Pending', source: 'inbound', pipeline_stage: 'unreviewed' }),
+    ];
+    await mockAuthSession(page);
+    await mockApis(page, companies);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline?stage=L1'),
+    ]);
+
+    await expect(page.getByRole('button', { name: 'Initech', exact: true })).toBeVisible();
+
+    // The search looks past the L1 filter: the L3 deal and the pending one
+    // are both found, and L1's own deals drop out.
+    const search = page.getByPlaceholder('Search companies or sectors...');
+    await search.fill('wayne');
+    await expect(page.getByRole('button', { name: 'Wayne Enterprises', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Wayne Pending', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Initech', exact: true })).not.toBeVisible();
+    await expect(page.getByTestId('pipeline-search-scope-hint')).toBeVisible();
+    await expect(page).toHaveURL(/[?&]q=wayne/);
+
+    // The stage filter is disabled while searching, and keeps its selection.
+    await expect(page.getByRole('tab', { name: 'L3 · Due Diligence' })).toBeDisabled();
+    await expect(page.getByTestId('pipeline-pending-chip')).toBeDisabled();
+    await expect(page.getByRole('tab', { name: 'L1 · Preliminary Review' })).toHaveAttribute('data-state', 'active');
+  });
+
+  test('User clears a search and returns to the stage they started on', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
 
@@ -206,12 +261,32 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline?stage=L1'),
     ]);
 
+    const search = page.getByPlaceholder('Search companies or sectors...');
+    await search.fill('wayne');
+    await search.fill('');
+    await expect(page.getByRole('tab', { name: 'L1 · Preliminary Review' })).toHaveAttribute('data-state', 'active');
+    await expect(page.getByRole('tab', { name: 'L3 · Due Diligence' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Initech', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Wayne Enterprises', exact: true })).not.toBeVisible();
+  });
 
-    await page.getByPlaceholder('Search companies or sectors...').fill('initech');
-    await expect(page.getByRole('button', { name: 'Initech', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Umbrella', exact: true })).not.toBeVisible();
+  test('User sees search matches in the other source', async ({ page }) => {
+    const companies = [
+      ...MOCK_COMPANIES,
+      baseCompany({ id: 'out-1', target: 'Wayne Outbound', source: 'outbound', pipeline_stage: 'L2' }),
+    ];
+    await mockAuthSession(page);
+    await mockApis(page, companies);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline'),
+    ]);
+
+    await page.getByPlaceholder('Search companies or sectors...').fill('wayne');
+    await expect(page.getByTestId('pipeline-other-source-hint')).toContainText('1 match in Outbound');
+    await page.getByTestId('pipeline-other-source-hint').getByRole('button', { name: 'Show' }).click();
+    await expect(page.getByRole('button', { name: 'Wayne Outbound', exact: true })).toBeVisible();
   });
 
   test('User filters L1 by screening status', async ({ page }) => {
@@ -263,17 +338,38 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline?stage=L4'),
     ]);
 
-    await expect(page.getByText('No companies in this stage')).toBeVisible();
+    await expect(page.getByText('No companies match the current filters.')).toBeVisible();
   });
 
-  test('User triages unreviewed inbound companies', async ({ page }) => {
+  test('User opens Pending Confirmation from the Pipeline', async ({ page }) => {
+    const companies = [
+      ...MOCK_COMPANIES,
+      baseCompany({ id: 'pending-1', target: 'PT Sinar Teknologi', source: 'inbound', pipeline_stage: 'unreviewed' }),
+    ];
+    await mockAuthSession(page);
+    await mockApis(page, companies);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline'),
+    ]);
+
+    // All Stages leaves pending deals out; the chip shows them.
+    await expect(page.getByRole('button', { name: 'PT Sinar Teknologi', exact: true })).not.toBeVisible();
+    await page.getByTestId('pipeline-pending-chip').click();
+    await expect(page).toHaveURL(/\/pipeline\?stage=pending/);
+    await expect(page.getByRole('button', { name: 'PT Sinar Teknologi', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).not.toBeVisible();
+  });
+
+  test('User triages unreviewed inbound companies on Sourcing', async ({ page }) => {
     const companies = [
       baseCompany({
         id: 'triage-1',
         target: 'PT Sinar Teknologi',
         segment: 'Technology',
         source: 'inbound',
-        pipeline_stage: 'L0',
+        pipeline_stage: 'unreviewed',
         review_state: 'unreviewed',
         doc_type: 'teaser',
         banker_source: 'Goldman Sachs',
@@ -283,7 +379,7 @@ test.describe('Pipeline page', () => {
         target: 'BrightStar Energy',
         segment: 'Energy',
         source: 'inbound',
-        pipeline_stage: 'L0',
+        pipeline_stage: 'unreviewed',
         review_state: 'unreviewed',
         doc_type: 'shopping_list',
         banker_source: 'UBS',
@@ -328,28 +424,35 @@ test.describe('Pipeline page', () => {
 
     await Promise.all([
       page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
-      page.goto('/pipeline?stage=L0'),
+      page.goto('/sourcing'),
     ]);
 
-    await expect(page.getByRole('button', { name: /Triage Unreviewed\s+2/ })).toBeVisible();
-    await expect(page.getByText('2 new companies from banker emails')).toBeVisible();
+    // Triage lives on the Sourcing page's Pending Confirmation tab.
+    await expect(page.getByTestId('sourcing-tab-pending')).toHaveAttribute('data-state', 'active');
+    await expect(page.getByText('new companies from email attachments')).toBeVisible();
 
-    await page.getByRole('button', { name: /Triage Unreviewed\s+2/ }).click();
-    await expect(page.getByRole('dialog', { name: 'Triage Unreviewed Companies' })).toBeVisible();
-    await expect(page.getByText('PT Sinar Teknologi')).toBeVisible();
-    await expect(page.getByText('Goldman Sachs')).toBeVisible();
+    await page.getByRole('button', { name: 'Triage Unreviewed', exact: true }).click();
+    const triageDialog = page.getByRole('dialog', { name: 'Triage Unreviewed Companies' });
+    await expect(triageDialog).toBeVisible();
+    // The same names also sit in the Pending Confirmation table behind the modal.
+    await expect(triageDialog.getByText('PT Sinar Teknologi')).toBeVisible();
+    await expect(triageDialog.getByText('Goldman Sachs')).toBeVisible();
 
-    await page
+    // `.last()` is the innermost element holding the company's name and the
+    // button, i.e. that company's own row in the modal, not a wrapper around both.
+    await triageDialog
       .locator('div')
       .filter({ hasText: 'PT Sinar Teknologi' })
+      .filter({ has: page.getByRole('button', { name: 'Keep' }) })
+      .last()
       .getByRole('button', { name: 'Keep' })
-      .first()
       .click();
-    await page
+    await triageDialog
       .locator('div')
       .filter({ hasText: 'BrightStar Energy' })
+      .filter({ has: page.getByRole('button', { name: 'Drop' }) })
+      .last()
       .getByRole('button', { name: 'Drop' })
-      .first()
       .click();
     await page.getByRole('combobox').filter({ hasText: 'Select reason' }).click();
     await page.getByRole('option', { name: 'Insufficient information' }).click();

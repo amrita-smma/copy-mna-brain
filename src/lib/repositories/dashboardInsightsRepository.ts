@@ -23,9 +23,11 @@ import {
 } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
-/** The L0–L5 deal-pipeline stages, in funnel order. Excludes `market_screening`
- * and `discovered`, which are not part of the origination funnel. */
-export const PIPELINE_FUNNEL_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const;
+/** The original L0–L5 deal-pipeline stages, in funnel order — the default when
+ * a caller does not pass the workspace's own live stages. Excludes
+ * `market_screening`, `unreviewed` and `discovered`, which are not part of the
+ * origination funnel. */
+export const PIPELINE_FUNNEL_STAGES: readonly string[] = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
 
 /**
  * Coerce a Postgres `array_agg` result into a `number[]`. Depending on the
@@ -103,7 +105,7 @@ export interface StaleCandidate {
  * Read-only aggregation queries backing the dashboard Insights module:
  * funnel counts, segment / country / banker breakdowns, stale-deal candidates,
  * and AI throughput counters. All pipeline aggregates are scoped to active
- * companies in the L0–L5 funnel; `market_screening` and `discovered` rows are
+ * companies in the pipeline funnel (the stages the caller passes); `market_screening` and `discovered` rows are
  * excluded.
  */
 export class DashboardInsightsRepository {
@@ -112,14 +114,14 @@ export class DashboardInsightsRepository {
     private readonly workspaceId: string,
   ) {}
 
-  /** Predicate: active company sitting in the L0–L5 funnel, created within the
+  /** Predicate: active company sitting in the given funnel stages, created within the
    * `[from, to]` window. The window scopes every funnel/breakdown aggregate so
    * the dashboard's date filter (7d / 14d / custom) applies consistently. */
-  private inFunnel(from: Date, to: Date) {
+  private inFunnel(from: Date, to: Date, stages: readonly string[]) {
     return and(
       eq(companies.workspace_id, this.workspaceId),
       eq(companies.status, 'active'),
-      inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+      inArray(companies.pipeline_stage, [...stages]),
       gte(companies.created_at, from.toISOString()),
       lte(companies.created_at, to.toISOString()),
     );
@@ -127,11 +129,16 @@ export class DashboardInsightsRepository {
 
   /** Headcount per pipeline stage for active funnel companies created in the
    * window, grouped by their current stage. */
-  async getStageCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
+  async getStageCounts(
+    from: Date,
+    to: Date,
+    stages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<{ stage: string; count: number }[]> {
+    if (stages.length === 0) return [];
     const rows = await this.db
       .select({ stage: companies.pipeline_stage, count: drizzleCount() })
       .from(companies)
-      .where(this.inFunnel(from, to))
+      .where(this.inFunnel(from, to, stages))
       .groupBy(companies.pipeline_stage);
     return rows.map((r) => ({ stage: String(r.stage), count: Number(r.count) }));
   }
@@ -139,7 +146,12 @@ export class DashboardInsightsRepository {
   /** Headcount per pipeline stage for **dropped** funnel companies created in
    * the window. Used alongside {@link getStageCounts} to form the full L0 cohort
    * (active + dropped) for the L0→L1 conversion rate. */
-  async getDroppedStageCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
+  async getDroppedStageCounts(
+    from: Date,
+    to: Date,
+    stages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<{ stage: string; count: number }[]> {
+    if (stages.length === 0) return [];
     const rows = await this.db
       .select({ stage: companies.pipeline_stage, count: drizzleCount() })
       .from(companies)
@@ -147,7 +159,7 @@ export class DashboardInsightsRepository {
         and(
           eq(companies.workspace_id, this.workspaceId),
           eq(companies.status, 'dropped'),
-          inArray(companies.pipeline_stage, ['L0', 'L1', 'L2', 'L3', 'L4', 'L5']),
+          inArray(companies.pipeline_stage, [...stages]),
           gte(companies.created_at, from.toISOString()),
           lte(companies.created_at, to.toISOString()),
         ),
@@ -157,7 +169,7 @@ export class DashboardInsightsRepository {
   }
 
   /**
-   * Companies *added to* each funnel stage (L0–L5) within the window — the flow
+   * Companies *added to* each funnel stage within the window — the flow
    * into a stage, not the current snapshot. A company counts toward a stage when
    * it was either created directly at that stage in the window, or moved into it
    * via a stage-change log (`…_TO_L<n>`: promotions, resurfaces, restores) whose
@@ -165,10 +177,15 @@ export class DashboardInsightsRepository {
    * L0 case) across every stage, so a company promoted through several stages in
    * the window is counted once per stage it entered. Distinct per stage.
    */
-  async getStageEntryCounts(from: Date, to: Date): Promise<{ stage: string; count: number }[]> {
+  async getStageEntryCounts(
+    from: Date,
+    to: Date,
+    funnelStages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<{ stage: string; count: number }[]> {
+    if (funnelStages.length === 0) return [];
     const fromIso = from.toISOString();
     const toIso = to.toISOString();
-    const stages = [...PIPELINE_FUNNEL_STAGES];
+    const stages = [...funnelStages];
 
     const { rows } = await this.db.execute<{ stage: string; count: string }>(sql`
       SELECT stage, COUNT(DISTINCT id) AS count FROM (
@@ -180,11 +197,11 @@ export class DashboardInsightsRepository {
           AND ${lte(companies.created_at, toIso)}
         UNION
         SELECT ${companyLogs.company_id} AS id,
-               substring(${companyLogs.action} from '_TO_(L[0-5])$') AS stage
+               substring(${companyLogs.action} from '_TO_(.+)$') AS stage
         FROM ${companyLogs}
         INNER JOIN ${companies} ON ${eq(companies.id, companyLogs.company_id)}
         WHERE ${eq(companies.workspace_id, this.workspaceId)}
-          AND ${like(companyLogs.action, '%_TO_L%')}
+          AND ${like(companyLogs.action, '%\\_TO\\_%')}
           AND ${gte(companyLogs.created_at, fromIso)}
           AND ${lte(companyLogs.created_at, toIso)}
       ) sub
@@ -196,11 +213,11 @@ export class DashboardInsightsRepository {
 
   /**
    * Cohort breakdown keyed on `key`: companies **created in the window** that are
-   * currently a pipeline deal (L0–L5), grouped by the key and their **current**
+   * currently a pipeline deal (a funnel stage), grouped by the key and their **current**
    * stage. This is the deal-funnel basis — a snapshot of where each company sits
    * *today* (active and dropped alike, each counted once), matching
    * `DashboardActivityService.getAddedCohort` (the "New Deals" tally). Because it
-   * shares that method's exact `[from, to]` created-at window and L0–L5 filter,
+   * shares that method's exact `[from, to]` created-at window and funnel-stage filter,
    * summing these per-key/per-stage counts reconciles with the New Deals figure.
    * It deliberately differs from the stage-entry model in
    * {@link getStageEntryCounts}, which counts *entries* into each stage (via
@@ -212,8 +229,10 @@ export class DashboardInsightsRepository {
     key: SQL,
     from: Date,
     to: Date,
+    funnelStages: readonly string[],
   ): Promise<DimensionStageCount[]> {
-    const stages = [...PIPELINE_FUNNEL_STAGES];
+    if (funnelStages.length === 0) return [];
+    const stages = [...funnelStages];
     const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
       SELECT ${key} AS key,
              ${companies.pipeline_stage}::text AS stage,
@@ -234,14 +253,22 @@ export class DashboardInsightsRepository {
 
   /** Segment breakdown on the deal-funnel (cohort-by-current-stage) basis, so it
    * tallies with the "New Deals" cohort. */
-  getSegmentBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.cohortBreakdownByKey(sql`${companies.segment}`, from, to);
+  getSegmentBreakdown(
+    from: Date,
+    to: Date,
+    stages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<DimensionStageCount[]> {
+    return this.cohortBreakdownByKey(sql`${companies.segment}`, from, to, stages);
   }
 
   /** Country breakdown on the deal-funnel (cohort-by-current-stage) basis, so it
    * tallies with the "New Deals" cohort. */
-  getCountryBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to);
+  getCountryBreakdown(
+    from: Date,
+    to: Date,
+    stages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<DimensionStageCount[]> {
+    return this.cohortBreakdownByKey(sql`${companies.geography}`, from, to, stages);
   }
 
   /** Banker breakdown for **inbound** companies created in the window, keyed on
@@ -249,8 +276,13 @@ export class DashboardInsightsRepository {
    * counted so "Leads from Bankers" matches the Recap panel's inbound cohort.
    * Rows with no banker name are dropped downstream (`buildBreakdown` skips blank
    * keys). */
-  async getBankerBreakdown(from: Date, to: Date): Promise<DimensionStageCount[]> {
-    const stages = [...PIPELINE_FUNNEL_STAGES];
+  async getBankerBreakdown(
+    from: Date,
+    to: Date,
+    funnelStages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<DimensionStageCount[]> {
+    if (funnelStages.length === 0) return [];
+    const stages = [...funnelStages];
     const { rows } = await this.db.execute<{ key: string | null; stage: string; count: string }>(sql`
       SELECT coalesce(nullif(${companies.banker}, ''), ${companies.banker_source}) AS key,
              ${companies.pipeline_stage}::text AS stage,
@@ -336,12 +368,17 @@ export class DashboardInsightsRepository {
     }
   }
 
-  /** Active funnel deals (L0–L5) created within the window, with activity
+  /** Active funnel deals created within the window, with activity
    * timestamps, for staleness analysis. Which stages actually carry an SLA is
    * decided by the service (the configurable stale thresholds). The deal
    * sponsor/captain names are resolved via joins so the stale list can show who
    * owns each deal. */
-  async getStaleCandidates(from: Date, to: Date): Promise<StaleCandidate[]> {
+  async getStaleCandidates(
+    from: Date,
+    to: Date,
+    stages: readonly string[] = PIPELINE_FUNNEL_STAGES,
+  ): Promise<StaleCandidate[]> {
+    if (stages.length === 0) return [];
     const sponsorUsers = alias(users, 'stale_sponsor_users');
     const captainUsers = alias(users, 'stale_captain_users');
     const rows = await this.db
@@ -365,7 +402,7 @@ export class DashboardInsightsRepository {
       .from(companies)
       .leftJoin(sponsorUsers, eq(sponsorUsers.id, companies.deal_sponsor))
       .leftJoin(captainUsers, eq(captainUsers.id, companies.deal_captain))
-      .where(this.inFunnel(from, to));
+      .where(this.inFunnel(from, to, stages));
     return rows.map((r) => ({ ...r, pipeline_stage: String(r.pipeline_stage) }));
   }
 

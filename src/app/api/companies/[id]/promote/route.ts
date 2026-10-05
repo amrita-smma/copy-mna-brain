@@ -3,7 +3,11 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { auth } from '@/auth';
-import { CompanyDroppedError, CompanyL0RequirementsError } from '@/lib/services/companyService';
+import {
+  CompanyDroppedError,
+  CompanyL0RequirementsError,
+  PipelineStageUnavailableError,
+} from '@/lib/services/companyService';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -34,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         { status: 422 },
       );
     }
-    if (error instanceof CompanyDroppedError) {
+    if (error instanceof CompanyDroppedError || error instanceof PipelineStageUnavailableError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     const message = error instanceof Error ? error.message : 'Failed to promote company';

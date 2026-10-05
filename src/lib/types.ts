@@ -175,9 +175,15 @@ export interface CompanyCriteria {
 export type WatchlistStatus = 'Active' | 'Inactive' | 'Pending' | 'Removed';
 
 // ============================================
-// Pipeline Stage Enum (matches DB pipeline_stage enum)
+// Pipeline stages (companies.pipeline_stage)
 // ============================================
-export type DealStage = 'market_screening' | 'unreviewed' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'discovered';
+/** The fixed stage keys: the pre-pipeline buckets and the six original stages. */
+type BuiltinDealStage = 'market_screening' | 'unreviewed' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'discovered';
+/**
+ * A companies.pipeline_stage value: a built-in key, or the key of a stage the
+ * workspace added in Pipeline Settings (`stg-<hex>`). See `pipeline_stages`.
+ */
+export type DealStage = BuiltinDealStage | (string & {});
 
 // ============================================
 // Company status / source enums (match DB enums)

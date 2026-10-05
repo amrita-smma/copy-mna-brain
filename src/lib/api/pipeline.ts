@@ -55,10 +55,14 @@ export async function getCompaniesLite(params: {
 export async function getCompaniesCount(params: {
   stage?: string;
   createdAfter?: string;
+  source?: 'inbound' | 'outbound';
+  excludeDropped?: boolean;
 }) {
   const search = new URLSearchParams();
   search.set('countOnly', 'true');
   if (params.stage) search.set('stage', params.stage);
+  if (params.source) search.set('source', params.source);
+  if (params.excludeDropped) search.set('excludeDropped', 'true');
   if (params.createdAfter) search.set('createdAfter', params.createdAfter);
   const data = await apiRequest<{ count: number }>(`/api/companies?${search.toString()}`);
   return data.count || 0;
@@ -141,6 +145,7 @@ export interface FinancialEditRow {
   fiscal_year: number;
   revenue_usd_mn?: number | null;
   ebitda_usd_mn?: number | null;
+  ev_usd_mn?: number | null;
 }
 
 export async function updateCompanyFinancials(
@@ -241,16 +246,12 @@ export async function bulkPromoteDeals(payload: {
 
 export async function restoreDeal(id: string, payload: {
   currentStage?: string | null;
+  /** Required when the deal's stage was deleted while it was dropped. */
+  targetStage?: string;
 }) {
   return apiRequest<{ success: boolean }>(`/api/companies/${encodeURIComponent(id)}/restore`, {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
-}
-
-export async function runCompanyL1Filters(id: string) {
-  return apiRequest<any>(`/api/companies/${encodeURIComponent(id)}/run-l1-filters`, {
-    method: 'POST',
   });
 }
 

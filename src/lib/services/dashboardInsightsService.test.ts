@@ -45,6 +45,7 @@ class MockThesisRepo {
 const FROM = new Date('2026-06-01T00:00:00.000Z');
 const TO = new Date('2026-06-22T00:00:00.000Z');
 const NOW = new Date('2026-06-22T00:00:00.000Z');
+const ORIGINAL_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
 
 function dim(key: string | null, stage: string, count: number): DimensionStageCount {
   return { key, stage, count };
@@ -465,11 +466,11 @@ describe('DashboardInsightsService.getInsights', () => {
     expect(repo.countNewDeals).toHaveBeenCalledWith(FROM, TO);
     expect(repo.countScreenedL0).toHaveBeenCalledWith(FROM, TO);
     // Snapshot aggregates are now window-scoped too (created-in-window).
-    expect(repo.getStageCounts).toHaveBeenCalledWith(FROM, TO);
-    expect(repo.getSegmentBreakdown).toHaveBeenCalledWith(FROM, TO);
-    expect(repo.getCountryBreakdown).toHaveBeenCalledWith(FROM, TO);
-    expect(repo.getBankerBreakdown).toHaveBeenCalledWith(FROM, TO);
-    expect(repo.getStaleCandidates).toHaveBeenCalledWith(FROM, TO);
+    expect(repo.getStageCounts).toHaveBeenCalledWith(FROM, TO, ORIGINAL_STAGES);
+    expect(repo.getSegmentBreakdown).toHaveBeenCalledWith(FROM, TO, ORIGINAL_STAGES);
+    expect(repo.getCountryBreakdown).toHaveBeenCalledWith(FROM, TO, ORIGINAL_STAGES);
+    expect(repo.getBankerBreakdown).toHaveBeenCalledWith(FROM, TO, ORIGINAL_STAGES);
+    expect(repo.getStaleCandidates).toHaveBeenCalledWith(FROM, TO, ORIGINAL_STAGES);
     // The new AI-card / opinion / screening counters are window-scoped too.
     expect(repo.getCompanyCardStats).toHaveBeenCalledWith(FROM, TO);
     expect(repo.getAiOpinionStats).toHaveBeenCalledWith(FROM, TO);
@@ -588,5 +589,122 @@ describe('DashboardInsightsService settings', () => {
     expect(key).toBe('insights_dashboard');
     expect(updatedBy).toBe('u1');
     expect(value).toMatchObject({ funnelTargets: { L1: 26, L2: 0 } });
+  });
+});
+
+describe('DashboardInsightsService — workspace pipeline stages', () => {
+  function stageRow(key: string, position: number, code = key, deleted = false) {
+    return {
+      key,
+      code,
+      name: key,
+      description: '',
+      position,
+      deleted_at: deleted ? '2026-06-10T00:00:00.000Z' : null,
+    };
+  }
+
+  // L2 deleted; "Expert Calls" added between L1 and L3; "Post-close" after L5.
+  const STAGE_ROWS = [
+    stageRow('L0', 0),
+    stageRow('L1', 1),
+    stageRow('stg-calls', 2, 'L1b'),
+    stageRow('L2', 3, 'L2', true),
+    stageRow('L3', 4),
+    stageRow('L4', 5),
+    stageRow('L5', 6),
+    stageRow('stg-post', 7, 'L6'),
+  ];
+
+  let repo: MockRepo;
+  let settingsRepo: MockSettingsRepo;
+  let service: DashboardInsightsService;
+
+  beforeEach(() => {
+    repo = new MockRepo();
+    for (const fn of Object.values(repo)) fn.mockResolvedValue([]);
+    repo.countNewDeals.mockResolvedValue(0);
+    repo.countScreenedL0.mockResolvedValue(0);
+    repo.countDecksGenerated.mockResolvedValue(0);
+    repo.countWorkforceRuns.mockResolvedValue(0);
+    repo.getHitlStats.mockResolvedValue({ resolved: 0, pending: 0 });
+    settingsRepo = new MockSettingsRepo();
+    settingsRepo.get.mockResolvedValue(null);
+    const thesisRepo = new MockThesisRepo();
+    thesisRepo.findAll.mockResolvedValue([]);
+    const stageRepo = { list: vi.fn().mockResolvedValue(STAGE_ROWS) };
+    service = new DashboardInsightsService(
+      repo as unknown as DashboardInsightsRepository,
+      settingsRepo as unknown as AppSettingsRepository,
+      thesisRepo as unknown as import('@/lib/repositories/investmentThesisRepository').InvestmentThesisRepository,
+      stageRepo as unknown as import('@/lib/repositories/pipelineStageRepository').PipelineStageRepository,
+    );
+  });
+
+  it('builds the funnel over the live stages in workspace order', async () => {
+    const { funnel } = await service.getInsights(FROM, TO, NOW);
+    const live = ['L0', 'L1', 'stg-calls', 'L3', 'L4', 'L5', 'stg-post'];
+    expect(funnel.map((f) => f.stage)).toEqual(live);
+    expect(repo.getStageEntryCounts).toHaveBeenCalledWith(FROM, TO, live);
+    // An added stage has no target until one is set.
+    expect(funnel.find((f) => f.stage === 'stg-calls')?.target).toBe(0);
+  });
+
+  it('only flags an added stage before L3 stale once it has a threshold', async () => {
+    const old = '2026-01-01T00:00:00.000Z';
+    repo.getStaleCandidates.mockResolvedValue([
+      staleRow({ id: 'a', pipeline_stage: 'stg-calls', last_activity_at: old }),
+      staleRow({ id: 'b', pipeline_stage: 'stg-post', last_activity_at: old }),
+    ]);
+
+    const before = await service.getInsights(FROM, TO, NOW);
+    expect(before.staleDeals).toEqual([]);
+
+    settingsRepo.get.mockResolvedValue({ staleThresholds: { 'stg-calls': 10, 'stg-post': 10 } });
+    const after = await service.getInsights(FROM, TO, NOW);
+    // stg-post sits after L3, outside the SLA range, so its threshold is ignored.
+    expect(after.staleDeals.map((d) => d.id)).toEqual(['a']);
+    expect(after.staleThresholdLabel).toContain('L1b: 10d');
+  });
+
+  it('exposes the funnel and SLA stage lists with the settings', async () => {
+    settingsRepo.getRow.mockResolvedValue(null);
+    const settings = await service.getSettingsWithMeta();
+    expect(settings.funnelStages).toEqual(['L0', 'L1', 'stg-calls', 'L3', 'L4', 'L5', 'stg-post']);
+    expect(settings.staleStages).toEqual(['L0', 'L1', 'stg-calls', 'L3']);
+  });
+
+  it('does not save a blank threshold for an added stage as 0 days', async () => {
+    settingsRepo.getRow.mockResolvedValue(null);
+    await service.saveSettings({
+      funnelTargets: {},
+      l0l1Conversion: { min: 10, max: 15 },
+      staleThresholds: {},
+    });
+    const saved = settingsRepo.set.mock.calls[0][1] as { staleThresholds: Record<string, number> };
+    expect(saved.staleThresholds).not.toHaveProperty('stg-calls');
+    expect(saved.staleThresholds.L1).toBe(7);
+  });
+
+  it("keeps other workspaces' stage values when this workspace saves", async () => {
+    settingsRepo.getRow.mockResolvedValue(null);
+    // Stored by another workspace: its own added stage, and L2 (deleted here).
+    settingsRepo.get.mockResolvedValue({
+      funnelTargets: { 'stg-other': 12, L2: 9 },
+      staleThresholds: { 'stg-other': 5, L2: 30 },
+    });
+
+    await service.saveSettings({
+      funnelTargets: { L0: 150, 'stg-calls': 20 },
+      l0l1Conversion: { min: 10, max: 15 },
+      staleThresholds: { L0: 10, 'stg-calls': 4 },
+    });
+
+    const saved = settingsRepo.set.mock.calls[0][1] as {
+      funnelTargets: Record<string, number>;
+      staleThresholds: Record<string, number>;
+    };
+    expect(saved.funnelTargets).toMatchObject({ 'stg-other': 12, L2: 9, L0: 150, 'stg-calls': 20 });
+    expect(saved.staleThresholds).toMatchObject({ 'stg-other': 5, L2: 30, L0: 10, 'stg-calls': 4 });
   });
 });

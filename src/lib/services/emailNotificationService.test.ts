@@ -228,20 +228,20 @@ describe('EmailNotificationService', () => {
     });
     const svc = new EmailNotificationService(deps);
     await svc.notifyTaskWaitingApproval('r1', {
-      action: 'Promote NovaSpec Materials from L0 to L1?',
+      action: 'Promote NovaSpec Materials from L0 to the next stage?',
       toolName: 'promote_to_l1',
       toolArgs: { company_name: 'NovaSpec Materials', reason: 'Passes all L1 criteria' },
     });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'task_waiting_approval',
-        action: 'Promote NovaSpec Materials to L1',
+        action: 'Promote NovaSpec Materials to the next stage',
         company: 'NovaSpec Materials',
-        proposedAction: 'Move to stage L1',
+        proposedAction: 'Move to the stage after L0',
         reason: 'Passes all L1 criteria',
         changeField: 'Pipeline Stage',
         beforeValue: 'L0',
-        afterValue: 'L1',
+        afterValue: 'Next stage',
       }),
     );
   });
@@ -368,20 +368,20 @@ describe('EmailNotificationService', () => {
 });
 
 describe('deriveApprovalDetails', () => {
-  it('maps a promote_to_l1 call to the L0→L1 proposal card', () => {
+  it('maps a promote_to_l1 call to the L0 → next-stage proposal card', () => {
     expect(
       deriveApprovalDetails('promote_to_l1', {
         company_name: 'NovaSpec Materials',
         reason: 'Passes all L1 criteria',
       }),
     ).toEqual({
-      action: 'Promote NovaSpec Materials to L1',
+      action: 'Promote NovaSpec Materials to the next stage',
       company: 'NovaSpec Materials',
-      proposedAction: 'Move to stage L1',
+      proposedAction: 'Move to the stage after L0',
       reason: 'Passes all L1 criteria',
       changeField: 'Pipeline Stage',
       beforeValue: 'L0',
-      afterValue: 'L1',
+      afterValue: 'Next stage',
     });
   });
 

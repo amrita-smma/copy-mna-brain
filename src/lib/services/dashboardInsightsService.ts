@@ -9,6 +9,15 @@ import type {
 import { PIPELINE_FUNNEL_STAGES } from '@/lib/repositories/dashboardInsightsRepository';
 import type { AppSettingsRepository } from '@/lib/repositories/appSettingsRepository';
 import type { InvestmentThesisRepository } from '@/lib/repositories/investmentThesisRepository';
+import type { PipelineStageRepository } from '@/lib/repositories/pipelineStageRepository';
+import {
+  CAPTAIN_FROM_STAGE_KEY,
+  liveStageKeys,
+  stageCode,
+  stageKeysFrom,
+  stageKeysThrough,
+  type PipelineStageDef,
+} from '@/lib/pipeline/stages';
 import {
   dealLeadField,
   dealLeadLabel,
@@ -22,7 +31,7 @@ import { normalizeCompanyName } from '@/lib/crm/normalizeCompanyName';
 /** User-editable Insights configuration, persisted in the `app_settings` table
  * under {@link INSIGHTS_SETTINGS_KEY}. */
 export interface InsightsSettings {
-  /** Target headcount per funnel stage (L0–L5). */
+  /** Target headcount per funnel stage, keyed by stage key. */
   funnelTargets: Record<string, number>;
   /** Healthy L0→L1 conversion band, in percent. */
   l0l1Conversion: { min: number; max: number };
@@ -38,7 +47,22 @@ export interface InsightsSettingsMeta {
 }
 
 /** Settings plus their audit metadata — returned by the GET/PUT settings API. */
-export type InsightsSettingsWithMeta = InsightsSettings & { meta: InsightsSettingsMeta };
+export type InsightsSettingsWithMeta = InsightsSettings & {
+  meta: InsightsSettingsMeta;
+  /** The workspace's live funnel stages in order — one target input each. */
+  funnelStages: string[];
+  /** The SLA-tracked stages (L0 through L3 in the workspace's order) — one
+   * stale-threshold input each. A stage with no threshold set is not tracked. */
+  staleStages: string[];
+};
+
+/** The workspace's stage lists the Insights figures are built over. */
+interface InsightsStageLists {
+  stages: PipelineStageDef[];
+  funnelStages: string[];
+  staleStages: string[];
+  captainStages: string[];
+}
 
 const INSIGHTS_SETTINGS_KEY = 'insights_dashboard';
 
@@ -51,9 +75,13 @@ export const DEFAULT_INSIGHTS_SETTINGS: InsightsSettings = {
 
 // ─── Business configuration (not user-editable) ─────────────────────────────────
 
-/** SLA-tracked stages, in display order. Only these stages carry a staleness
- * threshold and can be flagged stale; L4/L5 have no SLA. */
-export const STALE_STAGES = ['L0', 'L1', 'L2', 'L3'] as const;
+/** The last SLA-tracked stage: stages from L0 through this one (in the
+ * workspace's order, added stages included) carry a staleness threshold and can
+ * be flagged stale; stages after it have no SLA. */
+export const LAST_STALE_STAGE_KEY = 'L3';
+
+/** The original SLA-tracked stages, used when no workspace stage list is to hand. */
+export const STALE_STAGES: readonly string[] = ['L0', 'L1', 'L2', 'L3'];
 
 /** Most-overdue deals to surface in the stale list. */
 const MAX_STALE_ROWS = 8;
@@ -176,7 +204,35 @@ export class DashboardInsightsService {
     private repo: DashboardInsightsRepository,
     private settingsRepo: AppSettingsRepository,
     private thesisRepo: InvestmentThesisRepository,
+    // Optional: the workspace's pipeline stages. Without it the funnel covers
+    // the six original stages.
+    private stageRepo?: PipelineStageRepository,
   ) {}
+
+  private async stageLists(): Promise<InsightsStageLists> {
+    if (!this.stageRepo) {
+      return {
+        stages: [],
+        funnelStages: [...PIPELINE_FUNNEL_STAGES],
+        staleStages: [...STALE_STAGES],
+        captainStages: ['L3', 'L4', 'L5'],
+      };
+    }
+    const stages: PipelineStageDef[] = (await this.stageRepo.list()).map((r) => ({
+      key: r.key,
+      code: r.code,
+      name: r.name,
+      description: r.description,
+      position: r.position,
+      deleted: r.deleted_at !== null,
+    }));
+    return {
+      stages,
+      funnelStages: liveStageKeys(stages),
+      staleStages: stageKeysThrough(stages, LAST_STALE_STAGE_KEY),
+      captainStages: stageKeysFrom(stages, CAPTAIN_FROM_STAGE_KEY),
+    };
+  }
 
   /** Current Insights settings, with defaults filled in for any missing field. */
   async getSettings(): Promise<InsightsSettings> {
@@ -191,9 +247,12 @@ export class DashboardInsightsService {
     const row = await this.settingsRepo.getRow<Partial<InsightsSettings>>(
       INSIGHTS_SETTINGS_KEY,
     );
+    const { funnelStages, staleStages } = await this.stageLists();
     return {
       ...mergeSettings(row?.value ?? null),
       meta: { updatedAt: row?.updatedAt ?? null, updatedBy: row?.updatedBy ?? null },
+      funnelStages,
+      staleStages,
     };
   }
 
@@ -205,8 +264,20 @@ export class DashboardInsightsService {
     input: InsightsSettings,
     updatedBy?: string | null,
   ): Promise<InsightsSettingsWithMeta> {
-    const sanitised = sanitiseSettings(input);
-    await this.settingsRepo.set(INSIGHTS_SETTINGS_KEY, sanitised, updatedBy ?? null);
+    const [lists, stored] = await Promise.all([
+      this.stageLists(),
+      this.settingsRepo.get<Partial<InsightsSettings>>(INSIGHTS_SETTINGS_KEY),
+    ]);
+    const sanitised = sanitiseSettings(input, lists);
+    // The settings row is shared by every workspace, but each workspace edits
+    // only its own stages. Overwrite those keys and keep the rest, so a save
+    // here never drops another workspace's added-stage targets or thresholds.
+    const merged: InsightsSettings = {
+      ...sanitised,
+      funnelTargets: { ...(stored?.funnelTargets ?? {}), ...sanitised.funnelTargets },
+      staleThresholds: { ...(stored?.staleThresholds ?? {}), ...sanitised.staleThresholds },
+    };
+    await this.settingsRepo.set(INSIGHTS_SETTINGS_KEY, merged, updatedBy ?? null);
     return this.getSettingsWithMeta();
   }
 
@@ -225,6 +296,8 @@ export class DashboardInsightsService {
    * deterministic staleness math in tests.
    */
   async getInsights(from: Date, to: Date, now: Date = new Date()): Promise<DashboardInsights> {
+    const lists = await this.stageLists();
+    const { funnelStages } = lists;
     const [
       settings,
       stageCounts,
@@ -246,14 +319,14 @@ export class DashboardInsightsService {
       hitl,
     ] = await Promise.all([
       this.getSettings(),
-      this.repo.getStageCounts(from, to),
-      this.repo.getDroppedStageCounts(from, to),
-      this.repo.getStageEntryCounts(from, to),
-      this.repo.getSegmentBreakdown(from, to),
-      this.repo.getCountryBreakdown(from, to),
-      this.repo.getBankerBreakdown(from, to),
+      this.repo.getStageCounts(from, to, funnelStages),
+      this.repo.getDroppedStageCounts(from, to, funnelStages),
+      this.repo.getStageEntryCounts(from, to, funnelStages),
+      this.repo.getSegmentBreakdown(from, to, funnelStages),
+      this.repo.getCountryBreakdown(from, to, funnelStages),
+      this.repo.getBankerBreakdown(from, to, funnelStages),
       this.repo.getBankerResponseProfiles(),
-      this.repo.getStaleCandidates(from, to),
+      this.repo.getStaleCandidates(from, to, funnelStages),
       // All Tracks (investment theses) — the matched-Track PIC fallback for the
       // stale-deal lead uses the same full set the pipeline UI does.
       this.thesisRepo.findAll(),
@@ -275,7 +348,7 @@ export class DashboardInsightsService {
     // Whole days in the window — the numerator when prorating annual targets.
     const windowDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / MS_PER_DAY));
 
-    const funnel: FunnelStage[] = PIPELINE_FUNNEL_STAGES.map((stage) => {
+    const funnel: FunnelStage[] = funnelStages.map((stage) => {
       const target = settings.funnelTargets[stage] ?? 0;
       const proratedTarget = Math.round((target * windowDays) / TARGET_PERIOD_DAYS);
       return {
@@ -301,11 +374,11 @@ export class DashboardInsightsService {
     // tables below, which use the same cumulative base.
     const cohortByStage = (stage: string) =>
       stageCount(stage) + (droppedByStage.get(stage) ?? 0);
-    const cohortTotal = PIPELINE_FUNNEL_STAGES.reduce(
+    const cohortTotal = funnelStages.reduce(
       (s, stage) => s + cohortByStage(stage),
       0,
     );
-    const l0l1Promoted = PIPELINE_FUNNEL_STAGES.filter((stage) => stage !== 'L0').reduce(
+    const l0l1Promoted = funnelStages.filter((stage) => stage !== 'L0').reduce(
       (s, stage) => s + cohortByStage(stage),
       0,
     );
@@ -313,7 +386,13 @@ export class DashboardInsightsService {
       cohortTotal > 0 ? Math.round((l0l1Promoted / cohortTotal) * 100) : 0;
     const { min, max } = settings.l0l1Conversion;
 
-    const staleDeals = buildStaleDeals(staleCandidates, now, settings.staleThresholds, tracks);
+    const staleDeals = buildStaleDeals(
+      staleCandidates,
+      now,
+      staleThresholdsFor(settings.staleThresholds, lists.staleStages),
+      tracks,
+      lists.captainStages,
+    );
 
     const kpis: InsightsKpis = {
       totalInPipeline,
@@ -327,10 +406,10 @@ export class DashboardInsightsService {
     return {
       kpis,
       funnel,
-      staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds),
+      staleThresholdLabel: formatStaleThresholdLabel(settings.staleThresholds, lists),
       staleDeals: staleDeals.slice(0, MAX_STALE_ROWS),
       // All three count the same cohort as the "New Deals" tally: companies
-      // created in the window that are currently a pipeline deal (L0–L5), dropped
+      // created in the window that are currently a pipeline deal (a live stage), dropped
       // included, each counted once by its current stage — so the per-key totals
       // sum back to New Deals (blank keys aside). Every row sorts and displays by
       // that total. Segments/countries return every row (the UI paginates);
@@ -375,11 +454,11 @@ function mergeSettings(stored: Partial<InsightsSettings> | null): InsightsSettin
 
 /** Coerce settings into a clean, persistable shape: non-negative integer targets
  * for each funnel stage, and a 0–100 conversion band with `min <= max`. */
-function sanitiseSettings(input: InsightsSettings): InsightsSettings {
+function sanitiseSettings(input: InsightsSettings, lists: InsightsStageLists): InsightsSettings {
   const merged = mergeSettings(input);
 
   const funnelTargets: Record<string, number> = {};
-  for (const stage of PIPELINE_FUNNEL_STAGES) {
+  for (const stage of lists.funnelStages) {
     const raw = merged.funnelTargets[stage];
     funnelTargets[stage] = Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
   }
@@ -389,9 +468,13 @@ function sanitiseSettings(input: InsightsSettings): InsightsSettings {
   const min = clampPct(merged.l0l1Conversion.min);
   const max = clampPct(merged.l0l1Conversion.max);
 
+  // A stage left blank (an added stage nobody has set a threshold for yet)
+  // stays untracked rather than being saved as 0 days — which would flag every
+  // deal in it stale at once.
   const staleThresholds: Record<string, number> = {};
-  for (const stage of STALE_STAGES) {
+  for (const stage of lists.staleStages) {
     const raw = merged.staleThresholds[stage];
+    if (raw == null) continue;
     staleThresholds[stage] = Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
   }
 
@@ -405,8 +488,27 @@ function sanitiseSettings(input: InsightsSettings): InsightsSettings {
 
 /** Human-readable summary of the stale thresholds, shown in the card header,
  * e.g. "L1: 7d · L2: 21d · L3: 45d". */
-function formatStaleThresholdLabel(thresholds: Record<string, number>): string {
-  return STALE_STAGES.map((stage) => `${stage}: ${thresholds[stage] ?? 0}d`).join(' · ');
+function formatStaleThresholdLabel(
+  thresholds: Record<string, number>,
+  lists: InsightsStageLists,
+): string {
+  return lists.staleStages
+    .filter((stage) => thresholds[stage] != null)
+    .map((stage) => `${stageCode(lists.stages, stage)}: ${thresholds[stage]}d`)
+    .join(' · ');
+}
+
+/** The thresholds for the SLA-tracked stages only: a stage moved after L3 (or
+ * deleted) keeps its stored threshold but stops being flagged stale. */
+function staleThresholdsFor(
+  thresholds: Record<string, number>,
+  staleStages: readonly string[],
+): Record<string, number> {
+  const tracked: Record<string, number> = {};
+  for (const stage of staleStages) {
+    if (thresholds[stage] != null) tracked[stage] = thresholds[stage];
+  }
+  return tracked;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -419,6 +521,7 @@ function buildStaleDeals(
   now: Date,
   thresholds: Record<string, number>,
   tracks: TrackLike[],
+  captainStages: readonly string[],
 ): StaleDeal[] {
   const nowMs = now.getTime();
 
@@ -445,8 +548,8 @@ function buildStaleDeals(
         reason: c.last_activity_at ? `Last activity ${days} days ago` : 'No activity logged',
         // Any deal past its stage SLA is flagged red (uniform coloring per review).
         severity: 'red',
-        ...resolveLead(c, tracks),
-        leadLabel: dealLeadLabel(c.pipeline_stage),
+        ...resolveLead(c, tracks, captainStages),
+        leadLabel: dealLeadLabel(c.pipeline_stage, captainStages),
       },
     });
   }
@@ -462,8 +565,9 @@ function buildStaleDeals(
 function resolveLead(
   c: StaleCandidate,
   tracks: TrackLike[],
+  captainStages: readonly string[],
 ): { leadName: string | null; leadFromTrack: boolean } {
-  const field = dealLeadField(c.pipeline_stage);
+  const field = dealLeadField(c.pipeline_stage, captainStages);
   const stored =
     field === 'deal_captain'
       ? c.deal_captain_name?.trim() || c.deal_sponsor_name?.trim()

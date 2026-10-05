@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { CompanyNavigateButton } from "./CompanyChip";
 
 export type SignalStatus = "pass" | "fail" | "warn";
@@ -91,6 +92,10 @@ export function BulkPromoteCompaniesCard({
   const isResolved = status === "resolved";
   const isSubmitting = status === "submitting";
   const targetStage = payload.target_stage;
+  // The payload carries the stage key; show the code users know (an added
+  // stage's key is a generated `stg-…`).
+  const { code: stageCode } = usePipelineStages();
+  const targetLabel = stageCode(targetStage);
 
   const toggle = (id: string) => {
     if (status !== "idle") return;
@@ -121,7 +126,7 @@ export function BulkPromoteCompaniesCard({
       }
       const held = total - selectedCount;
       const noun = selectedCount === 1 ? "candidate" : "candidates";
-      const text = `Approved — promoted ${selectedCount} ${noun} to ${targetStage}${
+      const text = `Approved — promoted ${selectedCount} ${noun} to ${targetLabel}${
         held > 0 ? ` (held ${held})` : ""
       }.`;
       setResolutionText(text);
@@ -129,7 +134,7 @@ export function BulkPromoteCompaniesCard({
       if (payload.approval_id) {
         localStorage.setItem(`bulk_promote_resolved_${payload.approval_id}`, text);
       }
-      toast.success(`Promoted ${selectedCount} ${noun} to ${targetStage}`);
+      toast.success(`Promoted ${selectedCount} ${noun} to ${targetLabel}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to promote";
       setError(message);
@@ -182,7 +187,7 @@ export function BulkPromoteCompaniesCard({
           )}
           {isResolved
             ? "Resolved"
-            : `Approval needed · Promote to ${targetStage}`}
+            : `Approval needed · Promote to ${targetLabel}`}
         </div>
         <h3 className="text-base font-semibold text-foreground mb-1.5">
           {payload.title}
@@ -310,7 +315,7 @@ export function BulkPromoteCompaniesCard({
                     Promoting…
                   </>
                 ) : (
-                  `Promote ${selectedCount} to ${targetStage}`
+                  `Promote ${selectedCount} to ${targetLabel}`
                 )}
               </Button>
               <Button

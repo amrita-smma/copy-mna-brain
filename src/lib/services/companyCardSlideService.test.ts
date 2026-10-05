@@ -167,3 +167,53 @@ describe('CompanyCardSlideService.buildByName', () => {
     expect(findByNameFuzzy).not.toHaveBeenCalled();
   });
 });
+
+describe('CompanyCardSlideService.buildById — workspace stages', () => {
+  function makeServiceWithStages(list: ReturnType<typeof vi.fn>) {
+    return new CompanyCardSlideService(
+      { findByIdDTO, findByNameFuzzy } as unknown as CompanyService,
+      { findByCompanyId } as unknown as CompanyAnalysisService,
+      { list: listTracks } as unknown as InvestmentThesisService,
+      { findAll: findAllVariables } as unknown as TrackVariableService,
+      { getDefaultCurrency } as unknown as WorkspaceService,
+      'ws-1',
+      { list } as never,
+    );
+  }
+
+  const stageRow = (key: string, code: string, position: number, deleted = false) => ({
+    key,
+    code,
+    name: key,
+    description: '',
+    position,
+    deleted_at: deleted ? '2026-10-01T00:00:00Z' : null,
+  });
+
+  it("draws the workspace's live stages and labels an added stage after L3 as Deal Captain", async () => {
+    const list = vi.fn().mockResolvedValue([
+      stageRow('L0', 'L0', 0),
+      stageRow('L2', 'L2', 2, true),
+      stageRow('L3', 'L3', 3),
+      stageRow('stg-post', 'L6', 4),
+    ]);
+    findByIdDTO.mockResolvedValue({ ...company, pipeline_stage: 'stg-post', deal_sponsor_name: 'Sam Sponsor' });
+
+    const deck = await makeServiceWithStages(list).buildById('c1');
+    const [slide] = deck.slides;
+
+    expect(findText(slide, 'L6')?.color).toBe('FFFFFF');
+    expect(findText(slide, 'L2')).toBeUndefined();
+    expect(slideText(slide)).toContain('Deal Captain: Sam Sponsor');
+  });
+
+  it('reads the stage list once when building several cards', async () => {
+    const list = vi.fn().mockResolvedValue([stageRow('L0', 'L0', 0), stageRow('L1', 'L1', 1)]);
+    const service = makeServiceWithStages(list);
+
+    await service.buildById('c1');
+    await service.buildById('c1');
+
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+});
