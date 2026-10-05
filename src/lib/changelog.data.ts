@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "d29c77dadae78b46c88988dfd2c0df2f8b67ebea",
+    "date": "2026-10-05",
+    "subject": "Customize pipeline stages and track sourcing activity for deals",
+    "category": "feature"
+  },
+  {
+    "hash": "31f4f477cbaf8c36e5906031f52738adf46d4ca5",
+    "date": "2026-10-05",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "5f01d980c50cb45fedca4d415a503a495143aeb7",
     "date": "2026-10-02",
     "subject": "Enable Crowdfunding Copilot flavor for small-ticket MSME deals",
