@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { CompanyVoteRepository } from './companyVoteRepository';
 
 interface MockDb {
@@ -262,5 +264,64 @@ describe('CompanyVoteRepository', () => {
     db.limit.mockResolvedValueOnce([row]);
 
     await expect(repo.findCompanyNames('c-1')).resolves.toEqual(row);
+  });
+});
+
+describe('CompanyVoteRepository.listOpenBallotsByVoter', () => {
+  function makeJoinDb(rows: unknown[]) {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('scopes to draft ballots on active sessions in this workspace', async () => {
+    const { db, chain } = makeJoinDb([]);
+    const repo = new CompanyVoteRepository(db as never, 'ws-1');
+
+    await repo.listOpenBallotsByVoter('user-1');
+
+    const { params } = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(params).toEqual(
+      expect.arrayContaining(['user-1', 'draft', 'active', 'ws-1']),
+    );
+  });
+
+  it('joins the company in so the caller never looks one up per ballot', async () => {
+    const rows = [
+      {
+        ballot_id: 'b-1',
+        session_id: 'vs-1',
+        company_id: 'c-1',
+        company_target: 'Acme',
+        company_project_name: 'Project Highway',
+        deadline_at: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+    const { db, chain } = makeJoinDb(rows);
+    const repo = new CompanyVoteRepository(db as never, 'ws-1');
+
+    await expect(repo.listOpenBallotsByVoter('user-1')).resolves.toEqual(rows);
+    expect(chain.innerJoin).toHaveBeenCalledTimes(2);
+  });
+
+  it('orders by the soonest deadline and bounds the result', async () => {
+    const { db, chain } = makeJoinDb([]);
+    const repo = new CompanyVoteRepository(db as never, 'ws-1');
+
+    await repo.listOpenBallotsByVoter('user-1');
+    const { sql: orderText } = new PgDialect().sqlToQuery(
+      chain.orderBy.mock.calls[0][0] as SQL,
+    );
+    expect(orderText).toContain('"deadline_at" asc');
+    expect(chain.limit).toHaveBeenCalledWith(10);
+
+    await repo.listOpenBallotsByVoter('user-1', 4);
+    expect(chain.limit).toHaveBeenLastCalledWith(4);
   });
 });

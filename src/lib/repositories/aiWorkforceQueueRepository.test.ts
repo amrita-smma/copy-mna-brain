@@ -1077,3 +1077,51 @@ describe('AiWorkforceQueueRepository.findUnsuccessfulRefreshRunsByInsightId', ()
     expect(chain.limit).toHaveBeenLastCalledWith(5);
   });
 });
+
+describe('AiWorkforceQueueRepository.listAwaitingDecisionByUser', () => {
+  function makeListDb(rows: unknown[]) {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('matches both deciders — the user asked and the user who triggered the run', async () => {
+    const { db, chain } = makeListDb([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await repo.listAwaitingDecisionByUser('user-1');
+
+    const { sql: text, params } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(params).toContain('workspace-1');
+    expect(params).toContain('waiting_for_human_input');
+    expect(text).toContain(
+      `"ai_workforce_queue"."pending_intervention"->>'asked_user_id' =`,
+    );
+    expect(text).toContain('"triggered_by_user_id" =');
+    expect(text).toContain(' or ');
+    expect(params.filter((p) => p === 'user-1')).toHaveLength(2);
+  });
+
+  it('returns the rows newest-first, bounded to 10 by default or to an explicit limit', async () => {
+    const rows = [{ id: 'r1', status: 'waiting_for_human_input' }];
+    const { db, chain } = makeListDb(rows);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await expect(repo.listAwaitingDecisionByUser('user-1')).resolves.toEqual(rows);
+    const { sql: orderText } = new PgDialect().sqlToQuery(
+      chain.orderBy.mock.calls[0][0] as SQL,
+    );
+    expect(orderText).toContain('"created_at" desc');
+    expect(chain.limit).toHaveBeenCalledWith(10);
+
+    await repo.listAwaitingDecisionByUser('user-1', 3);
+    expect(chain.limit).toHaveBeenLastCalledWith(3);
+  });
+});

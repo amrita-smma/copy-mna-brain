@@ -1,10 +1,9 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Activity, MessageSquare, Search, type LucideIcon } from 'lucide-react';
+import { Activity, CircleUser, MessageSquare, Search, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
-import { MobileWorkspaceSwitcher } from '@/components/layout/MobileWorkspaceSwitcher';
 
 interface MobileNavItem {
   name: string;
@@ -14,9 +13,11 @@ interface MobileNavItem {
   isActive: (pathname: string) => boolean;
 }
 
-// Instagram-style bottom navigation for the mobile (PWA) experience. Only three
-// destinations ship for the mobile MVP: the activity feed (dashboard), the AI
-// chat, and company search (master data).
+// Instagram-style bottom navigation for the mobile (PWA) experience: the
+// activity feed (dashboard), the AI chat, company search (master data), and the
+// user's own profile page. Profile is a destination like any other — the
+// workspace switcher now lives on that page, under the user's name, rather than
+// being what this tab opens.
 const navItems: MobileNavItem[] = [
   {
     name: 'Activity',
@@ -35,6 +36,12 @@ const navItems: MobileNavItem[] = [
     href: '/master-data',
     icon: Search,
     isActive: (p) => p.startsWith('/master-data'),
+  },
+  {
+    name: 'Profile',
+    href: '/profile',
+    icon: CircleUser,
+    isActive: (p) => p.startsWith('/profile'),
   },
 ];
 
@@ -71,7 +78,6 @@ export function MobileBottomNav({ className }: { className?: string }) {
           </WorkspaceLink>
         );
       })}
-      <MobileWorkspaceSwitcher />
     </nav>
   );
 }

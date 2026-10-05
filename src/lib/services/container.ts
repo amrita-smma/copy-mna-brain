@@ -130,6 +130,7 @@ import { DataNavigatorService } from './dataNavigatorService';
 import { BedrockEmbeddingClient } from '@/lib/bedrock';
 import { ConsentService } from './consentService';
 import { InsightService } from './insightService';
+import { ProfileService } from './profileService';
 import { InterventionRecipientService } from './interventionRecipientService';
 import { InsightTemplateService } from './insightTemplateService';
 import { RoutineService } from './routineService';
@@ -193,6 +194,7 @@ export interface Container {
   flBalanceService: FlBalanceService;
   flPortfolioService: FlPortfolioService;
   insightService: InsightService;
+  profileService: ProfileService;
   interventionRecipientService: InterventionRecipientService;
   insightTemplateService: InsightTemplateService;
   routineService: RoutineService;
@@ -281,8 +283,9 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceService,
     workspaceId,
   );
+  const companyVoteRepo = new CompanyVoteRepository(db, workspaceId);
   const companyVoteService = new CompanyVoteService(
-    new CompanyVoteRepository(db, workspaceId),
+    companyVoteRepo,
     userRepo,
     companyRepo,
     workspaceRepo,
@@ -552,6 +555,14 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceId,
   );
 
+  const profileService = new ProfileService(
+    companyRepo,
+    insightRepo,
+    companyVoteRepo,
+    aiWorkforceQueueRepo,
+    workspaceId,
+  );
+
   const routineService = new RoutineService(
     routinesRepo,
     insightRepo,
@@ -624,6 +635,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flBalanceService,
     flPortfolioService,
     insightService,
+    profileService,
     interventionRecipientService,
     insightTemplateService,
     routineService,

@@ -14,6 +14,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import {
+  CircleUser,
   LogOut,
   Maximize2,
   MessageSquarePlus,
@@ -459,6 +460,11 @@ function CollapsedNewChatButton() {
  * own stacked row down here — the email line, the theme toggle, "Send
  * Feedback", "Sign Out" — now lives inside that menu, so the footer is one line
  * tall. At icon width the name drops out and the bell + `…` stack vertically.
+ *
+ * "Profile" here is the only way into `/profile` on desktop (the page is
+ * reached from the bottom nav on mobile). That page hides its own workspace
+ * selector and log-out button on desktop, because the sidebar header and this
+ * very menu already own both.
  */
 function SidebarUserFooter() {
   const { user, signOut } = useAuth();
@@ -498,6 +504,14 @@ function SidebarUserFooter() {
                 <DropdownMenuSeparator />
               </>
             )}
+            {/* A real link, not an onSelect push, so the destination is
+                middle-clickable and prefetched like every other nav entry. */}
+            <DropdownMenuItem asChild>
+              <WorkspaceLink href="/profile" className="cursor-pointer">
+                <CircleUser className="mr-2 h-4 w-4" />
+                Profile
+              </WorkspaceLink>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
               <MessageSquarePlus className="mr-2 h-4 w-4" />
               Send Feedback

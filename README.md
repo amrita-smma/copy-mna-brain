@@ -743,6 +743,56 @@ two-tab toggle. Pages open in a center console beside the Copilot.
   Nico!") with the composer and a few suggestions centered beneath it, replacing
   the old canned "Hello! I'm your M&A assistant" feature-list bubble.
 
+### Mobile shell (PWA) and the profile page
+
+On a mobile viewport `AppShell` drops the sidebar and the docked Copilot
+entirely and renders `MobileShell`
+(`src/components/layout/MobileShell.tsx`) — a full-bleed frame with an
+Instagram-style bottom nav (`MobileBottomNav`) and four destinations: Activity
+(`/dashboard`), Chat (the full-screen Copilot), Search (`/master-data`) and
+Profile (`/profile`).
+
+- **Profile is a page, not a sheet.** The Profile tab used to open the workspace
+  switcher bottom sheet and nothing else — tapping it never navigated anywhere.
+  It is now an ordinary `<WorkspaceLink>` to `/w/<slug>/profile`, rendered by
+  `src/views/Profile.tsx`: the user's name and avatar, a workspace selector
+  under the name, then "&lt;Name&gt;'s items" — large tappable cards for the
+  decisions waiting on them, the companies they own, and the insights they
+  wrote. Log out moved onto this page.
+- **Desktop reaches the same page from the `…` account menu** in the sidebar
+  footer (`SidebarUserFooter`), alongside Send Feedback and Theme — that menu
+  item is the only entry point outside mobile. The page then hides its workspace
+  selector and its log-out button, because `WorkspaceSwitcher` in the sidebar
+  header and "Sign Out" in that same menu already own both; a second copy would
+  be a second source of truth for switching workspaces. The gate is
+  `useIsMobile`, the same hook and breakpoint `AppShell` uses to choose a shell,
+  so the page and the chrome around it cannot disagree.
+- **The switcher became a reusable drawer.** `MobileWorkspaceDrawer`
+  (`src/components/layout/MobileWorkspaceDrawer.tsx`, formerly
+  `MobileWorkspaceSwitcher`) still owns the membership fetch, the
+  `switchWorkspace` + hard-navigate behaviour and the 50vh sheet, but takes its
+  trigger via `renderTrigger`, which also receives the resolved current
+  workspace so the trigger can label itself without a second fetch. The profile
+  page passes a dropdown-looking control; nothing else triggers it.
+- **One request for the whole page.** `GET /api/profile/items` →
+  `ProfileService.getMyItems` (`src/lib/services/profileService.ts`) assembles
+  all three sections in a **fixed six queries** regardless of row count:
+  `CompanyRepository.findOwnedByUser`/`countOwnedByUser` (assignee, Deal Sponsor
+  or Deal Captain, resolved in one `LEFT JOIN` pre-filtered to the user so a
+  company can't fan out into several rows),
+  `InsightRepository.findPageWithCreator`/`countByFilter` with the existing
+  `createdBy` filter, `CompanyVoteRepository.listOpenBallotsByVoter` (a `draft`
+  ballot on an `active` session, company joined on) and
+  `AiWorkforceQueueRepository.listAwaitingDecisionByUser` (runs in
+  `waiting_for_human_input` the user may decide — the same two deciders
+  `InterventionRecipientService` resolves). The cards must never fetch per row;
+  batch new data into this endpoint instead.
+- **The user comes from the session.** The route takes no `userId` param, so one
+  member cannot read another's queue. Action items carry `companyId`/`taskId`
+  rather than URLs — the view builds the hrefs (a vote opens
+  `/pipeline/<id>?tab=voting`, an approval opens
+  `/ai-workforce/tasks/<id>`), keeping route knowledge out of the service.
+
 ### Page-aware Copilot skills
 
 Two chat-only tools connect the conversation to the console beside it. Both are

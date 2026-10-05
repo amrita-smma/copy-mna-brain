@@ -294,6 +294,26 @@ function buildFilterWhere(filters: CompanyFilters, workspaceId: string): SQL | u
   return and(...conditions);
 }
 
+/**
+ * A company the current user personally owns, as returned by
+ * {@link CompanyRepository.findOwnedByUser}. The three `is_*` flags say *why*
+ * it is theirs — a company can be matched by more than one of them.
+ */
+export interface UserOwnedCompanyRow {
+  id: string;
+  target: string | null;
+  project_name: string | null;
+  pipeline_stage: Tables<"companies">["pipeline_stage"];
+  status: Tables<"companies">["status"];
+  geography: string | null;
+  segment: string | null;
+  last_activity_at: string | null;
+  updated_at: string | null;
+  is_assignee: boolean;
+  is_sponsor: boolean;
+  is_captain: boolean;
+}
+
 export class CompanyRepository {
   /**
    * @param db    Postgres client — the source of truth.
@@ -1147,6 +1167,83 @@ export class CompanyRepository {
       .delete(companies)
       .where(and(eq(companies.id, id), eq(companies.workspace_id, this.workspaceId)));
     await this.mirrorDelete(id);
+  }
+
+  /**
+   * The active companies this user personally owns in this workspace — they
+   * are an explicit assignee, the Deal Sponsor, or the Deal Captain. Backs the
+   * mobile profile page's "my companies" cards.
+   *
+   * One query, not three: the assignee membership comes from a LEFT JOIN
+   * pre-filtered to this user (so the join cannot fan a company out into
+   * several rows) and the two column roles are plain predicates. `relation`
+   * flags come back on the row, so the caller never re-queries per company.
+   *
+   * Ordered newest-touched first (`last_activity_at`, falling back to
+   * `updated_at`), with `id` breaking ties so the order is stable.
+   */
+  async findOwnedByUser(
+    userId: string,
+    limit = 20,
+  ): Promise<UserOwnedCompanyRow[]> {
+    return this.db
+      .select({
+        id: companies.id,
+        target: companies.target,
+        project_name: companies.project_name,
+        pipeline_stage: companies.pipeline_stage,
+        status: companies.status,
+        geography: companies.geography,
+        segment: companies.segment,
+        last_activity_at: companies.last_activity_at,
+        updated_at: companies.updated_at,
+        is_assignee: sql<boolean>`${companyAssignees.user_id} IS NOT NULL`,
+        is_sponsor: sql<boolean>`${companies.deal_sponsor} = ${userId}`,
+        is_captain: sql<boolean>`${companies.deal_captain} = ${userId}`,
+      })
+      .from(companies)
+      .leftJoin(
+        companyAssignees,
+        and(
+          eq(companyAssignees.company_id, companies.id),
+          eq(companyAssignees.user_id, userId),
+        ),
+      )
+      .where(this.ownedByUserWhere(userId))
+      .orderBy(
+        desc(sql`COALESCE(${companies.last_activity_at}, ${companies.updated_at})`),
+        asc(companies.id),
+      )
+      .limit(limit);
+  }
+
+  /** How many companies {@link findOwnedByUser} matches, for the "+N more" tail. */
+  async countOwnedByUser(userId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ total: drizzleCount() })
+      .from(companies)
+      .leftJoin(
+        companyAssignees,
+        and(
+          eq(companyAssignees.company_id, companies.id),
+          eq(companyAssignees.user_id, userId),
+        ),
+      )
+      .where(this.ownedByUserWhere(userId));
+    return Number(row?.total ?? 0);
+  }
+
+  /** Shared by the page and its count so the two can never disagree. */
+  private ownedByUserWhere(userId: string): SQL | undefined {
+    return and(
+      eq(companies.workspace_id, this.workspaceId),
+      eq(companies.status, "active"),
+      or(
+        isNotNull(companyAssignees.user_id),
+        eq(companies.deal_sponsor, userId),
+        eq(companies.deal_captain, userId),
+      ),
+    );
   }
 
   async findAssignees(

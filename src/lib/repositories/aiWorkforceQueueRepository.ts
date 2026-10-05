@@ -150,6 +150,31 @@ export class AiWorkforceQueueRepository {
       .limit(limit);
   }
 
+  /**
+   * The runs paused on a HITL intervention that THIS user can decide: the ones
+   * addressed to them (`pending_intervention.asked_user_id`) plus the ones they
+   * triggered themselves — the same two deciders
+   * `InterventionRecipientService` resolves. Backs the profile page's action
+   * items.
+   */
+  async listAwaitingDecisionByUser(userId: string, limit = 10): Promise<Row[]> {
+    return this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          eq(aiWorkforceQueue.status, 'waiting_for_human_input'),
+          or(
+            sql`${aiWorkforceQueue.pending_intervention}->>'asked_user_id' = ${userId}`,
+            eq(aiWorkforceQueue.triggered_by_user_id, userId),
+          ),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(limit);
+  }
+
   async findActiveByCompanyId(
     agentName: string,
     companyId: string,

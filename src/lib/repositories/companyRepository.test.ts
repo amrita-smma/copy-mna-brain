@@ -843,3 +843,105 @@ describe('CompanyRepository.countByStageAndSource', () => {
     ]);
   });
 });
+
+describe('CompanyRepository.findOwnedByUser', () => {
+  /** `select().from().leftJoin().where().orderBy().limit()` resolving to `rows`. */
+  function makeOwnedDb(rows: unknown[]) {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      leftJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('matches an assignee, a deal sponsor or a deal captain, scoped to active companies', async () => {
+    const { db, chain } = makeOwnedDb([]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await repo.findOwnedByUser('user-1');
+
+    const { sql: text, params } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(params).toContain('workspace-1');
+    expect(params).toContain('active');
+    expect(text).toContain('"company_assignees"."user_id" is not null');
+    expect(text).toContain('"deal_sponsor" =');
+    expect(text).toContain('"deal_captain" =');
+    expect(params.filter((p) => p === 'user-1')).toHaveLength(2);
+  });
+
+  it('pre-filters the assignee join to this user so one company cannot fan out into several rows', async () => {
+    const { db, chain } = makeOwnedDb([]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await repo.findOwnedByUser('user-1');
+
+    expect(chain.leftJoin).toHaveBeenCalledTimes(1);
+    const { params } = new PgDialect().sqlToQuery(
+      chain.leftJoin.mock.calls[0][1] as SQL,
+    );
+    expect(params).toContain('user-1');
+  });
+
+  it('orders newest-touched first and bounds the result to the limit', async () => {
+    const rows = [{ id: 'c1', target: 'Acme' }];
+    const { db, chain } = makeOwnedDb(rows);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await expect(repo.findOwnedByUser('user-1')).resolves.toEqual(rows);
+    const { sql: orderText } = new PgDialect().sqlToQuery(
+      chain.orderBy.mock.calls[0][0] as SQL,
+    );
+    expect(orderText).toContain('COALESCE');
+    expect(orderText).toContain('desc');
+    expect(chain.limit).toHaveBeenCalledWith(20);
+
+    await repo.findOwnedByUser('user-1', 5);
+    expect(chain.limit).toHaveBeenLastCalledWith(5);
+  });
+});
+
+describe('CompanyRepository.countOwnedByUser', () => {
+  function makeCountDb(rows: unknown[]) {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      leftJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue(rows),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('returns the total as a number', async () => {
+    const { db } = makeCountDb([{ total: '7' }]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await expect(repo.countOwnedByUser('user-1')).resolves.toBe(7);
+  });
+
+  it('returns 0 when the count query comes back empty', async () => {
+    const { db } = makeCountDb([]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await expect(repo.countOwnedByUser('user-1')).resolves.toBe(0);
+  });
+
+  it('counts exactly what the page query matches', async () => {
+    const { db, chain } = makeCountDb([{ total: 0 }]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await repo.countOwnedByUser('user-1');
+
+    const { sql: text, params } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(params).toContain('workspace-1');
+    expect(params).toContain('active');
+    expect(text).toContain('"company_assignees"."user_id" is not null');
+  });
+});

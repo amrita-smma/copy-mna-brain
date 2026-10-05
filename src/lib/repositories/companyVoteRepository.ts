@@ -6,6 +6,19 @@ export type VoteSessionRow = Tables<'company_vote_sessions'>;
 export type VoteBallotRow = Tables<'company_vote_ballots'>;
 
 /**
+ * One open ballot a voter still owes, joined to the company it is about —
+ * the row shape of {@link CompanyVoteRepository.listOpenBallotsByVoter}.
+ */
+export interface PendingBallotRow {
+  ballot_id: string;
+  session_id: string;
+  company_id: string;
+  company_target: string | null;
+  company_project_name: string | null;
+  deadline_at: string;
+}
+
+/**
  * Data access for the company voting system: `company_vote_sessions` (one row
  * per voting round) and `company_vote_ballots` (one row per selected voter).
  *
@@ -195,6 +208,44 @@ export class CompanyVoteRepository {
         asc(companyVoteBallots.vote_session_id),
         asc(companyVoteBallots.created_at),
       );
+  }
+
+  /**
+   * The open ballots this voter still owes — a `draft` ballot on an `active`
+   * session — with the company already joined on, soonest deadline first.
+   * One query for the profile page's "awaiting your vote" action items; the
+   * company name comes back on the row so the caller never looks companies up
+   * per ballot.
+   */
+  async listOpenBallotsByVoter(
+    voterId: string,
+    limit = 10,
+  ): Promise<PendingBallotRow[]> {
+    return this.db
+      .select({
+        ballot_id: companyVoteBallots.id,
+        session_id: companyVoteSessions.id,
+        company_id: companyVoteSessions.company_id,
+        company_target: companies.target,
+        company_project_name: companies.project_name,
+        deadline_at: companyVoteSessions.deadline_at,
+      })
+      .from(companyVoteBallots)
+      .innerJoin(
+        companyVoteSessions,
+        eq(companyVoteSessions.id, companyVoteBallots.vote_session_id),
+      )
+      .innerJoin(companies, eq(companies.id, companyVoteSessions.company_id))
+      .where(
+        and(
+          eq(companyVoteBallots.voter_id, voterId),
+          eq(companyVoteBallots.status, 'draft'),
+          eq(companyVoteSessions.status, 'active'),
+          eq(companyVoteSessions.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(asc(companyVoteSessions.deadline_at), asc(companyVoteBallots.id))
+      .limit(limit);
   }
 
   async findBallot(sessionId: string, voterId: string): Promise<VoteBallotRow | null> {
