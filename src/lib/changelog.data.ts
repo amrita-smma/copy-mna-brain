@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "caead5c300d48414f12acfe16d7f9a7eab76e61d",
+    "date": "2026-10-06",
+    "subject": "Disable AlphaSense in agent tool lists and prompts",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3f4096f92df3a913741318ce15ffa3cd4c7b909a",
+    "date": "2026-10-06",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "5aec9e839b26b7b4b59f56c75bd921bd54b7beaf",
     "date": "2026-10-05",
     "subject": "Mobile-optimized profile page now loads deal items faster with improved batching",
