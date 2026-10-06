@@ -101,6 +101,12 @@ import {
   stageSortRank,
   type StageView,
 } from "@/lib/pipeline/stageView";
+import {
+  matchesSourceFilter,
+  sourceTypeLabel,
+  type SourceFilter,
+  type SourceType,
+} from "@/lib/pipeline/sourceType";
 import { screeningTargetKey } from "@/lib/pipeline/stages";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
@@ -327,10 +333,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     {},
   );
 
-  // Inbound vs outbound — two tables with different columns, so one at a time.
-  const [sourceFilter, setSourceFilter] = useState<"inbound" | "outbound">(
-    "inbound",
-  );
+  // Inbound vs outbound — two tables with different columns. All Sources
+  // shows both in the inbound table's layout, told apart by Source Type.
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("inbound");
   const [stageHelpOpen, setStageHelpOpen] = useState(false);
   // Origin (document type) filter — Sourcing's pending table only.
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
@@ -633,6 +638,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     deal_type: (c) => c.deal_type || null,
     status: (c) => c.workflow_status || null,
     entered_by: (c) => c.entered_by_name || null,
+    source_type: (c) => sourceTypeLabel(c.source),
     banker: (c) => c.banker ?? c.banker_source ?? null,
     advisor: (c) => c.advisor || null,
     is_live: (c) => (isDealLive(c) ? "Live" : "Not live"),
@@ -662,7 +668,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   const columnFilterPool = companies.filter(
     (company) =>
       matchesStageScope(company) &&
-      company.source === sourceFilter &&
+      matchesSourceFilter(company, sourceFilter) &&
       matchesViewMode(company),
   );
 
@@ -712,7 +718,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // filters — those belong to the table on screen and reset on a source switch.
   const matchesNonStageFilters = (
     company: PipelineCompany,
-    opts: { source?: "inbound" | "outbound"; skipColumnFilters?: boolean } = {},
+    opts: { source?: SourceType; skipColumnFilters?: boolean } = {},
   ) => {
     const q = searchQuery.trim().toLowerCase();
     const matchesSearch =
@@ -721,7 +727,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       (company.segment || "").toLowerCase().includes(q);
     const matchesSector =
       sectorFilter === "all" || company.segment === sectorFilter;
-    const matchesSource = company.source === (opts.source ?? sourceFilter);
+    const matchesSource = matchesSourceFilter(
+      company,
+      opts.source ?? sourceFilter,
+    );
     const matchesDocType =
       docTypeFilter === "all" || company.doc_type === docTypeFilter;
     const matchesView = matchesViewMode(company);
@@ -757,9 +766,11 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       matchesNonStageFilters(company),
   );
 
-  // While searching on Pipeline: matches in the other source's table.
-  const otherSource = sourceFilter === "inbound" ? "outbound" : "inbound";
-  const otherSourceMatchCount = searchesAllStages
+  // While searching on Pipeline: matches in the other source's table. All
+  // Sources already shows both, so there is no other table to point at.
+  const otherSource: SourceType =
+    sourceFilter === "inbound" ? "outbound" : "inbound";
+  const otherSourceMatchCount = searchesAllStages && sourceFilter !== "all"
     ? companies.filter(
         (company) =>
           matchesSearchScope(company) &&
@@ -813,6 +824,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       case "status":
         aVal = (a.workflow_status || "").toLowerCase();
         bVal = (b.workflow_status || "").toLowerCase();
+        break;
+      case "source_type":
+        aVal = sourceTypeLabel(a.source) ?? "";
+        bVal = sourceTypeLabel(b.source) ?? "";
         break;
       case "entered_by":
         aVal = (a.entered_by_name || "").toLowerCase();
@@ -954,7 +969,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             : `stage ${pipelineStages.label(stageView)}`;
       const filters = [
         stageScope,
-        sourceFilter,
+        sourceFilter === 'all' ? 'inbound and outbound deals' : sourceFilter,
         viewMode === 'all'
           ? 'active and dropped deals'
           : viewMode === 'dropped'
@@ -1286,8 +1301,18 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
               {...tableProps}
               companies={visibleCompanies}
               statusOptions={inboundStatusOptions}
+              showSourceType={!isSourcing}
               groupByReviewState={false}
               onTriageAll={() => setShowTriageModal(true)}
+            />
+          ) : sourceFilter === "all" ? (
+            <InboundCompaniesTable
+              {...tableProps}
+              companies={visibleCompanies}
+              statusOptions={inboundStatusOptions}
+              outboundStatusOptions={outboundStatusOptions}
+              layoutId="pipeline-all"
+              groupByReviewState={false}
             />
           ) : (
             <OutboundCompaniesTable
@@ -1654,7 +1679,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                     <Select
                       value={sourceFilter}
                       onValueChange={(value) =>
-                        setSourceFilter(value as "inbound" | "outbound")
+                        setSourceFilter(value as SourceFilter)
                       }
                     >
                       <SelectTrigger
@@ -1664,6 +1689,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
                         <SelectItem value="inbound">Inbound</SelectItem>
                         <SelectItem value="outbound">Outbound</SelectItem>
                       </SelectContent>

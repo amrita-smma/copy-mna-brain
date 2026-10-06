@@ -22,6 +22,7 @@ import {
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { cn } from "@/lib/utils";
 import { formatProjectName } from "@/lib/companyDisplay";
+import { sourceTypeLabel } from "@/lib/pipeline/sourceType";
 import { stageMoveLabel } from "@/lib/constants";
 import { effectiveDealLead, type TrackLike } from "@/lib/tracks/matchTracks";
 import type { PipelineCompany } from "@/views/Pipeline";
@@ -118,6 +119,16 @@ export function PipelineStatusCell({ dropped }: { dropped: boolean }) {
     <span className="text-sm font-semibold text-green-700 dark:text-green-400">
       Active
     </span>
+  );
+}
+
+/** Source Type cell: Inbound / Outbound, or a dash when the deal has none. */
+export function SourceTypeCell({ source }: { source: string | null }) {
+  const label = sourceTypeLabel(source);
+  return label ? (
+    <span className="text-sm whitespace-nowrap">{label}</span>
+  ) : (
+    <span className="text-muted-foreground">—</span>
   );
 }
 

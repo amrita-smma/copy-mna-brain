@@ -42,6 +42,7 @@ import {
   PipelineCompanyTitle,
   PipelineRowActions,
   PipelineStatusCell,
+  SourceTypeCell,
   formatCreatedAt,
   pipelineMoveItems,
   stickyActionsCellClass,
@@ -265,6 +266,12 @@ export default function OutboundCompaniesTable({
         label: "Pipeline Status",
         cellClassName: "whitespace-nowrap",
         cell: (c) => <PipelineStatusCell dropped={c.status === "dropped"} />,
+      },
+      {
+        id: "source_type",
+        label: "Source Type",
+        sort: sortDesc("source_type"), filter: filterDesc("source_type"),
+        cell: (c) => <SourceTypeCell source={c.source} />,
       },
       {
         id: "created",

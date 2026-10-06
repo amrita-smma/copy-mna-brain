@@ -50,6 +50,7 @@ import {
   PipelineCompanyTitle,
   PipelineRowActions,
   PipelineStatusCell,
+  SourceTypeCell,
   formatCreatedAt,
   pipelineMoveItems,
   stickyActionsCellClass,
@@ -63,6 +64,7 @@ import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName } from "@/lib/companyDisplay";
+import { normalizeSourceType } from "@/lib/pipeline/sourceType";
 import {
   persistedTrackIds,
   trackDisplayName,
@@ -152,6 +154,18 @@ interface InboundCompaniesTableProps {
   viewMode: PipelineViewMode;
   updatingCompanyIds: Set<string>;
   statusOptions: string[];
+  /**
+   * Status suggestions for outbound rows when the table mixes both sources
+   * (All Sources). Unset, every row uses `statusOptions`.
+   */
+  outboundStatusOptions?: string[];
+  /** Show the Source Type column. Default true; Sourcing is inbound-only. */
+  showSourceType?: boolean;
+  /**
+   * Saved-layout id prefix; the view mode is appended. All Sources keeps its
+   * own layout so column edits there don't rewrite the inbound one.
+   */
+  layoutId?: string;
   sortField: string | null;
   sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
@@ -185,6 +199,9 @@ export default function InboundCompaniesTable({
   viewMode,
   updatingCompanyIds,
   statusOptions,
+  outboundStatusOptions,
+  showSourceType = true,
+  layoutId = "pipeline-inbound",
   sortField,
   sortDirection,
   onSort,
@@ -230,11 +247,18 @@ export default function InboundCompaniesTable({
   // inbound table renders both the Pending Confirmation (`unreviewed`) and the
   // reviewed (`L0`) sections, so the two groups move in different directions.
   // An L0 row demotes back to Pending Confirmation; an `unreviewed` row has nowhere
-  // further back to go.
+  // further back to go. Pending Confirmation is inbound-only, so a non-inbound
+  // L0 row (All Sources) keeps no demote target, as in the outbound table.
   const promoteTargetFor = (company: PipelineCompany) =>
     promoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
   const demoteTargetFor = (company: PipelineCompany) =>
-    demoteTargetForStage(company.pipeline_stage ?? stage, { demoteL0ToReview: true }, stageKeys);
+    demoteTargetForStage(
+      company.pipeline_stage ?? stage,
+      normalizeSourceType(company.source) === "inbound"
+        ? { demoteL0ToReview: true }
+        : undefined,
+      stageKeys,
+    );
 
   const picColumnLabel = stage ? dealLeadLabel(stage, captainKeys) : "Deal Lead";
 
@@ -253,7 +277,7 @@ export default function InboundCompaniesTable({
 
   // Managed (reorderable / hideable / groupable) data columns. The sticky
   // Company and Actions columns are pinned and rendered outside this
-  // set. `viewMode` swaps the Status column for Source + Drop Reason.
+  // set. `viewMode` swaps the Status column for Drop Reason.
   const columns = useMemo<ColumnDef<PipelineCompany>[]>(() => {
     const numeric = "text-right font-mono";
     const cols: ColumnDef<PipelineCompany>[] = [
@@ -273,6 +297,17 @@ export default function InboundCompaniesTable({
         cellClassName: "whitespace-nowrap",
         cell: (c) => <PipelineStatusCell dropped={c.status === "dropped"} />,
       },
+      ...(showSourceType
+        ? [
+            {
+              id: "source_type",
+              label: "Source Type",
+              sort: sortDesc("source_type"),
+              filter: filterDesc("source_type"),
+              cell: (c: PipelineCompany) => <SourceTypeCell source={c.source} />,
+            },
+          ]
+        : []),
       {
         id: "created",
         label: "Created At",
@@ -464,15 +499,6 @@ export default function InboundCompaniesTable({
     if (isDropped) {
       cols.push(
         {
-          id: "source",
-          label: "Source",
-          cell: (c) => (
-            <span className="text-sm text-muted-foreground">
-              {c.source || "-"}
-            </span>
-          ),
-        },
-        {
           id: "dropped_reason",
           label: "Drop Reason",
           headerClassName: "min-w-[200px] max-w-[280px]",
@@ -496,15 +522,20 @@ export default function InboundCompaniesTable({
         label: "Status",
         sort: sortDesc("status"), filter: filterDesc("status"),
         headerClassName: "min-w-[160px]",
-        cell: (c) => (
-          <StatusCombobox
-            variant="cell"
-            value={c.workflow_status}
-            options={statusOptions}
-            placeholder="Unreviewed"
-            onChange={(next) => onStatusChange(c, next)}
-          />
-        ),
+        cell: (c) => {
+          const isOutbound = normalizeSourceType(c.source) === "outbound";
+          return (
+            <StatusCombobox
+              variant="cell"
+              value={c.workflow_status}
+              options={
+                isOutbound ? (outboundStatusOptions ?? statusOptions) : statusOptions
+              }
+              placeholder={isOutbound ? "Set status…" : "Unreviewed"}
+              onChange={(next) => onStatusChange(c, next)}
+            />
+          );
+        },
       });
     }
 
@@ -558,6 +589,8 @@ export default function InboundCompaniesTable({
     picColumnLabel,
     tracks,
     statusOptions,
+    outboundStatusOptions,
+    showSourceType,
     sortField,
     sortDirection,
     onSortColumn,
@@ -570,7 +603,7 @@ export default function InboundCompaniesTable({
 
   const mgr = useColumnLayout(
     // "All" shares the Active layout, so saved column layouts carry over.
-    `pipeline-inbound:${isDropped ? "dropped" : "active"}`,
+    `${layoutId}:${isDropped ? "dropped" : "active"}`,
     columns,
   );
 

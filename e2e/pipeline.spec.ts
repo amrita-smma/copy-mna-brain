@@ -289,6 +289,33 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Wayne Outbound', exact: true })).toBeVisible();
   });
 
+  test('User sees inbound and outbound deals together under All Sources', async ({ page }) => {
+    const companies = [
+      ...MOCK_COMPANIES,
+      baseCompany({ id: 'out-1', target: 'Cyberdyne Outbound', source: 'outbound', pipeline_stage: 'L0' }),
+    ];
+    await mockAuthSession(page);
+    await mockApis(page, companies);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline?stage=L0'),
+    ]);
+
+    await expect(page.getByRole('button', { name: 'Cyberdyne Outbound', exact: true })).not.toBeVisible();
+
+    await page.getByTestId('pipeline-source-select').click();
+    await page.getByRole('option', { name: 'All Sources', exact: true }).click();
+
+    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cyberdyne Outbound', exact: true })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Source Type' })).toBeVisible();
+    const outboundRow = page.getByRole('row').filter({ hasText: 'Cyberdyne Outbound' });
+    await expect(outboundRow.getByRole('cell', { name: 'Outbound', exact: true })).toBeVisible();
+    const inboundRow = page.getByRole('row').filter({ hasText: 'Acme Corp' });
+    await expect(inboundRow.getByRole('cell', { name: 'Inbound', exact: true })).toBeVisible();
+  });
+
   test('User filters L1 by screening status', async ({ page }) => {
     await mockAuthSession(page);
     await mockApis(page, MOCK_COMPANIES);
