@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
+    "date": "2026-10-06",
+    "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
+    "category": "feature"
+  },
+  {
     "hash": "5aec9e839b26b7b4b59f56c75bd921bd54b7beaf",
     "date": "2026-10-05",
     "subject": "Mobile-optimized profile page now loads deal items faster with improved batching",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "31f4f477cbaf8c36e5906031f52738adf46d4ca5",
+    "date": "2026-10-05",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "0c356cca8224834474d6860f46696afdb6b2b6a6",
     "date": "2026-10-05",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
