@@ -8,9 +8,9 @@
  *
  * Why these:
  *   - Research: web_search / web_fetch (the only way to the public sector
- *     sources), valyu_search and alphasense_search (filings, research;
- *     named by the shared grounding and workforce evidence guides), and
- *     search_news (the firm's curated news lake).
+ *     sources), valyu_search (filings, research; named by the shared
+ *     grounding and workforce evidence guides), and search_news (the firm's
+ *     curated news lake).
  *   - Internal record: get_data_schema, query_companies, get_company_stats,
  *     get_company_details (cohort members and deals already on file — the
  *     company-mentions guide names query_companies / get_company_stats), and
@@ -33,7 +33,6 @@
  */
 import {
   SERVER_TOOLS,
-  alphasenseSearch,
   askOwner,
   createInsight,
   editInsightSection,
@@ -64,7 +63,6 @@ import type { SectorAgentRole } from './types';
 const SECTOR_READ_CORE_TOOLS: ToolList = [
   ...SERVER_TOOLS,
   valyuSearch,
-  alphasenseSearch,
   searchNews,
   getDataSchema,
   queryCompanies,

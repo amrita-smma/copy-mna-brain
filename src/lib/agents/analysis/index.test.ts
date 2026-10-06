@@ -702,7 +702,7 @@ describe('external evidence grounding (chat flavors)', () => {
       expect(prompt).not.toMatch(/search_news/);
       // The rest of the grounding block still applies.
       expect(prompt).toMatch(/External research is a default step, not a fallback/);
-      expect(prompt).toMatch(/alphasense_search/);
+      expect(prompt).toMatch(/valyu_search/);
     },
   );
 

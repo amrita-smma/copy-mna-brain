@@ -155,8 +155,14 @@ async function runAlphaSenseSearch(
 /**
  * Search AlphaSense's premium research corpus (broker research, SEC/global
  * filings, earnings-call transcripts, expert-call transcripts, news) via the
- * Agent API's GenSearch. Registered for every agent flavor: M&A chat,
- * workforce, investment, combined, and VC.
+ * Agent API's GenSearch.
+ *
+ * RETIRED — registered with no agent. The subscription is no longer in use, so
+ * this tool was removed from every tool list in `./index.ts` and from every
+ * system prompt; nothing can call it. It is kept here, exported and
+ * unit-tested, so it can be put back in a tool list if the subscription ever
+ * returns. The description below (and its tool-selection guidance) therefore
+ * reaches no model today.
  */
 export const alphasenseSearch = tool(
   withToolTimeout("alphasense_search", ALPHASENSE_TOOL_TIMEOUT_MS, runAlphaSenseSearch),

@@ -77,12 +77,12 @@ describe("agent tool lists", () => {
     expect(list.map((t) => t.name)).not.toContain("update_company_details");
   });
 
-  // AlphaSense is the firm's premium research subscription — every flavor,
-  // including the workforce, is meant to be able to reach it.
+  // The AlphaSense subscription is retired. The tool module still exists (and
+  // is still unit-tested) so it can be put back, but no agent registers it.
   it.each(Object.entries(AGENT_TOOL_LISTS))(
-    "exposes alphasense_search to the %s agent",
+    "keeps alphasense_search out of the %s agent",
     (_label, list) => {
-      expect(list.map((t) => t.name)).toContain("alphasense_search");
+      expect(list.map((t) => t.name)).not.toContain("alphasense_search");
     },
   );
 
@@ -176,6 +176,12 @@ describe("getToolDescriptions", () => {
 
     expect(descriptions).toContain("propose_insight_create");
     expect(descriptions).toContain("propose_insight_edit");
+  });
+
+  // This catalogue is injected into the AI Screening and company-analysis job
+  // prompts, so a stale entry would still offer the retired tool to a model.
+  it("no longer advertises the retired alphasense_search", () => {
+    expect(getToolDescriptions()).not.toContain("alphasense_search");
   });
 });
 

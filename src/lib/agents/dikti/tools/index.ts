@@ -18,7 +18,7 @@
  *   - inven_paid_data_source_search / inven_paid_data_source_enrichment —
  *     premium data, granted for now while the public sources stay thin:
  *     firmographics (headcount, revenue estimate, ownership) for unlisted
- *     holders and operators. AlphaSense and Valyu come with the core.
+ *     holders and operators. Valyu comes with the core.
  */
 import {
   getCompanyProfile,

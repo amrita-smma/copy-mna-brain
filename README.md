@@ -1130,7 +1130,7 @@ and suggestions.
 The six flavors:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
-  pipeline analysis, Workforce handoffs, and AlphaSense/Valyu/web search
+  pipeline analysis, Workforce handoffs, and Valyu/web search
   (`CHAT_SYSTEM_PROMPT` + `defaultChatToolList`).
 - **`investment`** — the funds & investing assistant: read-only tools to see and
   analyze the workspace's funds, assets/holdings, investors (LPs), and fund
@@ -1223,13 +1223,18 @@ The six flavors:
 
 ### AlphaSense research (`alphasense_search`)
 
-`alphasense_search` (`src/lib/agents/analysis/tools/alphasense_search.ts`) is the
-one tool registered for **every** agent flavor — M&A chat, AI Workforce,
-investment, combined, VC, minority stakes, and crowdfunding. It lives in the shared read-only base list
-(`tools` in `src/lib/agents/analysis/tools/index.ts`) plus `investmentTools` and
-`vcTools`, so any agent can reach the firm's AlphaSense subscription: sell-side /
-broker research, SEC and global filings, earnings-call and expert-call
-transcripts, company presentations, and licensed news.
+**Retired — not registered with any agent.** The AlphaSense subscription is no
+longer in use, so `alphasense_search` was removed from every tool list (`tools`,
+`investmentTools`, `vcTools` in `src/lib/agents/analysis/tools/index.ts`, and the
+sector agents' `SECTOR_READ_CORE_TOOLS`) and from every system prompt. No agent
+flavor can call it. The implementation below is left in place, exported and
+unit-tested, so the tool can be put back in a tool list if the subscription ever
+returns; until then it is dead code and the `ALPHASENSE_*` env vars are unused.
+
+`alphasense_search` (`src/lib/agents/analysis/tools/alphasense_search.ts`) asks
+the firm's AlphaSense subscription a research question: sell-side / broker
+research, SEC and global filings, earnings-call and expert-call transcripts,
+company presentations, and licensed news.
 
 The transport is `src/lib/alphasense.ts` (`AlphaSenseClient`), a thin wrapper
 over the [AlphaSense Agent API](https://developer.alpha-sense.com/agent-api/quickstart):
@@ -1256,13 +1261,13 @@ Configuration is the five `ALPHASENSE_*` env vars in `.env.example`
 `ALPHASENSE_EMAIL`, `ALPHASENSE_PASSWORD`). When any are unset the tool returns a
 message naming the missing variables and telling the agent to fall back to
 `valyu_search` / `web_search` — it never throws, so an unconfigured environment
-degrades instead of breaking a chat turn. Routing guidance in each flavor's
-system prompt: prefer `alphasense_search` when the answer should rest on filings,
-transcripts, or analyst research; `valyu_search` for broad multi-source /
-proprietary-dataset research; `web_search` for quick general lookups;
-`search_news` first for recent market news the internal lake may already cover.
+degrades instead of breaking a chat turn. With the tool retired, the routing
+guidance in each flavor's system prompt now reads: `valyu_search` when the answer
+should rest on filings, transcripts, analyst research or proprietary datasets;
+`web_search` for quick general lookups; `search_news` first for recent market
+news the internal lake may already cover.
 
-Every invocation is logged to the `alphasense_tool_calls` table
+Every invocation was logged to the `alphasense_tool_calls` table
 (`AlphasenseToolCallRepository` / `AlphasenseToolCallService`, wired into
 `createContainer`) for historical lookback: the resolved workspace, the exact
 `prompt` sent to GenSearch, the call's `status`

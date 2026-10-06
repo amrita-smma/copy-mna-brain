@@ -15,6 +15,7 @@ import {
   validatesEvidenceMarkers,
   INSIGHT_SOURCES_GUIDE,
   INSIGHT_UNAVAILABLE_GUIDE,
+  OFFERED_SOURCE_KINDS,
   SOURCE_KINDS,
   SOURCE_STYLES,
   WORKFORCE_SOURCES_WRITE_ORDER,
@@ -223,7 +224,11 @@ describe('source and unavailable snippets', () => {
     expect(INSIGHT_SOURCES_GUIDE).toContain(sourceRefHtml('S1'));
     expect(INSIGHT_SOURCES_GUIDE).toContain('data-section="sources"');
     expect(INSIGHT_SOURCES_GUIDE).toContain('data-retrieved="YYYY-MM-DD" data-feeds="FEEDS"');
-    for (const kind of SOURCE_KINDS) expect(INSIGHT_SOURCES_GUIDE).toContain(`\`${kind}\``);
+    for (const kind of OFFERED_SOURCE_KINDS)
+      expect(INSIGHT_SOURCES_GUIDE).toContain(`\`${kind}\``);
+    // Retired: still a valid stored kind, but never offered to the model.
+    expect(SOURCE_KINDS).toContain('alphasense');
+    expect(INSIGHT_SOURCES_GUIDE).not.toContain('alphasense');
     expect(INSIGHT_UNAVAILABLE_GUIDE).toContain(unavailableMarkerHtml('REASON'));
     expect(WORKFORCE_SOURCES_WRITE_ORDER).toContain('replace_insight_document');
   });
@@ -249,6 +254,16 @@ describe('findSourceMarkerProblems', () => {
 
   it('accepts references that resolve, well-formed entries and unavailable cells (an uncited entry is fine)', () => {
     expect(findSourceMarkerProblems(GOOD)).toEqual([]);
+  });
+
+  // AlphaSense is retired and no longer offered to the model, but insights
+  // written while the subscription was live carry this kind — they must keep
+  // validating, or the next write to any of them would be refused.
+  it('still accepts the retired alphasense source kind on an existing document', () => {
+    const html = `<p>Output rose to 62.1 Mt${sourceRefHtml('S1')}.</p>${sourcesSectionHtml([
+      { ...ENTRY, kind: 'alphasense', locator: 'alphasense_search: Adaro FY2024 production' },
+    ])}`;
+    expect(findSourceMarkerProblems(html)).toEqual([]);
   });
 
   it('accepts a document with no source markers at all', () => {
@@ -279,7 +294,7 @@ describe('findSourceMarkerProblems', () => {
     [entryWith({ feeds: 'FEEDS' }), 'replace the FEEDS placeholder'],
     [
       '<li data-source-id="S1" data-source-kind="blog" data-retrieved="2026-09-01" data-feeds="x">a</li>',
-      'data-source-kind must be one of web, alphasense, valyu, inven, internal, insight',
+      'data-source-kind must be one of web, valyu, inven, internal, insight',
     ],
     ['<td data-evidence="unavailable">Unavailable</td>', 'an unavailable cell needs data-reason'],
     ['<td data-evidence="unavailable" data-reason=" ">Unavailable</td>', 'an unavailable cell needs data-reason'],

@@ -55,7 +55,6 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 24. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
 25. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`). To send an HTML file the user uploaded in this chat, pass \`attached_html\` with its \`file_name\` — it is reformatted for email and becomes the email body; never retype the document. Recipients are restricted to registered platform users.
 26. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal.
-27. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## How to Help Users
 

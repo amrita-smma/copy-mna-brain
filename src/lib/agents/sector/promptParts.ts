@@ -57,7 +57,6 @@ export function renderPremiumSources(): string {
 
 Beyond the public sources above, you have the firm's licensed data. Use it before concluding a figure cannot be found:
 
-- \`alphasense_search\` — broker and sell-side research, IDX and global filings, earnings-call and expert-call transcripts, licensed news. Best for listed-company figures and analyst views. Ask one full question per call; it can take up to two minutes.
 - \`valyu_search\` and \`valyu_extract_content\` — filings, research and news corpora, and full-text extraction from a page you found.
 - \`inven_paid_data_source_search\`, then \`inven_paid_data_source_enrichment\` with the Inven company IDs it returns — firmographics (headcount, revenue estimate, ownership, headquarters) for unlisted holders, operators and buyers. Inven revenue is a model estimate: label it "Inven estimate", never present it as reported revenue.
 

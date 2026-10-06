@@ -86,29 +86,32 @@ function lastSystemPrompt(): string {
   return (calls[calls.length - 1]?.[0] as { systemPrompt: string }).systemPrompt;
 }
 
-// The four chat prompts changed on purpose: send_email's `attached_html`
-// sends an HTML file uploaded in the chat as the email body — reformatted for
-// email, since mail clients run no JavaScript — and the agent must name the
-// file instead of retyping the document.
+// Every chat prompt changed on purpose: the AlphaSense subscription is
+// retired, so `alphasense_search` is gone from the tool catalogue each flavor
+// lists and from the external-research routing guidance (which now points at
+// `valyu_search` for filings, transcripts and research).
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: 'd66f0e75c1387b6632650031ef3b52a97b73d154706900ee62baad9275dfe3ad',
-  investment: '1824ec49c1ab9fa10121cda789cd9e97caf39a804dc44ad6f85c6eb0f33155bb',
-  combined: '9eeb93d79a49510f5d0ad5e63d8981c78504a54bcd3919a7955f85c65ddbaf68',
-  vc: '279428623eb6b0d9a4c736a72f7bf2260c36ef4fcddb3ee8d7a5089e2b18c622',
+  mna: '91de2c24bf9c1ac4e5243503c04ddf38075005b33254b13bbf643259076b77ff',
+  investment: 'a663c5e174bc5a7fbb5624d1fa6a45023c556167c4b763f4702afb3f4f0d1330',
+  combined: 'e5ed4a87a7778a9c415b44488def9a78df44aaf5e1ecfc886988e5e1f5c04418',
+  vc: '40b706ea7be932d98ac646584e15bec4608807247c9d2685837dad5c6f72f2b5',
   // New flavour: the Minority Stakes Portfolio Manager — the M&A chat tool set
   // under a portfolio-construction prompt (sizing, concentration, minority
   // protections, exit paths).
-  minority: '86b415ddc79eab65a858b4ab8082159b60f38ae7f99dc5e695bef68cded7ba6b',
+  minority: '652adc8326bab7966687cbcd402809c291a944f940787c2050db2767c545aad5',
   // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
   // returns calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '359e0074d0b96d50b4fcc3d75b037beab667ec0bdb3053503ed231e16a21e501',
+  crowdfunding: '4a39704118a0410a1f3274ae28ab498b0d9e98b20e7ef0d5dd84ea34b71484fc',
 };
-// The Workforce prompt changed on purpose, for the same reason: a file handed
-// off with the task can be emailed with `attached_html`.
-const EXPECTED_WORKFORCE_HASH = 'cfcd9c16370323e52dd5667102c9035003d77fc38d7d71036af0cc7f0dea4b55';
+// The Workforce prompt changed on purpose, for the same reason: its
+// `alphasense_search` read-tool bullet is gone, and the evidence guide no
+// longer offers it as the escalation from `web_search` (the workforce tool list
+// has no `valyu_search`, so that guidance now stays on `web_search` and
+// `search_news`).
+const EXPECTED_WORKFORCE_HASH = '7efd8e971205e7bd7223e0cf218277b32f9158b103b7772f7b07c48728ed14cb';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

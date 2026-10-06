@@ -51,7 +51,6 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 25. **lookup_user** - Resolve platform user email by name fragment before emailing.
 26. **send_email** - Send an email with notes, spreadsheets, or presentations to platform users, or an HTML file uploaded in this chat as the email body, reformatted for email (\`attached_html\` with its \`file_name\` — never retype the document).
 27. **propose_workforce_handoff** - Offer to delegate pipeline write actions or screening tasks to the AI Workforce queue.
-28. **alphasense_search** - Ask AlphaSense a research question and get a cited answer synthesized from its premium corpus: broker/sell-side research, SEC and global filings, earnings-call and expert-call transcripts, and licensed news. Prefer it over valyu_search/web_search when the answer should rest on filings, transcripts, or analyst research (one full question per call; it can take up to ~2 minutes).
 
 ## Principles & Core Guidelines
 

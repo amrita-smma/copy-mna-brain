@@ -128,7 +128,6 @@ describe('composeSectorTools', () => {
 
 describe('premium data access', () => {
   const PREMIUM = [
-    'alphasense_search',
     'valyu_search',
     'inven_paid_data_source_search',
     'inven_paid_data_source_enrichment',
@@ -140,6 +139,9 @@ describe('premium data access', () => {
   ] as const)('%s holds every premium data tool in both roles', (_key, set) => {
     expect(names(set.chat)).toEqual(expect.arrayContaining(PREMIUM));
     expect(names(set.workforce)).toEqual(expect.arrayContaining(PREMIUM));
+    // AlphaSense is retired: no sector agent registers it in either role.
+    expect(names(set.chat)).not.toContain('alphasense_search');
+    expect(names(set.workforce)).not.toContain('alphasense_search');
   });
 
   it('@bangun is not granted Inven', () => {
