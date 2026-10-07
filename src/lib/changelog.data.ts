@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "feature"
   },
   {
+    "hash": "b9708a20b8403c8520ad682e89e1f8925ff4b5f2",
+    "date": "2026-10-07",
+    "subject": "Pipeline view now displays all deal sources by default",
+    "category": "improvement"
+  },
+  {
+    "hash": "2c945900436dcbffa91479c3dc689af19d8f57b7",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
