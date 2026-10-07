@@ -283,13 +283,16 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline'),
     ]);
 
+    await page.getByTestId('pipeline-source-select').click();
+    await page.getByRole('option', { name: 'Inbound', exact: true }).click();
+
     await page.getByPlaceholder('Search companies or sectors...').fill('wayne');
     await expect(page.getByTestId('pipeline-other-source-hint')).toContainText('1 match in Outbound');
     await page.getByTestId('pipeline-other-source-hint').getByRole('button', { name: 'Show' }).click();
     await expect(page.getByRole('button', { name: 'Wayne Outbound', exact: true })).toBeVisible();
   });
 
-  test('User sees inbound and outbound deals together under All Sources', async ({ page }) => {
+  test('User sees inbound and outbound deals together under All Sources by default', async ({ page }) => {
     const companies = [
       ...MOCK_COMPANIES,
       baseCompany({ id: 'out-1', target: 'Cyberdyne Outbound', source: 'outbound', pipeline_stage: 'L0' }),
@@ -302,11 +305,7 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline?stage=L0'),
     ]);
 
-    await expect(page.getByRole('button', { name: 'Cyberdyne Outbound', exact: true })).not.toBeVisible();
-
-    await page.getByTestId('pipeline-source-select').click();
-    await page.getByRole('option', { name: 'All Sources', exact: true }).click();
-
+    await expect(page.getByTestId('pipeline-source-select')).toHaveText('All Sources');
     await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Cyberdyne Outbound', exact: true })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Source Type' })).toBeVisible();
@@ -372,6 +371,7 @@ test.describe('Pipeline page', () => {
     const companies = [
       ...MOCK_COMPANIES,
       baseCompany({ id: 'pending-1', target: 'PT Sinar Teknologi', source: 'inbound', pipeline_stage: 'unreviewed' }),
+      baseCompany({ id: 'pending-2', target: 'Dummy Pending Outbound Co', source: 'outbound', pipeline_stage: 'unreviewed' }),
     ];
     await mockAuthSession(page);
     await mockApis(page, companies);
@@ -381,12 +381,21 @@ test.describe('Pipeline page', () => {
       page.goto('/pipeline'),
     ]);
 
-    // All Stages leaves pending deals out; the chip shows them.
+    // All Stages leaves pending deals of every source out; the chip shows them.
+    await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'PT Sinar Teknologi', exact: true })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Dummy Pending Outbound Co', exact: true })).not.toBeVisible();
     await page.getByTestId('pipeline-pending-chip').click();
     await expect(page).toHaveURL(/\/pipeline\?stage=pending/);
     await expect(page.getByRole('button', { name: 'PT Sinar Teknologi', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Dummy Pending Outbound Co', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Acme Corp', exact: true })).not.toBeVisible();
+
+    // The source filter narrows the pending bucket too.
+    await page.getByTestId('pipeline-source-select').click();
+    await page.getByRole('option', { name: 'Outbound', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Dummy Pending Outbound Co', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'PT Sinar Teknologi', exact: true })).not.toBeVisible();
   });
 
   test('User triages unreviewed inbound companies on Sourcing', async ({ page }) => {
@@ -456,7 +465,7 @@ test.describe('Pipeline page', () => {
 
     // Triage lives on the Sourcing page's Pending Confirmation tab.
     await expect(page.getByTestId('sourcing-tab-pending')).toHaveAttribute('data-state', 'active');
-    await expect(page.getByText('new companies from email attachments')).toBeVisible();
+    await expect(page.getByText('companies awaiting review')).toBeVisible();
 
     await page.getByRole('button', { name: 'Triage Unreviewed', exact: true }).click();
     const triageDialog = page.getByRole('dialog', { name: 'Triage Unreviewed Companies' });

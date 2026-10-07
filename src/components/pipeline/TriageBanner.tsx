@@ -41,7 +41,7 @@ export function TriageBanner({ companies, onTriageClick }: TriageBannerProps) {
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-white">
             {unreviewed.length}
           </span>
-          new {unreviewed.length === 1 ? "company" : "companies"} from email attachments
+          {unreviewed.length === 1 ? "company" : "companies"} awaiting review
         </div>
         <span className="text-amber-600 dark:text-amber-500">—</span>
         <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">

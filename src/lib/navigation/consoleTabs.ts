@@ -58,7 +58,7 @@ export const CONSOLE_TABS: ConsoleTab[] = [
     group: 'deal-flow',
     flag: 'PIPELINE_ENABLED',
     purpose:
-      'Deals not yet in L0: unreviewed inbound companies awaiting triage (Pending Confirmation) and AI Market Scanning with its AI-discovered companies.',
+      'Deals not yet in L0: unreviewed companies awaiting triage (Pending Confirmation) and AI Market Scanning with its AI-discovered companies.',
   },
   {
     slug: 'pipeline',

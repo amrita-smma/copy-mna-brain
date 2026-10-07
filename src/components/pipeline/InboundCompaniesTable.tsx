@@ -159,7 +159,7 @@ interface InboundCompaniesTableProps {
    * (All Sources). Unset, every row uses `statusOptions`.
    */
   outboundStatusOptions?: string[];
-  /** Show the Source Type column. Default true; Sourcing is inbound-only. */
+  /** Show the Source Type column. Default true. */
   showSourceType?: boolean;
   /**
    * Saved-layout id prefix; the view mode is appended. All Sources keeps its
@@ -247,18 +247,11 @@ export default function InboundCompaniesTable({
   // inbound table renders both the Pending Confirmation (`unreviewed`) and the
   // reviewed (`L0`) sections, so the two groups move in different directions.
   // An L0 row demotes back to Pending Confirmation; an `unreviewed` row has nowhere
-  // further back to go. Pending Confirmation is inbound-only, so a non-inbound
-  // L0 row (All Sources) keeps no demote target, as in the outbound table.
+  // further back to go.
   const promoteTargetFor = (company: PipelineCompany) =>
     promoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
   const demoteTargetFor = (company: PipelineCompany) =>
-    demoteTargetForStage(
-      company.pipeline_stage ?? stage,
-      normalizeSourceType(company.source) === "inbound"
-        ? { demoteL0ToReview: true }
-        : undefined,
-      stageKeys,
-    );
+    demoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
 
   const picColumnLabel = stage ? dealLeadLabel(stage, captainKeys) : "Deal Lead";
 
@@ -797,7 +790,7 @@ export default function InboundCompaniesTable({
                   }
                   moveItems={
                     !rowDropped && isUnreviewed
-                      ? // Unreviewed inbound rows mirror the AI-Discovered
+                      ? // Unreviewed rows mirror the AI-Discovered
                         // menu: Add to L0 · Delete (Delete is a soft drop).
                         ([
                           {

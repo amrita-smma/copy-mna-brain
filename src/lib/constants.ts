@@ -71,22 +71,16 @@ export function promoteTargetForStage(
  * to fall back to.
  *
  * L0 demotes out of the committed pipeline and back to `unreviewed` ("Pending
- * Confirmation"). That only makes sense for inbound-sourced deals — the
- * Pending Confirmation bucket is inbound-only, so an outbound deal demoted out of
- * L0 would have no visible home. Outbound callers pass
- * `demoteL0ToReview: false` and get `null` at L0, i.e. no demote action.
+ * Confirmation"), whatever the deal's source.
  */
 export function demoteTargetForStage(
   stage: string | undefined | null,
-  opts?: { demoteL0ToReview?: boolean },
   /** The workspace's live stage keys in pipeline order (L0 always first). */
   stageOrder: readonly string[] = BUILTIN_PIPELINE_STAGE_KEYS,
 ): DealStage | null {
   const index = stage ? stageOrder.indexOf(stage) : -1;
   if (index < 0) return null;
-  if (index === 0) {
-    return opts?.demoteL0ToReview ? UNREVIEWED_STAGE : null;
-  }
+  if (index === 0) return UNREVIEWED_STAGE;
   return stageOrder[index - 1];
 }
 

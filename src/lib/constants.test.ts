@@ -78,23 +78,16 @@ describe('demoteTargetForStage', () => {
     expect(demoteTargetForStage('L5')).toBe('L4');
   });
 
-  it('demotes L0 back to Pending Confirmation when that bucket is available', () => {
-    expect(demoteTargetForStage('L0', { demoteL0ToReview: true })).toBe(UNREVIEWED_STAGE);
+  it('demotes L0 back to Pending Confirmation', () => {
+    expect(demoteTargetForStage('L0')).toBe(UNREVIEWED_STAGE);
   });
 
-  it('gives L0 no demote target when the pending-review bucket does not apply', () => {
-    // Outbound tables: there is no outbound Pending Review section to land in.
-    expect(demoteTargetForStage('L0')).toBeNull();
-    expect(demoteTargetForStage('L0', { demoteL0ToReview: false })).toBeNull();
-  });
-
-  it('leaves the option irrelevant above L0', () => {
-    expect(demoteTargetForStage('L1', { demoteL0ToReview: true })).toBe('L0');
+  it('demotes L1 to L0', () => {
     expect(demoteTargetForStage('L1')).toBe('L0');
   });
 
   it('returns null for stages outside the pipeline, including unreviewed itself', () => {
-    expect(demoteTargetForStage(UNREVIEWED_STAGE, { demoteL0ToReview: true })).toBeNull();
+    expect(demoteTargetForStage(UNREVIEWED_STAGE)).toBeNull();
     expect(demoteTargetForStage('market_screening')).toBeNull();
     expect(demoteTargetForStage('discovered')).toBeNull();
     expect(demoteTargetForStage(undefined)).toBeNull();
@@ -103,7 +96,7 @@ describe('demoteTargetForStage', () => {
 
   it('reads as a demotion to stageMoveDirection at every step it produces', () => {
     for (const stage of BUILTIN_PIPELINE_STAGE_KEYS) {
-      const target = demoteTargetForStage(stage, { demoteL0ToReview: true });
+      const target = demoteTargetForStage(stage);
       if (!target) continue;
       expect(stageMoveDirection(stage, target)).toBe('demote');
     }
@@ -133,7 +126,7 @@ describe('promote/demote over a workspace stage order', () => {
   it('steps through an added stage in both directions', () => {
     expect(promoteTargetForStage('L1', ORDER)).toBe('stg-calls');
     expect(promoteTargetForStage('stg-calls', ORDER)).toBe('L3');
-    expect(demoteTargetForStage('L3', undefined, ORDER)).toBe('stg-calls');
+    expect(demoteTargetForStage('L3', ORDER)).toBe('stg-calls');
   });
 
   it('has nowhere to promote from the last stage, and pending promotes into the first', () => {

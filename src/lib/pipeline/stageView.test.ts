@@ -43,13 +43,14 @@ describe('matchesStageView', () => {
     expect(matchesStageView(deal('L0'), 'all')).toBe(true);
     expect(matchesStageView(deal('L5'), 'all')).toBe(true);
     expect(matchesStageView(deal('unreviewed'), 'all')).toBe(false);
-    expect(matchesStageView(deal('unreviewed', 'outbound'), 'all')).toBe(true);
+    expect(matchesStageView(deal('unreviewed', 'outbound'), 'all')).toBe(false);
     expect(matchesStageView(deal('discovered'), 'all')).toBe(false);
     expect(matchesStageView(deal(null), 'all')).toBe(false);
   });
 
-  it('shows only unreviewed deals under pending', () => {
+  it('shows only unreviewed deals under pending, whatever their source', () => {
     expect(matchesStageView(deal('unreviewed'), 'pending')).toBe(true);
+    expect(matchesStageView(deal('unreviewed', 'outbound'), 'pending')).toBe(true);
     expect(matchesStageView(deal('L0'), 'pending')).toBe(false);
   });
 
@@ -58,10 +59,10 @@ describe('matchesStageView', () => {
     expect(matchesStageView(deal('L3'), 'L2')).toBe(false);
   });
 
-  it('keeps inbound pending deals out of L0 but keeps an outbound unreviewed deal in it', () => {
+  it('keeps pending deals of every source out of L0', () => {
     expect(matchesStageView(deal('L0'), 'L0')).toBe(true);
     expect(matchesStageView(deal('unreviewed', 'inbound'), 'L0')).toBe(false);
-    expect(matchesStageView(deal('unreviewed', 'outbound'), 'L0')).toBe(true);
+    expect(matchesStageView(deal('unreviewed', 'outbound'), 'L0')).toBe(false);
   });
 
 });

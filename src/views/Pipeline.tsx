@@ -334,8 +334,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   );
 
   // Inbound vs outbound — two tables with different columns. All Sources
-  // shows both in the inbound table's layout, told apart by Source Type.
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("inbound");
+  // (the default) shows both in the inbound table's layout, told apart by
+  // Source Type.
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [stageHelpOpen, setStageHelpOpen] = useState(false);
   // Origin (document type) filter — Sourcing's pending table only.
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
@@ -519,8 +520,6 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     });
 
     setStageView(value);
-    // Pending Confirmation is inbound-only, so it always opens the inbound table.
-    if (value === "pending") setSourceFilter("inbound");
     setCurrentPage(1);
     router.push(pipelineUrl(value, searchQuery));
   };
@@ -542,11 +541,6 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // it was, so clearing the search goes back to it.
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
-    // The source picker shows during a search; Pending Confirmation is
-    // inbound-only, so clearing back to it resets the source.
-    if (value.trim() === "" && stageView === "pending") {
-      setSourceFilter("inbound");
-    }
     // replaceState, not the router: a keystroke shouldn't add history entries
     // or refetch the page.
     window.history.replaceState(null, "", pipelineUrl(stageView, value));
@@ -917,12 +911,17 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
-  // L0 and Pending Confirmation inbound show every row on one page.
-  const splitInboundReviewSections =
+  // Pending Confirmation (any source) and inbound L0 show every row on one
+  // page.
+  const showsEveryRow =
     !searchesAllStages &&
-    (stageView === "L0" || stageView === "pending") &&
-    sourceFilter === "inbound" &&
-    viewMode !== "dropped";
+    viewMode !== "dropped" &&
+    (stageView === "pending" ||
+      (stageView === "L0" && sourceFilter === "inbound"));
+  // Pending Confirmation is reviewed in the inbound table layout whatever the
+  // source, so outbound pending rows get the same Add to L0 · Delete menu and
+  // review flags as inbound ones.
+  const reviewsPending = stageView === "pending" && !searchesAllStages;
 
   // "Sort by" preset: Newest is the default order (created date, or dropped
   // date in the Dropped view); Oldest is that same date ascending. Any other
@@ -935,7 +934,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
         ? "oldest"
         : "newest"
       : "";
-  const visibleCompanies = splitInboundReviewSections
+  const visibleCompanies = showsEveryRow
     ? sortedCompanies
     : paginatedCompanies;
 
@@ -955,7 +954,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
           searchQuery.trim() ? `search "${searchQuery.trim()}"` : null,
         ].filter(Boolean);
         return [
-          'The Sourcing page, Pending Confirmation tab: unreviewed inbound deals awaiting triage before they enter L0',
+          'The Sourcing page, Pending Confirmation tab: unreviewed deals (inbound and outbound) awaiting triage before they enter L0',
           filters.length > 0 ? `, filtered to: ${filters.join(', ')}.` : '.',
           ` ${sortedCompanies.length} deal(s) match.`,
         ].join('');
@@ -965,7 +964,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
         : stageView === 'all'
           ? 'every pipeline stage'
           : stageView === 'pending'
-            ? 'Pending Confirmation (unreviewed inbound deals)'
+            ? 'Pending Confirmation (unreviewed deals awaiting triage)'
             : `stage ${pipelineStages.label(stageView)}`;
       const filters = [
         stageScope,
@@ -1005,13 +1004,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     ]),
   );
 
-  // MB-225: every active unreviewed inbound company, independent of the
-  // current filters, so the triage modal always covers the whole bucket.
+  // MB-225: every active unreviewed company, independent of the current
+  // filters, so the triage modal always covers the whole bucket.
   const allUnreviewedCompanies = companies.filter(
-    (c) =>
-      c.pipeline_stage === "unreviewed" &&
-      c.source === "inbound" &&
-      isActive(c),
+    (c) => c.pipeline_stage === "unreviewed" && isActive(c),
   );
 
   // Handler for bulk triage confirm
@@ -1143,16 +1139,12 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
 
   // Stage the promote/demote dialog will move `promotingCompany` to. Mirrors
   // the row-menu logic in the Inbound/Outbound tables — including the
-  // inbound-only fallback out of L0 into Pending Confirmation — so the
-  // dialog can never target a stage the menu that opened it wouldn't offer.
+  // fallback out of L0 into Pending Confirmation — so the dialog can never
+  // target a stage the menu that opened it wouldn't offer.
   // `null` (nothing to move to) keeps the dialog unmounted entirely.
   const stageMoveTarget: DealStage | null = promotingCompany
     ? dialogMode === "demote"
-      ? demoteTargetForStage(
-        promotingCompany.pipeline_stage,
-        { demoteL0ToReview: promotingCompany.source === "inbound" },
-        stageKeys,
-      )
+      ? demoteTargetForStage(promotingCompany.pipeline_stage, stageKeys)
       : promoteTargetForStage(promotingCompany.pipeline_stage, stageKeys)
     : null;
 
@@ -1305,13 +1297,15 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
               groupByReviewState={false}
               onTriageAll={() => setShowTriageModal(true)}
             />
-          ) : sourceFilter === "all" ? (
+          ) : sourceFilter === "all" || reviewsPending ? (
             <InboundCompaniesTable
               {...tableProps}
               companies={visibleCompanies}
               statusOptions={inboundStatusOptions}
               outboundStatusOptions={outboundStatusOptions}
-              layoutId="pipeline-all"
+              // Sourcing keeps the column layout it saved before it held
+              // outbound deals too.
+              layoutId={isSourcing ? "pipeline-inbound" : "pipeline-all"}
               groupByReviewState={false}
             />
           ) : (
@@ -1322,7 +1316,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             />
           )}
         </div>
-        {!splitInboundReviewSections && totalPages > 1 && (
+        {!showsEveryRow && totalPages > 1 && (
           <div className="flex items-center justify-between pt-4 border-t">
             <p className="text-sm text-muted-foreground">
               Page {currentPage} of {totalPages} (
@@ -1673,28 +1667,24 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* Pending Confirmation is inbound-only, so there is no source to
-                      pick — except during a search, which spans every stage. */}
-                  {(stageView !== "pending" || searchesAllStages) && (
-                    <Select
-                      value={sourceFilter}
-                      onValueChange={(value) =>
-                        setSourceFilter(value as SourceFilter)
-                      }
+                  <Select
+                    value={sourceFilter}
+                    onValueChange={(value) =>
+                      setSourceFilter(value as SourceFilter)
+                    }
+                  >
+                    <SelectTrigger
+                      data-testid="pipeline-source-select"
+                      className="w-36 h-9"
                     >
-                      <SelectTrigger
-                        data-testid="pipeline-source-select"
-                        className="w-36 h-9"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Sources</SelectItem>
-                        <SelectItem value="inbound">Inbound</SelectItem>
-                        <SelectItem value="outbound">Outbound</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="inbound">Inbound</SelectItem>
+                      <SelectItem value="outbound">Outbound</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Select
                     value={viewMode}
                     onValueChange={(value) =>

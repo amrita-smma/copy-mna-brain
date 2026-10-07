@@ -1,9 +1,9 @@
 import { UNREVIEWED_STAGE } from '@/lib/constants';
-import { BUILTIN_PIPELINE_STAGE_KEYS, FIRST_STAGE_KEY, isInPipelineStage } from '@/lib/pipeline/stages';
+import { BUILTIN_PIPELINE_STAGE_KEYS, isInPipelineStage } from '@/lib/pipeline/stages';
 
 /**
  * What the Pipeline page's stage filter is set to: every pipeline deal, the
- * inbound Pending Confirmation bucket (`unreviewed` deals), or one stage key.
+ * Pending Confirmation bucket (`unreviewed` deals), or one stage key.
  * Serialised as the page's `?stage=` param.
  */
 export type StageView = 'all' | 'pending' | (string & {});
@@ -29,14 +29,12 @@ export function matchesStageView(
   view: StageView,
 ): boolean {
   const stage = company.pipeline_stage;
-  // Only inbound deals sit in Pending Confirmation, so a non-inbound
-  // `unreviewed` deal is treated as L0 rather than appearing nowhere.
-  const isUnreviewedL0 = stage === UNREVIEWED_STAGE && company.source !== 'inbound';
   // Every pipeline stage, deleted ones included: a deal dropped at a stage
-  // that has since been deleted still shows under All Stages.
-  if (view === 'all') return isInPipelineStage(stage) || isUnreviewedL0;
+  // that has since been deleted still shows under All Stages. An `unreviewed`
+  // deal of any source is awaiting triage, so it sits only in Pending
+  // Confirmation.
+  if (view === 'all') return isInPipelineStage(stage);
   if (view === 'pending') return stage === UNREVIEWED_STAGE;
-  if (view === FIRST_STAGE_KEY) return stage === FIRST_STAGE_KEY || isUnreviewedL0;
   return stage === view;
 }
 

@@ -111,7 +111,7 @@ export function stageKeysThrough(stages: readonly PipelineStageDef[], anchorKey:
 
 /**
  * Stage values that sit outside the deal pipeline: AI market scanning, the
- * inbound Pending Confirmation bucket, and relationship-graph discoveries.
+ * Pending Confirmation bucket, and relationship-graph discoveries.
  * Fixed for every workspace; never rows in `pipeline_stages`.
  */
 export const PRE_PIPELINE_STAGES: ReadonlySet<string> = new Set([

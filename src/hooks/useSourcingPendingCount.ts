@@ -10,7 +10,7 @@ const QUERY_ROOT = "sourcing-pending-count";
 
 /**
  * How many deals sit in Sourcing's Pending Confirmation bucket — active
- * inbound companies at the `unreviewed` stage, the same rows Pipeline counts
+ * companies of any source at the `unreviewed` stage, the same rows Pipeline counts
  * for its own chip. Shared through the react-query cache, so the expanded and
  * icon-rail sidebars (both mounted at once) issue a single request.
  *
@@ -24,7 +24,6 @@ export function useSourcingPendingCount(enabled = true): number {
     queryFn: () =>
       getCompaniesCount({
         stage: UNREVIEWED_STAGE,
-        source: "inbound",
         excludeDropped: true,
       }),
     enabled,

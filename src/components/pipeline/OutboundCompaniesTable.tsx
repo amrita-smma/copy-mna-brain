@@ -225,12 +225,10 @@ export default function OutboundCompaniesTable({
     );
     focusCopilot();
   };
-  // Outbound deals never sit in the inbound Pending Review bucket, so L0 keeps
-  // no demote target here — `demoteL0ToReview` is left off deliberately.
   const promoteTargetFor = (company: PipelineCompany) =>
     promoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
   const demoteTargetFor = (company: PipelineCompany) =>
-    demoteTargetForStage(company.pipeline_stage ?? stage, undefined, stageKeys);
+    demoteTargetForStage(company.pipeline_stage ?? stage, stageKeys);
   const picColumnLabel = stage ? dealLeadLabel(stage, captainKeys) : "Deal Lead";
 
   // Sort / filter descriptors for a managed column — surfaced in the column's
