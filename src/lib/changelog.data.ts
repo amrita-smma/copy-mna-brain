@@ -52,6 +52,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "63dfe0f0ec737dc411f63390abb681ef2a95e75b",
+    "date": "2026-10-07",
+    "subject": "Pipeline page now includes separate AI Screening tab for deal assessment",
+    "category": "improvement"
+  },
+  {
+    "hash": "3b9cdb7223d37af3e67a4dbe37fe95dcac52bc4f",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
