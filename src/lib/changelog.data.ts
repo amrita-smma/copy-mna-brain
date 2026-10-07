@@ -66,6 +66,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "83117c3441c7da5b23f6a8d48c0d8bdeef6787d5",
+    "date": "2026-10-07",
+    "subject": "AI context about companies now appears across all AI features",
+    "category": "feature"
+  },
+  {
+    "hash": "f4e9d981ecefccb883b1ed6cabe5823c3df54cad",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
