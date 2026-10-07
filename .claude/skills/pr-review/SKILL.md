@@ -30,7 +30,11 @@ The user either gives a PR number (`/pr-review 42`) or no argument (review the c
    - **Migrations.** New SQL belongs in `supabase/migrations/` with a `YYYYMMDDHHMMSS_name.sql` prefix. Schema changes in `src/lib/db/schema.ts` without a matching migration is a defect, and vice-versa.
    - **Detail dialog open state.** A record-scoped dialog (`CompanyDetailDialog` and friends) must derive `open` from the selected record, carry `key={record.id}`, null the record in the `onOpenChange` close branch, and guard any async open handler with an `activeRequestIdRef`. A separate `open` boolean is a defect — it leaves the dialog mounted with the previous record's data and flashes it on the next open. See `.claude/rules/dialog-open-state.md`.
    - **Env / secrets.** No hardcoded keys. New `process.env.*` reads should be documented in `.env.example`.
-   - **README.** CLAUDE.md says README updates are required for architecture changes. If the diff touches top-level structure, data flow, or deployment, check `README.md` was updated.
+   - **Docs.** Check the change was documented in the right container (CLAUDE.md §Overview):
+     a change to system *shape* (new layer, request path, cross-cutting hazard) → `ARCHITECTURE.md`;
+     a new route/service/repository/agent tool/job/flag/page → a regenerated `docs/architecture/code-map.md`
+     (CI enforces this via `pnpm arch:map:check`); feature detail → `docs/features/<feature>.md`.
+     Do NOT ask for a `README.md` update — it is a landing page, not a feature log.
    - **PR template.** Compare the PR body to `.github/PULL_REQUEST_TEMPLATE.md` — flag missing sections (Summary, Changes, Evidence, Related Issues link to MNA-####).
 
 4. **Review the code itself.**
@@ -62,7 +66,7 @@ The user either gives a PR number (`/pr-review 42`) or no argument (review the c
    - [x] Typecheck clean
    - [ ] Tests added for new behavior
    - [ ] Migration present for schema changes
-   - [ ] README updated (if arch change)
+   - [ ] Docs in the right container (CLAUDE.md §Overview: shape → `ARCHITECTURE.md`, inventory → `pnpm arch:map`, feature → `docs/features/`)
    ```
 
    Only include sections that have content. If there are no blocking issues, drop the Blocking heading rather than writing "none".

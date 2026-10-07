@@ -30,5 +30,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Runs before the suite: it takes under a second, and a stale map should
+      # not wait on 500+ test files to report.
+      #
+      # docs/architecture/code-map.md is generated from the filesystem, so a new
+      # route/service/repository/agent/job/flag/page makes it stale. Regenerate
+      # with `pnpm arch:map` and commit. See .claude/rules/architecture-docs.md.
+      - name: Check architecture code map is up to date
+        run: pnpm arch:map:check
+
       - name: Run unit tests
         run: pnpm test

@@ -1,3 +1,21 @@
+## Start Here
+
+**Read [`ARCHITECTURE.md`](../ARCHITECTURE.md) before working in an unfamiliar
+part of this repo.** It is the orientation document: directory map, the
+request path, a "where does my change go?" table, and the hazards that have
+caused production bugs. It is deliberately short enough to read in full.
+
+To locate a specific route, service, repository, agent tool, job handler or
+feature flag, grep [`docs/architecture/code-map.md`](../docs/architecture/code-map.md)
+instead of grepping the tree — it is a generated inventory of all of them with
+test coverage. Regenerate it with `pnpm arch:map` whenever you add or rename one
+of those; CI fails if it is stale. Rules for keeping both current:
+`.claude/rules/architecture-docs.md`.
+
+For how one specific feature works, see [`docs/features/`](../docs/features/README.md).
+`README.md` is a short landing page — what the project is and how to run it —
+not a place to read or write architecture.
+
 ## Pull Request Naming
 
 Use a concise, descriptive PR title that summarizes the change. A Jira ticket prefix (e.g. `[MB-123]`) is optional — include one when a ticket exists, but it is not required.
@@ -47,8 +65,22 @@ This project uses **pnpm** instead of npm. All Claude Code commands should use p
 
 Use Typescript Strict mode.
 When processing asynchronous tasks, put them in the jobs table and store state changes in job_logs.
-Update the README.md when an architecture change happens.
 Unit tests should be added for every change to the backend side of the project, which is in src/lib
+
+**Documentation goes to one of four places, by kind of change — never to `README.md`.**
+`README.md` grew from 1.4KB to 182KB in six months because every architectural
+change was appended to it; it is now a short landing page and must stay that way.
+
+| Kind of change | Write it to |
+|---|---|
+| System *shape* — a new layer, a change to the request path, a new cross-cutting hazard | `ARCHITECTURE.md` (budgeted ~400 lines) |
+| A new route, service, repository, agent tool, job handler, flag or page | nothing by hand — run `pnpm arch:map` |
+| How a *feature* works | `docs/features/<feature>.md` + a line in `docs/features/README.md` |
+| An accepted shortcut and its payback trigger | `TECH_DEBT.md` |
+| An enforceable convention with a review checklist | a new `.claude/rules/*.md`, linked from `ARCHITECTURE.md` |
+
+Only edit `README.md` when setup, the everyday commands, or the top-level
+project description change. Full contract: `.claude/rules/architecture-docs.md`.
 
 ## Backend Development & Query Performance
 

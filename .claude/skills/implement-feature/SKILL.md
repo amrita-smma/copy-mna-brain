@@ -17,7 +17,8 @@ description: "Implement or extend a backend feature in mna-brain (Next.js App Ro
 > - Client wrappers (only if a React view calls it): `src/lib/api/<feature>.ts`
 > - Agent tools (only if requested): `src/lib/agents/<agent>/tools/<tool>.ts` + `.test.ts` + `tools/index.ts`
 > - Seeds: `scripts/seed.ts` ONLY — never a new `scripts/seed-<entity>.ts`
-> - Docs: `README.md` when the change is architectural
+> - Docs: `ARCHITECTURE.md` for system shape; `docs/features/<feature>.md` for
+>   feature detail; `pnpm arch:map` for the generated inventory. NOT `README.md`.
 >
 > DO NOT touch anything outside these paths without being asked.
 
@@ -241,7 +242,7 @@ once at the end if `container.ts` or `schema.ts` changed.
 ✓ 1 table, 1 migration, 1 repository (3 methods), 1 service (2 methods), 1 route (POST/GET)
 ✓ tsc clean · 14 tests passed · lint clean
 ⚠️  Manual review: <count> LOW items (listed above)
-⚠️  README.md not updated — this change is not architectural (or: updated §Backend)
+⚠️  ARCHITECTURE.md not updated — this change does not alter system shape
 
 Next steps:
 1. Search `// TODO:` in src/lib/services/dealTagService.ts for unspecified business rules
@@ -657,7 +658,7 @@ src/app/api/deal-tags/
 
 Optional, only when requested: `src/lib/api/dealTags.ts`,
 `src/lib/agents/<agent>/tools/<tool>.ts` (+ test + registration), `src/lib/flags.ts` (via the
-`add-feature-flag` skill), `scripts/seed.ts` rows, `README.md`.
+`add-feature-flag` skill), `scripts/seed.ts` rows, `docs/features/`.
 
 ## Why This Design
 

@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "changelog:generate": "tsx scripts/generate-changelog.ts",
+    "arch:map": "tsx scripts/build-code-map.ts",
+    "arch:map:check": "tsx scripts/build-code-map.ts --check",
     "start": "next start",
     "lint": "eslint .",
     "db:ping": "tsx scripts/db-ping.ts",
