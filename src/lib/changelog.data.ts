@@ -94,6 +94,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4e36aae22ebac0be34c3972135afc7ff08e75aae",
+    "date": "2026-10-07",
+    "subject": "AI Opinion feature now works for workspaces without an investment mandate",
+    "category": "improvement"
+  },
+  {
+    "hash": "f465c59539091a8c9df09241d9ae140613bacb26",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
