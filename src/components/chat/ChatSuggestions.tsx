@@ -159,6 +159,67 @@ const CROWDFUNDING_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
+// Investment-banking flavor: the advisory desk. Its opening questions are the
+// ones a mandate actually starts with — which route, who would pay, what it is
+// worth, and whether the route everyone wants is even available — landed on the
+// pipeline and CRM tools this flavor shares with the M&A set.
+const INVESTMENT_BANKING_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Strategic Alternatives",
+    prompt:
+      "For a company in our pipeline that wants liquidity within 12 months, compare the live routes — control sale, minority stake sale, IPO, bond issuance, recap, strategic partnership, and doing nothing — and recommend one.",
+    icon: Target,
+  },
+  {
+    label: "Buyer Universe",
+    prompt:
+      "Build a buyer universe for our largest active deal: named strategics and sponsors, why each would pay, and which of them we already have a relationship with.",
+    icon: Globe,
+  },
+  {
+    label: "Valuation Range",
+    prompt:
+      "Value a company in our pipeline on trading comparables and precedent transactions, give me a range per method with sources and dates, and say what would move it.",
+    icon: TrendingUp,
+  },
+  {
+    label: "Exit Readiness",
+    prompt:
+      "Which companies in the pipeline are realistically IPO-ready, which are only saleable, and what would have to be fixed first for each?",
+    icon: Timer,
+  },
+];
+
+// Capital-markets flavor: the DCM + ECM desk. Its opening questions start one
+// step after the advisory decision — the issuer is raising, so the questions are
+// instrument, capacity, pricing and window.
+const CAPITAL_MARKETS_SUGGESTIONS: ChatSuggestion[] = [
+  {
+    label: "Debt or Equity",
+    prompt:
+      "For a company in our pipeline raising expansion capital, work through debt versus equity: the instruments actually available, what each really costs, and which one I should recommend.",
+    icon: Target,
+  },
+  {
+    label: "Debt Capacity",
+    prompt:
+      "Assess the debt capacity of a company in our pipeline — leverage, coverage and headroom today and pro forma — and tell me which constraint binds first.",
+    icon: Activity,
+  },
+  {
+    label: "Indicative Pricing",
+    prompt:
+      "Price an indicative 5-year senior unsecured bond for one of our pipeline companies: benchmark, comparable recent prints with dates, the premium you are applying, and the all-in cost.",
+    icon: TrendingUp,
+  },
+  {
+    label: "Issuance Window",
+    prompt:
+      "Is the issuance window currently open for this sector in both debt and equity? Show me what has priced recently and what that implies for a raise in the next quarter.",
+    icon: Globe,
+  },
+];
+
 // Combined flavor: a mix that exercises both the deal pipeline and the fund
 // portfolio so users see the assistant can move between the two.
 const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
@@ -201,7 +262,11 @@ export function ChatSuggestions({ className }: { className?: string }) {
             ? MINORITY_SUGGESTIONS
             : agentType === "crowdfunding"
               ? CROWDFUNDING_SUGGESTIONS
-              : MNA_SUGGESTIONS;
+              : agentType === "investment_banking"
+                ? INVESTMENT_BANKING_SUGGESTIONS
+                : agentType === "capital_markets"
+                  ? CAPITAL_MARKETS_SUGGESTIONS
+                  : MNA_SUGGESTIONS;
   const suggestions = [...baseSuggestions, INSIGHT_TEMPLATE_SUGGESTION];
 
   return (

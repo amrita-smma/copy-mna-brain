@@ -111,6 +111,8 @@ const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'vc', label: 'VC / Growth Equity' },
   { value: 'minority', label: 'Minority Stakes Portfolio Manager' },
   { value: 'crowdfunding', label: 'Crowdfunding Agent' },
+  { value: 'investment_banking', label: 'Investment Banking Advisory' },
+  { value: 'capital_markets', label: 'Capital Markets (DCM / ECM)' },
 ];
 
 /** The display currencies, mirrored from the server's WORKSPACE_CURRENCIES. */
@@ -1012,8 +1014,10 @@ export default function AdminPortalPage() {
                         Which Copilot flavor this workspace&apos;s chat uses — M&amp;A deal
                         analysis, funds &amp; investing, a combined assistant with access to
                         both, VC / growth equity, a portfolio manager running many small
-                        minority stakes, or the crowdfunding agent for small-ticket MSME and
-                        project raises.
+                        minority stakes, the crowdfunding agent for small-ticket MSME and
+                        project raises, the investment banking advisory agent that compares exit
+                        routes (sale, IPO, bond issuance, strategic partnership), or the capital
+                        markets agent for debt and equity issuance.
                       </p>
                     </div>
                     <div className="mt-6 flex h-9 shrink-0 items-center">

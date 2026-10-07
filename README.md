@@ -1140,7 +1140,7 @@ drags the LangChain agent stack into a route). What still needs wiring by hand
 is the user-facing copy: the admin-portal picker, and the chat welcome message
 and suggestions.
 
-The six flavors:
+The eight flavors:
 
 - **`mna`** (default) — the M&A / acquisitions assistant: company/CRM tools,
   pipeline analysis, Workforce handoffs, and Valyu/web search
@@ -1233,6 +1233,56 @@ The six flavors:
 
   `promptStability.test.ts` pins the assembled prompt's hash. Persisted via
   `workspaces.copilot_agent = 'crowdfunding'` — no migration needed.
+- **`investment_banking`** — the **Investment Banking Advisory Agent**: the
+  Copilot for the firm's advisory desk, which sits on the *sell* side of a
+  mandate rather than the principal side (`INVESTMENT_BANKING_SYSTEM_PROMPT` +
+  `INVESTMENT_BANKING_TOOL_LIST`). Every other flavor underwrites a position the
+  firm takes; this one advises an owner, a founder or a board on **which
+  transaction to run**, and its whole value is that it compares the routes to
+  each other instead of assuming one. The prompt carries a **route menu** every
+  substantive answer has to work through — control sale (M&A), minority/growth
+  stake sale, IPO, follow-on/secondary sell-down, bond issuance, leveraged or
+  dividend recap, strategic partnership / JV, carve-out / divestiture / spin-off,
+  private placement / pre-IPO round, and **doing nothing**, which is always on
+  the menu and always priced. Instrument-level structuring and pricing are
+  explicitly handed to `capital_markets`. Also in the prompt: an objective-first
+  mandate workflow (objective and constraints → readiness → valuation range per
+  method with sources and dates → counterparty universe → process and clock →
+  deal-breakers → walk from headline EV to the owner's net proceeds), and a
+  conflicts/conduct section (advisory fees reward a completed transaction, so
+  say so; no MNPI into external search; no legal, tax, accounting or regulatory
+  opinions; name the jurisdiction's listing, takeover and merger-control
+  regime).
+- **`capital_markets`** — the **Capital Markets Agent**: the firm's **DCM +
+  ECM** desk (`CAPITAL_MARKETS_SYSTEM_PROMPT` + `CAPITAL_MARKETS_TOOL_LIST`). It
+  starts one step after the advisory question — the issuer has decided to raise —
+  and works the instrument: what to issue, how much, for how long, at what price,
+  on what structure, to whom, and when. The prompt carries a two-sided
+  **instrument menu** (DCM: senior unsecured, senior secured, sukuk, high yield,
+  convertibles, perps/hybrids, MTN programmes and private placements, syndicated
+  and bilateral loans, project finance, securitisation/ABS, and
+  green/sustainability-linked; ECM: IPO, follow-on, rights issue, accelerated
+  bookbuild / block trade, private placement / PIPE / pre-IPO, dual listings and
+  depositary receipts, equity-linked), and three rules that govern every answer:
+  **capacity is a fact about the issuer** (leverage, coverage, headroom, existing
+  covenants; free float, track record, governance), **price is set by the
+  market** (benchmark + comparable recent prints with dates + premium/discount =
+  indicative all-in cost; never a spread, coupon or multiple quoted from memory),
+  and **a window opens and closes** (a present-tense fact that must be
+  researched). Figures are labelled **market-evidenced / issuer-stated /
+  assumed**, and the prompt is explicit that it does not set a price or
+  underwrite.
+
+  Both advisory flavors are `defaultChatToolList()` plus the **same seven
+  read-only research additions** — `calculate_investment_returns`,
+  `get_company_profile`, `get_sector_context`, `get_competitor_landscape`,
+  `get_regulatory_context`, `get_market_signals` and `valyu_extract_content` —
+  so they read the M&A pipeline, CRM, files and news surface and share
+  `MNA_PIPELINE_OPERATIONS_GUIDE` (identical write discipline: no direct writes,
+  Workforce handoffs and the inline bulk cards). The two desks read the same
+  data; what differs is the job. `promptStability.test.ts` pins both assembled
+  prompts' hashes. Persisted via `workspaces.copilot_agent =
+  'investment_banking'` / `'capital_markets'` — no migration needed.
 
 ### AlphaSense research (`alphasense_search`)
 
@@ -2722,7 +2772,8 @@ clean import reports **256 imported**, not 263.
   similarity + trigram `ILIKE`, merged and re-ranked in
   `DataNavigatorService.searchNews`) over the lake. It's registered on the
   base `tools` list, so it reaches the **`mna` chat, AI Workforce,
-  `combined`, `minority` and `crowdfunding`** Copilot flavors; the **`investment`** and **`vc`** flavors
+  `combined`, `minority`, `crowdfunding`, `investment_banking` and
+  `capital_markets`** Copilot flavors; the **`investment`** and **`vc`** flavors
   enumerate their own tool lists in `src/lib/agents/analysis/tools/index.ts`
   and do **not** include it.
 - **Feed admin:** `X-Api-Secret`-gated routes under `/api/auth/rss-feeds`

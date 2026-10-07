@@ -116,11 +116,51 @@ const CROWDFUNDING_WELCOME_MESSAGE = `# Hello! I'm your Crowdfunding Agent. I ca
 • "Model the downside: what do we recover if the project stops at month 12?"
 • "We want to offer this to our employees — what are the constraints?"`;
 
+const INVESTMENT_BANKING_WELCOME_MESSAGE = `# Hello! I'm your Investment Banking Advisory Agent. I can help you with
+
+---
+
+🧭 **Strategic Alternatives** - Compare sale, IPO, bond issuance, partnership, recap — and doing nothing
+💰 **Valuation** - Trading comparables, precedent transactions, and what a route actually nets the owner
+🤝 **Counterparty Mapping** - Strategic buyers, sponsors, partners, and the investor base behind each route
+📋 **Process & Timeline** - Auction and listing mechanics, the clock per phase, and what usually slips
+⚖️ **Feasibility Gates** - Readiness, clearances, change-of-control, and the deal-breakers to name early
+
+---
+
+💡 **Try asking:**
+• "We want liquidity for a founder in 12 months — sale, IPO, or recap?"
+• "Who are the credible strategic buyers for this company, and why would each pay?"
+• "What would this business fetch on trading comps versus precedent transactions?"
+• "Is this company IPO-ready, and what would have to be fixed first?"
+• "Walk me through a sell-side process timeline and where it usually slips"`;
+
+const CAPITAL_MARKETS_WELCOME_MESSAGE = `# Hello! I'm your Capital Markets Agent (DCM + ECM). I can help you with
+
+---
+
+🏦 **Debt vs Equity** - Which instrument fits the use of proceeds, and what each one really costs
+📜 **Debt Capital Markets** - Bonds, sukuk, convertibles, loans, hybrids: size, tenor, ranking, covenants
+📈 **Equity Capital Markets** - IPO, rights issue, follow-on, ABB, private placement, pre-IPO rounds
+🧮 **Capacity & Pricing** - Leverage and coverage headroom, benchmark + comparable prints, all-in cost
+🪟 **Windows & Regimes** - Whether the market is open, and the prospectus, listing and disclosure rules
+
+---
+
+💡 **Try asking:**
+• "We need $150M for capex over seven years — bond, loan, or equity?"
+• "What does our leverage and coverage headroom allow before a covenant binds?"
+• "Price an indicative 5-year senior unsecured off recent comparable prints"
+• "Rights issue or accelerated bookbuild for a $200M raise, and what's the dilution?"
+• "Is the issuance window open for this sector right now?"`;
+
 function welcomeText(agentType: ReturnType<typeof useCopilotAgent>): string {
   if (agentType === "investment") return INVESTMENT_WELCOME_MESSAGE;
   if (agentType === "combined") return COMBINED_WELCOME_MESSAGE;
   if (agentType === "minority") return MINORITY_WELCOME_MESSAGE;
   if (agentType === "crowdfunding") return CROWDFUNDING_WELCOME_MESSAGE;
+  if (agentType === "investment_banking") return INVESTMENT_BANKING_WELCOME_MESSAGE;
+  if (agentType === "capital_markets") return CAPITAL_MARKETS_WELCOME_MESSAGE;
   return MNA_WELCOME_MESSAGE;
 }
 

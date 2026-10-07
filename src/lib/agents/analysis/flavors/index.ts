@@ -18,9 +18,11 @@
  * `promptStability.test.ts` pins every assembled prompt's hash, so a flavor
  * that moves files without meaning to change wording fails loudly.
  */
+import { CAPITAL_MARKETS_FLAVOR } from "./capital_markets";
 import { COMBINED_FLAVOR } from "./combined";
 import { CROWDFUNDING_FLAVOR } from "./crowdfunding";
 import { INVESTMENT_FLAVOR } from "./investment";
+import { INVESTMENT_BANKING_FLAVOR } from "./investment_banking";
 import { MINORITY_FLAVOR } from "./minority";
 import { MNA_FLAVOR } from "./mna";
 import { VC_FLAVOR } from "./vc";
@@ -37,6 +39,8 @@ export const COPILOT_FLAVORS: Record<CopilotAgentType, CopilotFlavor> = {
   vc: VC_FLAVOR,
   minority: MINORITY_FLAVOR,
   crowdfunding: CROWDFUNDING_FLAVOR,
+  investment_banking: INVESTMENT_BANKING_FLAVOR,
+  capital_markets: CAPITAL_MARKETS_FLAVOR,
 };
 
 /**

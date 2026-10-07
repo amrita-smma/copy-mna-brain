@@ -80,10 +80,12 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
     { name: 'calculate_investment_returns' },
   ],
   valyuSearch: { name: 'valyu_search' },
-  // The five read-only tools the crowdfunding flavor adds on top of the M&A
-  // chat list.
+  // The read-only tools the crowdfunding (five) and the advisory /
+  // capital-markets (seven) flavors add on top of the M&A chat list.
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
   getCompanyProfile: { name: 'get_company_profile' },
+  getCompetitorLandscape: { name: 'get_competitor_landscape' },
+  getMarketSignals: { name: 'get_market_signals' },
   getRegulatoryContext: { name: 'get_regulatory_context' },
   getSectorContext: { name: 'get_sector_context' },
   valyuExtractContent: { name: 'valyu_extract_content' },
@@ -631,6 +633,208 @@ describe('getAgentGraph flavor selection', () => {
   });
 });
 
+// The Investment Banking Advisory flavor and the Capital Markets flavor are the
+// two advisory-desk flavors: both read the M&A chat surface and add the same
+// seven read-only research tools, and both are defined by the job their prompt
+// gives them — compare the routes (advisory) versus structure and price the
+// instrument (capital markets).
+describe('getAgentGraph — advisory desk flavors', () => {
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const ADVISORY_ADDITIONS = [
+    'calculate_investment_returns',
+    'get_company_profile',
+    'get_sector_context',
+    'get_competitor_landscape',
+    'get_regulatory_context',
+    'get_market_signals',
+    'valyu_extract_content',
+  ];
+
+  it.each(['investment_banking', 'capital_markets'] as const)(
+    'gives the %s flavor the mna tools plus the seven research additions',
+    async (flavor) => {
+      await getAgentGraph('mna');
+      await getAgentGraph(flavor);
+
+      const mnaTools = (mocks.createAgent.mock.calls[0][0].tools as Array<{ name: string }>).map(
+        (t) => t.name,
+      );
+      const flavorTools = (
+        mocks.createAgent.mock.calls[1][0].tools as Array<{ name: string }>
+      ).map((t) => t.name);
+
+      expect(flavorTools.slice(0, mnaTools.length)).toEqual(mnaTools);
+      expect(flavorTools.slice(mnaTools.length)).toEqual(ADVISORY_ADDITIONS);
+      // No tool registered twice — createAgent rejects a duplicate name.
+      expect(new Set(flavorTools).size).toBe(flavorTools.length);
+    },
+  );
+
+  it.each(['investment_banking', 'capital_markets'] as const)(
+    'shares the M&A pipeline-operations mechanics with the %s flavor',
+    async (flavor) => {
+      await getAgentGraph('mna');
+      await getAgentGraph(flavor);
+
+      const mnaPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+      const prompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
+
+      for (const heading of [
+        '## Emailing the User (one email, whatever they asked for)',
+        '## Editing a Company Card Section',
+        '## Delegating to the Workforce',
+        '## Adding a New Company (Chat-Initiated)',
+        '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
+        '## Promoting Companies from L0 to L1',
+      ]) {
+        expect(mnaPrompt).toContain(heading);
+        expect(prompt, flavor).toContain(heading);
+      }
+      expect(prompt, flavor).toContain('**You have NO direct write tools.**');
+    },
+  );
+
+  it.each(['investment_banking', 'capital_markets'] as const)(
+    'memoizes the %s flavor independently from mna',
+    async (flavor) => {
+      const mna = await getAgentGraph('mna');
+      const built = await getAgentGraph(flavor);
+
+      expect(built).not.toBe(mna);
+      expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+
+      expect(await getAgentGraph(flavor)).toBe(built);
+      expect(mocks.createAgent).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('builds the investment_banking flavor with its own advisory prompt', async () => {
+    await getAgentGraph('investment_banking');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('Investment Banking Advisory Agent');
+    // The deliverable is a comparison, never one route analysed alone.
+    expect(prompt).toMatch(
+      /The deliverable is a recommendation among alternatives, never a single idea/,
+    );
+    expect(prompt).toContain('## The route menu');
+    // It is not the M&A prompt wearing a new name.
+    expect(prompt).not.toContain('intelligent M&A Data Analysis Assistant');
+  });
+
+  it('puts every exit route on the investment_banking menu, including doing nothing', async () => {
+    await getAgentGraph('investment_banking');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const menu = prompt.slice(
+      prompt.indexOf('## The route menu'),
+      prompt.indexOf('## How to work a mandate'),
+    );
+
+    for (const route of [
+      '**Control sale (M&A)**',
+      '**Minority / growth stake sale**',
+      '**IPO**',
+      '**Follow-on / secondary sell-down**',
+      '**Bond issuance / debt capital markets**',
+      '**Leveraged recapitalisation / dividend recap**',
+      '**Strategic partnership / JV / commercial alliance**',
+      '**Carve-out / divestiture / spin-off**',
+      '**Private placement / pre-IPO round**',
+      '**Do nothing, or wait**',
+    ]) {
+      expect(menu, route).toContain(route);
+    }
+    // The status-quo baseline is priced, not just listed.
+    expect(menu).toMatch(/never names the status-quo baseline is incomplete/);
+    // Instrument-level structuring is the capital-markets desk's job.
+    expect(menu).toMatch(/this is the \*\*Capital Markets\*\* flavor's territory/);
+  });
+
+  it('makes the investment_banking flavor value in ranges and disclose its own conflict', async () => {
+    await getAgentGraph('investment_banking');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toMatch(/Value with a range and a method, never a number/);
+    expect(prompt).toMatch(/a multiple quoted from memory is a guess/);
+    // Headline EV is not proceeds.
+    expect(prompt).toMatch(/Headline enterprise value is not proceeds/);
+    // Advisory fees reward a transaction — say so.
+    expect(prompt).toMatch(/Advisory fees reward a completed transaction/);
+    expect(prompt).toMatch(/You do not give legal, tax, accounting, audit or regulatory opinions/);
+  });
+
+  it('builds the capital_markets flavor with its own DCM/ECM prompt', async () => {
+    await getAgentGraph('capital_markets');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toContain('Capital Markets Agent');
+    expect(prompt).toContain('**Debt Capital Markets (DCM)**');
+    expect(prompt).toContain('**Equity Capital Markets (ECM)**');
+    expect(prompt).toContain('## The instrument menu');
+    expect(prompt).not.toContain('intelligent M&A Data Analysis Assistant');
+  });
+
+  it('carries both sides of the capital_markets instrument menu', async () => {
+    await getAgentGraph('capital_markets');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+    const menu = prompt.slice(
+      prompt.indexOf('## The instrument menu'),
+      prompt.indexOf('## How to work an issuance'),
+    );
+
+    for (const instrument of [
+      '**Senior unsecured bonds**',
+      '**Senior secured / asset-backed notes**',
+      '**Sukuk**',
+      '**High-yield notes**',
+      '**Convertible / exchangeable bonds**',
+      '**Perpetual / hybrid / subordinated capital**',
+      '**Syndicated, club and bilateral loans**',
+      '**Project finance / limited-recourse debt**',
+      '**Securitisation / ABS**',
+      '**IPO**',
+      '**Rights issue**',
+      '**Accelerated bookbuild (ABB) / block trade**',
+      '**Private placement / PIPE / pre-IPO round**',
+    ]) {
+      expect(menu, instrument).toContain(instrument);
+    }
+  });
+
+  it('makes the capital_markets flavor price off evidence and date every market level', async () => {
+    await getAgentGraph('capital_markets');
+
+    const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
+
+    expect(prompt).toMatch(/Price is set by the market, not by the issuer/);
+    expect(prompt).toMatch(
+      /Never quote a spread, a coupon or an IPO multiple from memory as if it were a market level/,
+    );
+    // Whether a window is open is a present-tense fact.
+    expect(prompt).toMatch(/A window opens and closes/);
+    expect(prompt).toMatch(/never an answer from memory/);
+    // Internal records hold no market data at all.
+    expect(prompt).toMatch(/Internal records carry no market data at all/);
+    // Capacity gates the instrument before any pricing work.
+    expect(prompt).toMatch(/Capacity is a fact about the issuer, not a preference/);
+    expect(prompt).toMatch(/You do not set a price or underwrite/);
+  });
+});
+
 // The four chat flavors used to carry their own, mutually inconsistent search
 // policies — "web search is a fallback for when the DB is empty" in one section
 // and "always search for anything market-shaped" in the next — which let the
@@ -652,7 +856,16 @@ describe('external evidence grounding (chat flavors)', () => {
     return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
   };
 
-  const FLAVORS = ['mna', 'investment', 'combined', 'vc', 'minority', 'crowdfunding'] as const;
+  const FLAVORS = [
+    'mna',
+    'investment',
+    'combined',
+    'vc',
+    'minority',
+    'crowdfunding',
+    'investment_banking',
+    'capital_markets',
+  ] as const;
 
   it.each(FLAVORS)('gives the %s flavor the shared grounding section', async (flavor) => {
     const prompt = await promptFor(flavor);
@@ -681,9 +894,15 @@ describe('external evidence grounding (chat flavors)', () => {
     expect(prompt).toMatch(/Never report "not found" or "no data" on the strength of internal tools alone/);
   });
 
-  // Only the M&A and combined tool lists carry search_news, so only those two
-  // prompts may mention the lake.
-  it.each(['mna', 'combined', 'minority'] as const)(
+  // Only the flavors built on the M&A tool list (plus combined) carry
+  // search_news, so only those prompts may mention the lake.
+  it.each([
+    'mna',
+    'combined',
+    'minority',
+    'investment_banking',
+    'capital_markets',
+  ] as const)(
     'treats search_news and the open web as complements in the %s flavor',
     async (flavor) => {
       const prompt = await promptFor(flavor);

@@ -319,6 +319,14 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('minority')).toBe('minority');
   });
 
+  it('accepts the investment banking advisory flavor', () => {
+    expect(normalizeCopilotAgent('investment_banking')).toBe('investment_banking');
+  });
+
+  it('accepts the capital markets flavor', () => {
+    expect(normalizeCopilotAgent('capital_markets')).toBe('capital_markets');
+  });
+
   it('defaults to mna for null, undefined, or unrecognized values', () => {
     expect(normalizeCopilotAgent(null)).toBe('mna');
     expect(normalizeCopilotAgent(undefined)).toBe('mna');
@@ -326,7 +334,7 @@ describe('normalizeCopilotAgent', () => {
     expect(normalizeCopilotAgent('bogus')).toBe('mna');
   });
 
-  it('exposes exactly the five supported flavors', () => {
+  it('exposes exactly the supported flavors', () => {
     expect([...COPILOT_AGENTS]).toEqual([
       'mna',
       'investment',
@@ -334,6 +342,8 @@ describe('normalizeCopilotAgent', () => {
       'vc',
       'minority',
       'crowdfunding',
+      'investment_banking',
+      'capital_markets',
     ]);
   });
 });

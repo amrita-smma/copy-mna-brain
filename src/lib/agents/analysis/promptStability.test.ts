@@ -48,6 +48,8 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   valyuSearch: { name: 'valyu_search' },
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
   getCompanyProfile: { name: 'get_company_profile' },
+  getCompetitorLandscape: { name: 'get_competitor_landscape' },
+  getMarketSignals: { name: 'get_market_signals' },
   getRegulatoryContext: { name: 'get_regulatory_context' },
   getSectorContext: { name: 'get_sector_context' },
   valyuExtractContent: { name: 'valyu_extract_content' },
@@ -105,6 +107,16 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
   crowdfunding: '4a39704118a0410a1f3274ae28ab498b0d9e98b20e7ef0d5dd84ea34b71484fc',
+  // New flavour: the Investment Banking Advisory Agent — the M&A chat tool set
+  // plus the returns calculator, all five topic-research tools and Valyu
+  // extraction, under an advisory prompt that compares exit routes (control
+  // sale, IPO, bond issuance, recap, partnership, carve-out, do-nothing)
+  // rather than underwriting one position.
+  investment_banking: 'e29b51ad158c6a8631b0a3e7b9d5cae54b2e27c572b4c1e4275c036fdc7569c1',
+  // New flavour: the Capital Markets Agent — the same tool set under a DCM/ECM
+  // prompt: instrument choice, capacity, structure, evidence-based pricing,
+  // investor base, regime and window.
+  capital_markets: '1d2e2b00ae8500091f4b7eba0294bf0599e8298a3e247ce6a069e4cd55cb3b95',
 };
 // The Workforce prompt changed on purpose, for the same reason: its
 // `alphasense_search` read-tool bullet is gone, and the evidence guide no

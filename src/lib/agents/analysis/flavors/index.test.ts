@@ -88,6 +88,8 @@ describe('isCopilotAgentType', () => {
   it('accepts registry keys and rejects anything else', () => {
     expect(isCopilotAgentType('mna')).toBe(true);
     expect(isCopilotAgentType('crowdfunding')).toBe(true);
+    expect(isCopilotAgentType('investment_banking')).toBe(true);
+    expect(isCopilotAgentType('capital_markets')).toBe(true);
     expect(isCopilotAgentType('sector')).toBe(false);
     expect(isCopilotAgentType(undefined)).toBe(false);
     expect(isCopilotAgentType(42)).toBe(false);

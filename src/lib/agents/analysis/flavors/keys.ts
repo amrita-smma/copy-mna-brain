@@ -20,6 +20,8 @@ export const COPILOT_AGENT_KEYS = [
   "vc",
   "minority",
   "crowdfunding",
+  "investment_banking",
+  "capital_markets",
 ] as const;
 
 export type CopilotAgentType = (typeof COPILOT_AGENT_KEYS)[number];
