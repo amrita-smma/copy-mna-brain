@@ -138,6 +138,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "04f14744c67a474627fbc955d2a9abcc9cd88fa7",
+    "date": "2026-10-07",
+    "subject": "Investment banking deal types and flavor defaults now available",
+    "category": "feature"
+  },
+  {
+    "hash": "4688db434efc147abcf99d7a4b2bfb83e4e6094e",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
