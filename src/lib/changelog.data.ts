@@ -80,6 +80,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4e049a219391b1b640d5ceb1248ece88f1b38d4c",
+    "date": "2026-10-07",
+    "subject": "Enable financial analysis for minority equity positions in underwriting workflows",
+    "category": "feature"
+  },
+  {
+    "hash": "00e820cc1b62e0ed7eb02ea9612bf2be15da599a",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
