@@ -1044,6 +1044,13 @@
       "when": 1791331200000,
       "tag": "20261007000000_add_company_context",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1791331201000,
+      "tag": "20261007000001_add_workspace_pipeline_heading",
+      "breakpoints": true
     }
   ]
 }

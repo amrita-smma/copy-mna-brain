@@ -329,6 +329,13 @@ export const workspaces = pgTable(
     // does NOT convert stored values. Read into the client via
     // WorkspaceCurrencyProvider in the /w/[slug] layout.
     default_currency: text().default("USD").notNull(),
+    // Heading shown at the top of the Deal Pipeline page, editable in place by
+    // any member. NULL (the default) means "use the product default" —
+    // "Deal Pipeline" / "Track companies through all stages" — so an untouched
+    // workspace renders the original copy and clearing a field restores it.
+    // Read into the client via PipelineHeadingProvider in the /w/[slug] layout.
+    pipeline_title: text(),
+    pipeline_subtitle: text(),
     // Soft delete. Non-null = the workspace is archived: it disappears from
     // the workspace picker/switcher, from every membership listing, and from
     // background sweeps (cron, graph sync), and `/w/<slug>/...` bounces back

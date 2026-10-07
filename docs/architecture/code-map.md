@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 190 | `src/app/api/**/route.ts` |
+| API routes | 191 | `src/app/api/**/route.ts` |
 | Services | 76 | `src/lib/services/` |
 | Repositories | 73 | `src/lib/repositories/` |
 | Agents | 7 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 149 | `drizzle/migrations/` |
+| Migrations (app) | 150 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -234,6 +234,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/investment-thesis/active` | POST | `investmentThesisService` |
 | `/api/jobs/[id]` | GET | `jobService` |
 | `/api/market-screening` | GET, POST | — |
+| `/api/pipeline-heading` | GET, PUT | `workspaceService` |
 | `/api/pipeline-stages` | GET, POST, PATCH | `pipelineStageService` |
 | `/api/pipeline-stages/[key]` | PATCH, DELETE | `pipelineStageService` |
 | `/api/pipeline-stages/[key]/move` | POST | `pipelineStageService` |

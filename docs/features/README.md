@@ -18,7 +18,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Smart Files](smart-files.md) — 7KB
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
-- [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 4KB
+- [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
 - [One company-filter vocabulary across the analysis tools](company-filter-vocabulary.md) — 3KB
 - [Company Card → PowerPoint (email export)](company-card-powerpoint-export.md) — 3KB
 - [Presentation page (`/presentation`)](presentation-page.md) — 1KB

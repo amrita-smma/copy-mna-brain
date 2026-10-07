@@ -15,6 +15,11 @@ import {
   type CopilotAgentType,
 } from '@/lib/agents/analysis/flavors/keys';
 import { CURRENCIES, normalizeCurrency, type Currency } from '@/lib/currency';
+import {
+  resolvePipelineHeading,
+  type PipelineHeading,
+  type PipelineHeadingInput,
+} from '@/lib/pipeline/heading';
 
 /** The AI Copilot flavors a workspace can be set to — the agent's own flavor
  *  registry (`src/lib/agents/analysis/flavors`), which is what actually runs.
@@ -257,6 +262,34 @@ export class WorkspaceService {
     currency: Currency,
   ): Promise<Tables<'workspaces'> | undefined> {
     return this.workspaceRepo.update(id, { default_currency: currency });
+  }
+
+  /**
+   * The Deal Pipeline page heading for this workspace, already resolved: a
+   * workspace that has never renamed it (or has cleared a field) reads back the
+   * product default rather than null, so callers never render a blank heading.
+   */
+  async getPipelineHeading(id: string): Promise<PipelineHeading> {
+    const ws = await this.workspaceRepo.findById(id);
+    return resolvePipelineHeading(ws?.pipeline_title, ws?.pipeline_subtitle);
+  }
+
+  /**
+   * Rename the pipeline heading for the whole workspace. `null` on a field
+   * stores "use the default" — which is how clearing the input in the edit
+   * dialog restores the original copy. Returns the resolved heading so the
+   * caller can paint the result without a second read.
+   */
+  async updatePipelineHeading(
+    id: string,
+    input: PipelineHeadingInput,
+  ): Promise<PipelineHeading> {
+    const row = await this.workspaceRepo.update(id, {
+      pipeline_title: input.title,
+      pipeline_subtitle: input.subtitle,
+    });
+    if (!row) throw new WorkspaceNotFoundError(id);
+    return resolvePipelineHeading(row.pipeline_title, row.pipeline_subtitle);
   }
 
   listRoles(): Promise<Tables<'roles'>[]> {

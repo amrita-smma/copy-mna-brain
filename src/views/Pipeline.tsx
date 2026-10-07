@@ -61,6 +61,8 @@ import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
+import PipelineHeadingDialog from "@/components/pipeline/PipelineHeadingDialog";
+import { usePipelineHeading } from "@/components/layout/PipelineHeadingContext";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { usePublishSourcingPendingCount } from "@/hooks/useSourcingPendingCount";
 import { useRestoreDeal } from "@/components/pipeline/useRestoreDeal";
@@ -343,6 +345,11 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // Tracks (investment theses) + matched-track filter
   const [tracks, setTracks] = useState<Track[]>([]);
   const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
+  // The pipeline page's heading is a workspace setting (see
+  // PipelineHeadingContext). Sourcing keeps its own fixed copy.
+  const { heading: pipelineHeading, setHeading: setPipelineHeading } =
+    usePipelineHeading();
+  const [headingDialogOpen, setHeadingDialogOpen] = useState(false);
   const [addCompanyOpen, setAddCompanyOpen] = useState(false);
   // "Add Company → Ask AI": a fresh chat with the add-company brief staged in
   // the composer for the user to fill in and send — not sent on their behalf.
@@ -1369,13 +1376,34 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
         <div className="suite-hero px-6 pb-7 pt-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                {isSourcing ? "Sourcing" : "Deal Pipeline"}
-              </h1>
-              <p className="text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <h1
+                  data-testid="pipeline-heading-title"
+                  className="text-3xl font-bold tracking-tight"
+                >
+                  {isSourcing ? "Sourcing" : pipelineHeading.title}
+                </h1>
+                {!isSourcing && (
+                  <Button
+                    data-testid="pipeline-heading-edit-button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Edit pipeline heading"
+                    title="Edit title and subtitle"
+                    className="h-8 w-8 text-muted-foreground"
+                    onClick={() => setHeadingDialogOpen(true)}
+                  >
+                    <PencilLine className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <p
+                data-testid="pipeline-heading-subtitle"
+                className="text-muted-foreground"
+              >
                 {isSourcing
                   ? "Candidates not yet promoted into L0 sourcing"
-                  : "Track companies through all stages"}
+                  : pipelineHeading.subtitle}
               </p>
             </div>
             <Button
@@ -1859,6 +1887,17 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             onUpdate={() => refetchAfterCompanyUpdate(selectedCompany.id)}
             initialTab={openDetailInEdit ? "details" : "overview"}
             initialEditing={openDetailInEdit}
+          />
+        )}
+
+        {/* Workspace-wide page heading. Mounted only while open so the inputs
+            re-seed from the current heading on every open. */}
+        {!isSourcing && headingDialogOpen && (
+          <PipelineHeadingDialog
+            open={headingDialogOpen}
+            onOpenChange={setHeadingDialogOpen}
+            heading={pipelineHeading}
+            onSaved={setPipelineHeading}
           />
         )}
 

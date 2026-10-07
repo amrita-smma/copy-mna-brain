@@ -7,11 +7,13 @@ import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services';
 import { normalizeCopilotAgent } from '@/lib/services/workspaceService';
 import { normalizeCurrency } from '@/lib/currency';
+import { resolvePipelineHeading } from '@/lib/pipeline/heading';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import { CopilotAgentProvider } from '@/components/chat/CopilotAgentContext';
 import { AppShell } from '@/components/layout/AppShell';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
 import { WorkspaceCurrencyProvider } from '@/components/layout/WorkspaceCurrencyContext';
+import { PipelineHeadingProvider } from '@/components/layout/PipelineHeadingContext';
 import PostHogWorkspaceTracker from '@/components/layout/PostHogWorkspaceTracker';
 import { TableLayoutProvider } from '@/components/table';
 import { resolveWorkspaceFeatureFlags } from '@/lib/features/overrides';
@@ -77,36 +79,46 @@ export default async function WorkspaceLayout({
   // more — three identical reads on the critical path of every page load.
   const copilotAgent = normalizeCopilotAgent(workspace.copilot_agent);
   const defaultCurrency = normalizeCurrency(workspace.default_currency);
+  const pipelineHeading = resolvePipelineHeading(
+    workspace.pipeline_title,
+    workspace.pipeline_subtitle,
+  );
   const featureFlags = await resolveWorkspaceFeatureFlags(workspaceId);
 
   return (
     <CopilotAgentProvider agentType={copilotAgent}>
       <WorkspaceCurrencyProvider currency={defaultCurrency}>
-        <FeatureFlagsProvider flags={featureFlags}>
-          {/* Table column layouts are workspace settings, shared by every
-              member — loaded once here rather than per table. Keyed by slug so
-              a soft navigation to another workspace remounts the provider and
-              refetches, instead of reusing (and then saving) the previous
-              workspace's layouts. */}
-          <TableLayoutProvider key={workspaceSlug}>
-            <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
-            {/* The app shell lives HERE, not inside each view. Because it sits
-                above the routed `children`, moving between console tabs is a
-                soft navigation that swaps only the page — the sidebar, the
-                copilot pane, and any in-flight chat stream stay mounted. */}
-            {/* `initialUser` is the session this layout already gated on, handed
-                to the client gate so it doesn't re-block on `useSession` and
-                flash a spinner over a page the server has already authorized. */}
-            <AppShell
-              initialUser={{
-                isSuperadmin: session.user.isSuperadmin ?? false,
-                workspaces: session.user.workspaces ?? [],
-              }}
-            >
-              {children}
-            </AppShell>
-          </TableLayoutProvider>
-        </FeatureFlagsProvider>
+        {/* Keyed by slug for the same reason as TableLayoutProvider below: the
+            provider seeds its state from this prop once, so a soft navigation
+            to another workspace must remount it rather than keep showing the
+            previous workspace's heading. */}
+        <PipelineHeadingProvider key={workspaceSlug} heading={pipelineHeading}>
+          <FeatureFlagsProvider flags={featureFlags}>
+            {/* Table column layouts are workspace settings, shared by every
+                member — loaded once here rather than per table. Keyed by slug so
+                a soft navigation to another workspace remounts the provider and
+                refetches, instead of reusing (and then saving) the previous
+                workspace's layouts. */}
+            <TableLayoutProvider key={workspaceSlug}>
+              <PostHogWorkspaceTracker workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+              {/* The app shell lives HERE, not inside each view. Because it sits
+                  above the routed `children`, moving between console tabs is a
+                  soft navigation that swaps only the page — the sidebar, the
+                  copilot pane, and any in-flight chat stream stay mounted. */}
+              {/* `initialUser` is the session this layout already gated on, handed
+                  to the client gate so it doesn't re-block on `useSession` and
+                  flash a spinner over a page the server has already authorized. */}
+              <AppShell
+                initialUser={{
+                  isSuperadmin: session.user.isSuperadmin ?? false,
+                  workspaces: session.user.workspaces ?? [],
+                }}
+              >
+                {children}
+              </AppShell>
+            </TableLayoutProvider>
+          </FeatureFlagsProvider>
+        </PipelineHeadingProvider>
       </WorkspaceCurrencyProvider>
     </CopilotAgentProvider>
   );

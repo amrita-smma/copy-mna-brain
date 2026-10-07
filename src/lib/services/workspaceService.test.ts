@@ -426,6 +426,107 @@ describe('WorkspaceService.updateDefaultCurrency', () => {
   });
 });
 
+describe('WorkspaceService.getPipelineHeading', () => {
+  it('returns the workspace\u2019s stored title and subtitle', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pipeline_title: 'Acquisitions',
+      pipeline_subtitle: 'Live targets only',
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getPipelineHeading('w1')).toEqual({
+      title: 'Acquisitions',
+      subtitle: 'Live targets only',
+    });
+    expect(repos.workspaceRepo.findById).toHaveBeenCalledWith('w1');
+  });
+
+  it('falls back to the product defaults for a workspace that never set one', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pipeline_title: null,
+      pipeline_subtitle: null,
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getPipelineHeading('w1')).toEqual({
+      title: 'Deal Pipeline',
+      subtitle: 'Track companies through all stages',
+    });
+  });
+
+  it('falls back to the defaults when the workspace row is missing', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getPipelineHeading('missing')).toEqual({
+      title: 'Deal Pipeline',
+      subtitle: 'Track companies through all stages',
+    });
+  });
+});
+
+describe('WorkspaceService.updatePipelineHeading', () => {
+  it('writes both columns and returns the resolved heading', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pipeline_title: 'Acquisitions',
+      pipeline_subtitle: 'Live targets only',
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.updatePipelineHeading('w1', {
+      title: 'Acquisitions',
+      subtitle: 'Live targets only',
+    });
+
+    expect(result).toEqual({ title: 'Acquisitions', subtitle: 'Live targets only' });
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
+      pipeline_title: 'Acquisitions',
+      pipeline_subtitle: 'Live targets only',
+    });
+  });
+
+  it('stores null to clear a field, and reads back the default for it', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pipeline_title: 'Acquisitions',
+      pipeline_subtitle: null,
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.updatePipelineHeading('w1', {
+      title: 'Acquisitions',
+      subtitle: null,
+    });
+
+    expect(result).toEqual({
+      title: 'Acquisitions',
+      subtitle: 'Track companies through all stages',
+    });
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
+      pipeline_title: 'Acquisitions',
+      pipeline_subtitle: null,
+    });
+  });
+
+  it('throws WorkspaceNotFoundError when the update matches no row', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(
+      service.updatePipelineHeading('missing', { title: 'Acquisitions', subtitle: null }),
+    ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+});
+
 describe('WorkspaceService.isWorkspaceAdmin', () => {
   let repos: ReturnType<typeof makeRepoStubs>;
   let service: WorkspaceService;
