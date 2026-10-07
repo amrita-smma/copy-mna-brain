@@ -3,7 +3,7 @@
 import type { UIMessage } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { ChatMessageBubble } from "./ChatMessageBubble";
-import { useChatContext } from "./ChatProvider";
+import { useChatComposer } from "./ChatProvider";
 
 /**
  * Inline preview shown when a brand-new chat repeats an earlier question. The
@@ -16,7 +16,7 @@ import { useChatContext } from "./ChatProvider";
  * Returns null when there's no active cache hit.
  */
 export function CachedChatPreview() {
-  const { cacheHit, continueFromCached, startFreshFromCached } = useChatContext();
+  const { cacheHit, continueFromCached, startFreshFromCached } = useChatComposer();
   if (!cacheHit) return null;
 
   const userMessage: UIMessage = {

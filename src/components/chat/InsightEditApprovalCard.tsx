@@ -27,7 +27,7 @@ import {
   type BaseMove,
 } from '@/lib/insights/editReview';
 import { InsightFrame } from '@/components/insights/InsightFrame';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatThread } from '@/components/chat/ChatProvider';
 import {
   ApprovalCardShell,
   useApprovalResolution,
@@ -47,7 +47,7 @@ export function InsightEditApprovalCard({
 }: InsightEditApprovalCardProps) {
   // The thread this card belongs to; the server stamps the published version
   // with that thread's agent.
-  const { chatId } = useChatContext();
+  const { chatId } = useChatThread();
   const {
     status,
     setStatus,

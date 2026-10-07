@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWorkspacePush } from '@/hooks/useWorkspaceHref';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { INSIGHT_TEMPLATE_TRIGGER } from '@/lib/insights/insightSlashCommand';
 import { InsightView } from './InsightView';
 import { InsightEmptyState } from './InsightEmptyState';
@@ -30,7 +30,7 @@ export function InsightHost({
   listTab = 'insights',
 }: InsightHostProps) {
   const push = useWorkspacePush();
-  const { newChat, prefillComposer, setInsightTemplate, focusComposer } = useChatContext();
+  const { newChat, prefillComposer, setInsightTemplate, focusComposer } = useChatActions();
 
   // Pointing the copilot at part of the document is a MODE, armed from the
   // toolbar. The picker inside the frame does let a plain click on a real

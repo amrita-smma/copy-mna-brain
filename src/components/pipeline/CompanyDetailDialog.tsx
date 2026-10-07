@@ -151,7 +151,7 @@ import {
 import { FinancialCharts } from "@/components/pipeline/FinancialCharts";
 import type { Tables } from "@/lib/repositories";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useSetPageCompanyId } from "@/components/layout/PageContextProvider";
@@ -450,7 +450,7 @@ export default function CompanyDetailDialog({
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const smartFilesHref = useWorkspaceHref("/smart-files");
   const presentationHref = useWorkspaceHref("/presentation");
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const [company, setCompany] = useState<CompanyData>(companyProp);
   // Only re-sync from the prop when a *different* company is opened. Some

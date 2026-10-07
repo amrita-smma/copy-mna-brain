@@ -25,7 +25,7 @@ import { HoldingDetail } from './HoldingDetail';
 import { TablePager } from './TablePager';
 import { useFundData } from './context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { FundAiOpinionCell } from './FundAiOpinionCell';
 
@@ -267,7 +267,7 @@ export function AssetTable({
     analyzingAiOpinionIds,
   } = useFundData();
   const { money } = useFundMoney();
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   // Fund vehicle view and source-of-funds tracking are per-workspace settings.
   // 'by Fund Type' needs fund vehicles, so it follows the flag. 'by Investor'

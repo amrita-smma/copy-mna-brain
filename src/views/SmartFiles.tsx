@@ -96,7 +96,7 @@ import posthog from "posthog-js";
 import { getCompanies, getCompaniesLite } from "@/lib/api/pipeline";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
 import { MatchedCompaniesCell } from "@/components/Files/MatchedCompaniesCell";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
 import { FundUpdateReviewDialog } from "@/components/Files/FundUpdateReviewDialog";
@@ -1220,7 +1220,7 @@ export default function SmartFiles({
   initialTab = "mom",
   initialCounts,
 }: SmartFilesProps) {
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const [activeTab, setActiveTab] = useState<SmartFilesTab>(initialTab);
   const [visitedTabs, setVisitedTabs] = useState<Set<SmartFilesTab>>(
     () => new Set([initialTab]),

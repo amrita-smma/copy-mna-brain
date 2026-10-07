@@ -72,7 +72,7 @@ import {
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { companyDisplayName, companyInitials } from "@/lib/companyDisplay";
 
@@ -991,7 +991,7 @@ export default function Dashboard({
 
   // ─── Copilot quick-analysis ─────────────────────────────────────────────────
 
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
 
   const askCopilot = useCallback(
     (topic: string) => {
@@ -2523,7 +2523,7 @@ function CompanyFeedCarousel({
   /** Active feed filter's event type — carousel opens on this event when set. */
   matchEventType?: FeedEventType;
 }) {
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const [api, setApi] = useState<CarouselApi>();
   const [timeline, setTimeline] = useState<FeedEvent[] | null>(
     () => companyTimelineCache.get(company.company_id) ?? null,

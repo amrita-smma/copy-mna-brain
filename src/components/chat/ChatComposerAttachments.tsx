@@ -6,14 +6,14 @@ import { Paperclip, X, LoaderCircle, FileText, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { useChatContext, type ChatAttachment } from "./ChatProvider";
+import { useChatActions, useChatComposer, type ChatAttachment } from "./ChatProvider";
 
 /**
  * Drag-and-drop wiring for a composer. Spread `dropHandlers` onto the element
  * that should accept file drops; use `isDragging` to render a highlight.
  */
 export function useAttachmentDrop() {
-  const { addFiles } = useChatContext();
+  const { addFiles } = useChatActions();
   const [isDragging, setIsDragging] = useState(false);
   // Depth counter so nested children don't flicker the highlight on every
   // dragenter/dragleave bubbling through them.
@@ -62,7 +62,7 @@ export function useAttachmentDrop() {
  * the form or the textarea) that should accept pasted images/files.
  */
 export function useAttachmentPaste() {
-  const { addFiles } = useChatContext();
+  const { addFiles } = useChatActions();
 
   const onPaste = useCallback(
     (e: React.ClipboardEvent) => {
@@ -85,7 +85,7 @@ export function AttachButton({
   className?: string;
   disabled?: boolean;
 }) {
-  const { addFiles } = useChatContext();
+  const { addFiles } = useChatActions();
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -129,7 +129,7 @@ function AttachmentChip({
   isImagesOnly?: boolean;
   isSingleImage?: boolean;
 }) {
-  const { removeAttachment } = useChatContext();
+  const { removeAttachment } = useChatActions();
   const isImage = attachment.contentType.startsWith("image/") && attachment.previewUrl;
 
   if (isImage) {
@@ -235,7 +235,7 @@ function AttachmentChip({
 
 /** Row of chips for the currently-attached files. Renders nothing when empty. */
 export function AttachmentChips({ className }: { className?: string }) {
-  const { attachments } = useChatContext();
+  const { attachments } = useChatComposer();
   if (attachments.length === 0) return null;
 
   // If every attachment is an image, we can show them in a larger layout

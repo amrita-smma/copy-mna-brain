@@ -14,7 +14,12 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import {
+  useChatActions,
+  useChatComposer,
+  useChatContext,
+  useChatStatus,
+} from '@/components/chat/ChatProvider';
 import { ChatTextarea } from '@/components/chat/ChatTextarea';
 import {
   AttachButton,
@@ -137,15 +142,13 @@ function ChatInput({
   const refocusAfterEnhanceRef = useRef(false);
   const {
     sendWithCacheCheck,
-    status,
     stop,
     chatInputRef,
-    attachments,
-    composerDraft,
     focusComposer,
-    insightTemplate,
     setInsightTemplate,
-  } = useChatContext();
+  } = useChatActions();
+  const { attachments, composerDraft, insightTemplate } = useChatComposer();
+  const { status } = useChatStatus();
   const { onPaste } = useAttachmentPaste();
   const isBusy = status === 'streaming' || status === 'submitted';
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
@@ -624,7 +627,8 @@ export function AICopilotPane({
   hideExpandToggle = false,
   showHistoryButton = false,
 }: AICopilotPaneProps) {
-  const { newChat, focusComposer, effortChoice, setEffortChoice } = useChatContext();
+  const { newChat, focusComposer, setEffortChoice } = useChatActions();
+  const { effortChoice } = useChatComposer();
   const { expandCopilot } = useLayoutControl();
   const [historyOpen, setHistoryOpen] = useState(false);
   // Set when the history drawer is closing because the user picked a chat (or

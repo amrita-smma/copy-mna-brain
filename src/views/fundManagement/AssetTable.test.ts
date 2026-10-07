@@ -14,7 +14,7 @@ const withFlags = (flags: FlagsProviderProps['flags'], child: React.ReactNode) =
   React.createElement(FeatureFlagsProvider, { flags } as FlagsProviderProps, child);
 
 vi.mock('@/components/chat/ChatProvider', () => ({
-  useChatContext: () => ({
+  useChatActions: () => ({
     analyzeWithAI: vi.fn(),
   }),
 }));

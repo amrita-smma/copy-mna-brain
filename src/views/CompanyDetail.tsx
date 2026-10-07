@@ -8,7 +8,7 @@ import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageC
 import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useEventStream } from '@/hooks/useEventStream';
 import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
@@ -349,7 +349,7 @@ const isCompanyTab = (value: string | null): value is CompanyTab =>
 export default function CompanyDetail() {
   const params = useParams();
   const router = useRouter();
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null) => formatMoneyMn(value, currency);
   const { focusCopilot } = useLayoutControl();

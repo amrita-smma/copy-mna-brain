@@ -1,5 +1,5 @@
 import { type UIMessage } from "@ai-sdk/react";
-import { memo, useState, useEffect } from "react";
+import { memo, useMemo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
@@ -50,7 +50,7 @@ import type {
   InsightRefreshApprovalPayload,
 } from "@/lib/insights/types";
 import type { ReportPlanApprovalPayload } from "@/lib/reports/plan";
-import { useChatContext } from "./ChatProvider";
+import { useChatActions, useChatComposer } from "./ChatProvider";
 import { CompanyChip } from "./CompanyChip";
 import { stripNavigateMarkers } from "@/lib/navigation/navigateAction";
 import {
@@ -89,6 +89,49 @@ const REPORT_PLAN_TOOL_NAME = "propose_report_plan";
 // its payload is used as-is rather than joined with the tool call's html.
 const INSIGHT_REFRESH_TOOL_NAME = "propose_insight_refresh";
 const PAYLOAD_ONLY_APPROVAL_TOOLS = new Set([REPORT_PLAN_TOOL_NAME, INSIGHT_REFRESH_TOOL_NAME]);
+
+// Delimiters: legacy thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
+const THINKING_START_DELIMITER = "<!-- THINKING_START -->";
+const THINKING_END_DELIMITER = "<!-- THINKING_END -->";
+const WARNING_START_DELIMITER = "<!-- WARNING_START -->";
+const WARNING_END_DELIMITER = "<!-- WARNING_END -->";
+
+// Hoisted out of the render path: `new RegExp(...)` compiles a fresh pattern
+// every call, and these used to be rebuilt once per tool part per render.
+const CITATIONS_JSON_RE = /<!-- CITATIONS_JSON:(.*?) -->/;
+const FILES_JSON_RE = /<!-- FILES_JSON:(.*?) -->/;
+const WORKFORCE_HANDOFF_RE = new RegExp(`<!--\\s*${WORKFORCE_HANDOFF_MARKER}:(.*?)-->`, "s");
+const BULK_DROP_APPROVAL_RE = new RegExp(`<!--\\s*${BULK_DROP_APPROVAL_MARKER}:(.*?)-->`, "s");
+const BULK_PROMOTE_APPROVAL_RE = new RegExp(`<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:(.*?)-->`, "s");
+
+// Global variants, for stripping every occurrence out of a tool trace.
+const CITATIONS_JSON_STRIP_RE = /\n*<!-- CITATIONS_JSON:.*? -->/g;
+const FILES_JSON_STRIP_RE = /\n*<!-- FILES_JSON:.*? -->/g;
+const WORKFORCE_HANDOFF_STRIP_RE = new RegExp(`\\n*<!--\\s*${WORKFORCE_HANDOFF_MARKER}:.*?-->`, "gs");
+const BULK_DROP_APPROVAL_STRIP_RE = new RegExp(`\\n*<!--\\s*${BULK_DROP_APPROVAL_MARKER}:.*?-->`, "gs");
+const BULK_PROMOTE_APPROVAL_STRIP_RE = new RegExp(`\\n*<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:.*?-->`, "gs");
+
+/** Stable empty array so a part-less message doesn't bust the parse memo. */
+const EMPTY_PARTS: UIMessage["parts"] = [];
+
+/** A file surfaced by `query_files`, as the tool serialises it. */
+interface MeetingNoteRef {
+  id: string;
+  file_name: string;
+  file_link: string;
+  file_date: string | null;
+  tags: string[];
+  structured_notes: string | null;
+  matched_companies: any[];
+}
+
+/** The text a tool part carries, whatever shape the SDK wrapped it in. */
+function toolOutputText(part: unknown): string {
+  const output = (part as any).output;
+  if (output?.kwargs?.content) return output.kwargs.content as string;
+  if (typeof output === "string") return output;
+  return "";
+}
 
 interface ChatMessageBubbleProps {
   message: UIMessage;
@@ -155,6 +198,101 @@ export function LoadingBubble() {
   );
 }
 
+/**
+ * How much of a tool's raw output the trace shows before offering "show full
+ * output". A single `query_companies` call can return tens of kilobytes; the
+ * trace is a debugging aid, not content, so it is capped by default.
+ */
+const TOOL_TRACE_PREVIEW_CHARS = 1200;
+
+/**
+ * One tool's input/output inside the expandable tool chain.
+ *
+ * Rendered as preformatted text rather than through `MarkdownRenderer`: a tool
+ * trace is raw output, not prose, so a full remark/rehype parse per tool was
+ * both the wrong presentation and the single most expensive thing the copilot
+ * did — a ten-tool turn meant ten markdown parses, re-run on every render of
+ * the bubble. Memoized so expanding the chain costs one pass per tool.
+ */
+const ToolTrace = memo(function ToolTrace({ part }: { part: unknown }) {
+  const [showFull, setShowFull] = useState(false);
+  const toolName = (part as any).toolName || "Tool";
+  const state = (part as any).state as string | undefined;
+
+  const { text, truncated } = useMemo(() => {
+    const output = (part as any).output;
+    let content: string;
+    if (output?.kwargs?.content) {
+      content = output.kwargs.content;
+    } else if (typeof output === "string") {
+      content = output;
+    } else if (output) {
+      content = JSON.stringify(output, null, 2);
+    } else {
+      content = "";
+    }
+
+    // Strip the hidden metadata the UI consumes elsewhere (citations, files,
+    // approval payloads, navigation and company-mention manifests).
+    content = content
+      .replace(CITATIONS_JSON_STRIP_RE, "")
+      .replace(FILES_JSON_STRIP_RE, "")
+      .replace(WORKFORCE_HANDOFF_STRIP_RE, "")
+      .replace(BULK_DROP_APPROVAL_STRIP_RE, "")
+      .replace(BULK_PROMOTE_APPROVAL_STRIP_RE, "");
+    content = stripApprovalMarkers(content);
+    content = stripNavigateMarkers(content);
+    content = stripCompanyMentionMarkers(content);
+
+    // Measure the trimmed text, which is what actually gets sliced — stripping
+    // a large hidden JSON manifest can drop a long raw output under the cap,
+    // and measuring before the strip would offer "show full output" with
+    // nothing further to show.
+    const trimmed = content.trim();
+    return { text: trimmed, truncated: trimmed.length > TOOL_TRACE_PREVIEW_CHARS };
+  }, [part]);
+
+  const visible = showFull || !truncated ? text : text.slice(0, TOOL_TRACE_PREVIEW_CHARS);
+
+  return (
+    <div className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xs font-semibold text-foreground">{toolName}</span>
+        {state && (
+          <span
+            className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded",
+              state === "output-available"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                : state === "running"
+                  ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                  : "bg-muted text-muted-foreground",
+            )}
+          >
+            {state === "output-available" ? "completed" : state}
+          </span>
+        )}
+      </div>
+      {visible && (
+        <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+          {visible}
+        </pre>
+      )}
+      {truncated && (
+        <button
+          type="button"
+          onClick={() => setShowFull((v) => !v)}
+          className="mt-1 text-[11px] font-medium text-primary hover:underline"
+        >
+          {showFull
+            ? "Show less"
+            : `Show full output (${text.length.toLocaleString()} chars)`}
+        </button>
+      )}
+    </div>
+  );
+});
+
 function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   // Hookless dispatcher. User and assistant bubbles call a different number of
   // hooks, so they MUST be distinct component types. If a single component
@@ -192,7 +330,10 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
     return '';
   }).trim();
 
-  const { optimisticAttachments } = useChatContext();
+  // Narrow context: the optimistic map only changes when a message with
+  // attachments is sent, so this bubble does not re-render while a reply
+  // streams in.
+  const { optimisticAttachments } = useChatComposer();
   
   // Combine optimistic attachments (active session) with server-loaded attachments (history)
   const activeAttachments = optimisticAttachments?.[trackingId || message.id] || [];
@@ -280,58 +421,61 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
   );
 }
 
-function AssistantMessageBubble(props: ChatMessageBubbleProps) {
-  const parts = props.message?.parts || [];
+/**
+ * Everything `AssistantMessageBubble` scrapes out of one assistant turn.
+ *
+ * Deliberately a pure function of `parts` so the bubble can wrap it in a
+ * single `useMemo`. It walks the full text character by character looking for
+ * delimiters and runs a JSON.parse per approval marker per tool — cheap once,
+ * ruinous when a 40-message thread re-runs it on every streamed token (which
+ * is what happened before the chat context was split).
+ */
+export interface ParsedAssistantTurn {
+  toolParts: unknown[];
+  hasTextContent: boolean;
+  hasReasoningContent: boolean;
+  isStreamingComplete: boolean;
+  hasRunningTools: boolean;
+  isPptxRunning: boolean;
+  thinkingText: string;
+  responseText: string;
+  warnings: string[];
+  allCitations: { title: string; url: string }[];
+  allMeetingNotes: MeetingNoteRef[];
+  mentionedCompanies: CompanyMention[];
+  workforceHandoff: WorkforceHandoffPayload | null;
+  bulkDropApproval: BulkDropApprovalPayload | null;
+  bulkPromoteApproval: BulkPromoteApprovalPayload | null;
+  insightEditApproval: InsightEditApprovalPayload | null;
+  insightCreateApproval: InsightCreateApprovalPayload | null;
+  reportPlanApproval: ReportPlanApprovalPayload | null;
+  insightRefreshApproval: InsightRefreshApprovalPayload | null;
+}
 
-  // Check if there's any text content being streamed (has text parts with content)
+export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTurn {
   const hasTextContent = parts.some(
     (part) => part.type === "text" && (part as any).text?.trim()
   );
 
-  // Check if reasoning content is being streamed
   const hasReasoningContent = parts.some(
     (part) => part.type === "reasoning" && Boolean((part as any).text?.trim() || (part as any).reasoning?.trim())
   );
 
-  // Check if streaming is complete (all text and reasoning parts have state === 'done')
   const isStreamingComplete = parts.length > 0 &&
     parts.filter((part) => part.type === "text" || part.type === "reasoning").every((part) => (part as any).state === "done");
 
-  // Check if tools are still running
   const hasRunningTools = parts.some(
     (part) => (part.type === "dynamic-tool" || part.type === "tool-invocation") &&
       (part as any).state !== "output-available"
   );
 
-  // Show thinking indicator when: no text or reasoning content yet OR tools are running (but not if thinking
-  // is actively streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
-  // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
-  const showThinking = ((!hasTextContent && !hasReasoningContent) || hasRunningTools) && !isStreamingComplete && (props.isActive ?? false);
-
-  // Auto-collapse tool results when response text starts streaming
-  const [toolsCollapsed, setToolsCollapsed] = useState(false);
-
-  useEffect(() => {
-    // Collapse tools when we have text content
-    if (hasTextContent && !toolsCollapsed) {
-      setToolsCollapsed(true);
-    }
-  }, [hasTextContent]);
-
-  // Separate tool parts, text parts, and reasoning parts
   const toolParts = parts.filter(
     (part) => part.type === "dynamic-tool" || part.type === "tool-invocation"
   );
   const textParts = parts.filter((part) => part.type === "text");
   const reasoningParts = parts.filter((part) => part.type === "reasoning");
 
-  // Deterministic ETA notice while send_email builds a presentation (do not rely on the model).
-  const isGeneratingPptx =
-    (props.isActive ?? false) && toolParts.some((part) => isRunningPptxSendEmail(part as never));
-
-  // Delimiters: legacy thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
-  const THINKING_START_DELIMITER = "<!-- THINKING_START -->";
-  const THINKING_END_DELIMITER = "<!-- THINKING_END -->";
+  const isPptxRunning = toolParts.some((part) => isRunningPptxSendEmail(part as never));
 
   const fullText = textParts.map((part) => (part as any).text || "").join("");
 
@@ -398,9 +542,6 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   // EBITDA concern (or any other risk surfaced from a tool preview) between
   // <!-- WARNING_START --> and <!-- WARNING_END -->; we render those as a
   // yellow banner above the chat bubble and strip them from the prose.
-  const WARNING_START_DELIMITER = "<!-- WARNING_START -->";
-  const WARNING_END_DELIMITER = "<!-- WARNING_END -->";
-
   const warnings: string[] = [];
   if (
     responseText.includes(WARNING_START_DELIMITER) ||
@@ -433,30 +574,9 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     responseText = cleaned;
   }
 
-  const hasThinkingContent = thinkingText.trim().length > 0;
-  const hasResponseContent = responseText.trim().length > 0;
-
-  // Auto-collapse thinking when response text starts streaming
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (hasResponseContent && !thinkingCollapsed) {
-      setThinkingCollapsed(true);
-    }
-  }, [hasResponseContent]);
-
   // Extract citations from web_search / valyu_search tool results
   const allCitations: { title: string; url: string }[] = [];
   // Extract files from query_files tool results - matches MeetingNote type
-  interface MeetingNoteRef {
-    id: string;
-    file_name: string;
-    file_link: string;
-    file_date: string | null;
-    tags: string[];
-    structured_notes: string | null;
-    matched_companies: any[];
-  }
   const allMeetingNotes: MeetingNoteRef[] = [];
   let workforceHandoff: WorkforceHandoffPayload | null = null;
   let bulkDropApproval: BulkDropApprovalPayload | null = null;
@@ -504,16 +624,10 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
 
   for (const part of toolParts) {
     const toolName = (part as any).toolName || "";
-    const output = (part as any).output;
-    let content = "";
-    if (output?.kwargs?.content) {
-      content = output.kwargs.content;
-    } else if (typeof output === "string") {
-      content = output;
-    }
+    const content = toolOutputText(part);
 
     if (toolName === "web_search" || toolName === "valyu_search") {
-      const citationMatch = content.match(/<!-- CITATIONS_JSON:(.*?) -->/);
+      const citationMatch = content.match(CITATIONS_JSON_RE);
       if (citationMatch) {
         try {
           const citations = JSON.parse(citationMatch[1]);
@@ -529,9 +643,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
 
     if (toolName === WORKFORCE_HANDOFF_TOOL_NAME && !workforceHandoff) {
-      const handoffMatch = content.match(
-        new RegExp(`<!--\\s*${WORKFORCE_HANDOFF_MARKER}:(.*?)-->`, "s"),
-      );
+      const handoffMatch = content.match(WORKFORCE_HANDOFF_RE);
       if (handoffMatch) {
         try {
           const parsed = JSON.parse(handoffMatch[1].trim()) as WorkforceHandoffPayload;
@@ -545,9 +657,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
 
     if (toolName === BULK_DROP_APPROVAL_TOOL_NAME && !bulkDropApproval) {
-      const bulkDropMatch = content.match(
-        new RegExp(`<!--\\s*${BULK_DROP_APPROVAL_MARKER}:(.*?)-->`, "s"),
-      );
+      const bulkDropMatch = content.match(BULK_DROP_APPROVAL_RE);
       if (bulkDropMatch) {
         try {
           const parsed = JSON.parse(bulkDropMatch[1].trim()) as BulkDropApprovalPayload;
@@ -561,9 +671,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
 
     if (toolName === BULK_PROMOTE_APPROVAL_TOOL_NAME && !bulkPromoteApproval) {
-      const bulkPromoteMatch = content.match(
-        new RegExp(`<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:(.*?)-->`, "s"),
-      );
+      const bulkPromoteMatch = content.match(BULK_PROMOTE_APPROVAL_RE);
       if (bulkPromoteMatch) {
         try {
           const parsed = JSON.parse(bulkPromoteMatch[1].trim()) as BulkPromoteApprovalPayload;
@@ -603,7 +711,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     companyMentions.push(...parseCompanyMentions(content));
 
     if (toolName === "query_files") {
-      const notesMatch = content.match(/<!-- FILES_JSON:(.*?) -->/);
+      const notesMatch = content.match(FILES_JSON_RE);
       if (notesMatch) {
         try {
           const notes = JSON.parse(notesMatch[1]);
@@ -637,13 +745,100 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     }
   }
 
+  return {
+    toolParts,
+    hasTextContent,
+    hasReasoningContent,
+    isStreamingComplete,
+    hasRunningTools,
+    isPptxRunning,
+    thinkingText,
+    responseText,
+    warnings,
+    allCitations,
+    allMeetingNotes,
+    // A single query can return fifty rows; chipping all of them would bury
+    // the answer. Keep only the companies the assistant actually named.
+    mentionedCompanies: selectMentionedCompanies(companyMentions, responseText),
+    workforceHandoff,
+    bulkDropApproval,
+    bulkPromoteApproval,
+    insightEditApproval,
+    insightCreateApproval,
+    reportPlanApproval,
+    insightRefreshApproval,
+  };
+}
 
-  // A single query can return fifty rows; chipping all of them would bury the
-  // answer. Keep only the companies the assistant actually named.
-  const mentionedCompanies = selectMentionedCompanies(companyMentions, responseText);
+function AssistantMessageBubble(props: ChatMessageBubbleProps) {
+  const parts = props.message?.parts || EMPTY_PARTS;
 
-  // Chat context for sending follow-up messages (e.g. "Just answer here")
-  const { sendMessage, activeChatEffortTier } = useChatContext();
+  // One pass over the turn, cached on the parts array. The AI SDK hands back a
+  // new `parts` only when the message actually changed, so a bubble that is
+  // not the streaming one re-uses this result for the life of the thread.
+  const parsed = useMemo(() => parseAssistantTurn(parts), [parts]);
+  const {
+    toolParts,
+    hasTextContent,
+    hasReasoningContent,
+    isStreamingComplete,
+    hasRunningTools,
+    isPptxRunning,
+    thinkingText,
+    responseText,
+    warnings,
+    allCitations,
+    allMeetingNotes,
+    mentionedCompanies,
+    workforceHandoff,
+    bulkDropApproval,
+    bulkPromoteApproval,
+    insightEditApproval,
+    insightCreateApproval,
+    reportPlanApproval,
+    insightRefreshApproval,
+  } = parsed;
+
+  const hasThinkingContent = thinkingText.trim().length > 0;
+  const hasResponseContent = responseText.trim().length > 0;
+
+  // Show thinking indicator when: no text or reasoning content yet OR tools are running (but not if thinking
+  // is actively streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
+  // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
+  const showThinking =
+    ((!hasTextContent && !hasReasoningContent) || hasRunningTools) &&
+    !isStreamingComplete &&
+    (props.isActive ?? false);
+
+  // Deterministic ETA notice while send_email builds a presentation (do not rely on the model).
+  const isGeneratingPptx = (props.isActive ?? false) && isPptxRunning;
+
+  // Auto-collapse tool results when response text starts streaming
+  const [toolsCollapsed, setToolsCollapsed] = useState(false);
+
+  useEffect(() => {
+    // Collapse tools when we have text content
+    if (hasTextContent && !toolsCollapsed) {
+      setToolsCollapsed(true);
+    }
+  }, [hasTextContent]);
+
+  // Auto-collapse thinking when response text starts streaming
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (hasResponseContent && !thinkingCollapsed) {
+      setThinkingCollapsed(true);
+    }
+  }, [hasResponseContent]);
+
+  // Sending a follow-up (e.g. "Just answer here"). From the actions context,
+  // which never changes identity: subscribing to the full chat context here
+  // would re-render every bubble in the thread on every token and defeat the
+  // `memo` below. The workforce card reads the thread's effort tier itself,
+  // for the same reason — `useChatThread` carries the sidebar list, which is
+  // replaced several times a turn.
+  const { sendMessage } = useChatActions();
   const handleJustAnswerHere = () => {
     sendMessage({
       text: "Just answer here — please proceed inline without sending this to the Workforce.",
@@ -711,70 +906,14 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
               )}
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="mt-2 space-y-2 max-h-64 overflow-y-auto rounded-lg bg-muted/20 border p-3">
-                {toolParts.map((part, index) => {
-                  const toolName = (part as any).toolName || "Tool";
-                  const output = (part as any).output;
-
-                  // Extract content from the ToolMessage structure if present
-                  let displayContent = "";
-                  if (output?.kwargs?.content) {
-                    displayContent = output.kwargs.content;
-                  } else if (typeof output === "string") {
-                    displayContent = output;
-                  } else if (output) {
-                    displayContent = JSON.stringify(output, null, 2);
-                  }
-
-                  // Remove hidden metadata from display content
-                  displayContent = displayContent.replace(/\n*<!-- CITATIONS_JSON:.*? -->/g, "");
-                  displayContent = displayContent.replace(/\n*<!-- FILES_JSON:.*? -->/g, "");
-                  displayContent = displayContent.replace(
-                    new RegExp(`\\n*<!--\\s*${WORKFORCE_HANDOFF_MARKER}:.*?-->`, "gs"),
-                    "",
-                  );
-                  displayContent = displayContent.replace(
-                    new RegExp(`\\n*<!--\\s*${BULK_DROP_APPROVAL_MARKER}:.*?-->`, "gs"),
-                    "",
-                  );
-                  displayContent = displayContent.replace(
-                    new RegExp(`\\n*<!--\\s*${BULK_PROMOTE_APPROVAL_MARKER}:.*?-->`, "gs"),
-                    "",
-                  );
-                  displayContent = stripApprovalMarkers(displayContent);
-                  displayContent = stripNavigateMarkers(displayContent);
-                  displayContent = stripCompanyMentionMarkers(displayContent);
-
-                  return (
-                    <div key={`tool-${index}`} className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-foreground">{toolName}</span>
-                        {(part as any).state && (
-                          <span className={cn(
-                            "text-[10px] px-1.5 py-0.5 rounded",
-                            (part as any).state === "output-available" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                              (part as any).state === "running" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
-                                "bg-muted text-muted-foreground"
-                          )}>
-                            {(part as any).state === "output-available" ? "completed" : (part as any).state}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <MarkdownRenderer
-                          content={displayContent}
-                          linkSurface="copilot"
-                          className="prose-xs [&_*]:text-xs"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="mt-2 space-y-2 max-h-64 overflow-y-auto rounded-lg bg-muted border p-3">
+                {toolParts.map((part, index) => (
+                  <ToolTrace key={`tool-${index}`} part={part} />
+                ))}
               </div>
             </CollapsibleContent>
           </Collapsible>
         )}
-
         {/* Thinking Text - Agent reasoning about tools (collapsible, muted style) */}
         {hasThinkingContent && (() => {
           const tailLength = 120;
@@ -862,7 +1001,6 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           <WorkforceHandoffCard
             payload={workforceHandoff}
             onJustAnswerHere={handleJustAnswerHere}
-            chatEffortTier={activeChatEffortTier}
           />
         )}
 

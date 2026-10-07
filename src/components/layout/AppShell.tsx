@@ -42,7 +42,7 @@ import {
 import { LivingBackground } from '@/components/LivingBackground';
 import { BrandMark, BrandWordmark } from '@/components/BrandMark';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { NavigationActionHandler } from '@/components/chat/NavigationActionHandler';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider, useLayoutControl } from './LayoutControlContext';
@@ -99,7 +99,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const isMobile = useIsMobile();
-  const { focusComposer } = useChatContext();
+  const { focusComposer } = useChatActions();
 
   const logicalPath = toLogicalPath(pathname);
   // The chat landing: no page in the console, so the copilot owns it. `/chat`
@@ -433,7 +433,7 @@ export function AppShell({
 
 /** The icon-rail stand-in for the chat list: start a new conversation. */
 function CollapsedNewChatButton() {
-  const { newChat } = useChatContext();
+  const { newChat } = useChatActions();
   const { expandCopilot } = useLayoutControl();
   return (
     <div className="hidden justify-center p-2 group-data-[state=collapsed]:flex">

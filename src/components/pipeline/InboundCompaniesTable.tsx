@@ -59,7 +59,7 @@ import {
   stickyCompanyHeadClass,
   type PipelineMoveItem,
 } from "@/components/pipeline/PipelineRowActions";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
@@ -226,7 +226,7 @@ export default function InboundCompaniesTable({
   const isDropped = viewMode === "dropped";
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const pipelineStages = usePipelineStages();
   const { liveKeys: stageKeys, captainKeys } = pipelineStages;

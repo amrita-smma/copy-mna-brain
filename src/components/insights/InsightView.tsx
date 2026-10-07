@@ -68,7 +68,7 @@ import {
   setPageContext,
   usePageContext,
 } from '@/lib/chat/pageContextStore';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useWorkspaceHref, useWorkspacePush } from '@/hooks/useWorkspaceHref';
@@ -134,7 +134,7 @@ export function InsightView({
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const isMobile = useIsMobile();
   const router = useRouter();

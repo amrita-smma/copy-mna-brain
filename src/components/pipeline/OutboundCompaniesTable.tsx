@@ -50,7 +50,7 @@ import {
   stickyCompanyCellClass,
   stickyCompanyHeadClass,
 } from "@/components/pipeline/PipelineRowActions";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName } from "@/lib/companyDisplay";
@@ -208,7 +208,7 @@ export default function OutboundCompaniesTable({
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const currency = useWorkspaceCurrency();
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const pipelineStages = usePipelineStages();
   const { liveKeys: stageKeys, captainKeys } = pipelineStages;

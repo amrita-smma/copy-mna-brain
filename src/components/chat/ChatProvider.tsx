@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type Context,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -297,6 +298,116 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Narrow contexts
+ *
+ * `ChatContextValue` spreads `useChat()`, so it carries `messages` and gets a
+ * new object identity on EVERY streamed chunk. Anything subscribed to it
+ * re-renders dozens of times a second while the copilot answers — which used
+ * to include Dashboard, Pipeline, SmartFiles, MasterData, CompanyDetailDialog
+ * and AppShell, all of which only ever wanted one stable callback.
+ *
+ * So the value is also published through four narrow contexts, split by how
+ * often each slice actually changes:
+ *
+ *   useChatActions()  — callbacks only. Never changes after mount.
+ *   useChatThread()   — the active thread + sidebar list. Changes on chat
+ *                       switches and list refreshes.
+ *   useChatComposer() — composer state (attachments, effort, draft, cache
+ *                       hit). Changes on user input.
+ *   useChatStatus()   — just `status`. Changes on turn boundaries.
+ *
+ * Use the narrowest one that covers what you need. `useChatContext()` is for
+ * components that genuinely render the transcript (`messages`) — reach for it
+ * only there, because it is the one that re-renders per token.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+type ChatHandle = ReturnType<typeof useChat>;
+
+/**
+ * Callbacks with no reactive dependencies, so this object is referentially
+ * stable for the life of the provider. Subscribing to it costs nothing during
+ * streaming.
+ */
+export interface ChatActions {
+  setChatId: (id: string | null) => void;
+  newChat: () => void;
+  refreshChats: () => Promise<void>;
+  analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
+  prefillComposer: (text: string) => void;
+  sendWithCacheCheck: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
+  focusComposer: () => void;
+  addFiles: (files: File[]) => void;
+  removeAttachment: (localId: string) => void;
+  setEffortChoice: (m: ChatEffortChoice) => void;
+  setInsightTemplate: (tpl: { id: string; name: string } | null) => void;
+  chatInputRef: RefObject<HTMLTextAreaElement | null>;
+  /** Stable wrapper around the AI SDK's `sendMessage`. */
+  sendMessage: ChatHandle['sendMessage'];
+  /** Stable wrapper around the AI SDK's `stop`. */
+  stop: ChatHandle['stop'];
+}
+
+/** The active thread and the sidebar's chat list. */
+export interface ChatThreadState {
+  chatId: string | null;
+  chats: CopilotChatSummary[];
+  activeChatEffortTier: string | null;
+  activeChatAgentKey: string | null;
+  hasMoreChats: boolean;
+  isLoadingMoreChats: boolean;
+  loadMoreChats: () => Promise<void>;
+  isLoadingMessages: boolean;
+  messagesChatId: string | null | undefined;
+}
+
+/** Everything the composer owns, plus the optimistic attachment map. */
+export interface ChatComposerState {
+  attachments: ChatAttachment[];
+  effortChoice: ChatEffortChoice;
+  insightTemplate: { id: string; name: string } | null;
+  composerDraft: { text: string; nonce: number } | null;
+  cacheHit: CachedChatHit | null;
+  continueFromCached: () => void;
+  startFreshFromCached: () => void;
+  optimisticAttachments: Record<string, ChatAttachment[]>;
+}
+
+export interface ChatStatusState {
+  status: ChatHandle['status'];
+}
+
+const ChatActionsContext = createContext<ChatActions | null>(null);
+const ChatThreadContext = createContext<ChatThreadState | null>(null);
+const ChatComposerContext = createContext<ChatComposerState | null>(null);
+const ChatStatusContext = createContext<ChatStatusState | null>(null);
+
+function useNarrowChatContext<T>(ctx: Context<T | null>, hook: string): T {
+  const value = useContext(ctx);
+  if (!value) throw new Error(`${hook} must be used within ChatProvider`);
+  return value;
+}
+
+/** Stable copilot callbacks. Safe to use from any component, at any depth. */
+export function useChatActions(): ChatActions {
+  return useNarrowChatContext(ChatActionsContext, 'useChatActions');
+}
+
+/** The active thread and chat list. Re-renders on chat switches, not on tokens. */
+export function useChatThread(): ChatThreadState {
+  return useNarrowChatContext(ChatThreadContext, 'useChatThread');
+}
+
+/** Composer state. Re-renders on user input, not on tokens. */
+export function useChatComposer(): ChatComposerState {
+  return useNarrowChatContext(ChatComposerContext, 'useChatComposer');
+}
+
+/** Just the turn status. Re-renders on turn boundaries, not on tokens. */
+export function useChatStatus(): ChatStatusState {
+  return useNarrowChatContext(ChatStatusContext, 'useChatStatus');
+}
+
 interface ServerUIMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -396,6 +507,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Holds attachments associated with message IDs to render them optimistically
   // in the chat bubble before the server reloads the history.
   const [optimisticAttachments, setOptimisticAttachments] = useState<Record<string, ChatAttachment[]>>({});
+  const optimisticAttachmentsRef = useRef<Record<string, ChatAttachment[]>>({});
+  optimisticAttachmentsRef.current = optimisticAttachments;
+
+  /**
+   * Drop every optimistic entry and revoke the object URLs it was holding.
+   *
+   * Each image attached to a sent message parks a `URL.createObjectURL` blob
+   * in this map, and the browser keeps the whole File alive until it is
+   * revoked. Nothing used to clear it, so every image sent in a session stayed
+   * resident for the lifetime of the tab. The map only ever describes the
+   * thread on screen, so leaving it (and the thread) is the moment to let go.
+   */
+  const clearOptimisticAttachments = useCallback(() => {
+    const current = optimisticAttachmentsRef.current;
+    if (Object.keys(current).length === 0) return;
+    for (const list of Object.values(current)) {
+      for (const a of list) {
+        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      }
+    }
+    optimisticAttachmentsRef.current = {};
+    setOptimisticAttachments({});
+  }, []);
 
   const transport = useMemo(
     () =>
@@ -463,6 +597,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const chat = useChat({
     transport,
+    // NOTE: `experimental_throttle` would coalesce stream chunks into far
+    // fewer commits, but it is unsafe here as the code stands. The AI SDK
+    // throttles only the messages subscription — `status` stays unthrottled —
+    // so at the end of a turn `status` can flip to `ready` while `messages` is
+    // still up to one throttle window behind. `NavigationActionHandler` gates
+    // on `status`, and `resolveNavigationAction` *absorbs* a pending
+    // `navigate_page` when the turn is not live, so a nav marker landing in
+    // that last batch would be silently swallowed. Make navigation robust to a
+    // lagging transcript before turning this on.
     onError: (e: Error) => {
       console.error(e);
       const { title, description } = parseChatError(e);
@@ -496,6 +639,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // status without needing chat in their deps (which changes every render).
   const chatStateRef = useRef(chat);
   chatStateRef.current = chat;
+
+  // Stable wrappers so `useChatActions()` consumers never re-subscribe. The
+  // AI SDK rebuilds its handle every render; going through the ref means the
+  // identity of these two never changes while the call still lands on the
+  // current handle.
+  const sendMessage = useCallback<ChatHandle['sendMessage']>(
+    (...args) => chatStateRef.current.sendMessage(...args),
+    [],
+  );
+  const stopStream = useCallback<ChatHandle['stop']>(
+    (...args) => chatStateRef.current.stop(...args),
+    [],
+  );
 
   /**
    * Refetch the chat list from the top.
@@ -577,6 +733,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setCacheHit(null);
     if (!chatId) {
       chatStateRef.current.stop();
+      clearOptimisticAttachments();
       setMessages([]);
       setMessagesChatId(null);
       setIsLoadingMessages(false);
@@ -591,6 +748,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     chatStateRef.current.stop();
+    clearOptimisticAttachments();
     void refreshChats();
 
     setMessages([]);
@@ -656,7 +814,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [chatId, setMessages, refreshChats, authLoading, user]);
+  }, [chatId, setMessages, refreshChats, authLoading, user, clearOptimisticAttachments]);
 
   const setChatId = useCallback(
     (id: string | null) => {
@@ -872,6 +1030,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Starting a new chat discards any pending cached-chat preview.
     setCacheHit(null);
     clearAttachments();
+    clearOptimisticAttachments();
     // A fresh chat shouldn't carry over a stale template selection.
     setInsightTemplate(null);
     // Pressing "New Chat" is always a prelude to typing one, so hand the caret
@@ -879,7 +1038,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // state's hero one, so the focus has to survive that remount — which
     // `focusComposer` handles.
     focusComposer();
-  }, [setChatId, setMessages, clearAttachments, focusComposer]);
+  }, [setChatId, setMessages, clearAttachments, clearOptimisticAttachments, focusComposer]);
 
   // Entry point for sending the FIRST message of a chat. For a brand-new chat
   // (no chatId yet) it first asks the server whether the same question was
@@ -989,10 +1148,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setMessagesChatId(null);
     setCacheHit(null);
+    clearOptimisticAttachments();
     toast.info(`New chat with ${describeChatAgent(target).label}`, {
       description: 'This insight uses a different agent. Your previous chat is in history.',
     });
-  }, [openInsightId, openInsightAgentKey, setMessages]);
+  }, [openInsightId, openInsightAgentKey, setMessages, clearOptimisticAttachments]);
 
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
@@ -1075,6 +1235,105 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
   }, [pendingAnalysis]);
 
+  // Release every outstanding preview blob if the provider ever unmounts
+  // (sign-out, hard route change). Written as an explicit cleanup body rather
+  // than returning the callback directly, which reads too easily as "call this
+  // on mount".
+  useEffect(() => {
+    return () => {
+      clearOptimisticAttachments();
+    };
+  }, [clearOptimisticAttachments]);
+
+  /* ── Narrow context values ───────────────────────────────────────────────
+   * Each of these is deliberately split out of `value` below so that the
+   * common case — a view that wants `analyzeWithAI` and nothing else — does
+   * not re-render on every streamed token. See the contexts' doc comment.
+   * ──────────────────────────────────────────────────────────────────────── */
+
+  // Every entry is stable, so this object is created once and never again.
+  const actions = useMemo<ChatActions>(
+    () => ({
+      setChatId,
+      newChat,
+      refreshChats,
+      analyzeWithAI,
+      prefillComposer,
+      sendWithCacheCheck,
+      focusComposer,
+      addFiles,
+      removeAttachment,
+      setEffortChoice,
+      setInsightTemplate,
+      chatInputRef,
+      sendMessage,
+      stop: stopStream,
+    }),
+    [
+      setChatId,
+      newChat,
+      refreshChats,
+      analyzeWithAI,
+      prefillComposer,
+      sendWithCacheCheck,
+      focusComposer,
+      addFiles,
+      removeAttachment,
+      sendMessage,
+      stopStream,
+    ],
+  );
+
+  const thread = useMemo<ChatThreadState>(
+    () => ({
+      chatId,
+      chats,
+      activeChatEffortTier,
+      activeChatAgentKey,
+      hasMoreChats,
+      isLoadingMoreChats,
+      loadMoreChats,
+      isLoadingMessages,
+      messagesChatId,
+    }),
+    [
+      chatId,
+      chats,
+      activeChatEffortTier,
+      activeChatAgentKey,
+      hasMoreChats,
+      isLoadingMoreChats,
+      loadMoreChats,
+      isLoadingMessages,
+      messagesChatId,
+    ],
+  );
+
+  const composer = useMemo<ChatComposerState>(
+    () => ({
+      attachments,
+      effortChoice,
+      insightTemplate,
+      composerDraft,
+      cacheHit,
+      continueFromCached,
+      startFreshFromCached,
+      optimisticAttachments,
+    }),
+    [
+      attachments,
+      effortChoice,
+      insightTemplate,
+      composerDraft,
+      cacheHit,
+      continueFromCached,
+      startFreshFromCached,
+      optimisticAttachments,
+    ],
+  );
+
+  const statusValue = useMemo<ChatStatusState>(() => ({ status: chat.status }), [chat.status]);
+
   const value = useMemo<ChatContextValue>(
     () => ({
       ...chat,
@@ -1140,6 +1399,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   return (
+    <ChatActionsContext.Provider value={actions}>
+    <ChatThreadContext.Provider value={thread}>
+    <ChatComposerContext.Provider value={composer}>
+    <ChatStatusContext.Provider value={statusValue}>
     <ChatContext.Provider value={value}>
       {children}
       <AlertDialog
@@ -1165,6 +1428,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         </AlertDialogContent>
       </AlertDialog>
     </ChatContext.Provider>
+    </ChatStatusContext.Provider>
+    </ChatComposerContext.Provider>
+    </ChatThreadContext.Provider>
+    </ChatActionsContext.Provider>
   );
 }
 

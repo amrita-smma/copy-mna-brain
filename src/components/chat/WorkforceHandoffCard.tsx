@@ -12,6 +12,7 @@ import { WorkspaceLink } from "@/components/WorkspaceLink";
 import posthog from "posthog-js";
 import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from "@/lib/posthog-chat";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
+import { useChatThread } from "@/components/chat/ChatProvider";
 import {
   asManualEffort,
   asEffortChoice,
@@ -53,7 +54,6 @@ interface WorkforceHandoffCardProps {
   payload: WorkforceHandoffPayload;
   onJustAnswerHere: () => void;
   className?: string;
-  chatEffortTier?: string | null;
 }
 
 type Status = "idle" | "submitting" | "assigned" | "declined";
@@ -62,8 +62,13 @@ export function WorkforceHandoffCard({
   payload,
   onJustAnswerHere,
   className,
-  chatEffortTier,
 }: WorkforceHandoffCardProps) {
+  // Read here rather than taking it as a prop from the bubble. `useChatThread`
+  // carries the whole sidebar list, which `refreshChats()` replaces several
+  // times a turn — subscribing from every assistant bubble would re-render the
+  // entire transcript on each of those. This card is rare, so it pays the cost
+  // only where the tier is actually used.
+  const { activeChatEffortTier: chatEffortTier } = useChatThread();
   const handoffId = payload.handoff_id;
   const [status, setStatus] = useState<Status>("idle");
   const [queueId, setQueueId] = useState<string | null>(null);

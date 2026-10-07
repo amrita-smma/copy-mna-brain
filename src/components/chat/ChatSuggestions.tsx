@@ -4,7 +4,7 @@ import { TrendingUp, Briefcase, Activity, Timer, Search, Droplets, Target, Globe
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { useChatContext } from "./ChatProvider";
+import { useChatActions, useChatStatus } from "./ChatProvider";
 import { useCopilotAgent } from "./CopilotAgentContext";
 import { INSIGHT_TEMPLATE_TRIGGER } from "@/lib/insights/insightSlashCommand";
 
@@ -186,7 +186,8 @@ const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
 ];
 
 export function ChatSuggestions({ className }: { className?: string }) {
-  const { sendWithCacheCheck, prefillComposer, focusComposer, status } = useChatContext();
+  const { sendWithCacheCheck, prefillComposer, focusComposer } = useChatActions();
+  const { status } = useChatStatus();
   const agentType = useCopilotAgent();
   const isBusy = status === "streaming" || status === "submitted";
   const baseSuggestions =

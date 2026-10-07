@@ -31,7 +31,7 @@ import {
   stickyCompanyCellClass,
   stickyCompanyHeadClass,
 } from '@/components/pipeline/PipelineRowActions';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
@@ -130,7 +130,7 @@ const latestFin = (
 const ITEMS_PER_PAGE = 10;
 
 export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline }: MarketScreeningResultsProps) {
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const [results, setResults] = useState<MarketScreeningResult[]>([]);

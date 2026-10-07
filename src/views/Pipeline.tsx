@@ -6,7 +6,7 @@ import { useSetPageDetail } from "@/components/layout/PageContextProvider";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
-import { useChatContext } from "@/components/chat/ChatProvider";
+import { useChatActions } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -256,7 +256,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   const sourcingHref = useWorkspaceHref("/sourcing");
   const chatHref = useWorkspaceHref("/chat");
   const smartFilesHref = useWorkspaceHref("/smart-files");
-  const { newChat, prefillComposer } = useChatContext();
+  const { newChat, prefillComposer } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const isMobile = useIsMobile();
   const pipelineStages = usePipelineStages();

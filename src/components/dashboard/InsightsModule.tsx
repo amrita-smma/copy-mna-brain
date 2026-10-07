@@ -29,7 +29,7 @@ import type {
   ResponseTimeBucket,
 } from '@/lib/services/dashboardInsightsService';
 import { nameInitials } from '@/lib/companyDisplay';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import CompanyDetailDialog, {
   type CompanyData,
@@ -143,7 +143,7 @@ export default function InsightsModule({ from, to }: InsightsModuleProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
 
   // Send a copilot prompt scoped to the active period; AskAIButton then surfaces
   // the copilot pane (or navigates to /chat on mobile).

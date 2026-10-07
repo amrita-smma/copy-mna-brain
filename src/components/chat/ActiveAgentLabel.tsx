@@ -2,7 +2,7 @@
 
 import { Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatThread } from '@/components/chat/ChatProvider';
 import { useOpenInsightAgent } from '@/lib/chat/pageContextStore';
 import {
   GENERAL_CHAT_AGENT,
@@ -18,7 +18,7 @@ import {
  * stays the authority — this only mirrors what it pinned or will pin.
  */
 export function ActiveAgentLabel({ className }: { className?: string }) {
-  const { chatId, activeChatAgentKey } = useChatContext();
+  const { chatId, activeChatAgentKey } = useChatThread();
   const openInsight = useOpenInsightAgent();
 
   const agentKey: ChatAgentKey =

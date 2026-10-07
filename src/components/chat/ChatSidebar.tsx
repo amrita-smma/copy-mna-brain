@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useChatContext } from "./ChatProvider";
+import { useChatActions, useChatThread } from "./ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import {
   SidebarCollapsibleSection,
@@ -63,15 +63,8 @@ export function ChatSidebar({
    *  (so the composer should keep the caret) or navigates away from it. */
   onNavigate?: (target: "chat" | "page") => void;
 }) {
-  const {
-    chatId,
-    setChatId,
-    newChat,
-    chats,
-    loadMoreChats,
-    hasMoreChats,
-    isLoadingMoreChats,
-  } = useChatContext();
+  const { setChatId, newChat } = useChatActions();
+  const { chatId, chats, loadMoreChats, hasMoreChats, isLoadingMoreChats } = useChatThread();
   // Starting or opening a conversation should put the copilot in front of the
   // user. A no-op outside the app shell (and on mobile, where the copilot is
   // already full-screen whenever this list is reachable).

@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { useChatContext } from './ChatProvider';
+import { useChatActions } from './ChatProvider';
 import type { ReportPlanApprovalPayload } from '@/lib/reports/plan';
 import {
   ApprovalCardShell,
@@ -23,7 +23,7 @@ export function ReportPlanCard({
   payload,
   className,
 }: ReportPlanCardProps) {
-  const { sendMessage } = useChatContext();
+  const { sendMessage } = useChatActions();
   const {
     status,
     setStatus,

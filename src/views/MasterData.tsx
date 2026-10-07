@@ -78,7 +78,7 @@ import {
 } from '@/components/table';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatActions } from '@/components/chat/ChatProvider';
 import { AskAIButton } from '@/components/chat/AskAIButton';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { companyDisplayName } from '@/lib/companyDisplay';
@@ -189,7 +189,7 @@ export default function MasterData() {
   const { toast } = useToast();
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null): string => formatMoneyMn(value, currency);
-  const { analyzeWithAI } = useChatContext();
+  const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const router = useRouter();
   const isMobile = useIsMobile();

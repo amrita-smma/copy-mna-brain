@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import { createInsightFromDocument } from '@/lib/api/insights';
 import { useWorkspacePush } from '@/hooks/useWorkspaceHref';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import { useChatThread } from '@/components/chat/ChatProvider';
 import type { InsightCreateApprovalPayload } from '@/lib/insights/types';
 import { InsightFrame } from '@/components/insights/InsightFrame';
 import {
@@ -25,7 +25,7 @@ export function InsightCreateApprovalCard({
   const push = useWorkspacePush();
   // The thread this card belongs to; the server stamps the new insight's v1
   // with that thread's agent.
-  const { chatId } = useChatContext();
+  const { chatId } = useChatThread();
   const {
     status,
     setStatus,

@@ -11,7 +11,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatTextarea } from "./ChatTextarea";
 import { ChatMessageBubble, LoadingBubble } from "./ChatMessageBubble";
-import { useChatContext } from "./ChatProvider";
+import {
+  useChatActions,
+  useChatComposer,
+  useChatContext,
+  useChatStatus,
+} from "./ChatProvider";
 import { AttachButton, AttachmentChips, useAttachmentDrop, useAttachmentPaste } from "./ChatComposerAttachments";
 import { SelectedContextChips } from "./SelectedContextChips";
 import { CachedChatPreview } from "./CachedChatPreview";
@@ -195,7 +200,8 @@ export function ChatInput(props: {
   inputRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const chips = props.suggestionChips ?? SUGGESTION_CHIPS;
-  const { attachments, effortChoice, setEffortChoice } = useChatContext();
+  const { setEffortChoice } = useChatActions();
+  const { attachments, effortChoice } = useChatComposer();
   const { isDragging, dropHandlers } = useAttachmentDrop();
   const { onPaste } = useAttachmentPaste();
   const hasReadyAttachment = attachments.some((a) => a.status === "ready");
@@ -371,14 +377,9 @@ export function ChatLayout(props: {
  */
 function ChatInputContainer({ placeholder }: { placeholder?: string }) {
   const [input, setInput] = useState("");
-  const {
-    sendWithCacheCheck,
-    status,
-    chatInputRef,
-    attachments,
-    composerDraft,
-    focusComposer,
-  } = useChatContext();
+  const { sendWithCacheCheck, chatInputRef, focusComposer } = useChatActions();
+  const { attachments, composerDraft } = useChatComposer();
+  const { status } = useChatStatus();
   const isBusy = status === "streaming" || status === "submitted";
 
   // When an external trigger (e.g. "New insight") stages a draft, prefill the

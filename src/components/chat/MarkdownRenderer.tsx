@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import posthog from 'posthog-js';
@@ -13,6 +14,7 @@ import {
 } from '@/lib/posthog-chat';
 import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
 import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
+import type { Components } from 'react-markdown';
 
 interface MarkdownRendererProps {
   content: string;
@@ -47,20 +49,19 @@ const EVIDENCE_PILL: Record<ChatEvidenceLabel, string> = {
     'border-blue-600 bg-blue-100 text-blue-900 dark:border-blue-400 dark:bg-blue-950 dark:text-blue-100',
 };
 
-export function MarkdownRenderer({
-  content,
-  className,
-  variant = 'chat',
-  linkSurface,
-  evidenceMarkers = false,
-}: MarkdownRendererProps) {
-  const isCard = variant === 'card';
+/**
+ * Hoisted so the plugin array isn't a fresh literal on every render —
+ * react-markdown treats a new `remarkPlugins` identity as a reason to rebuild
+ * its processor.
+ */
+const REMARK_PLUGINS = [remarkGfm];
 
-  return (
-    <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
+function buildComponents(
+  isCard: boolean,
+  linkSurface: ChatSurface | undefined,
+  evidenceMarkers: boolean,
+): Components {
+  return {
           // Headers
           h1: ({ children }) => (
             <h1 className={cn("font-bold mt-4 mb-2 first:mt-0 text-foreground", isCard ? "text-2xl tracking-tight" : "text-xl")}>{children}</h1>
@@ -208,10 +209,40 @@ export function MarkdownRenderer({
               {children}
             </a>
           ),
-        }}
-      >
+  };
+}
+
+function MarkdownRendererImpl({
+  content,
+  className,
+  variant = 'chat',
+  linkSurface,
+  evidenceMarkers = false,
+}: MarkdownRendererProps) {
+  const isCard = variant === 'card';
+
+  // The component map closes over all three of these and nothing else, so it
+  // is rebuilt only when one of them changes rather than on every render. It
+  // used to be an inline literal, which made react-markdown re-parse the
+  // whole document each time the bubble re-rendered.
+  const components = useMemo(
+    () => buildComponents(isCard, linkSurface, evidenceMarkers),
+    [isCard, linkSurface, evidenceMarkers],
+  );
+
+  return (
+    <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {content}
       </ReactMarkdown>
     </div>
   );
 }
+
+/**
+ * Memoized: a chat transcript renders one of these per message (plus one per
+ * warning and one for the thinking trace), and markdown parsing is the most
+ * expensive thing on the copilot's render path. Every prop is a primitive, so
+ * the default shallow compare is exactly right.
+ */
+export const MarkdownRenderer = memo(MarkdownRendererImpl);
