@@ -522,7 +522,13 @@ type SeedCompany = {
   dropped_at?: string;
   // Pipeline (HTML-parity) fields
   deal_type?: 'majority' | 'minority';
-  entered_by?: string;
+  /**
+   * Email of a user upserted before companies (the seed user or a
+   * SEED_EXTRA_USERS entry). `companies.entered_by` is a users.id FK, so this
+   * is resolved to that user's id at insert time — never put a display name
+   * here.
+   */
+  entered_by_email?: string;
   originator?: string;
   last_activity_at?: string;
   banker?: string;
@@ -2293,7 +2299,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'New',
     source: 'outbound',
     deal_type: 'minority',
-    entered_by: 'Reza Hakim',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'Reza Hakim',
     workflow_status: 'Target identified',
     financials: [{ fiscal_year: 2024, revenue_usd_mn: 21.4, ebitda_usd_mn: 2.2 }],
@@ -2345,7 +2351,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'outbound',
     deal_type: 'majority',
-    entered_by: 'James Wong',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'James Wong',
     workflow_status: 'NDA pending',
     financials: [{ fiscal_year: 2024, revenue_usd_mn: 46, ebitda_usd_mn: 9.1, ev_usd_mn: 120 }],
@@ -2381,7 +2387,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'outbound',
     deal_type: 'minority',
-    entered_by: 'Nur Khairusy',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'Nur Khairusy',
     workflow_status: 'Management meeting scheduled',
     financials: [{ fiscal_year: 2024, revenue_usd_mn: 58, ebitda_usd_mn: 12.6, ev_usd_mn: 210 }],
@@ -2434,7 +2440,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'outbound',
     deal_type: 'minority',
-    entered_by: 'James Wong',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'James Wong',
     workflow_status: 'Discussions ongoing',
     financials: [{ fiscal_year: 2024, revenue_usd_mn: 64, ebitda_usd_mn: 11.2, ev_usd_mn: 190 }],
@@ -2490,7 +2496,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'outbound',
     deal_type: 'majority',
-    entered_by: 'Nur Khairusy',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'Nur Khairusy',
     advisor: 'Golden Sacks',
     stake: '51%',
@@ -2546,7 +2552,7 @@ const seedCompanies: SeedCompany[] = [
     watchlist_status: 'Active',
     source: 'outbound',
     deal_type: 'minority',
-    entered_by: 'Reza Hakim',
+    entered_by_email: SEED_USER_EMAIL,
     originator: 'Reza Hakim',
     stake: '15%',
     deal_size: 'USD 30mn',
@@ -3928,8 +3934,16 @@ async function main() {
           lte(companies.entry_id, SEED_ENTRY_ID_MAX),
         ),
       );
+    const userIdByEmail = new Map<string, string>([
+      [SEED_USER_EMAIL, seedUser.id],
+      ...extraUserIdByEmail,
+    ]);
     const insertedCompanies: Array<{ entry_id: number; id: string }> = [];
     for (const c of seedCompanies) {
+      const enteredBy = c.entered_by_email ? userIdByEmail.get(c.entered_by_email) : undefined;
+      if (c.entered_by_email && !enteredBy) {
+        throw new Error(`seed company ${c.entry_id}: entered_by_email ${c.entered_by_email} is not a seeded user`);
+      }
       const [inserted] = await db
         .insert(companies)
         .values({
@@ -3951,7 +3965,7 @@ async function main() {
           dropped_reason: c.dropped_reason ?? null,
           dropped_at: c.dropped_at ?? null,
           deal_type: c.deal_type ?? null,
-          entered_by: c.entered_by ?? null,
+          entered_by: enteredBy ?? null,
           originator: c.originator ?? null,
           last_activity_at: c.last_activity_at ?? null,
           banker: c.banker ?? c.banker_source ?? null,

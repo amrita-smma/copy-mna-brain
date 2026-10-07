@@ -110,6 +110,7 @@ import {
   SMART_FILES_UPLOAD_CATEGORIES,
   type SmartFilesTab,
   type SmartFilesUploadCategory,
+  firstNonEmptyTab,
   isSmartFilesTab,
 } from "@/lib/smartFilesTabs";
 
@@ -1206,12 +1207,18 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
 }
 
 interface SmartFilesProps {
-  /** Deep-link tab from `/smart-files/<tab>` — defaults to MoM. */
+  /**
+   * Deep-link tab from `/smart-files/<tab>`; bare `/smart-files` resolves to
+   * the first non-empty tab server-side. Defaults to MoM.
+   */
   initialTab?: SmartFilesTab;
+  /** Unfiltered tab counts the page already loaded to pick `initialTab`. */
+  initialCounts?: Partial<Record<SmartFilesTab, number>>;
 }
 
 export default function SmartFiles({
   initialTab = "mom",
+  initialCounts,
 }: SmartFilesProps) {
   const { analyzeWithAI } = useChatContext();
   const [activeTab, setActiveTab] = useState<SmartFilesTab>(initialTab);
@@ -1220,8 +1227,17 @@ export default function SmartFiles({
   );
   const [globalSearch, setGlobalSearch] = useState("");
   const [tabCounts, setTabCounts] = useState<Partial<Record<SmartFilesTab, number>>>(
-    {},
+    () => initialCounts ?? {},
   );
+  // The search term `tabCounts` was computed for ("" = unfiltered).
+  const [tabCountsSearch, setTabCountsSearch] = useState("");
+  // Same 300ms debounce as each bucket's own search, so badges and rows
+  // settle on the same query together.
+  const [debouncedGlobalSearch, setDebouncedGlobalSearch] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedGlobalSearch(globalSearch.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [globalSearch]);
 
   // Keep the URL in sync with the active tab: `/smart-files/mom`,
   // `/smart-files/prospectus`, etc.
@@ -1241,15 +1257,27 @@ export default function SmartFiles({
     }
   }, [tabUrlTarget]);
 
+  // Counts follow the search bar so every tab's badge (and whether the tab is
+  // shown at all) reflects the query, not just the active tab's. Only the
+  // latest request may write, so a slow response for an older query can't
+  // overwrite the badges for the current one.
+  const countsRequestIdRef = useRef(0);
   const fetchCounts = useCallback(async () => {
+    const requestId = ++countsRequestIdRef.current;
+    const search = debouncedGlobalSearch;
     try {
-      const res = await fetch("/api/smart-files/counts");
+      const query = search ? `?${new URLSearchParams({ search }).toString()}` : "";
+      const res = await fetch(`/api/smart-files/counts${query}`);
       const json = await res.json();
-      if (json.success) setTabCounts(json.counts);
+      if (requestId !== countsRequestIdRef.current) return;
+      if (json.success) {
+        setTabCounts(json.counts);
+        setTabCountsSearch(search);
+      }
     } catch {
       // counts are non-critical — tabs still work without them
     }
-  }, []);
+  }, [debouncedGlobalSearch]);
 
   useEffect(() => {
     fetchCounts();
@@ -1326,6 +1354,26 @@ export default function SmartFiles({
     });
     return shown.length > 0 ? shown : [...SMART_FILES_TABS];
   }, [activeTab, tabCountFor]);
+
+  /**
+   * When a search leaves the active tab empty, jump to the first tab that has
+   * results instead of leaving the user on "No results" while matches sit in
+   * other tabs. Runs once per query (after its counts land) so clicking back
+   * onto an empty tab, or a later refetch for the same query, doesn't yank
+   * the user away again.
+   */
+  const searchAutoSwitchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tabCountsSearch) {
+      searchAutoSwitchedRef.current = null;
+      return;
+    }
+    if (searchAutoSwitchedRef.current === tabCountsSearch) return;
+    searchAutoSwitchedRef.current = tabCountsSearch;
+    if ((tabCounts[activeTab] ?? 0) > 0) return;
+    const target = firstNonEmptyTab(tabCounts);
+    if (target) handleTabChange(target);
+  }, [tabCountsSearch, tabCounts, activeTab, handleTabChange]);
 
   /** Refetch only visited (already-loaded) tabs — use after upload, delete, reprocess. */
   const refetchVisited = useCallback(() => {

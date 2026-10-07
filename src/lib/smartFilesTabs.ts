@@ -58,3 +58,14 @@ export const SMART_FILES_UPLOAD_CATEGORIES: readonly SmartFilesUploadCategory[] 
   SMART_FILES_TABS.filter(
     (tab) => tab !== 'banker_communications',
   ) as SmartFilesUploadCategory[];
+
+/**
+ * First tab, in tab-bar order, with at least one file in `counts`, or `null`
+ * when every bucket is empty. Used to land on a populated tab instead of
+ * always opening MoM, and to jump to a tab that has search results.
+ */
+export function firstNonEmptyTab(
+  counts: Partial<Record<SmartFilesTab, number>>,
+): SmartFilesTab | null {
+  return SMART_FILES_TABS.find((tab) => (counts[tab] ?? 0) > 0) ?? null;
+}

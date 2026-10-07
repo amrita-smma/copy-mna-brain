@@ -4,6 +4,7 @@ import {
   SMART_FILES_TABS,
   SMART_FILES_TAB_LABELS,
   SMART_FILES_UPLOAD_CATEGORIES,
+  firstNonEmptyTab,
   isSmartFilesTab,
 } from './smartFilesTabs';
 
@@ -63,5 +64,22 @@ describe('SMART_FILES_UPLOAD_CATEGORIES', () => {
     expect(SMART_FILES_UPLOAD_CATEGORIES as readonly string[]).toContain(
       'financial_statement',
     );
+  });
+});
+
+describe('firstNonEmptyTab', () => {
+  it('skips an empty MoM bucket and returns the first populated tab in bar order', () => {
+    expect(firstNonEmptyTab({ mom: 0, prospectus: 5, market_study: 32, other: 5 })).toBe(
+      'prospectus',
+    );
+  });
+
+  it('treats a missing count as empty', () => {
+    expect(firstNonEmptyTab({ other: 2 })).toBe('other');
+  });
+
+  it('returns null when every bucket is empty', () => {
+    expect(firstNonEmptyTab({ mom: 0, other: 0 })).toBeNull();
+    expect(firstNonEmptyTab({})).toBeNull();
   });
 });

@@ -188,7 +188,7 @@ function makeCountsDb(rows: Array<{ file_type: string | null; count: number }>) 
   const where = vi.fn().mockReturnValue({ groupBy });
   const from = vi.fn().mockReturnValue({ where });
   const select = vi.fn().mockReturnValue({ from });
-  return { db: { select } as never };
+  return { db: { select } as never, where };
 }
 
 describe('FileRepository.countsByType', () => {
@@ -232,5 +232,29 @@ describe('FileRepository.countsByType', () => {
 
     expect(counts.other).toBe(4);
     expect(counts.mom).toBe(5);
+  });
+
+  it('applies the list view\'s search filter so every tab badge tracks the query', async () => {
+    const { db, where } = makeCountsDb([]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await repo.countsByType('  acme  ');
+
+    const [condition] = where.mock.calls[0];
+    const { params } = new PgDialect().sqlToQuery(condition as SQL);
+    // Bound once per branch (file_name / tags / matched_companies), trimmed.
+    expect(params.filter((p) => p === '%acme%')).toHaveLength(3);
+  });
+
+  it('counts the whole workspace when the search is blank', async () => {
+    const { db, where } = makeCountsDb([]);
+    const repo = new FileRepository(db, 'workspace-1');
+
+    await repo.countsByType('   ');
+
+    const [condition] = where.mock.calls[0];
+    const { sql: text, params } = new PgDialect().sqlToQuery(condition as SQL);
+    expect(text).not.toContain('ilike');
+    expect(params).toEqual(['workspace-1']);
   });
 });

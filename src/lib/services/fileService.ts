@@ -564,8 +564,8 @@ export class FileService {
     return { data, total };
   }
 
-  async countsByType(): Promise<Record<string, number>> {
-    return this.fileRepo.countsByType();
+  async countsByType(search?: string): Promise<Record<string, number>> {
+    return this.fileRepo.countsByType(search);
   }
 
   private attachSignedUrls(files: Tables<'files'>[]) {

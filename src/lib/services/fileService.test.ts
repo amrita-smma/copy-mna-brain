@@ -141,6 +141,7 @@ function makeFileRepoStub(): FileRepository {
     findLinkAndNameById: vi.fn(),
     findAll: vi.fn(),
     listPaginated: vi.fn(),
+    countsByType: vi.fn(),
     findFirstByName: vi.fn().mockResolvedValue(null),
     insert: vi.fn(),
     update: vi.fn(),
@@ -3992,6 +3993,19 @@ describe('FileService.list', () => {
 
     expect(result.data).toEqual([row]);
     expect(getSignedUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('FileService.countsByType', () => {
+  it('forwards the search term to the repository', async () => {
+    const fileRepo = makeFileRepoStub();
+    vi.mocked(fileRepo.countsByType).mockResolvedValue({ mom: 0, other: 2 });
+    const service = makeService({ fileRepo });
+
+    const result = await service.countsByType('acme');
+
+    expect(fileRepo.countsByType).toHaveBeenCalledWith('acme');
+    expect(result).toEqual({ mom: 0, other: 2 });
   });
 });
 

@@ -37,6 +37,21 @@ const FILE_SORT_COLUMNS: Record<FileSortField, AnyColumn> = {
   created_at: files.created_at,
 };
 
+/**
+ * Smart Files search filter: matches file_name, any tag, or any matched
+ * company name. `undefined` (no filter) for a blank query.
+ */
+function searchCondition(search: string | undefined): SQL | undefined {
+  const term = search?.trim();
+  if (!term) return undefined;
+  const like = `%${term}%`;
+  return or(
+    ilike(files.file_name, like),
+    sql`EXISTS (SELECT 1 FROM unnest(${files.tags}) AS tag WHERE tag ILIKE ${like})`,
+    sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${files.matched_companies}) AS mc WHERE mc->>'name' ILIKE ${like})`,
+  );
+}
+
 export class FileRepository {
   constructor(
     private readonly db: DbClient,
@@ -126,17 +141,7 @@ export class FileRepository {
       conditions.push(eq(files.file_type, fileType));
     }
 
-    const term = search?.trim();
-    if (term) {
-      const like = `%${term}%`;
-      conditions.push(
-        or(
-          ilike(files.file_name, like),
-          sql`EXISTS (SELECT 1 FROM unnest(${files.tags}) AS tag WHERE tag ILIKE ${like})`,
-          sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${files.matched_companies}) AS mc WHERE mc->>'name' ILIKE ${like})`,
-        ),
-      );
-    }
+    conditions.push(searchCondition(search));
 
     const where = and(...conditions);
     const sortColumn = FILE_SORT_COLUMNS[sortField] ?? files.file_date;
@@ -159,15 +164,17 @@ export class FileRepository {
   /**
    * Returns file counts for every tab bucket in a single query.
    * "other" captures all types not in DEDICATED_FILE_TYPES (including NULL).
+   * `search` applies the same filter as `listPaginated`, so a tab's badge
+   * matches the rows that tab would list for that query.
    */
-  async countsByType(): Promise<Record<string, number>> {
+  async countsByType(search?: string): Promise<Record<string, number>> {
     const rows = await this.db
       .select({
         file_type: files.file_type,
         count: sql<number>`count(*)::int`,
       })
       .from(files)
-      .where(eq(files.workspace_id, this.workspaceId))
+      .where(and(eq(files.workspace_id, this.workspaceId), searchCondition(search)))
       .groupBy(files.file_type);
 
     const dedicated = new Set<string>(DEDICATED_FILE_TYPES);
