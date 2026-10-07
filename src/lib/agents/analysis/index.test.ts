@@ -83,6 +83,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   // The read-only tools the crowdfunding (five) and the advisory /
   // capital-markets (seven) flavors add on top of the M&A chat list.
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
+  financialEquityAnalysis: { name: 'financial_equity_analysis' },
   getCompanyProfile: { name: 'get_company_profile' },
   getCompetitorLandscape: { name: 'get_competitor_landscape' },
   getMarketSignals: { name: 'get_market_signals' },
@@ -446,9 +447,10 @@ describe('getAgentGraph flavor selection', () => {
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
   });
 
-  // The Minority Stakes Portfolio Manager is the one flavor defined by its
-  // prompt alone: same tools as M&A, a different job.
-  it('gives the minority flavor the SAME tool list as mna', async () => {
+  // The Minority Stakes Portfolio Manager reads the same surface as M&A, with
+  // one addition: a non-controlling holder underwrites growth, margins, the
+  // multiple and the dividend, so it carries the equity-analysis calculator.
+  it('gives the minority flavor the mna tool list plus financial_equity_analysis', async () => {
     await getAgentGraph('mna');
     await getAgentGraph('minority');
 
@@ -459,7 +461,7 @@ describe('getAgentGraph flavor selection', () => {
       mocks.createAgent.mock.calls[1][0].tools as Array<{ name: string }>
     ).map((t) => t.name);
 
-    expect(minorityTools).toEqual(mnaTools);
+    expect(minorityTools).toEqual([...mnaTools, 'financial_equity_analysis']);
   });
 
   it('builds the minority flavor with its own portfolio-manager prompt', async () => {

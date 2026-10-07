@@ -60,8 +60,24 @@ describe('COPILOT_FLAVORS', () => {
   it('memoizes a flavor tool list, so repeated resolution is the same array', () => {
     const flavor = COPILOT_FLAVORS.mna;
     expect(flavor.toolList()).toBe(flavor.toolList());
-    // @minority is @mna's factory, not a copy of its result.
-    expect(COPILOT_FLAVORS.minority.toolList()).toBe(flavor.toolList());
+    expect(COPILOT_FLAVORS.minority.toolList()).toBe(COPILOT_FLAVORS.minority.toolList());
+  });
+
+  // @minority is @mna's surface plus the equity-analysis calculator — the one
+  // tool a non-controlling position is underwritten on and a control-deal
+  // flavor has no use for.
+  it('builds the minority tool list from the mna list plus financial_equity_analysis', () => {
+    expect(names(COPILOT_FLAVORS.minority.toolList())).toEqual([
+      ...names(COPILOT_FLAVORS.mna.toolList()),
+      'financial_equity_analysis',
+    ]);
+  });
+
+  // "Analyze / Re-evaluate AI Opinion" is a workforce task, and it is evaluating
+  // a company — the calculator has to be on that list, once.
+  it('registers financial_equity_analysis on the workforce list exactly once', () => {
+    const workforce = names(workforceToolList());
+    expect(workforce.filter((n) => n === 'financial_equity_analysis')).toHaveLength(1);
   });
 
   it('gives every flavor its own prompt — no two flavors share one', () => {

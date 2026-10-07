@@ -53,6 +53,7 @@ import { queryLedgerEntries } from "./query_ledger_entries";
 import { searchInvestments } from "./search_investments";
 import { getInvestmentTheses } from "./get_investment_theses";
 import { calculateInvestmentReturns } from "./calculate_investment_returns";
+import { financialEquityAnalysis } from "./financial_equity_analysis";
 import { valyuExtractContent } from "./valyu_extract_content";
 import { getCompanyProfile } from "./get_company_profile";
 import { getSectorContext } from "./get_sector_context";
@@ -118,6 +119,7 @@ export {
   searchInvestments,
   getInvestmentTheses,
   calculateInvestmentReturns,
+  financialEquityAnalysis,
   valyuExtractContent,
   getCompanyProfile,
   getSectorContext,

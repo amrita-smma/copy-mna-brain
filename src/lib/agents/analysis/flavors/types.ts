@@ -13,6 +13,7 @@ import type {
 } from "../tools";
 import type { invenPaidDataSourceSearch } from "../tools/inven_paid_data_source_search";
 import type { invenPaidDataSourceEnrichment } from "../tools/inven_paid_data_source_enrichment";
+import type { financialEquityAnalysis } from "../tools/financial_equity_analysis";
 
 // The user-selectable Copilot flavors. Persisted per-workspace on
 // `workspaces.copilot_agent` and resolved by the chat route. The union is
@@ -35,6 +36,9 @@ export type ToolList = Array<
   // @dikti composes them into sector tool sets.
   | typeof invenPaidDataSourceSearch
   | typeof invenPaidDataSourceEnrichment
+  // In no array above: @minority adds it to the M&A chat list and the
+  // workforce list appends it, rather than it belonging to one shared base.
+  | typeof financialEquityAnalysis
   | AnthropicServerTool
 >;
 

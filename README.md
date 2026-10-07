@@ -1002,6 +1002,53 @@ Implementation notes (`src/lib/agents/analysis/tools/update_company_details.ts`)
 - Dropped companies stay editable (matching `CompanyService`, which blocks only
   lifecycle moves after a drop) — a dropped record can still be corrected.
 
+### Evaluating a company (`financial_equity_analysis`)
+
+`src/lib/agents/analysis/tools/financial_equity_analysis.ts` is a pure,
+deterministic calculator — no DB, no network, every figure derived from the
+arguments the agent passes it. It runs the seven steps an equity analyst
+evaluates a company through, in order:
+
+1. **Revenue growth** — YoY per fiscal year and CAGR across the window.
+2. **EBITDA / EBIT growth** — the same, for whichever series is supplied.
+3. **Relative position** — peer and market benchmarks split `local` vs
+   `global`, with the median margin (NPM, EBITDA), growth and multiple of each
+   cohort and the company's gap to it, plus whether the growth is sustained at
+   the bottom line (net profit CAGR versus revenue CAGR).
+4. **Net profit growth** — with the margin trend behind it.
+5. **Valuation** — P/E, EV/EBITDA and P/B off the supplied price, shares, net
+   debt and book equity, each placed against the company's **own** historical
+   multiple series and reported in standard deviations from its own mean
+   (sample stdev; a single observation reports no dispersion rather than a
+   fake zero).
+6. **Dividend yield** — off DPS and price, falling back to total dividends over
+   market cap, plus the payout ratio.
+7. **Sum-of-the-parts** — attributable value per segment, holding discount, net
+   debt, equity value, value per share and the implied gap to market cap.
+
+It is **fact-only**: no score, no target price, no verdict. Growth off a
+non-positive base is `null` ("not meaningful") rather than a nonsense
+percentage, and a P/E on negative earnings is refused with a note saying why.
+
+**Missing data is asked for exactly once.** A call carrying no financial
+content at all returns `status: "needs_financial_data"` plus `missing_inputs`
+and a `request_to_orchestrator` string — the agent goes and gets the figures
+(record, files, web/Valyu, or the user) and calls again. The trigger is
+deliberately *nothing at all* rather than *not enough*: any call carrying
+something — one fiscal year, a price, a peer set — is analyzed, with whatever is
+still missing reported under `data_gaps` and `status: "partial"`, so an agent
+that comes back with partial figures can never be sent away for them a second
+time. `data_request_already_made: true` is the escape hatch for the case where
+nothing at all could be found.
+
+Two places register it. The **`minority`** flavor carries it in chat
+(`MINORITY_TOOL_LIST` = `defaultChatToolList()` + this tool), because a
+non-controlling stake is underwritten on growth, the multiple and the dividend.
+The **Workforce** list appends it too (`workforceToolList`), since "Analyze /
+Re-evaluate AI Opinion" *is* evaluating a company: the prompt's "Forming an AI
+Opinion" steps route that arithmetic through the tool rather than the model's
+head, and its output feeds the verdict without voting on it.
+
 ## Record-scoped dialogs (`CompanyDetailDialog` and friends)
 
 `CompanyDetailDialog` is opened from seven places — Pipeline, Dashboard, Master
@@ -1179,12 +1226,14 @@ The eight flavors:
   migration or new table is required (persisted via `workspaces.copilot_agent = 'vc'`).
 - **`minority`** — the **Minority Stakes Portfolio Manager**: the Copilot for a
   firm that holds MANY SMALL, NON-CONTROLLING positions rather than a few control
-  deals (`MINORITY_SYSTEM_PROMPT` + `MINORITY_TOOL_LIST`). It is the one flavor
-  defined by its prompt alone — `MINORITY_TOOL_LIST` *is* `defaultChatToolList`,
-  the same memoized factory, so it reads exactly the same pipeline, CRM, files and
-  research surface as `mna` and owes the user the same write discipline (no
-  direct writes; Workforce handoffs and the inline bulk cards). What differs is
-  the job: every answer is framed by whether the business is one we can hold
+  deals (`MINORITY_SYSTEM_PROMPT` + `MINORITY_TOOL_LIST`). `MINORITY_TOOL_LIST` is
+  `defaultChatToolList()` plus one addition, `financial_equity_analysis`, so it
+  reads the same pipeline, CRM, files and research surface as `mna` and owes the
+  user the same write discipline (no direct writes; Workforce handoffs and the
+  inline bulk cards). The extra tool is there because a non-controlling holder is
+  a public-equity-style analyst of a business somebody else runs: the return comes
+  from growth, the multiple and the dividend, so that arithmetic is the
+  underwriting rather than a side calculation. What differs is the job: every answer is framed by whether the business is one we can hold
   passively, what the position does to portfolio concentration and sizing, what
   minority protections govern it (information and consent rights, tag-along,
   drag-along, pre-emption, preference), and how we ever get liquid. The shared

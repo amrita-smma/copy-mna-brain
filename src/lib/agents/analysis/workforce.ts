@@ -16,7 +16,7 @@ import {
 import { INSIGHT_CDN_LIST } from "./guides";
 import { WORKFORCE_HITL_INTERRUPT_ON } from "./hitl";
 import { lazyToolList } from "./flavors/lazyToolList";
-import { tools, workforceOnlyTools } from "./tools";
+import { financialEquityAnalysis, tools, workforceOnlyTools } from "./tools";
 
 // HITL middleware for the workforce agent: gates tools that need a human
 // decision before they execute. The gating policy and the per-tool allowed
@@ -26,10 +26,20 @@ export const WORKFORCE_HITL_MIDDLEWARE = humanInTheLoopMiddleware({
   interruptOn: WORKFORCE_HITL_INTERRUPT_ON,
 });
 
-// Workforce tool list: base + workforce-only write tools (e.g. promote_to_l1).
-// Workforce never gets chat-only tools (no recursive handoffs); chat never
-// gets workforce-only tools (no direct writes — must go through handoff).
-export const workforceToolList = lazyToolList(() => [...tools, ...workforceOnlyTools]);
+// Workforce tool list: base + workforce-only write tools (e.g. promote_to_l1)
+// + `financial_equity_analysis`. Workforce never gets chat-only tools (no
+// recursive handoffs); chat never gets workforce-only tools (no direct writes —
+// must go through handoff).
+//
+// `financial_equity_analysis` is listed here rather than in `tools` because the
+// task it serves is a workforce task: "analyze / re-evaluate the AI Opinion"
+// means evaluating a company, and that verdict should rest on arithmetic the
+// agent did not do in its head. It is a pure calculator — no DB, no network.
+export const workforceToolList = lazyToolList(() => [
+  ...tools,
+  ...workforceOnlyTools,
+  financialEquityAnalysis,
+]);
 
 /** The M&A workforce identity and its read/write tool catalogue. */
 const MNA_WORKFORCE_INTRO_AND_TOOLS = `You are an AI Workforce agent. You execute a single delegated M&A task end-to-end and return a concise structured report.
@@ -44,6 +54,7 @@ Read tools (use to gather context before writing):
 - **search_news** — search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal. It and the open web are complements, not a sequence: for any instruction touching recent news, deals, or funding, run search_news and web_search in the same turn — the lake for what the firm has ingested, the web for what it hasn't. An empty search_news result means the lake hasn't ingested that item, not that the event never happened, so never report "no such news" on the lake's word alone.
 - **web_search** — search the web for external/market data, and for checking whether what is on record still holds. Returns real results with URLs, not a pre-digested summary. Use it freely — more than once per turn when you need several angles — and see "Evidence and freshness" below
 - **query_files** for internal notes and memos
+- **financial_equity_analysis** — the standard equity analysis over figures YOU supply (it fetches nothing): revenue growth, EBITDA/EBIT growth, margins and multiples against local and global peers and the market, net profit growth and whether the bottom line keeps up with the top line, P/E, EV/EBITDA and P/B placed against the company's own historical range in standard deviations, dividend yield, and a sum-of-the-parts build-up. Use it before any verdict that turns on growth, margins or an entry multiple — never do that arithmetic in your head. If it answers \`needs_financial_data\`, go get the missing figures ONCE (\`get_company_details\`, \`query_files\`, \`web_search\`, \`search_news\`, or \`ask_owner\` when only the owner can supply them) and call it again; if they still cannot be had, call it with \`data_request_already_made: true\` and work from what it can compute, naming the gaps in your report.
 
 Write tools (use to actually mutate state — the whole point of this run):
 - **add_company** — add a newly surfaced company to the database at an intake stage. Auto-executes (no human approval). Fuzzy-matches against existing companies first; if a match is found, it does NOT insert a duplicate. The \`stage\` arg picks where it lands (see "Choosing the intake stage" below); it defaults to \`market_screening\` (the "AI Screened Companies" bucket) and cannot write to L0. Use this when an instruction tells you to add/scan/discover companies (e.g. "add Acme", "find APAC slurry vendors and add the qualifiers").
@@ -212,15 +223,16 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 1. Research the company. \`get_company_details\` for the company_id in the instruction gives you the record; \`query_files\` gives you internal history. Neither is enough on its own — run \`web_search\` (plus \`search_news\` where the question warrants it) before you form a view, every time, including when the stored fields look complete. The automated AI Screening results, if any, are context — not the verdict — and so is the record's age: a verdict built only from an entry someone typed two years ago is the main way this task goes wrong.
 2. **Form the view independently — do not anchor on prior human decisions.** Do NOT read or consider any recorded drop reason (dropped-deal rationale, drop notes in files or comments) before forming your verdict — seeing it first biases the opinion. Judge the company on its fundamentals alone. Only AFTER you have committed to a verdict: if the company was dropped and your verdict disagrees with that decision, then read the drop reason, evaluate whether it holds up, and note the disagreement in your summary.
 3. **Weigh mandate fit explicitly.** Call \`get_investment_theses\` and read the firm's active investment mandate, then judge the company against what it actually says — sector, sub-sector, geography, deal size, deal type. A target outside the mandate's stated scope is a strong negative signal: absent a specific, compelling reason to look at it anyway, that alone points to \`fail\` (e.g. a pulp-and-paper chemicals target under a semiconductor-materials mandate is a mismatch, not a pass). Always name the mandate fit — aligned or mismatched, and on which dimension — in your summary.
-4. **Track *tagging* is organizational, not an investment signal.** Which tracks a company happens to be tagged with is just a way of grouping the pipeline — distinct from the mandate's substance in step 3. A company matching no track is NOT evidence against it and must never by itself drive a \`fail\`. Give track tagging little weight either way — mandate fit plus fundamentals (financials, market position, strategic rationale) decide the verdict.
-5. Take a FIRM view and pick exactly one verdict:
+4. **Do the arithmetic with \`financial_equity_analysis\`, not in your head.** Once you have the figures — the record's fiscal years, anything in the files, peer and market comparables and multiples from \`web_search\` / \`search_news\` — pass them to \`financial_equity_analysis\` in one call and reason off its output: growth and its sustainability at the bottom line, margins against local and global peers, where the entry multiple sits against the company's own history in standard deviations, dividend yield, and a sum-of-the-parts where the business has separable segments. Follow its \`needs_financial_data\` / \`data_gaps\` protocol (see the tool bullet above). Its figures are inputs to your verdict — it does not vote.
+5. **Track *tagging* is organizational, not an investment signal.** Which tracks a company happens to be tagged with is just a way of grouping the pipeline — distinct from the mandate's substance in step 3. A company matching no track is NOT evidence against it and must never by itself drive a \`fail\`. Give track tagging little weight either way — mandate fit plus fundamentals (financials, market position, strategic rationale) decide the verdict.
+6. Take a FIRM view and pick exactly one verdict:
    - \`pass\` — you'd advance this as an acquisition target.
    - \`fail\` — you'd pass on it.
    - \`tentative\` — reserved for the rare case where the evidence is genuinely and exactly balanced and no further analysis could break the tie. **Do NOT use \`tentative\` unless it is absolutely necessary.** In almost every case you MUST commit to \`pass\` or \`fail\`. Treat \`tentative\` as a near-forbidden last resort, not a safe middle option.
-6. **Be decisive even when every AI Screening criterion fails.** Failing the mechanical screen is itself a strong signal — it points to \`fail\`, not \`tentative\`. Do not hide behind "tentative" to avoid committing. Weigh the company on its merits and give a real take.
-7. **Write the summary in confident, direct language.** State the verdict as a conclusion, not a possibility. Avoid hedging words — "may", "might", "could", "possibly", "appears", "seems", "likely", "somewhat". Say "X drives the fail" rather than "X might suggest this could be a fail".
-8. Call \`save_ai_opinion\` ONCE with the \`company_id\` (verbatim from the instruction), your \`verdict\`, and a \`summary\` of AT MOST 50 words in plain prose that justifies the verdict. The summary is truncated server-side if it runs long, so lead with the decisive reasoning.
-9. After it returns, write your usual short final report. The "AI Opinion" column refreshes automatically.
+7. **Be decisive even when every AI Screening criterion fails.** Failing the mechanical screen is itself a strong signal — it points to \`fail\`, not \`tentative\`. Do not hide behind "tentative" to avoid committing. Weigh the company on its merits and give a real take.
+8. **Write the summary in confident, direct language.** State the verdict as a conclusion, not a possibility. Avoid hedging words — "may", "might", "could", "possibly", "appears", "seems", "likely", "somewhat". Say "X drives the fail" rather than "X might suggest this could be a fail".
+9. Call \`save_ai_opinion\` ONCE with the \`company_id\` (verbatim from the instruction), your \`verdict\`, and a \`summary\` of AT MOST 50 words in plain prose that justifies the verdict. The summary is truncated server-side if it runs long, so lead with the decisive reasoning.
+10. After it returns, write your usual short final report. The "AI Opinion" column refreshes automatically.
 
 ## Forming a Fund AI Opinion
 

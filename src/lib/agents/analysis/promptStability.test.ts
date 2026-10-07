@@ -47,6 +47,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   vcTools: [],
   valyuSearch: { name: 'valyu_search' },
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
+  financialEquityAnalysis: { name: 'financial_equity_analysis' },
   getCompanyProfile: { name: 'get_company_profile' },
   getCompetitorLandscape: { name: 'get_competitor_landscape' },
   getMarketSignals: { name: 'get_market_signals' },
@@ -97,10 +98,12 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   investment: 'a663c5e174bc5a7fbb5624d1fa6a45023c556167c4b763f4702afb3f4f0d1330',
   combined: 'cf282feea15ffdc2c8aa332b1c14e55d8c1887b8d9eadaf33d68ed9c0ab902d5',
   vc: '740ff447b50e3b39b00be9519a57ac58210011562d40b906fd77920019b1670e',
-  // New flavour: the Minority Stakes Portfolio Manager — the M&A chat tool set
-  // under a portfolio-construction prompt (sizing, concentration, minority
-  // protections, exit paths).
-  minority: 'e0b0037c6b6e925bb09fb2d6ec4fa07ce0f16ebb79e2df2929b8ef3799c127a9',
+  // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
+  // (sizing, concentration, minority protections, exit paths) over the M&A
+  // chat tool set. Changed on purpose: it now also carries
+  // `financial_equity_analysis`, and the prompt lists it, routes company
+  // evaluation through it, and names the seven-step order it computes.
+  minority: '16db26e6ce117a75531d226a9b5155ce69d8007052619b58f3bc03aa3df6b364',
   // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
   // returns calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
@@ -118,12 +121,11 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // investor base, regime and window.
   capital_markets: 'd776e959c3703d176e6cacfc2c3b0f89457cacf04047e9183123b9c57edc1226',
 };
-// The Workforce prompt changed on purpose, for the same reason: its
-// `alphasense_search` read-tool bullet is gone, and the evidence guide no
-// longer offers it as the escalation from `web_search` (the workforce tool list
-// has no `valyu_search`, so that guidance now stays on `web_search` and
-// `search_news`).
-const EXPECTED_WORKFORCE_HASH = '68250fab2f0c677553eecd5b5c7ce5687a6eebc6b87515ef13919a89ab0cd7ce';
+// The Workforce prompt changed on purpose: `financial_equity_analysis` is now
+// in its read-tool catalogue, and "Forming an AI Opinion" gained a step that
+// routes the growth/margin/multiple arithmetic through it instead of the
+// agent's head (renumbering the steps that follow).
+const EXPECTED_WORKFORCE_HASH = 'c23303fd09d12f1d597a693b220974d8f66c89ebd5b4f916cbf1f0388eb5b627';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {
