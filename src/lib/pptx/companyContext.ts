@@ -1,4 +1,5 @@
 import { companyDisplayName } from '@/lib/companyDisplay';
+import { clipCompanyContext } from '@/lib/companyContextPrompt';
 
 export interface PresentationCompanyFields {
   target?: string | null;
@@ -11,6 +12,8 @@ export interface PresentationCompanyFields {
   website?: string | null;
   comments?: string | null;
   remarks?: string | null;
+  /** Free-form markdown Context written on the company card's Context tab. */
+  context?: string | null;
   revenue_2024_usd_mn?: number | null;
   ebitda_2024_usd_mn?: number | null;
   ev_2024?: number | null;
@@ -48,6 +51,12 @@ export function buildPresentationCompanyContext(
   if (company.website) lines.push(`Website: ${company.website}`);
   if (company.comments) lines.push(`Comments: ${company.comments}`);
   if (company.remarks) lines.push(`Remarks: ${company.remarks}`);
+  const clippedContext = clipCompanyContext(company.context, MAX_FIELD);
+  if (clippedContext.text) {
+    lines.push(
+      `\nContext recorded by the deal team (first-hand internal knowledge):\n${clippedContext.text}`,
+    );
+  }
 
   const fin: string[] = [];
   if (company.revenue_2024_usd_mn != null) fin.push(`Rev 2024: $${company.revenue_2024_usd_mn}M`);

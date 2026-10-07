@@ -61,6 +61,7 @@ const CORE_FIELDS = [
   "comments",
   "remarks",
   "thesis_content",
+  "context",
 ] as const;
 
 type CoreField = (typeof CORE_FIELDS)[number];
@@ -155,6 +156,9 @@ const FieldsSchema = z
     comments: nullableText().describe("Free-text comments"),
     remarks: nullableText().describe("Free-text remarks"),
     thesis_content: nullableText().describe("Thesis narrative recorded on the company"),
+    context: nullableText().describe(
+      "Markdown background on the company's Context tab — what the company does and why it matters, how it was surfaced, deal situation, colour and caveats that no structured column holds. Read back by the AI Opinion run, the company card / slide generators and the read tools. Writing it REPLACES the whole document, so fetch the current text with get_company_details first and edit it rather than overwriting work the deal team wrote. Pass null to clear it.",
+    ),
   })
   // Unknown keys are kept rather than silently stripped so the handler can
   // name them back to the agent (and point at the tool that owns them)
@@ -423,6 +427,8 @@ Identify the company with \`company_id\` (preferred — exact) or \`company_name
 Editable \`fields\`: ${CORE_FIELDS.join(", ")}.
 
 \`financials\`: an array of rows, one per fiscal year (max ${MAX_FINANCIAL_ROWS} per call), each \`{ fiscal_year, revenue_usd_mn?, ebitda_usd_mn?, ev_usd_mn? }\`. Figures are USD millions. Every row needs at least one figure, and a year may appear only once — combine its metrics into a single row. A year whose figures already match is skipped rather than rewritten. EBITDA margin and EV/EBITDA are recomputed from the figures you write, so do NOT try to set them; revenue CAGR belongs to the screening pipeline and is left alone.
+
+\`context\` is the company's free-form markdown background (the Context tab on the company card), and it is the field most likely to already hold work a human wrote. Writing it REPLACES the whole document — read the current text with \`get_company_details\` and edit it, rather than overwriting someone's notes with your own summary.
 
 One field to be careful with: \`is_live\` is an independent override, not a function of \`advisor\`. Clearing \`advisor\` does NOT un-live a deal whose \`is_live\` is already true — if the instruction says a process is dead, set \`is_live: false\` (or \`null\` to go back to deriving it from \`advisor\`) in the same call.
 

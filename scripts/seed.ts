@@ -516,6 +516,8 @@ type SeedCompany = {
     | 'market_study';
   banker_source?: string;
   remarks?: string;
+  /** Free-form markdown background shown on the company card's Context tab. */
+  context?: string;
   possible_duplicate_entry_id?: number;
   watchlist_status: string;
   dropped_reason?: string;
@@ -1265,6 +1267,19 @@ const seedCompanies: SeedCompany[] = [
     key_rationale:
       'Largest OSAT in Asia; strong fit with our semiconductor platform thesis. Listed on TWSE with known shareholders.',
     remarks: 'Warm intro via Golden Sacks; management receptive to PE conversations.',
+    context: [
+      '## Why we are looking',
+      'Largest OSAT in Asia and the anchor asset for the semiconductor platform thesis — owning it would make every downstream packaging target easier to approach.',
+      '',
+      '## Situation',
+      '- Listed on TWSE; the founding family still holds ~28% and has signalled it would consider a partner for the automotive-packaging arm.',
+      '- Golden Sacks made the introduction in May 2026; management were receptive but have not run a process.',
+      '- No NDA yet. Everything below FY2024 is from public filings.',
+      '',
+      '## Open questions',
+      '- Would a carve-out of the automotive arm be entertained, or is it whole-company only?',
+      '- Customer concentration: the top three account for more than half of revenue on our read of the filings.',
+    ].join('\n'),
     last_activity_at: '2026-06-10T00:00:00Z',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 18000, ebitda_usd_mn: 3200, ev_usd_mn: 12000 },
@@ -1288,6 +1303,16 @@ const seedCompanies: SeedCompany[] = [
     key_rationale:
       'Niche IC packaging for automotive; high EBITDA margin. Underleveraged balance sheet, founder-owned, open to dilution.',
     remarks: 'No prior contact. Identified via Gartner supply chain report.',
+    context: [
+      '## Why we are looking',
+      'Niche automotive IC packaging with best-in-class margins, founder-owned and underleveraged — the cleanest minority entry point we have seen in the segment.',
+      '',
+      '## Situation',
+      'Cold. Surfaced from the Gartner supply-chain report, no contact made. The founder is reported to be in his late sixties with no succession plan announced, which is the whole reason this is on the list.',
+      '',
+      '## Caveats',
+      'Every figure on this record is estimated from the Gartner report and trade press. Treat the FY2024 numbers as indicative until we see audited statements.',
+    ].join('\n'),
     last_activity_at: '2026-05-30T00:00:00Z',
     financials: [
       { fiscal_year: 2024, revenue_usd_mn: 320, ebitda_usd_mn: 58, ev_usd_mn: 480 },
@@ -3961,6 +3986,7 @@ async function main() {
           doc_type: c.doc_type ?? null,
           banker_source: c.banker_source ?? null,
           remarks: c.remarks ?? null,
+          context: c.context ?? null,
           watchlist_status: c.watchlist_status,
           dropped_reason: c.dropped_reason ?? null,
           dropped_at: c.dropped_at ?? null,

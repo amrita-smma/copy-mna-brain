@@ -260,7 +260,8 @@ now derives from one place:
 
 - **`companyFilterShape`** — the zod raw shape, one entry per user-meaningful
   `companies` column (identity, classification, pipeline position, deal shape,
-  people, narrative text, AI Opinion, financial bounds, every lifecycle
+  people, narrative text — including the free-form `context` written on the
+  Context tab, plus `has_context` — AI Opinion, financial bounds, every lifecycle
   timestamp, housekeeping flags) plus the graph filters below. Tools spread it
   into their own `z.object({ ...companyFilterShape, <tool-specific fields> })`.
   Add a filter once and all three tools accept it.
@@ -2280,6 +2281,81 @@ partial index `idx_companies_resurface_due`). For each due deal it:
 Notifications are best-effort: the reactivation stands even if no recipient can
 be resolved or the queue is unavailable. A manual restore from the UI cancels
 any pending resurface schedule.
+
+### Company Context (the Context tab)
+
+Every company detail surface — the full page (`/companies/<id>` and
+`/pipeline/<dealId>`) and the `CompanyDetailDialog` — carries a **Context** tab
+(deep-linkable as `?tab=context`) holding two things, in this order:
+
+1. **Context** — `companies.context`, a free-form markdown document the deal team
+   writes about the company. Rendered with `MarkdownRenderer`; "Edit" swaps in a
+   source textarea with a **Save Context** button underneath. Both surfaces render
+   the same `src/components/pipeline/CompanyContextCard.tsx`, which PATCHes
+   `/api/companies` through `updateCompany` so the two tabs cannot drift apart.
+   The tab sits immediately after Overview on both surfaces.
+2. **Notes** — the `deal_notes` timeline, which used to live at the bottom of the
+   Attachments tab. It moved here because it answers the same question the
+   context does ("what do we know about this that no column holds?"), just dated.
+
+The point of the field is that **every AI surface reads it**, so knowledge with no
+column to live in still reaches the model:
+
+- **AI Opinion** — `AiOpinionService.dispatch` inlines the context into the run's
+  instruction (capped, with a pointer to `get_company_details` when it overruns)
+  and tells the run to weigh it explicitly and to flag any conflict with what it
+  finds externally.
+- **Company Card / slide generation** — `buildCompanyContext` in
+  `CompanySlides.tsx` (per-slide prompts), `buildCompanyContext` in
+  `jobs/handlers/companyAnalysis.ts` (the AI Company Card the slides draw from),
+  and `buildPresentationCompanyContext` in `pptx/companyContext.ts` (emailed
+  presentation specs) all carry it.
+
+Every one of those prompt paths clips the document through
+`clipCompanyContext` (`src/lib/companyContextPrompt.ts`). The field is
+user-authored markdown with no length bound — a pasted call transcript would
+otherwise swamp the prompt it was meant to inform — so the cap lives in one
+place rather than per caller, and callers that want to say "there is more" read
+the `truncated` flag (the AI Opinion instruction uses it to point the run at
+`get_company_details`).
+- **Agent read tools** — `get_company_details` prints it in full;
+  `query_companies` takes `include_context` to append a truncated Context column;
+  and `companyFilterShape` gains `context` (partial match) + `has_context`, so
+  every tool sharing that vocabulary can filter on it. `search_term` matches the
+  context column too.
+- **Agent writes** — `add_company` takes a `context` argument (and now persists
+  its `note` to the company's notes timeline instead of only echoing it), so a
+  company added from chat or the workforce arrives with its background already
+  recorded. `update_company_details` can edit `context`; writing it replaces the
+  whole document, so the tool description tells the agent to read the current
+  text first.
+
+### `add_company` covers the whole intake
+
+`add_company` accepts essentially the whole editable record, so an intake lands
+complete in one call instead of a bare row the workforce has to enrich
+afterwards with `update_company_details`. Two parts of it are worth knowing:
+
+**Either name identifies the company.** `target` (the real name) and
+`project_name` (the internal codename) are separate columns and both are
+optional — the tool only requires *at least one*. A teaser that arrives as
+"Project Sunrise" with no disclosed company name is added under the codename
+alone rather than refused or given an invented target; `companyDisplayTitle`
+already renders a target-less record as `[Project Sunrise]`. The duplicate guard
+fuzzy-matches **every** name supplied, not just the target, because an existing
+record may carry only one of the two for the same deal.
+
+**People columns are resolved from names.** `deal_sponsor`, `deal_captain` and
+`entered_by` are uuid FKs to `users.id`, but an agent only ever has a person's
+name. The tool reads the workspace's members **once** (`findAllInWorkspace` —
+the same list every user picker in the app offers) and matches name, email or id
+case-insensitively in memory, however many of the three were passed; a per-field
+lookup would be a fan-out on a table every intake touches. A name matching
+nobody, or matching two members, is a **refusal before the insert** — not a
+company row with a silently wrong or missing owner — and the error names the
+real options so the agent can retry with an email. `banker`, `banker_source`,
+`advisor` and `originator` are deliberately *not* in this group: those are free
+text, not platform users.
 
 ### Company voting (Investment Committee rounds)
 

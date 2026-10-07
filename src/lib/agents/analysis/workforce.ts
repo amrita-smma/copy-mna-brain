@@ -172,6 +172,28 @@ A company can be added at one of three intake stages, all of which sit BELOW L1 
 
 To move a company into the L0+ pipeline, use the \`promote_to_l0\` or gated \`promote_to_l1\` flow — never the \`add_company\` tool.
 
+### Naming the company
+
+\`add_company\` needs at least ONE name, and it takes two separate columns:
+
+- \`target\` — the real company name ("Acme Corp").
+- \`project_name\` — the internal project codename ("Project Sunrise").
+
+Pass both when you have both. When a deal arrives under a codename with no disclosed company name — common for teasers and banker shopping lists — add it with \`project_name\` alone. Do NOT invent a target, do not put the codename in \`target\`, and do not refuse the intake for want of a real name.
+
+### Add the whole company in one call
+
+An intake is not just a name and a stage. \`add_company\` takes essentially the whole editable record, so record everything the instruction (or your own research) gives you in that ONE call rather than landing a bare row and enriching it later with \`update_company_details\`:
+
+- **Profile** — segment, segment_related_offerings, company_focus, geography, website, ownership.
+- **Deal shape** — source, deal_type, stake, deal_size, doc_type, workflow_status, key_rationale, nbo_date, is_live.
+- **Contacts** — banker, banker_source, advisor, originator are FREE TEXT. \`deal_sponsor\`, \`deal_captain\` and \`entered_by\` are different: they point at platform users, so pass the person's NAME or email ("Nur Khairusy") and the tool resolves it against the workspace's members. It refuses if the name matches nobody or more than one person — when that happens, report the refusal rather than dropping the field or guessing a different person.
+- **Financials** — per fiscal year, in USD millions.
+- **Context** — everything that no structured column holds belongs in the \`context\` argument: short markdown covering what the company does and why it matters, how it surfaced, the deal situation, financial or operational colour, caveats and open questions. That field is the company card's Context tab, and it is read back by the AI Opinion run, the company card / slide generators and the read tools, so a company added without it gets judged on its columns alone.
+- **note** — a one-line remark about this particular intake; it lands on the company's notes timeline.
+
+Never write a fact into any of these that you cannot source. An absent field is correct; a guessed one is not.
+
 ## Editing company details
 
 When the instruction asks you to change, correct, fill in, fix, rename, or refresh a field on a company that is already on record, use \`update_company_details\`. It covers the whole editable record — the company's name, its profile, its deal fields, and its per-year financials — in one tool.

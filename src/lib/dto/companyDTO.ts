@@ -93,6 +93,8 @@ export interface CompanyDTO {
 
   remarks: string | null;
   thesis_content: string | null;
+  // Free-form markdown background shown on the company card's Context tab.
+  context: string | null;
 
   created_at: string | null;
   updated_at: string | null;
@@ -262,6 +264,7 @@ export function toCompanyDTO(
     ai_opinion_updated_at: company.ai_opinion_updated_at ?? null,
     remarks: company.remarks,
     thesis_content: company.thesis_content,
+    context: company.context ?? null,
     created_at: company.created_at,
     updated_at: company.updated_at,
 
@@ -384,7 +387,7 @@ export function splitCompanyDTO(dto: CompanyDTOInput): SplitCompanyWrite {
   const coreKeys = [
     'entry_id', 'watchlist_id', 'segment', 'target', 'project_name', 'segment_related_offerings',
     'company_focus', 'website', 'watchlist_status', 'comments', 'ownership',
-    'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content',
+    'geography', 'source', 'status', 'pipeline_stage', 'remarks', 'thesis_content', 'context',
     'deal_type', 'originator', 'entered_by', 'deal_sponsor', 'deal_captain',
     'last_activity_at', 'banker', 'advisor', 'doc_type', 'nbo_date', 'is_live', 'stake',
     'deal_size', 'workflow_status', 'key_rationale', 'review_state', 'banker_source',

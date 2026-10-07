@@ -291,7 +291,7 @@ function makeListDb(rows: Array<Partial<Tables<'companies'>>>) {
 }
 
 describe('CompanyRepository.searchForAgent', () => {
-  it('matches searchTerm against target, project_name, segment, and geography', async () => {
+  it('matches searchTerm against target, project_name, segment, geography, and context', async () => {
     const { db, where } = makeAgentSearchDb([]);
     const repo = new CompanyRepository(db, 'workspace-1');
 
@@ -303,7 +303,35 @@ describe('CompanyRepository.searchForAgent', () => {
     expect(rendered).toContain('"project_name" ilike');
     expect(rendered).toContain('"segment" ilike');
     expect(rendered).toContain('"geography" ilike');
-    expect(params.filter((p) => p === '%中文股份%')).toHaveLength(4);
+    expect(rendered).toContain('"context" ilike');
+    expect(params.filter((p) => p === '%中文股份%')).toHaveLength(5);
+  });
+
+  it('partial-matches the context filter against the context column', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ context: 'founder wants out' });
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"context" ilike');
+    expect(params).toContain('%founder wants out%');
+  });
+
+  it('treats a whitespace-only context as "no context" for hasContext', async () => {
+    const { db, where } = makeAgentSearchDb([]);
+    const repo = new CompanyRepository(db, 'workspace-1');
+
+    await repo.searchForAgent({ hasContext: true });
+    const yes = renderSql(where.mock.calls[0][0] as SQL).sql;
+    expect(yes).toContain("coalesce(trim(");
+    expect(yes).toContain("<> ''");
+
+    const second = makeAgentSearchDb([]);
+    const repo2 = new CompanyRepository(second.db, 'workspace-1');
+    await repo2.searchForAgent({ hasContext: false });
+    const no = renderSql(second.where.mock.calls[0][0] as SQL).sql;
+    expect(no).toContain("= ''");
   });
 
   it('renders inclusive created_at bounds for createdAfter/createdBefore', async () => {

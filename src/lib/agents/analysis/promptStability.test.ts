@@ -93,37 +93,37 @@ function lastSystemPrompt(): string {
 // lists and from the external-research routing guidance (which now points at
 // `valyu_search` for filings, transcripts and research).
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '91de2c24bf9c1ac4e5243503c04ddf38075005b33254b13bbf643259076b77ff',
+  mna: '9518a17280ea09cd97842ca7bbca5ced764db52074f76cfa13d6a360fec67052',
   investment: 'a663c5e174bc5a7fbb5624d1fa6a45023c556167c4b763f4702afb3f4f0d1330',
-  combined: 'e5ed4a87a7778a9c415b44488def9a78df44aaf5e1ecfc886988e5e1f5c04418',
-  vc: '40b706ea7be932d98ac646584e15bec4608807247c9d2685837dad5c6f72f2b5',
+  combined: 'cf282feea15ffdc2c8aa332b1c14e55d8c1887b8d9eadaf33d68ed9c0ab902d5',
+  vc: '740ff447b50e3b39b00be9519a57ac58210011562d40b906fd77920019b1670e',
   // New flavour: the Minority Stakes Portfolio Manager — the M&A chat tool set
   // under a portfolio-construction prompt (sizing, concentration, minority
   // protections, exit paths).
-  minority: '652adc8326bab7966687cbcd402809c291a944f940787c2050db2767c545aad5',
+  minority: 'e0b0037c6b6e925bb09fb2d6ec4fa07ce0f16ebb79e2df2929b8ef3799c127a9',
   // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
   // returns calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '4a39704118a0410a1f3274ae28ab498b0d9e98b20e7ef0d5dd84ea34b71484fc',
+  crowdfunding: '5dbd385cd536f24eef2e4d29449820197fdbd70150951a9194d95d3442acbb16',
   // New flavour: the Investment Banking Advisory Agent — the M&A chat tool set
   // plus the returns calculator, all five topic-research tools and Valyu
   // extraction, under an advisory prompt that compares exit routes (control
   // sale, IPO, bond issuance, recap, partnership, carve-out, do-nothing)
   // rather than underwriting one position.
-  investment_banking: 'e29b51ad158c6a8631b0a3e7b9d5cae54b2e27c572b4c1e4275c036fdc7569c1',
+  investment_banking: '5488c0085baefdb4913daa3904f8f824c07d11c0bebfd9721e99e1e895dd89db',
   // New flavour: the Capital Markets Agent — the same tool set under a DCM/ECM
   // prompt: instrument choice, capacity, structure, evidence-based pricing,
   // investor base, regime and window.
-  capital_markets: '1d2e2b00ae8500091f4b7eba0294bf0599e8298a3e247ce6a069e4cd55cb3b95',
+  capital_markets: 'd776e959c3703d176e6cacfc2c3b0f89457cacf04047e9183123b9c57edc1226',
 };
 // The Workforce prompt changed on purpose, for the same reason: its
 // `alphasense_search` read-tool bullet is gone, and the evidence guide no
 // longer offers it as the escalation from `web_search` (the workforce tool list
 // has no `valyu_search`, so that guidance now stays on `web_search` and
 // `search_news`).
-const EXPECTED_WORKFORCE_HASH = '7efd8e971205e7bd7223e0cf218277b32f9158b103b7772f7b07c48728ed14cb';
+const EXPECTED_WORKFORCE_HASH = '68250fab2f0c677553eecd5b5c7ce5687a6eebc6b87515ef13919a89ab0cd7ce';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

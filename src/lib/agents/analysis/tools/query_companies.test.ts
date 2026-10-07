@@ -48,6 +48,53 @@ describe('queryCompanies', () => {
     );
   });
 
+  it('omits the Context column unless include_context is set', async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme', context: 'Founder wants out.' },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({ segment: 'Tech' })) as string;
+
+    expect(result).not.toContain('Context');
+    expect(result).not.toContain('Founder wants out');
+  });
+
+  it('appends a Context column previewing each company context when asked', async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme', context: '## Background\nFounder wants out.' },
+      { id: 'c2', target: 'Beta', context: null },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({
+      segment: 'Tech',
+      include_context: true,
+    })) as string;
+
+    expect(result).toContain('EV ($M) | Context |');
+    // Newlines are flattened so one company stays on one table row.
+    expect(result).toContain('## Background Founder wants out.');
+    // A company with no context still renders a cell, so columns stay aligned.
+    expect(result).toContain('| Beta |');
+  });
+
+  it('truncates a long context and escapes pipes so the table cannot break', async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme', context: `a|b${'x'.repeat(400)}TAIL` },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({
+      segment: 'Tech',
+      include_context: true,
+    })) as string;
+
+    expect(result).toContain('a\\|b');
+    expect(result).not.toContain('TAIL');
+    expect(result).toContain('…');
+  });
+
   it('renders a markdown table with latest financials joined per company', async () => {
     searchForAgentMock.mockResolvedValue([
       { id: 'c1', target: 'Acme', project_name: 'Project Alpha', segment: 'Tech', geography: 'US', watchlist_status: 'Active' },

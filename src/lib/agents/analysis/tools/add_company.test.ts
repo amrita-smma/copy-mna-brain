@@ -1,14 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findByNameFuzzy, create, updateFinancials, createDb, createContainer } = vi.hoisted(
-  () => ({
-    findByNameFuzzy: vi.fn(),
-    create: vi.fn(),
-    updateFinancials: vi.fn(),
-    createDb: vi.fn(),
-    createContainer: vi.fn(),
-  }),
-);
+const {
+  findByNameFuzzy,
+  create,
+  updateFinancials,
+  createNote,
+  findAllInWorkspace,
+  createDb,
+  createContainer,
+} = vi.hoisted(() => ({
+  findByNameFuzzy: vi.fn(),
+  create: vi.fn(),
+  updateFinancials: vi.fn(),
+  createNote: vi.fn(),
+  findAllInWorkspace: vi.fn(),
+  createDb: vi.fn(),
+  createContainer: vi.fn(),
+}));
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
@@ -19,9 +27,13 @@ vi.mock("@/lib/repositories", async (importOriginal) => {
   class MockCompanyRepository {
     findByNameFuzzy = findByNameFuzzy;
   }
+  class MockUserRepository {
+    findAllInWorkspace = findAllInWorkspace;
+  }
   return {
     ...actual,
     CompanyRepository: MockCompanyRepository,
+    UserRepository: MockUserRepository,
   };
 });
 
@@ -31,7 +43,8 @@ import { addCompany } from "./add_company";
 // schema-rejection tests with out-of-enum values; the tool's runtime invoke
 // accepts them (LangChain validates inside) and the schema layer throws.
 async function call(args: {
-  target: string;
+  target?: string;
+  project_name?: string;
   stage?: string;
   segment?: string;
   geography?: string;
@@ -43,6 +56,23 @@ async function call(args: {
   comments?: string;
   remarks?: string;
   thesis_content?: string;
+  context?: string;
+  segment_related_offerings?: string;
+  deal_type?: string;
+  stake?: string;
+  deal_size?: string;
+  doc_type?: string;
+  workflow_status?: string;
+  key_rationale?: string;
+  nbo_date?: string;
+  is_live?: boolean;
+  banker?: string;
+  banker_source?: string;
+  advisor?: string;
+  originator?: string;
+  deal_sponsor?: string;
+  deal_captain?: string;
+  entered_by?: string;
   watchlist_id?: number;
   watchlist_status?: string;
   financials?: Array<{
@@ -60,18 +90,186 @@ describe("add_company (workforce tool)", () => {
     findByNameFuzzy.mockReset();
     create.mockReset();
     updateFinancials.mockReset().mockResolvedValue({});
+    createNote.mockReset().mockResolvedValue({ id: "n-1" });
+    findAllInWorkspace.mockReset().mockResolvedValue([
+      { id: "u-nur", name: "Nur Khairusy", email: "nur@example.com" },
+      { id: "u-james", name: "James Wong", email: "james@example.com" },
+    ]);
     createDb.mockReset().mockReturnValue({});
     createContainer.mockReset().mockReturnValue({
       companyService: { create, updateFinancials },
+      dealNoteService: { create: createNote },
     });
   });
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("rejects an empty target", async () => {
-    const result = await call({ target: "   " });
-    expect(String(result)).toMatch(/target name is required/);
+  it("refuses a call with neither a target nor a project name", async () => {
+    for (const args of [
+      { target: "   " },
+      { project_name: "  " },
+      { target: "   ", project_name: "  " },
+      {},
+    ]) {
+      const result = await call(args);
+      expect(String(result)).toMatch(/At least one is required/);
+    }
     expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("creates a company under its project name alone", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    const result = await call({ project_name: "Project Sunrise" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ project_name: "Project Sunrise" }),
+      expect.any(String),
+    );
+    // No invented target — the column is simply absent.
+    expect(create.mock.calls[0][0]).not.toHaveProperty("target");
+    expect(String(result)).toMatch(/Added "\[Project Sunrise\]" to the database/);
+  });
+
+  it("records both names when the intake gives a company name and a codename", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    const result = await call({ target: "Acme", project_name: "Project Sunrise" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "Acme", project_name: "Project Sunrise" }),
+      expect.any(String),
+    );
+    expect(String(result)).toMatch(/Acme \[Project Sunrise\]/);
+  });
+
+  it("checks BOTH supplied names against existing companies before inserting", async () => {
+    // The real name is new but the codename already belongs to a record.
+    findByNameFuzzy.mockImplementation(async (name: string) =>
+      name === "Project Sunrise"
+        ? { id: "c-old", target: "Acme Corp", project_name: "Project Sunrise", pipeline_stage: "L1" }
+        : null,
+    );
+
+    const result = await call({ target: "Acme", project_name: "Project Sunrise" });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(String(result)).toMatch(/already exists in the pipeline \(id: c-old/);
+    expect(String(result)).toMatch(/update_company_details/);
+  });
+
+  it("records the deal shape fields given at create time", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({
+      target: "Acme",
+      deal_type: "minority",
+      stake: "30%",
+      deal_size: "$120M",
+      doc_type: "teaser",
+      workflow_status: "First contact made",
+      key_rationale: "Anchor asset for the platform thesis.",
+      nbo_date: "2026-09-30",
+      is_live: true,
+      banker: "Golden Sacks",
+      banker_source: "Shopping list",
+      advisor: "Golden Sacks",
+      originator: "James Wong",
+      segment_related_offerings: "CMP slurry",
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deal_type: "minority",
+        stake: "30%",
+        deal_size: "$120M",
+        doc_type: "teaser",
+        workflow_status: "First contact made",
+        key_rationale: "Anchor asset for the platform thesis.",
+        nbo_date: "2026-09-30",
+        is_live: true,
+        banker: "Golden Sacks",
+        banker_source: "Shopping list",
+        advisor: "Golden Sacks",
+        originator: "James Wong",
+        segment_related_offerings: "CMP slurry",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("rejects a deal_type outside the enum via the schema layer", async () => {
+    await expect(call({ target: "Acme", deal_type: "controlling" })).rejects.toThrow(
+      /did not match expected schema/i,
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed nbo_date via the schema layer", async () => {
+    await expect(call({ target: "Acme", nbo_date: "30 Sep 2026" })).rejects.toThrow(
+      /nbo_date must be YYYY-MM-DD/,
+    );
+    expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("resolves the people columns from names to workspace user ids", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({
+      target: "Acme",
+      deal_sponsor: "nur khairusy",
+      deal_captain: "james@example.com",
+      entered_by: "u-nur",
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deal_sponsor: "u-nur",
+        deal_captain: "u-james",
+        entered_by: "u-nur",
+      }),
+      expect.any(String),
+    );
+    // One members read for all three fields, never one per column.
+    expect(findAllInWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read the workspace members when no people field is passed", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({ target: "Acme" });
+
+    expect(findAllInWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("refuses rather than creating a company when a person name matches nobody", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+
+    const result = await call({ target: "Acme", deal_sponsor: "Ghost Person" });
+
+    expect(String(result)).toMatch(/no workspace member matches deal_sponsor "Ghost Person"/);
+    expect(String(result)).toMatch(/Nur Khairusy/); // names the real options
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ambiguous person name instead of guessing which one was meant", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    findAllInWorkspace.mockResolvedValue([
+      { id: "u-1", name: "Alex Tan", email: "alex.tan@example.com" },
+      { id: "u-2", name: "Alex Tan", email: "a.tan@example.com" },
+    ]);
+
+    const result = await call({ target: "Acme", deal_sponsor: "Alex Tan" });
+
+    expect(String(result)).toMatch(/matches 2 workspace members/);
+    expect(String(result)).toMatch(/alex\.tan@example\.com/);
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -230,7 +428,7 @@ describe("add_company (workforce tool)", () => {
     expect(String(result)).not.toMatch(/Note:/);
   });
 
-  it("appends the note suffix when a real note is provided", async () => {
+  it("saves a real note to the company's notes timeline and reports it", async () => {
     findByNameFuzzy.mockResolvedValueOnce(null);
     create.mockResolvedValueOnce({ id: "c-new" });
 
@@ -239,8 +437,63 @@ describe("add_company (workforce tool)", () => {
       note: "Surfaced from APAC scan, no financials yet.",
     });
 
+    expect(createNote).toHaveBeenCalledWith(
+      "c-new",
+      "Surfaced from APAC scan, no financials yet.",
+      "market_screening",
+    );
     expect(String(result)).toMatch(
-      /Note: Surfaced from APAC scan, no financials yet\./,
+      /Note recorded on the timeline: Surfaced from APAC scan, no financials yet\./,
+    );
+  });
+
+  it("does not touch the notes timeline when the note is blank", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({ target: "Acme", note: "   " });
+
+    expect(createNote).not.toHaveBeenCalled();
+  });
+
+  it("still reports the company as created when the note write fails", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    createNote.mockRejectedValueOnce(new Error("notes table is down"));
+
+    const result = await call({ target: "Acme", note: "Check the teaser." });
+
+    expect(String(result)).toMatch(/Added "Acme" to the database/);
+    expect(String(result)).toMatch(/notes table is down/);
+    expect(String(result)).toMatch(/Check the teaser\./);
+  });
+
+  it("records the markdown context on the new company row", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({
+      target: "Acme",
+      context: "  ## Background\nFamily-owned, approached via the SEMICON intro.  ",
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "## Background\nFamily-owned, approached via the SEMICON intro.",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("drops a blank context rather than storing an empty string", async () => {
+    findByNameFuzzy.mockResolvedValueOnce(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({ target: "Acme", context: "   " });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.not.objectContaining({ context: expect.anything() }),
+      expect.any(String),
     );
   });
 

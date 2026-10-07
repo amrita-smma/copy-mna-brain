@@ -64,6 +64,8 @@ describe('companyFilterShape', () => {
       'remarks',
       'key_rationale',
       'thesis_content',
+      'context',
+      'has_context',
       'promoted_reasons',
       'dropped_reason',
       'has_ai_opinion',
@@ -131,6 +133,15 @@ describe('mapCompanyFilters', () => {
       lastActivityAfter: '2026-01-01',
       matchedTrackId: 'track-1',
       searchTerm: 'acme',
+    });
+  });
+
+  it('maps the Context-tab filters onto context / hasContext', () => {
+    expect(
+      mapCompanyFilters({ context: 'founder wants out', has_context: true }),
+    ).toMatchObject({ context: 'founder wants out', hasContext: true });
+    expect(mapCompanyFilters({ has_context: false })).toMatchObject({
+      hasContext: false,
     });
   });
 

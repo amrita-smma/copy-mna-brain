@@ -44,6 +44,61 @@ describe('AiOpinionService.dispatch', () => {
     enqueueAgentRun.mockResolvedValue({ runId: 'run-9' });
   });
 
+  it('inlines the deal team context into the instruction and tells the run to weigh it', async () => {
+    const companyRepo = makeCompanyRepo();
+    companyRepo.findById.mockResolvedValue({
+      id: 'co-1',
+      target: 'Acme Corp',
+      project_name: null,
+      context: '## Background\nFounder wants out; the plant was rebuilt in 2024.',
+    });
+    const service = makeService(companyRepo);
+
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain('--- CONTEXT RECORDED BY THE DEAL TEAM ---');
+    expect(input.instruction).toContain('the plant was rebuilt in 2024');
+    expect(input.instruction).toContain('WEIGH IT EXPLICITLY');
+    // The prompt the agent actually receives must carry it too, not just the
+    // instruction field the queue row displays.
+    expect(input.prompt).toBe(input.instruction);
+  });
+
+  it('omits the context block entirely when the company has no context', async () => {
+    const companyRepo = makeCompanyRepo();
+    companyRepo.findById.mockResolvedValue({
+      id: 'co-1',
+      target: 'Acme Corp',
+      project_name: null,
+      context: '   ',
+    });
+    const service = makeService(companyRepo);
+
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).not.toContain('CONTEXT RECORDED BY THE DEAL TEAM');
+  });
+
+  it('truncates an oversized context and points the run at get_company_details', async () => {
+    const companyRepo = makeCompanyRepo();
+    companyRepo.findById.mockResolvedValue({
+      id: 'co-1',
+      target: 'Acme Corp',
+      project_name: null,
+      context: `${'x'.repeat(4_100)}TAIL`,
+    });
+    const service = makeService(companyRepo);
+
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).not.toContain('TAIL');
+    expect(input.instruction).toContain('[Truncated —');
+    expect(input.instruction).toContain('get_company_details');
+  });
+
   it('throws without hitting the queue when companyId is missing', async () => {
     const service = makeService(makeCompanyRepo());
     await expect(service.dispatch('  ')).rejects.toThrow(

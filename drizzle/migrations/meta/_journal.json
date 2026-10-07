@@ -1037,6 +1037,13 @@
       "when": 1791244800000,
       "tag": "20261006000000_add_correspondent_profile_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1791331200000,
+      "tag": "20261007000000_add_company_context",
+      "breakpoints": true
     }
   ]
 }

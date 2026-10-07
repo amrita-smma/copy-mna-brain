@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
+import { CompanyContextCard } from "@/components/pipeline/CompanyContextCard";
 import { formatMoneyMn } from "@/lib/currency";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
@@ -175,6 +176,8 @@ export interface CompanyData {
   ev_2024: number | null;
   l1_screening_result: string | null;
   remarks: string | null;
+  /** Free-form markdown background shown on the Context tab. */
+  context?: string | null;
   created_at: string;
   updated_at: string;
   source: string | null;
@@ -416,6 +419,7 @@ interface CompanyDetailDialogProps {
   /** Tab to show when the dialog first opens. Defaults to "overview". */
   initialTab?:
     | "overview"
+    | "context"
     | "featured-slide"
     | "details"
     | "filters"
@@ -800,6 +804,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const [activeTab, setActiveTab] = useState<
     | "overview"
+    | "context"
     | "featured-slide"
     | "details"
     | "filters"
@@ -1635,6 +1640,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               setActiveTab(
                 v as
                   | "overview"
+                  | "context"
                   | "featured-slide"
                   | "details"
                   | "filters"
@@ -1646,12 +1652,18 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           >
             {/* Tab bar pinned to top */}
             <div className="shrink-0 border-b bg-background">
-              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-6">
+              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-7">
                 <TabsTrigger
                   value="overview"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
                   Overview
+                </TabsTrigger>
+                <TabsTrigger
+                  value="context"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
+                >
+                  Context
                 </TabsTrigger>
                 <TabsTrigger
                   value="featured-slide"
@@ -1730,6 +1742,90 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   onUpdateOwnership={saveOwnership}
                 />
               )}
+            </TabsContent>
+
+            {/* Context — the company's free-form markdown background, with the
+                notes timeline underneath. The context feeds the AI Opinion, the
+                company card / slide generation, and the agent read tools. */}
+            <TabsContent value="context" className="space-y-4 pb-4">
+              <div className="grid grid-cols-1 gap-4">
+                <CompanyContextCard
+                  companyId={company.id}
+                  value={company.context}
+                  variant="dialog"
+                  onSaved={(context) =>
+                    setCompany((prev) => ({ ...prev, context: context || null }))
+                  }
+                />
+
+                {/* Notes Section — the timeline of dated notes on this deal. */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Notes
+                    </CardTitle>
+                    <CardDescription>
+                      Dated notes recorded as the deal progressed
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <Textarea
+                        placeholder="Add a note..."
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        className="flex-1 min-h-[60px]"
+                        rows={2}
+                      />
+                      <Button
+                        onClick={addNote}
+                        disabled={isSubmitting || !newNote.trim()}
+                        size="icon"
+                        className="shrink-0"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                      {notes.length === 0 ? (
+                        <p className="text-muted-foreground text-xs">
+                          No notes yet
+                        </p>
+                      ) : (
+                        notes.map((note) => (
+                          <div
+                            key={note.id}
+                            className="p-2 border rounded-lg bg-muted text-sm"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs whitespace-pre-wrap flex-1">
+                                {note.content}
+                              </p>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => deleteNote(note.id)}
+                              >
+                                <Trash2 className="h-3 w-3 text-destructive" />
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {format(new Date(note.created_at), "MMM d, yyyy")}{" "}
+                              • {note.stage}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
@@ -2964,71 +3060,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                             >
                               <Trash2 className="h-3 w-3 text-destructive" />
                             </Button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Notes Section */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Notes
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex gap-2">
-                      <Textarea
-                        placeholder="Add a note..."
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        className="flex-1 min-h-[60px]"
-                        rows={2}
-                      />
-                      <Button
-                        onClick={addNote}
-                        disabled={isSubmitting || !newNote.trim()}
-                        size="icon"
-                        className="shrink-0"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plus className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {notes.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">
-                          No notes yet
-                        </p>
-                      ) : (
-                        notes.map((note) => (
-                          <div
-                            key={note.id}
-                            className="p-2 border rounded-lg text-sm"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs whitespace-pre-wrap flex-1">
-                                {note.content}
-                              </p>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 shrink-0"
-                                onClick={() => deleteNote(note.id)}
-                              >
-                                <Trash2 className="h-3 w-3 text-destructive" />
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.created_at), "MMM d, yyyy")}{" "}
-                              • {note.stage}
-                            </p>
                           </div>
                         ))
                       )}

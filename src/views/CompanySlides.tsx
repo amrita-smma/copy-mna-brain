@@ -33,6 +33,7 @@ import {
 import { getCompanies } from '@/lib/api/pipeline';
 import { waitForJob } from '@/lib/jobs/useJob';
 import { companyDisplayName } from '@/lib/companyDisplay';
+import { clipCompanyContext } from '@/lib/companyContextPrompt';
 
 async function generateSlideHtml(body: {
   instruction: string;
@@ -96,6 +97,8 @@ interface CompanyData {
   ebitda_margin_2024: number | null;
   l1_screening_result: string | null;
   remarks?: string | null;
+  /** Free-form markdown Context from the company card's Context tab. */
+  context?: string | null;
 }
 
 interface AnalysisSource {
@@ -128,6 +131,13 @@ function buildCompanyContext(company: CompanyData, analysis: CompanyAnalysis | n
   if (company.website) lines.push(`Website: ${company.website}`);
   if (company.comments) lines.push(`Comments: ${company.comments}`);
   if (company.remarks) lines.push(`Remarks: ${company.remarks}`);
+  // The deal team's free-form Context tab. Placed ahead of the financials so a
+  // generated slide leads with what the team actually knows about the company.
+  // Clipped, because this string is pasted into every per-slide prompt.
+  const clippedContext = clipCompanyContext(company.context);
+  if (clippedContext.text) {
+    lines.push(`\nContext recorded by the deal team (treat as first-hand internal knowledge):\n${clippedContext.text}`);
+  }
 
   const fin: string[] = [];
   if (company.revenue_2021_usd_mn != null) fin.push(`Rev 2021: $${company.revenue_2021_usd_mn}M`);

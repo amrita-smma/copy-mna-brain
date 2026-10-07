@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
+import { CompanyContextCard } from '@/components/pipeline/CompanyContextCard';
 import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
 import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
@@ -175,6 +176,8 @@ interface CompanyData {
   ebitda_margin_2024: number | null;
   // AI Market Screening Remarks
   remarks?: string | null;
+  /** Free-form markdown background shown on the Context tab. */
+  context?: string | null;
   created_at: string | null;
   updated_at: string | null;
   source: string | null;
@@ -339,7 +342,7 @@ interface AnalysisSource {
 }
 
 /** Tab values, mirrored in the `?tab=` query param so back/forward restores one. */
-const TAB_VALUES = ['overview', 'featured-slide', 'company-card', 'filters', 'attachments', 'voting'] as const;
+const TAB_VALUES = ['overview', 'context', 'featured-slide', 'company-card', 'filters', 'attachments', 'voting'] as const;
 type CompanyTab = (typeof TAB_VALUES)[number];
 const DEFAULT_TAB: CompanyTab = 'overview';
 
@@ -1584,8 +1587,9 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
         {/* Content */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-6 max-w-4xl">
+          <TabsList className="grid grid-cols-7 max-w-5xl">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="context">Context</TabsTrigger>
             <TabsTrigger value="featured-slide">Featured Slide</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
             <TabsTrigger value="filters">L1 Screening</TabsTrigger>
@@ -1625,6 +1629,62 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 onUpdateOwnership={saveOwnership}
               />
             )}
+          </TabsContent>
+
+          {/* Context — the company's free-form markdown background, with the
+              notes timeline underneath. The context feeds the AI Opinion, the
+              company card / slide generation, and the agent read tools. */}
+          <TabsContent value="context" className="mt-6">
+            <div className="grid grid-cols-1 gap-6">
+              <CompanyContextCard
+                companyId={company.id}
+                value={company.context}
+                onSaved={(context) =>
+                  setCompany((prev) => (prev ? { ...prev, context: context || null } : prev))
+                }
+              />
+
+              {/* Notes Section — the timeline of dated notes on this deal. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Notes
+                  </CardTitle>
+                  <CardDescription>Dated notes recorded as the deal progressed</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Textarea
+                      placeholder="Add a note..."
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      rows={3}
+                    />
+                    <Button onClick={addNote} disabled={isSubmitting || !newNote.trim()} size="sm">
+                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Add Note
+                    </Button>
+                  </div>
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {notes.map((note) => (
+                      <div key={note.id} className="p-3 bg-muted rounded-lg">
+                        <div className="flex justify-between items-start gap-2">
+                          <p className="text-sm whitespace-pre-wrap flex-1">{note.content}</p>
+                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {note.created_at && formatDistanceToNow(new Date(note.created_at), { addSuffix: true })} · {note.stage}
+                        </p>
+                      </div>
+                    ))}
+                    {notes.length === 0 && <p className="text-muted-foreground text-sm">No notes yet</p>}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
@@ -2488,46 +2548,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       </div>
                     ))}
                     {links.length === 0 && <p className="text-muted-foreground text-sm">No links yet</p>}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Notes Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Notes
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Textarea
-                      placeholder="Add a note..."
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      rows={3}
-                    />
-                    <Button onClick={addNote} disabled={isSubmitting || !newNote.trim()} size="sm">
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Note
-                    </Button>
-                  </div>
-                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                    {notes.map((note) => (
-                      <div key={note.id} className="p-3 bg-muted rounded-lg">
-                        <div className="flex justify-between items-start gap-2">
-                          <p className="text-sm whitespace-pre-wrap flex-1">{note.content}</p>
-                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {note.created_at && formatDistanceToNow(new Date(note.created_at), { addSuffix: true })} · {note.stage}
-                        </p>
-                      </div>
-                    ))}
-                    {notes.length === 0 && <p className="text-muted-foreground text-sm">No notes yet</p>}
                   </div>
                 </CardContent>
               </Card>

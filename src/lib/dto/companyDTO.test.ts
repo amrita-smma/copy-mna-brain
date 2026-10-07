@@ -24,6 +24,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     pipeline_stage: 'L0',
     remarks: null,
     thesis_content: null,
+    context: null,
     source: null,
     status: null,
     dropped_reason: null,
@@ -415,5 +416,38 @@ describe('matched_track_ids', () => {
   it('preserves clearing matched_track_ids to an empty array', () => {
     const result = splitCompanyDTO({ matched_track_ids: [] });
     expect(result.company.matched_track_ids).toEqual([]);
+  });
+});
+
+describe('context', () => {
+  it('passes the stored context through to the DTO', () => {
+    const dto = toCompanyDTO(
+      makeCompany({ context: '## Background\nFounder wants out.' }),
+      [],
+      [],
+      null,
+    );
+    expect(dto.context).toBe('## Background\nFounder wants out.');
+  });
+
+  it('normalises a missing context to null rather than undefined', () => {
+    const dto = toCompanyDTO(makeCompany({ context: null }), [], [], null);
+    expect(dto.context).toBeNull();
+  });
+
+  it('splits context into the company write fragment', () => {
+    expect(splitCompanyDTO({ context: 'Deal colour.' }).company.context).toBe(
+      'Deal colour.',
+    );
+  });
+
+  it('preserves an explicit null so the FE can clear the Context tab', () => {
+    const result = splitCompanyDTO({ context: null });
+    expect('context' in result.company).toBe(true);
+    expect(result.company.context).toBeNull();
+  });
+
+  it('leaves context alone when the payload omits it', () => {
+    expect('context' in splitCompanyDTO({ segment: 'Tech' }).company).toBe(false);
   });
 });

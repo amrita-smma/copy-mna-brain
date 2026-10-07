@@ -44,6 +44,63 @@ describe('getCompanyDetails', () => {
     expect(result).toContain('No company found matching "Ghost"');
   });
 
+  it('titles a codename-only company by its project name', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      id: 'c1',
+      target: null,
+      project_name: 'Project Sunrise',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({
+      company_name: 'Project Sunrise',
+    })) as string;
+
+    expect(result).toContain('## Company Details: [Project Sunrise]');
+    expect(result).not.toContain('## Company Details: Unknown');
+  });
+
+  it('titles a company carrying both names with the target and the codename', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      id: 'c1',
+      target: 'Acme Corp',
+      project_name: 'Project Sunrise',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('## Company Details: Acme Corp [Project Sunrise]');
+  });
+
+  it('prints the company context with a note on how to weigh it', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      id: 'c1',
+      target: 'Acme',
+      context: '## Background\nFounder wants out; plant rebuilt in 2024.',
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('### Context');
+    expect(result).toContain('Founder wants out; plant rebuilt in 2024.');
+    expect(result).toContain('first-hand internal knowledge');
+  });
+
+  it('omits the Context section when the company has none', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme', context: '   ' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).not.toContain('### Context');
+  });
+
   it('rejects whitespace-only input without hitting the repository', async () => {
     const result = (await getCompanyDetails.invoke({ company_name: '   ' })) as string;
 

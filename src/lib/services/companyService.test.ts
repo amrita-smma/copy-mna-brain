@@ -220,6 +220,33 @@ describe("CompanyService.create", () => {
 
     expect(repos.companyLogRepo.insert).not.toHaveBeenCalled();
   });
+
+  it("requires either target or project_name, like createFromDTO", async () => {
+    const repos = makeRepos();
+    const service = buildService(repos);
+
+    await expect(
+      service.create({ target: " ", project_name: "" } as any),
+    ).rejects.toThrow("Company requires either target or project_name.");
+    await expect(service.create({} as any)).rejects.toThrow(
+      "Company requires either target or project_name.",
+    );
+    expect(repos.companyRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it("allows a project-only company, so a codename-only intake can land", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ target: null, project_name: "Project Falcon" }),
+    );
+    const service = buildService(repos);
+
+    await service.create({ project_name: "Project Falcon" } as any);
+
+    expect(repos.companyRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ project_name: "Project Falcon" }),
+    );
+  });
 });
 
 describe("CompanyService.createFromDTO", () => {

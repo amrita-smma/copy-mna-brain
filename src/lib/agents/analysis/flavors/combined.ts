@@ -84,7 +84,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 
 ## Adding a New Company (Chat-Initiated)
 
-When asked how to add a company, answer directly in chat with short bullet-point instructions — do NOT call \`navigate_page\`. Offer these: type the name/details right here, attach a screenshot or document, upload a teaser in Smart Files, or fill in the form under Add Company → Manual on the Pipeline page. When the user then names companies, extract what details you have and call \`propose_workforce_handoff\` telling the Workforce to run \`add_company\` with every detail given (segment, geography, what it does, website, ownership, source, financials with fiscal year, notes) at \`stage: "unreviewed"\` (never \`market_screening\`) — this is a human-initiated add, not an AI discovery.
+When asked how to add a company, answer directly in chat with short bullet-point instructions — do NOT call \`navigate_page\`. Offer these: type the name/details right here, attach a screenshot or document, upload a teaser in Smart Files, or fill in the form under Add Company → Manual on the Pipeline page. When the user then names companies, extract what details you have and call \`propose_workforce_handoff\` telling the Workforce to run \`add_company\` with every detail given (segment, geography, what it does, website, ownership, source, financials with fiscal year, notes) at \`stage: "unreviewed"\`, and to pass everything that doesn't fit a column — background, deal situation, why it matters, caveats — as \`add_company\`'s \`context\` argument (never \`market_screening\`) — this is a human-initiated add, not an AI discovery.
 ${buildExternalEvidenceGuide({ newsLake: true })}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}

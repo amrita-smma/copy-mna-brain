@@ -164,6 +164,10 @@ export interface CompanyAgentFilters {
   comments?: string;
   remarks?: string;
   thesisContent?: string;
+  /** Partial match on the free-form markdown Context recorded on the company. */
+  context?: string;
+  /** Keep only companies that have (true) / have no (false) Context written. */
+  hasContext?: boolean;
   promotedReasons?: string;
   source?: "inbound" | "outbound";
   status?: "active" | "dropped";
@@ -231,7 +235,7 @@ export interface CompanyAgentFilters {
   hasResurfaceScheduled?: boolean;
   resurfaceAfter?: string;
   resurfaceBefore?: string;
-  /** Free-text ILIKE across target, project_name, segment, and geography. */
+  /** Free-text ILIKE across target, project_name, segment, geography, and context. */
   searchTerm?: string;
   limit?: number;
 }
@@ -775,6 +779,14 @@ export class CompanyRepository {
     if (filters.remarks) push(ilike(companies.remarks, `%${filters.remarks}%`));
     if (filters.thesisContent)
       push(ilike(companies.thesis_content, `%${filters.thesisContent}%`));
+    if (filters.context) push(ilike(companies.context, `%${filters.context}%`));
+    // "Has context" means non-empty text, not merely a non-NULL column: a row
+    // whose Context was cleared in the editor is saved as '' and must read as
+    // having none.
+    if (filters.hasContext === true)
+      push(sql`coalesce(trim(${companies.context}), '') <> ''`);
+    if (filters.hasContext === false)
+      push(sql`coalesce(trim(${companies.context}), '') = ''`);
     if (filters.promotedReasons)
       push(ilike(companies.promoted_reasons, `%${filters.promotedReasons}%`));
     if (filters.source) push(eq(companies.source, filters.source));
@@ -937,6 +949,7 @@ export class CompanyRepository {
           ilike(companies.project_name, term),
           ilike(companies.segment, term),
           ilike(companies.geography, term),
+          ilike(companies.context, term),
         ),
       );
     }

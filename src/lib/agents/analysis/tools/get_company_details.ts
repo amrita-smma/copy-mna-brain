@@ -10,6 +10,7 @@ import {
   CompanyScreeningDerivedRepository,
 } from "@/lib/repositories";
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
+import { companyDisplayTitle } from "@/lib/companyDisplay";
 
 /** Canonical 8-4-4-4-12 UUID, the shape every `companies.id` takes. */
 const UUID_RE =
@@ -78,7 +79,7 @@ export const getCompanyDetails = tool(
       const ebitdaRow = displayYears.map((y) => fmtNum(byYear.get(y)?.ebitda_usd_mn)).join(" | ");
       const marginRow = displayYears.map((y) => fmtPct(byYear.get(y)?.ebitda_margin)).join(" | ");
 
-      const result = `## Company Details: ${c.target || "Unknown"}
+      const result = `## Company Details: ${companyDisplayTitle(c)}
 
 ### Basic Information
 - **Company ID (UUID):** ${c.id}
@@ -110,6 +111,7 @@ export const getCompanyDetails = tool(
 
 ${screening?.l1_screening_result ? `### L1 Screening\n- **Result:** ${screening.l1_screening_result}${screening.l1_rationale ? `\n- **Rationale:** ${screening.l1_rationale}` : ""}\n` : ""}
 ${c.comments ? `### Comments\n${c.comments}` : ""}
+${c.context?.trim() ? `### Context\nFree-form background the deal team wrote on this company. Treat it as first-hand internal knowledge and weigh it alongside the structured fields above.\n\n${c.context.trim()}\n` : ""}
 `;
 
       logger.debug("✓ Company details retrieved");
@@ -147,7 +149,7 @@ Args:
 Provide at least one of the two.
 
 Returns:
-    Detailed company profile including the company ID (UUID) and all available financial data.`,
+    Detailed company profile including the company ID (UUID), all available financial data, and the company's free-form Context — the background the deal team wrote on the company card's Context tab. When a Context section is present, weigh it alongside the structured fields; it is first-hand internal knowledge that no column captures.`,
     schema: z.object({
       company_id: z
         .string()

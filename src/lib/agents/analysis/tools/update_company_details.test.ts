@@ -259,6 +259,34 @@ describe("update_company_details (workforce tool)", () => {
       expect(result).toMatch(/geography: "Korea" → "Japan"/);
     });
 
+    it("writes the Context tab's markdown through the context field", async () => {
+      findByIdOrNull.mockResolvedValueOnce({ ...ACME, context: "Old background." });
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { context: "## Background\nFounder wants out." },
+      });
+
+      expect(updateFromDTO).toHaveBeenCalledWith(
+        "c-acme",
+        { context: "## Background\nFounder wants out." },
+        "UPDATED_DETAILS_BY_AI_WORKFORCE",
+      );
+      expect(result).toMatch(/context:/);
+    });
+
+    it("clears the context when null is passed", async () => {
+      findByIdOrNull.mockResolvedValueOnce({ ...ACME, context: "Old background." });
+
+      await call({ company_id: "c-acme", fields: { context: null } });
+
+      expect(updateFromDTO).toHaveBeenCalledWith(
+        "c-acme",
+        { context: null },
+        "UPDATED_DETAILS_BY_AI_WORKFORCE",
+      );
+    });
+
     it("skips values that already match what is on record", async () => {
       findByIdOrNull.mockResolvedValueOnce(ACME);
 

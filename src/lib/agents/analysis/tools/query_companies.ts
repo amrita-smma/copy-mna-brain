@@ -31,6 +31,25 @@ import {
  * saw by passing those ids back.
  */
 
+/**
+ * How much of a company's free-form Context the table shows per row. The column
+ * is a scannable preview, not the full document — `get_company_details` prints
+ * it in full for a single company.
+ */
+const CONTEXT_PREVIEW_CHARS = 300;
+
+/** One-line, pipe-safe preview of a company's Context for the results table. */
+function contextPreview(context: string | null | undefined): string {
+  const text = context?.replace(/\s+/g, " ").trim();
+  if (!text) return "-";
+  const clipped =
+    text.length > CONTEXT_PREVIEW_CHARS
+      ? `${text.slice(0, CONTEXT_PREVIEW_CHARS)}…`
+      : text;
+  // A literal pipe would split the markdown cell and shift every later column.
+  return clipped.replace(/\|/g, "\\|");
+}
+
 const argsSchema = z.object({
   ...companyFilterShape,
   include_relationships: z
@@ -39,6 +58,12 @@ const argsSchema = z.object({
     .describe(
       "Append a Relationships column listing each company's direct graph edges. Costs one extra graph read.",
     ),
+  include_context: z
+    .boolean()
+    .optional()
+    .describe(
+      `Append a Context column previewing each company's free-form markdown Context (first ${CONTEXT_PREVIEW_CHARS} characters). Free — no extra query.`,
+    ),
   limit: z.number().optional().default(20).describe("Max results to return"),
 });
 
@@ -46,7 +71,7 @@ type Args = z.infer<typeof argsSchema>;
 
 export const queryCompanies = tool(
   async (args: Args) => {
-    const { include_relationships, limit = 20, ...filterArgs } = args;
+    const { include_relationships, include_context, limit = 20, ...filterArgs } = args;
     logger.debug(
       `🔧 TOOL CALLED: query_companies(segment='${filterArgs.segment}', stage='${filterArgs.stage}', connected_to='${filterArgs.connected_to}', ids=${filterArgs.company_ids?.length ?? 0}, search='${filterArgs.search_term}')`,
     );
@@ -113,6 +138,7 @@ export const queryCompanies = tool(
         "EV ($M)",
       ];
       if (relationshipsById) headerCells.push("Relationships");
+      if (include_context) headerCells.push("Context");
 
       const rows = companies.map((c) => {
         const f = finByCompany.get(c.id);
@@ -141,6 +167,7 @@ export const queryCompanies = tool(
           const edges = relationshipsById.get(c.id) ?? [];
           cells.push(edges.length ? edges.join("; ") : "-");
         }
+        if (include_context) cells.push(contextPreview(c.context));
         return cells.join(" | ");
       });
 
@@ -184,10 +211,11 @@ ${COMPANY_STAGE_DEFAULT_DOC}
 
 Extra args:
     include_relationships: If true, append a Relationships column listing each company's direct graph edges (who it sells to / invested in / partners with).
+    include_context: If true, append a Context column previewing each company's free-form markdown Context — the background a human wrote on the company card's Context tab. Set this whenever the question turns on qualitative background (why a deal matters, what was said about it, how it was sourced) rather than on columns alone; the preview is truncated, so call get_company_details for the full text once you know which company you care about.
     limit: Max rows to return (default: 20, max: 50)
 
 Returns:
-    A markdown table: company id, target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV (plus relationships when requested).`,
+    A markdown table: company id, target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV (plus relationships / context when requested).`,
     schema: argsSchema,
   },
 );

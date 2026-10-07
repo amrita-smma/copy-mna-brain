@@ -646,7 +646,18 @@ export class CompanyService {
     if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
   }
 
-  private assertHasCompanyIdentity(input: CompanyDTOInput): void {
+  /**
+   * A company must be identifiable by its real name OR its internal project
+   * codename — a deal running under a codename legitimately has no target, but
+   * a row with neither is unaddressable in every list, picker and export.
+   *
+   * Structurally typed rather than tied to `CompanyDTOInput` so both write
+   * paths (`createFromDTO` and `create`) share the one invariant.
+   */
+  private assertHasCompanyIdentity(input: {
+    target?: string | null;
+    project_name?: string | null;
+  }): void {
     const hasTarget = typeof input.target === 'string' && input.target.trim().length > 0;
     const hasProjectName =
       typeof input.project_name === 'string' && input.project_name.trim().length > 0;
@@ -656,6 +667,7 @@ export class CompanyService {
   }
 
   async create(company: TablesInsert<'companies'>, logAction?: string) {
+    this.assertHasCompanyIdentity(company);
     await this.assertStageWritable(company);
     const data = await this.companyRepo.insert(company);
     if (logAction) {

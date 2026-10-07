@@ -390,6 +390,11 @@ export const companies = pgTable(
     pipeline_stage: text().default("L0").notNull(),
     remarks: text(),
     thesis_content: text(),
+    // Free-form markdown background a human (or the workforce at intake) writes
+    // about the company — the "Context" tab on the company card. Read by the AI
+    // Opinion run, the slide/company-card generators and the agent read tools,
+    // so it carries weight the structured columns can't express.
+    context: text(),
     source: dealOrigin(),
     status: companyStatus().default("active").notNull(),
     dropped_reason: text(),

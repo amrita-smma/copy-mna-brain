@@ -129,6 +129,16 @@ export const companyFilterShape = {
   remarks: z.string().optional().describe('Free-text remarks (partial match)'),
   key_rationale: z.string().optional().describe('Key rationale text (partial match)'),
   thesis_content: z.string().optional().describe('Stored thesis text (partial match)'),
+  context: z
+    .string()
+    .optional()
+    .describe(
+      "Free-form markdown Context written on the company card's Context tab — human background, deal colour and anything that didn't fit a column (partial match)",
+    ),
+  has_context: z
+    .boolean()
+    .optional()
+    .describe('true → only companies that have Context written; false → only those without'),
   promoted_reasons: z.string().optional().describe('Reasons recorded on promotion (partial match)'),
   dropped_reason: z.string().optional().describe('Reason recorded on drop (partial match)'),
 
@@ -279,6 +289,8 @@ export function mapCompanyFilters(args: CompanyFilterArgs): CompanyAgentFilters 
     remarks: args.remarks,
     keyRationale: args.key_rationale,
     thesisContent: args.thesis_content,
+    context: args.context,
+    hasContext: args.has_context,
     promotedReasons: args.promoted_reasons,
     droppedReason: args.dropped_reason,
     hasAiOpinion: args.has_ai_opinion,
@@ -356,13 +368,13 @@ export const COMPANY_FILTER_DOC = `Every filter is optional and AND-combined. Th
 - Pipeline: stage (exact), stage_in (any of several), include_pre_pipeline, status ("active"|"dropped"), watchlist_status, workflow_status
 - Deal shape: source ("inbound"|"outbound"), deal_type ("majority"|"minority"), stake, deal_size, doc_type, is_live, has_nbo_date, nbo_after, nbo_before
 - People: deal_sponsor, deal_captain, entered_by, originator, banker, banker_source, advisor (all partial name matches)
-- Narrative text: comments, remarks, key_rationale, thesis_content, promoted_reasons, dropped_reason
+- Narrative text: comments, remarks, key_rationale, thesis_content, promoted_reasons, dropped_reason, context (the free-form markdown Context tab on the company card), has_context
 - AI Opinion: has_ai_opinion, ai_opinion_verdict ("pass"|"fail"|"tentative"), ai_opinion_status ("processing"|"completed"|"failed"), ai_opinion_summary, ai_opinion_updated_after / ai_opinion_updated_before
 - Financials (FY2024, USD M): min_revenue, max_revenue, min_ebitda, max_ebitda
 - Timestamps (inclusive bounds; date or ISO-8601): created_after / created_before, updated_after / updated_before, last_activity_after / last_activity_before, dropped_after / dropped_before, dropped_by, has_resurface_scheduled, resurface_after / resurface_before
 - Housekeeping: has_possible_duplicate, matched_track_id
 - Relationship graph: connected_to (company name or uuid — keep only its direct graph neighbours), relation_type ("INVESTED_IN"|"PARTNER"|"SELLS_TO"|"SUPPLIER"), has_relationships
-- Free text: search_term (target/project/segment/geography)`;
+- Free text: search_term (target/project/segment/geography/context)`;
 
 /**
  * The stage-default note, kept separate from {@link COMPANY_FILTER_DOC} because
