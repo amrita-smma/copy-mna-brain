@@ -21,6 +21,7 @@ import type { FundUpdateAssetSelection } from '@/lib/services/fundUpdateApplySer
 import { isGenericDocumentPhrase } from '@/lib/agents/file_processing/genericNameDenylist';
 import { SMART_FILES_UPLOAD_CATEGORIES } from '@/lib/smartFilesTabs';
 import type { CompanyDTOInput } from '@/lib/dto/companyDTO';
+import type { DealType } from '@/lib/companies/dealTypes';
 import { createNeo4jDriver } from '@/lib/neo4j';
 import { CompanyRelationRepository } from '@/lib/repositories/companyRelationRepository';
 import {
@@ -400,7 +401,7 @@ export interface ApproveFileInput {
   financial_years_to_apply?: number[];
   /** Required L0 fields supplied by the user when creating a company from AI. */
   entered_by?: string | null;
-  deal_type?: 'majority' | 'minority' | null;
+  deal_type?: DealType | null;
   banker?: string | null;
   source?: 'inbound' | 'outbound' | null;
   geography?: string | null;

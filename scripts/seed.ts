@@ -50,6 +50,7 @@ import { RSS_CATEGORIES, type RssCategory } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
 import { createContainer } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
+import type { DealType } from '../src/lib/companies/dealTypes';
 // Type-only: keeps the (heavy, LangChain-pulling) agent module out of the
 // seed's runtime graph while still checking each workspace's flavor.
 import type { CopilotAgentType } from '../src/lib/agents/analysis';
@@ -523,7 +524,7 @@ type SeedCompany = {
   dropped_reason?: string;
   dropped_at?: string;
   // Pipeline (HTML-parity) fields
-  deal_type?: 'majority' | 'minority';
+  deal_type?: DealType;
   /**
    * Email of a user upserted before companies (the seed user or a
    * SEED_EXTRA_USERS entry). `companies.entered_by` is a users.id FK, so this
@@ -1213,7 +1214,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     source: 'inbound',
-    deal_type: 'minority',
+    deal_type: 'public_market',
     banker: 'Sundae Securities',
     originator: 'James Wong',
     doc_type: 'teaser',
@@ -1297,7 +1298,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     source: 'outbound',
-    deal_type: 'minority',
+    deal_type: 'bond_issuance',
     originator: 'Nur Khairusy',
     workflow_status: 'Target identified',
     key_rationale:
@@ -1353,7 +1354,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Active',
     source: 'outbound',
-    deal_type: 'minority',
+    deal_type: 'ma_advisory',
     originator: 'James Wong',
     workflow_status: 'Direct outreach',
     key_rationale:
@@ -1399,7 +1400,7 @@ const seedCompanies: SeedCompany[] = [
     status: 'active',
     watchlist_status: 'Monitoring',
     source: 'outbound',
-    deal_type: 'minority',
+    deal_type: 'equity_crowdfunding',
     originator: 'Nur Khairusy',
     workflow_status: 'Market intel',
     key_rationale:
@@ -2074,7 +2075,7 @@ const seedCompanies: SeedCompany[] = [
     pipeline_stage: 'L0',
     status: 'active',
     source: 'outbound',
-    deal_type: 'minority',
+    deal_type: 'ipo',
     workflow_status: 'Intermediary approach',
     key_rationale: 'Infrastructure supercycle beneficiary; government housing program drives multi-year volume growth. Attractive EV/ton vs peers.',
     remarks: 'Soft approach via Ho Chi Minh City IB contact. Board aware of PE interest.',

@@ -7,6 +7,7 @@ import { createContainer } from "@/lib/services";
 import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositories";
 import type { Tables } from "@/lib/repositories";
 import type { FinancialUpsertInput } from "@/lib/services/companyService";
+import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
 
 /**
  * Edit any editable detail on an existing company — its name, profile, deal
@@ -123,11 +124,17 @@ const FieldsSchema = z
       .nullable()
       .optional()
       .describe("Deal origin: inbound or outbound"),
+    // z.string, not z.enum: the handler normalizes, and a z.enum here would
+    // reject the human/LLM spellings ("M&A Advisory") before it ever ran —
+    // the same mismatch add_company had.
     deal_type: z
-      .enum(["majority", "minority"])
+      .string()
       .nullable()
       .optional()
-      .describe("Deal type: majority or minority (lowercase)"),
+      .describe(
+        `Deal type. One of: ${DEAL_TYPES.join(", ")} (snake_case), or a ` +
+          'human/LLM spelling such as "Public Market Investing" or "M&A Advisory".',
+      ),
     stake: nullableText().describe("Stake on offer / targeted"),
     deal_size: nullableText().describe("Indicative deal size"),
     banker: nullableText().describe("Banker name for an inbound deal"),
@@ -293,6 +300,18 @@ export const updateCompanyDetails = tool(
     }
 
     const providedFields = fields ?? {};
+
+    // deal_type is a Postgres enum, so coerce before the patch is built —
+    // clearing it (null / "") stays a clear.
+    const rawDealType = providedFields.deal_type;
+    if (typeof rawDealType === "string" && rawDealType.trim() !== "") {
+      const normalized = normalizeDealType(rawDealType);
+      if (!normalized) {
+        return `**Error:** deal_type must be one of ${DEAL_TYPES.join(", ")}; got "${rawDealType}".`;
+      }
+      providedFields.deal_type = normalized;
+    }
+
     const rows = financials ?? [];
     if (Object.keys(providedFields).length === 0 && rows.length === 0) {
       return `**Error:** nothing to update. Pass \`fields\` (company detail columns), \`financials\` (per-year figures), or both.`;

@@ -1,3 +1,4 @@
+import type { DealType } from "@/lib/companies/dealTypes";
 import {
   and,
   asc,
@@ -171,7 +172,7 @@ export interface CompanyAgentFilters {
   promotedReasons?: string;
   source?: "inbound" | "outbound";
   status?: "active" | "dropped";
-  dealType?: "majority" | "minority";
+  dealType?: DealType;
   /** Deal sponsor user name (partial, case-insensitive; deal_sponsor is a uuid FK to users). */
   dealSponsor?: string;
   /** Deal captain user name (partial, case-insensitive; deal_captain is a uuid FK to users). */

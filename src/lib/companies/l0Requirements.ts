@@ -67,7 +67,7 @@ export const L0_REQUIRED_FIELDS: readonly L0RequiredField[] = [
   },
   {
     key: 'deal_type',
-    label: 'Deal Type: Majority/Minority',
+    label: 'Deal Type',
     isSatisfied: (c) => filled(c.deal_type),
   },
   {

@@ -43,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatDealType } from "@/lib/companies/dealTypes";
 
 /**
  * Read-only "L0 → L1 Submission" overview slide. The narrative sections are
@@ -569,7 +570,7 @@ export default function CompanyOverviewSlide({
   const dealLead = effectiveDealLead(company, currentStage, tracks, pipelineStages.captainKeys);
 
   const dealStructure: string[] = [
-    `Deal type: ${company.deal_type ? company.deal_type[0].toUpperCase() + company.deal_type.slice(1) : "—"}`,
+    `Deal type: ${formatDealType(company.deal_type) ?? "—"}`,
     `Target stake: ${company.stake && company.stake !== "—" ? company.stake : "TBC at L1"}`,
     `Indicative cheque size: ${company.deal_size && company.deal_size !== "—" ? company.deal_size : "TBC at L1"}`,
     `Indicative valuation (EV): ${fmtMoney(company.ev_2024)}`,
@@ -585,7 +586,7 @@ export default function CompanyOverviewSlide({
             L0 to L1 Submission: {title}
           </div>
           <div className="mt-1 text-[12px] italic text-muted-foreground">
-            {company.deal_type ? `${company.deal_type[0].toUpperCase()}${company.deal_type.slice(1)} ` : ""}
+            {company.deal_type ? `${formatDealType(company.deal_type)} ` : ""}
             investment in {sector}
             {company.geography ? ` · ${company.geography}` : ""}
           </div>
@@ -616,7 +617,7 @@ export default function CompanyOverviewSlide({
       {/* Meta boxes */}
       <div className="mb-1.5 grid grid-cols-2 gap-1.5 md:grid-cols-4">
         {[
-          ["Project Type", company.deal_type || "M&A"],
+          ["Project Type", formatDealType(company.deal_type) || "M&A"],
           ["Geography", company.geography || "—"],
           ["Business Line", sector],
           ["End Sector", sector.split("—")[0].split("-")[0].trim()],

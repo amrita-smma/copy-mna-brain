@@ -60,6 +60,7 @@ import {
   dealLeadLabel,
   type TrackLike,
 } from "@/lib/tracks/matchTracks";
+import { formatDealType } from "@/lib/companies/dealTypes";
 
 /**
  * Matched-track pills for a company. Shows ONLY the persisted matches assigned
@@ -94,11 +95,6 @@ function MatchedTracksCell({
     </div>
   );
 }
-
-const DEAL_TYPE_LABEL: Record<string, string> = {
-  majority: "Majority",
-  minority: "Minority",
-};
 
 /**
  * Current-year value for `key`, falling back to the nearest previous year when
@@ -320,8 +316,8 @@ export default function OutboundCompaniesTable({
         sort: sortDesc("deal_type"), filter: filterDesc("deal_type"),
         cell: (c) =>
           c.deal_type ? (
-            <Badge variant="outline" className="capitalize">
-              {DEAL_TYPE_LABEL[c.deal_type] ?? c.deal_type}
+            <Badge variant="outline">
+              {formatDealType(c.deal_type)}
             </Badge>
           ) : (
             <span className="text-muted-foreground">—</span>

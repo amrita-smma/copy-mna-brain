@@ -18,6 +18,7 @@
  *     include/exclude list the Postgres query can AND with everything else.
  */
 import { z } from 'zod';
+import { DEAL_TYPES } from '@/lib/companies/dealTypes';
 import type { CompanyAgentFilters } from '@/lib/repositories';
 import { PRE_PIPELINE_STAGES } from '@/lib/pipeline/stages';
 import {
@@ -95,7 +96,7 @@ export const companyFilterShape = {
 
   // ── Deal shape ──
   source: z.enum(['inbound', 'outbound']).optional().describe('Deal origin (exact match)'),
-  deal_type: z.enum(['majority', 'minority']).optional().describe('Deal type (exact match)'),
+  deal_type: z.enum(DEAL_TYPES).optional().describe('Deal type (exact match)'),
   stake: z.string().optional().describe('Stake on offer (partial match)'),
   deal_size: z.string().optional().describe('Deal size (partial match)'),
   doc_type: z.string().optional().describe('Document type on the deal (partial match)'),
@@ -366,7 +367,7 @@ export const COMPANY_FILTER_DOC = `Every filter is optional and AND-combined. Th
 - Identity: company_ids (exact uuids from a previous query_companies call), entry_id, watchlist_id, name (target/project, partial), alias, website
 - Classification: segment, segment_related_offerings, company_focus, geography, ownership
 - Pipeline: stage (exact), stage_in (any of several), include_pre_pipeline, status ("active"|"dropped"), watchlist_status, workflow_status
-- Deal shape: source ("inbound"|"outbound"), deal_type ("majority"|"minority"), stake, deal_size, doc_type, is_live, has_nbo_date, nbo_after, nbo_before
+- Deal shape: source ("inbound"|"outbound"), deal_type (one of ${DEAL_TYPES.map((t) => `"${t}"`).join('|')}), stake, deal_size, doc_type, is_live, has_nbo_date, nbo_after, nbo_before
 - People: deal_sponsor, deal_captain, entered_by, originator, banker, banker_source, advisor (all partial name matches)
 - Narrative text: comments, remarks, key_rationale, thesis_content, promoted_reasons, dropped_reason, context (the free-form markdown Context tab on the company card), has_context
 - AI Opinion: has_ai_opinion, ai_opinion_verdict ("pass"|"fail"|"tentative"), ai_opinion_status ("processing"|"completed"|"failed"), ai_opinion_summary, ai_opinion_updated_after / ai_opinion_updated_before

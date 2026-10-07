@@ -190,11 +190,37 @@ describe("update_company_details (workforce tool)", () => {
       expect(updateFromDTO).not.toHaveBeenCalled();
     });
 
-    it("rejects an out-of-enum deal_type via the schema layer", async () => {
-      await expect(
-        call({ company_id: "c-acme", fields: { deal_type: "Majority" } }),
-      ).rejects.toThrow(/did not match expected schema/i);
+    it("refuses a deal_type it cannot place, without touching the company", async () => {
+      findByIdOrNull.mockResolvedValueOnce(ACME);
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { deal_type: "controlling interest" },
+      });
+
+      expect(result).toMatch(/deal_type must be one of/);
       expect(updateFromDTO).not.toHaveBeenCalled();
+    });
+
+    it("normalizes the deal_type spellings a human or an LLM writes", async () => {
+      // deal_type is a Postgres enum, so the label has to be coerced before
+      // the patch is built — a z.enum on the argument would have rejected it
+      // before the handler ever ran.
+      findByIdOrNull.mockResolvedValue(ACME);
+
+      for (const [input, expected] of [
+        ["Public Market Investing", "public_market"],
+        ["M&A Advisory", "ma_advisory"],
+        ["IPO", "ipo"],
+      ] as const) {
+        updateFromDTO.mockClear();
+        await call({ company_id: "c-acme", fields: { deal_type: input } });
+        expect(updateFromDTO).toHaveBeenCalledWith(
+          "c-acme",
+          expect.objectContaining({ deal_type: expected }),
+          expect.anything(),
+        );
+      }
     });
   });
 

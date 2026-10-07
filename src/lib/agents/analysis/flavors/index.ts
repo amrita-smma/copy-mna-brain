@@ -10,6 +10,10 @@
  * 2. Create `./<key>.ts` exporting a `CopilotFlavor` (its tool list and its
  *    system prompt).
  * 3. Add it to `COPILOT_FLAVORS` below.
+ * 4. Give it a default `deal_type` in `./flavorDealTypes` — the shape of
+ *    transaction it stamps on a company `add_company` creates without one.
+ *    That map is keyed by `CopilotAgentType` too, so step 1 fails the build
+ *    until this is done.
  *
  * Then wire the two user-facing places that name a flavor: the admin-portal
  * picker, and the chat welcome message + suggestions. Nothing in the graph

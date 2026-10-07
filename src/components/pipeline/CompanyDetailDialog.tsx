@@ -156,6 +156,7 @@ import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import { useSetPageCompanyId } from "@/components/layout/PageContextProvider";
+import { DEAL_TYPE_OPTIONS, formatDealType } from "@/lib/companies/dealTypes";
 
 export interface CompanyData {
   id: string;
@@ -2119,12 +2120,15 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none__">-</SelectItem>
-                          <SelectItem value="majority">Majority</SelectItem>
-                          <SelectItem value="minority">Minority</SelectItem>
+                          {DEAL_TYPE_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <p className="text-sm font-medium capitalize break-words">{company.deal_type || '—'}</p>
+                      <p className="text-sm font-medium break-words">{formatDealType(company.deal_type) || '—'}</p>
                     )}
                   </div>
                   <div>

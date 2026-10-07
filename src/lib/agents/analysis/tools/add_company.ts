@@ -6,6 +6,8 @@ import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository, UserRepository } from "@/lib/repositories";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
+import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
+import { defaultDealTypeFor } from "../flavors/flavorDealTypes";
 
 // Stages the agent is allowed to add a company at. All three sit BELOW L1, so
 // none requires a HITL approval — they are triage/intake stages, not
@@ -74,7 +76,6 @@ type DetailTextField = (typeof DETAIL_TEXT_FIELDS)[number];
 const PEOPLE_FIELDS = ["deal_sponsor", "deal_captain", "entered_by"] as const;
 type PeopleField = (typeof PEOPLE_FIELDS)[number];
 
-const ALLOWED_DEAL_TYPES = ["majority", "minority"] as const;
 
 /**
  * Outcome of resolving the people columns. A single shape rather than a
@@ -242,12 +243,12 @@ export const addCompany = tool(
       return `**Error:** source must be one of ${ALLOWED_SOURCES.join(", ")}; got "${source}".`;
     }
 
-    const normalizedDealType = deal_type?.trim().toLowerCase() || undefined;
-    if (
-      normalizedDealType &&
-      !ALLOWED_DEAL_TYPES.includes(normalizedDealType as (typeof ALLOWED_DEAL_TYPES)[number])
-    ) {
-      return `**Error:** deal_type must be one of ${ALLOWED_DEAL_TYPES.join(", ")}; got "${deal_type}".`;
+    // `normalizeDealType` accepts the handful of spellings an LLM reasonably
+    // writes for the multi-word values ("Public Market Investing", "M&A
+    // Advisory") and returns undefined for anything else.
+    const normalizedDealType = deal_type?.trim() ? normalizeDealType(deal_type) : undefined;
+    if (deal_type?.trim() && !normalizedDealType) {
+      return `**Error:** deal_type must be one of ${DEAL_TYPES.join(", ")}; got "${deal_type}".`;
     }
 
     const trimmedNboDate = nbo_date?.trim() || undefined;
@@ -301,7 +302,17 @@ export const addCompany = tool(
       });
       if (people.error) return people.error;
 
-      const { companyService, dealNoteService } = createContainer(db, workspaceId);
+      const { companyService, dealNoteService, workspaceService } = createContainer(
+        db,
+        workspaceId,
+      );
+
+      // No explicit deal_type → the workspace's Copilot flavor decides. A
+      // capital-markets desk should not accumulate deals labelled "majority"
+      // just because that is the column default.
+      const resolvedDealType =
+        normalizedDealType ??
+        defaultDealTypeFor(await workspaceService.getCopilotAgent(workspaceId));
       const trimmedNote = note?.trim() || undefined;
       const trimmedSegment = segment?.trim() || undefined;
       const trimmedGeography = geography?.trim() || undefined;
@@ -313,7 +324,7 @@ export const addCompany = tool(
           segment: trimmedSegment,
           geography: trimmedGeography,
           source: normalizedSource as (typeof ALLOWED_SOURCES)[number],
-          ...(normalizedDealType ? { deal_type: normalizedDealType } : {}),
+          deal_type: resolvedDealType,
           ...(trimmedNboDate ? { nbo_date: trimmedNboDate } : {}),
           ...(is_live !== undefined ? { is_live } : {}),
           ...people.values,
@@ -399,7 +410,7 @@ Args:
     source: Optional origin tag. One of "inbound" or "outbound"; defaults to "outbound" (AI-discovered companies are outbound by nature).
     company_focus: Optional 1-2 line description of what the company does.
     website, ownership: Optional (ownership e.g. "family office", "PE-backed", "public").
-    deal_type: Optional "majority" or "minority" (lowercase).
+    deal_type: Optional deal type (lowercase). One of: majority, minority, public_market, bond_issuance, ipo, follow_on_offering, private_placement, equity_crowdfunding, debt_financing, ma_advisory, restructuring, joint_venture. Omit it unless the instruction states the transaction shape — the workspace's Copilot flavor supplies the right default.
     stake, deal_size: Optional free text — the stake on offer and the indicative deal size.
     doc_type: Optional document type the deal arrived as (e.g. "teaser", "im").
     workflow_status: Optional free-text pipeline workflow status (e.g. "First contact made").
@@ -473,9 +484,13 @@ Returns:
         .optional()
         .describe("Products / offerings within the segment"),
       deal_type: z
-        .enum(ALLOWED_DEAL_TYPES)
+        .string()
         .optional()
-        .describe("Deal type: majority or minority (lowercase)"),
+        .describe(
+          `Deal type. One of: ${DEAL_TYPES.join(", ")} (snake_case), or a ` +
+            "human/LLM spelling such as \"Public Market Investing\" or \"M&A Advisory\". " +
+            "Omit to use the workspace's flavor default.",
+        ),
       stake: z.string().optional().describe("Stake on offer / targeted"),
       deal_size: z.string().optional().describe("Indicative deal size"),
       doc_type: z

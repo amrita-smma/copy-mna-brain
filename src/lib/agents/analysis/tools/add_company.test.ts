@@ -8,6 +8,7 @@ const {
   findAllInWorkspace,
   createDb,
   createContainer,
+  getCopilotAgent,
 } = vi.hoisted(() => ({
   findByNameFuzzy: vi.fn(),
   create: vi.fn(),
@@ -16,6 +17,7 @@ const {
   findAllInWorkspace: vi.fn(),
   createDb: vi.fn(),
   createContainer: vi.fn(),
+  getCopilotAgent: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
@@ -96,9 +98,11 @@ describe("add_company (workforce tool)", () => {
       { id: "u-james", name: "James Wong", email: "james@example.com" },
     ]);
     createDb.mockReset().mockReturnValue({});
+    getCopilotAgent.mockReset().mockResolvedValue("mna");
     createContainer.mockReset().mockReturnValue({
       companyService: { create, updateFinancials },
       dealNoteService: { create: createNote },
+      workspaceService: { getCopilotAgent },
     });
   });
 
@@ -202,11 +206,66 @@ describe("add_company (workforce tool)", () => {
     );
   });
 
-  it("rejects a deal_type outside the enum via the schema layer", async () => {
-    await expect(call({ target: "Acme", deal_type: "controlling" })).rejects.toThrow(
-      /did not match expected schema/i,
+  it("stamps the workspace flavor's default deal_type when none is given", async () => {
+    // A capital-markets desk should not accumulate deals labelled "majority"
+    // just because that is the column default.
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    getCopilotAgent.mockResolvedValue("capital_markets");
+
+    await call({ target: "Acme" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ deal_type: "ipo" }),
+      expect.any(String),
     );
+  });
+
+  it("lets an explicit deal_type beat the flavor default", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    getCopilotAgent.mockResolvedValue("capital_markets");
+
+    await call({ target: "Acme", deal_type: "bond_issuance" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ deal_type: "bond_issuance" }),
+      expect.any(String),
+    );
+  });
+
+  it("falls back to the mna default for a flavor key this build doesn't know", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+    getCopilotAgent.mockResolvedValue("written_by_a_newer_deploy" as never);
+
+    await call({ target: "Acme" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ deal_type: "majority" }),
+      expect.any(String),
+    );
+  });
+
+  it("rejects a deal_type it cannot normalize", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+
+    const result = await call({ target: "Acme", deal_type: "controlling" });
+
+    expect(result).toMatch(/deal_type must be one of/i);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("normalizes human spellings of deal_type before insert", async () => {
+    findByNameFuzzy.mockResolvedValue(null);
+    create.mockResolvedValueOnce({ id: "c-new" });
+
+    await call({ target: "Acme", deal_type: "M&A Advisory" });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ deal_type: "ma_advisory" }),
+      expect.any(String),
+    );
   });
 
   it("rejects a malformed nbo_date via the schema layer", async () => {

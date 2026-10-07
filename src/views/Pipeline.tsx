@@ -127,6 +127,7 @@ import {
 } from "@/lib/aiScreeningClient";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { formatDealType } from "@/lib/companies/dealTypes";
 
 /** Pipeline Status filter: every deal, live deals only, or dropped deals only. */
 export type PipelineViewMode = "all" | "active" | "dropped";
@@ -689,10 +690,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       if (raw === null || raw.trim() === "") hasEmpty = true;
       else values.add(raw);
     }
+    // deal_type is stored as a snake_case enum value; everything else is
+    // already free text the user typed.
     const labelFor = (value: string) =>
-      field === "deal_type"
-        ? value.charAt(0).toUpperCase() + value.slice(1)
-        : value;
+      field === "deal_type" ? (formatDealType(value) ?? value) : value;
     const options = [...values]
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: labelFor(value) }));
@@ -821,8 +822,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
         bVal = (b.geo || "").toLowerCase();
         break;
       case "deal_type":
-        aVal = (a.deal_type || "").toLowerCase();
-        bVal = (b.deal_type || "").toLowerCase();
+        // Sort on the rendered label, not the raw enum value, so the column
+        // orders the way the user reads it ("M&A Advisory", not "ma_advisory").
+        aVal = (formatDealType(a.deal_type) ?? "").toLowerCase();
+        bVal = (formatDealType(b.deal_type) ?? "").toLowerCase();
         break;
       case "stake":
         aVal = (a.stake || "").toLowerCase();

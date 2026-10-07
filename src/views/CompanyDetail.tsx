@@ -128,6 +128,7 @@ import {
 } from '@/lib/api/pipeline';
 import { useRestoreDeal } from '@/components/pipeline/useRestoreDeal';
 import DropDealDialog from '@/components/pipeline/DropDealDialog';
+import { DEAL_TYPE_OPTIONS, formatDealType } from "@/lib/companies/dealTypes";
 
 const websiteHref = (url: string) =>
   /^https?:\/\//i.test(url) ? url : `https://${url}`;
@@ -2023,12 +2024,15 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">-</SelectItem>
-                        <SelectItem value="majority">Majority</SelectItem>
-                        <SelectItem value="minority">Minority</SelectItem>
+                        {DEAL_TYPE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   ) : (
-                    <p className="text-sm font-medium capitalize break-words">{company.deal_type || '—'}</p>
+                    <p className="text-sm font-medium break-words">{formatDealType(company.deal_type) || '—'}</p>
                   )}
                 </div>
                 <div>

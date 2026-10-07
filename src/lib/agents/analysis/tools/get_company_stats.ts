@@ -4,6 +4,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
+import { formatDealType } from "@/lib/companies/dealTypes";
 import {
   CompanyFinancialRepository,
   CompanyRepository,
@@ -56,7 +57,9 @@ function dimensionKey(
     case "ownership":
       return c.ownership || "Unknown";
     case "deal_type":
-      return c.deal_type || "Unknown";
+      // The label, not the raw enum value — the breakdown is read by a human
+      // ("M&A Advisory", not "ma_advisory").
+      return formatDealType(c.deal_type) || "Unknown";
     case "ai_opinion":
       return c.ai_opinion_verdict
         ? c.ai_opinion_verdict.toUpperCase()

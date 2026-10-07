@@ -41,7 +41,24 @@ export const analysisJobStatus = pgEnum("analysis_job_status", [
 ]);
 export const companyStatus = pgEnum("company_status", ["active", "dropped"]);
 export const dealOrigin = pgEnum("deal_origin", ["inbound", "outbound"]);
-export const dealType = pgEnum("deal_type", ["majority", "minority"]);
+// Kept in lockstep with `DEAL_TYPES` in `@/lib/companies/dealTypes`, which
+// carries the display labels and the free-text normalizer; `dealTypes.test.ts`
+// asserts the two lists match. Widening it needs an `ALTER TYPE … ADD VALUE`
+// migration — see 20261007000001_add_investment_banking_deal_types.sql.
+export const dealType = pgEnum("deal_type", [
+  "majority",
+  "minority",
+  "public_market",
+  "bond_issuance",
+  "ipo",
+  "follow_on_offering",
+  "private_placement",
+  "equity_crowdfunding",
+  "debt_financing",
+  "ma_advisory",
+  "restructuring",
+  "joint_venture",
+]);
 export const jobStatus = pgEnum("job_status", [
   "pending",
   "running",

@@ -36,6 +36,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getUsers, type UserSummary } from "@/lib/api/pipeline";
 import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
 import { SMART_FILES_TABS, SMART_FILES_TAB_LABELS } from "@/lib/smartFilesTabs";
+import { DEAL_TYPE_OPTIONS, type DealType } from "@/lib/companies/dealTypes";
 
 interface SuggestedCompany {
   target: string | null;
@@ -133,7 +134,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [checkedYears, setCheckedYears] = useState<Record<number, boolean>>({});
   // Required L0 fields the user must fill when creating a new company from AI
   const [l0EnteredBy, setL0EnteredBy] = useState("");
-  const [l0DealType, setL0DealType] = useState<"majority" | "minority" | "">("");
+  const [l0DealType, setL0DealType] = useState<DealType | "">("");
   const [l0Banker, setL0Banker] = useState("");
   const [l0Source, setL0Source] = useState<"inbound" | "outbound">("inbound");
   const [l0Geography, setL0Geography] = useState("");
@@ -495,15 +496,18 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         <Label className="text-xs">Deal Type</Label>
                         <Select
                           value={l0DealType || "__none__"}
-                          onValueChange={(v) => { setL0DealType(v === "__none__" ? "" : v as "majority" | "minority"); setMissingFields([]); }}
+                          onValueChange={(v) => { setL0DealType(v === "__none__" ? "" : (v as DealType)); setMissingFields([]); }}
                         >
                           <SelectTrigger className="h-7 text-xs">
                             <SelectValue placeholder="Select…" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__">—</SelectItem>
-                            <SelectItem value="majority">Majority</SelectItem>
-                            <SelectItem value="minority">Minority</SelectItem>
+                            {DEAL_TYPE_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>

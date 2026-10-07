@@ -6,6 +6,7 @@ import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 import { isInPipelineStage } from "@/lib/pipeline/stages";
+import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
 
 const NEXT_STAGE = "L0" as const;
 
@@ -65,7 +66,16 @@ export const promoteToL0 = tool(
       const updates: any = {};
       if (segment?.trim()) updates.segment = segment.trim();
       if (geography?.trim()) updates.geography = geography.trim();
-      if (deal_type?.trim()) updates.deal_type = deal_type.trim();
+      // deal_type is a Postgres enum, so a raw passthrough of whatever the
+      // agent typed ("Majority", "Public Market Investing") fails the insert.
+      // Normalize to an enum value and refuse rather than writing garbage.
+      if (deal_type?.trim()) {
+        const normalizedDealType = normalizeDealType(deal_type);
+        if (!normalizedDealType) {
+          return `**Error:** deal_type must be one of ${DEAL_TYPES.join(", ")}; got "${deal_type}".`;
+        }
+        updates.deal_type = normalizedDealType;
+      }
       if (source?.trim()) updates.source = source.trim().toLowerCase();
       if (banker?.trim()) updates.banker = banker.trim();
       if (banker_source?.trim()) updates.banker_source = banker_source.trim();
@@ -111,7 +121,7 @@ Args:
     note: Optional caveat.
     segment: Optional sector/segment (required for L0 if not already set). Keep broad (e.g. "Semiconductor").
     geography: Optional HQ country (required for L0 if not already set). Exactly ONE country name.
-    deal_type: Optional deal type (required for L0 if not already set). "Majority" or "Minority".
+    deal_type: Optional deal type (required for L0 if not already set). One of: majority, minority, public_market, bond_issuance, ipo, follow_on_offering, private_placement, equity_crowdfunding, debt_financing, ma_advisory, restructuring, joint_venture.
     source: Optional source (required for L0 if not already set). "inbound" or "outbound". Defaults to outbound if left blank.
     banker: Optional banker name (required for L0 if source is inbound).
     banker_source: Optional banker source (alternative to banker).`,
@@ -121,7 +131,10 @@ Args:
       note: z.string().optional().describe("Optional caveat"),
       segment: z.string().optional().describe('Broad sector/segment category (e.g. "Semiconductor") — not a hyper-specific niche or long clause. Always in English.'),
       geography: z.string().optional().describe("Exactly ONE country name — never a region, city, or sub-national qualifier appended. Always in English."),
-      deal_type: z.string().optional().describe("Majority or Minority"),
+      deal_type: z
+        .string()
+        .optional()
+        .describe(`Deal type. One of: ${DEAL_TYPES.join(", ")}`),
       source: z.enum(["inbound", "outbound"]).optional().describe("inbound or outbound"),
       banker: z.string().optional().describe("Banker name"),
       banker_source: z.string().optional().describe("Banker firm"),

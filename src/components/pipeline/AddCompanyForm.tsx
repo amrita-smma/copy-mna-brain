@@ -26,6 +26,7 @@ import {
   type ManualCompanyField,
   type ManualCompanyForm,
 } from "@/lib/pipeline/manualAddCompany";
+import { DEAL_TYPE_OPTIONS } from "@/lib/companies/dealTypes";
 
 interface AddCompanyFormProps {
   onSuccess: () => void;
@@ -187,8 +188,11 @@ export default function AddCompanyForm({ onSuccess, onCancel }: AddCompanyFormPr
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="majority">Majority</SelectItem>
-                <SelectItem value="minority">Minority</SelectItem>
+                {DEAL_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

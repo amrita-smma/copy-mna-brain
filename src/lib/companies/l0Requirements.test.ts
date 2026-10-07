@@ -61,7 +61,7 @@ describe('getMissingL0Fields', () => {
       'Company Name / Project Name',
       'Entered By',
       'Deal Type: Inbound/Outbound',
-      'Deal Type: Majority/Minority',
+      'Deal Type',
       'Geo',
       'Sector',
       'Banker',

@@ -59,6 +59,7 @@ import type { PptxSlide } from '@/lib/pptx/pptxElements';
 import { generatePptxBuffer } from '@/lib/pptx/generatePptxBuffer';
 import { buildAgentPresentationPrompt } from '@/lib/pptx/presentationPrompt';
 import { buildPresentationCompanyContext } from '@/lib/pptx/companyContext';
+import { formatDealType } from '@/lib/companies/dealTypes';
 
 const XLSX_CONTENT_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -196,7 +197,7 @@ export function buildCompanySheets(data: {
         pipeline_stage: c.pipeline_stage,
         status: c.status,
         source: c.source,
-        deal_type: c.deal_type,
+        deal_type: formatDealType(c.deal_type),
         watchlist_status: c.watchlist_status,
         workflow_status: c.workflow_status,
         deal_sponsor: userName(c.deal_sponsor),

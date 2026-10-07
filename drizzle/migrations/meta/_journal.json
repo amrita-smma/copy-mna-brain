@@ -1051,6 +1051,13 @@
       "when": 1791331201000,
       "tag": "20261007000001_add_workspace_pipeline_heading",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1791331202000,
+      "tag": "20261007000002_add_investment_banking_deal_types",
+      "breakpoints": true
     }
   ]
 }

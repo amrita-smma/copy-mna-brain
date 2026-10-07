@@ -10,6 +10,7 @@
  * does). `entered_by` is stamped by `POST /api/companies` from the session.
  */
 import { countryCode } from '@/lib/countryFlag';
+import { DEFAULT_DEAL_TYPE, type DealType } from '@/lib/companies/dealTypes';
 import { getMissingL0Fields } from '@/lib/companies/l0Requirements';
 import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
 
@@ -21,7 +22,7 @@ export interface ManualCompanyForm {
   website: string;
   ownership: string;
   source: '' | 'inbound' | 'outbound';
-  deal_type: 'majority' | 'minority';
+  deal_type: DealType;
   banker: string;
   fiscal_year: string;
   revenue_usd_mn: string;
@@ -50,7 +51,7 @@ export function emptyManualCompanyForm(now: Date = new Date()): ManualCompanyFor
     website: '',
     ownership: '',
     source: '',
-    deal_type: 'majority',
+    deal_type: DEFAULT_DEAL_TYPE,
     banker: '',
     fiscal_year: String(defaultFiscalYear(now)),
     revenue_usd_mn: '',
@@ -73,7 +74,7 @@ export interface ManualCompanyPayload {
   website: string | null;
   ownership: string | null;
   source: 'inbound' | 'outbound';
-  deal_type: 'majority' | 'minority';
+  deal_type: DealType;
   banker: string | null;
   comments: string | null;
   remarks: string | null;

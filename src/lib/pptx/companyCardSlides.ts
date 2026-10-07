@@ -26,6 +26,7 @@
 import { companyDisplayTitle } from '@/lib/companyDisplay';
 import { CURRENCY_SYMBOL, type Currency } from '@/lib/currency';
 import { isDealLive } from '@/lib/dealStatus';
+import { formatDealType } from '@/lib/companies/dealTypes';
 import { dealLeadLabel } from '@/lib/tracks/matchTracks';
 import {
   SLIDE_W_PX,
@@ -792,9 +793,8 @@ function financialsPiece(
 
 function dealStructurePiece(company: CompanyCardCompany, currency: Currency): Piece {
   const fmtMoney = moneyFormatter(currency);
-  const cap = (v: string) => `${v[0].toUpperCase()}${v.slice(1)}`;
   const lines: [string, string][] = [
-    ['Deal type', company.deal_type ? cap(company.deal_type) : '—'],
+    ['Deal type', formatDealType(company.deal_type) ?? '—'],
     ['Target stake', company.stake && company.stake !== '—' ? company.stake : 'TBC at L1'],
     [
       'Indicative cheque size',
@@ -951,7 +951,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
   const cap = (v: string) => `${v[0].toUpperCase()}${v.slice(1)}`;
 
   const subtitle =
-    `${company.deal_type ? `${cap(company.deal_type)} ` : ''}investment in ${sector}` +
+    `${company.deal_type ? `${formatDealType(company.deal_type)} ` : ''}investment in ${sector}` +
     `${company.geography ? ` · ${company.geography}` : ''}`;
 
   // ── Meta + deal-status grids (identical fields to the on-screen card) ──
@@ -969,7 +969,7 @@ export function buildCompanyCardSlides(input: CompanyCardSlideInput): CompanyCar
 
   const metaRow1 = metaBoxRow(
     [
-      { label: 'Project Type', value: company.deal_type || 'M&A' },
+      { label: 'Project Type', value: formatDealType(company.deal_type) || 'M&A' },
       { label: 'Geography', value: company.geography || '—' },
       { label: 'Business Line', value: sector },
       { label: 'End Sector', value: sector.split('—')[0].split('-')[0].trim() },
