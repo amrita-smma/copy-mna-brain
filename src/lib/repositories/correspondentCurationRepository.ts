@@ -9,9 +9,26 @@ export interface CorrespondentCurationEdit {
   title?: string | null;
   phone?: string | null;
   type?: string | null;
+  department?: string | null;
+  specialization?: string | null;
+  seniority?: string | null;
+  coverage_region?: string | null;
+  linkedin_url?: string | null;
+  bio?: string | null;
 }
 
-const EDITABLE_FIELDS = ['name', 'title', 'phone', 'type'] as const;
+const EDITABLE_FIELDS = [
+  'name',
+  'title',
+  'phone',
+  'type',
+  'department',
+  'specialization',
+  'seniority',
+  'coverage_region',
+  'linkedin_url',
+  'bio',
+] as const;
 
 /**
  * Human overlay for correspondent machine fields (RFC §3.4). The CRM UI is the

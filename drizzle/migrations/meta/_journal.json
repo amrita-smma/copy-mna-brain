@@ -1030,6 +1030,13 @@
       "when": 1791072000000,
       "tag": "20261004000000_pipeline_stages",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1791244800000,
+      "tag": "20261006000000_add_correspondent_profile_fields",
+      "breakpoints": true
     }
   ]
 }

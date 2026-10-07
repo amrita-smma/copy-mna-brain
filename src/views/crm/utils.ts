@@ -1,5 +1,9 @@
 import { nameInitials } from "@/lib/companyDisplay";
-import type { LastContactPreset } from "./types";
+import type {
+  ContactFormValues,
+  Correspondent,
+  LastContactPreset,
+} from "./types";
 
 export const PAGE_SIZE = 50;
 
@@ -72,3 +76,97 @@ export const TOPIC_SUGGESTIONS = [
   "specialty chem",
   "semiconductors",
 ];
+
+// Suggestion lists for the contact editor's free-text <datalist> fields. The
+// underlying columns are plain text — these only speed up typing, they are not
+// a closed enum, because desk naming varies firm to firm.
+export const CONTACT_DEPARTMENTS = [
+  "M&A",
+  "ECM",
+  "DCM",
+  "Leveraged Finance",
+  "Sector Coverage",
+  "Restructuring",
+  "Equity Research",
+  "Sales & Trading",
+  "Private Capital Markets",
+  "Corporate Development",
+];
+
+export const CONTACT_SENIORITIES = [
+  "Analyst",
+  "Associate",
+  "Vice President",
+  "Director",
+  "Executive Director",
+  "Managing Director",
+  "Partner",
+  "Head of Desk",
+];
+
+export const CONTACT_TYPES = ["external", "internal"];
+
+/** Blank → null, so clearing a field in the editor clears it in the DB. */
+export function blankToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Contact form state → the JSON body both contact endpoints accept. */
+export function contactFormToPayload(
+  values: ContactFormValues,
+): Record<string, string | null> {
+  return {
+    name: values.name.trim(),
+    title: blankToNull(values.title),
+    email: blankToNull(values.email),
+    phone: blankToNull(values.phone),
+    type: blankToNull(values.type),
+    department: blankToNull(values.department),
+    specialization: blankToNull(values.specialization),
+    seniority: blankToNull(values.seniority),
+    coverage_region: blankToNull(values.coverage_region),
+    linkedin_url: blankToNull(values.linkedin_url),
+    bio: blankToNull(values.bio),
+  };
+}
+
+/** An existing contact → editable form state (nulls become empty strings). */
+export function contactToFormValues(c: Correspondent): ContactFormValues {
+  return {
+    name: c.name ?? "",
+    title: c.title ?? "",
+    email: c.email ?? "",
+    phone: c.phone ?? "",
+    type: c.type ?? "",
+    department: c.department ?? "",
+    specialization: c.specialization ?? "",
+    seniority: c.seniority ?? "",
+    coverage_region: c.coverage_region ?? "",
+    linkedin_url: c.linkedin_url ?? "",
+    bio: c.bio ?? "",
+  };
+}
+
+/**
+ * Returns a LinkedIn (or any) profile URL only when it is safe to put in an
+ * `href`. Contact fields are free text, so a stored `javascript:` or `data:`
+ * value would otherwise render as a clickable link in the CRM card. A
+ * scheme-less value ("linkedin.com/in/jane") is upgraded to https rather than
+ * being dropped, since that is how people paste it.
+ */
+export function safeProfileUrl(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}

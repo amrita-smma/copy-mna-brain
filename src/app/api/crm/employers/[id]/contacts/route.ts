@@ -42,6 +42,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       phone: body.phone,
       title: body.title,
       type: body.type,
+      department: body.department,
+      specialization: body.specialization,
+      seniority: body.seniority,
+      coverageRegion: body.coverage_region,
+      linkedinUrl: body.linkedin_url,
+      bio: body.bio,
     });
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {

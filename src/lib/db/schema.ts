@@ -1735,6 +1735,17 @@ export const correspondents = pgTable(
     email: text(),
     phone: text(),
     type: text(),
+    // Banker profile fields (20261006000000_add_correspondent_profile_fields).
+    // Base side of the RFC §3.4 overlay pair: written when a human CREATES a
+    // contact (origin='manual'), while EDITING an existing one writes the
+    // `correspondent_curation` twins instead. The ingest upsert never touches
+    // these columns. `correspondent_effective` COALESCEs overlay over base.
+    department: text(),
+    specialization: text(),
+    seniority: text(),
+    coverage_region: text(),
+    linkedin_url: text(),
+    bio: text(),
     is_primary: boolean().default(false).notNull(),
     source: text().default("manual").notNull(),
     // MB-205: 'auto' = machine-discovered from MBOX (ETL may update/prune);
@@ -2272,6 +2283,12 @@ export const correspondentCuration = pgTable(
     title: text(),
     phone: text(),
     type: text(),
+    department: text(),
+    specialization: text(),
+    seniority: text(),
+    coverage_region: text(),
+    linkedin_url: text(),
+    bio: text(),
     edited_by: uuid(),
     edited_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
@@ -2352,6 +2369,17 @@ export const correspondentEffective = pgView("correspondent_effective", {
     withTimezone: true,
     mode: "string",
   }).notNull(),
+  // Profile fields sit AFTER updated_at, not next to `type`, because
+  // `CREATE OR REPLACE VIEW` can only APPEND columns — it cannot reorder or
+  // insert into an existing view's column list. Keep this order identical to
+  // 20261006000000_add_correspondent_profile_fields.sql, and append (never
+  // insert) when adding the next one.
+  department: text("department"),
+  specialization: text("specialization"),
+  seniority: text("seniority"),
+  coverage_region: text("coverage_region"),
+  linkedin_url: text("linkedin_url"),
+  bio: text("bio"),
 }).existing();
 
 export const emails = analytics.table(

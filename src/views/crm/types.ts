@@ -49,8 +49,34 @@ export interface Correspondent {
   email: string | null;
   phone: string | null;
   type: string | null;
+  /** Desk the banker sits on — e.g. "M&A", "ECM", "Leveraged Finance". */
+  department: string | null;
+  /** Sector / product focus, free text — e.g. "Semiconductors, Industrials". */
+  specialization: string | null;
+  /** Rank — e.g. "Managing Director". Coarser than the free-text `title`. */
+  seniority: string | null;
+  /** Geography covered — e.g. "Southeast Asia". */
+  coverage_region: string | null;
+  linkedin_url: string | null;
+  /** Free-text background on the person. */
+  bio: string | null;
   is_primary: boolean;
   source: string;
+}
+
+/** The editable slice of a contact, as the contact form holds it. */
+export interface ContactFormValues {
+  name: string;
+  title: string;
+  email: string;
+  phone: string;
+  type: string;
+  department: string;
+  specialization: string;
+  seniority: string;
+  coverage_region: string;
+  linkedin_url: string;
+  bio: string;
 }
 
 export interface EmployerNote {

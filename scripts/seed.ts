@@ -228,6 +228,17 @@ type SeedContact = {
   title: string;
   /** Free-text classification (e.g. Bankers, Advisors, Internal). */
   type: string;
+  /** Desk — e.g. 'M&A', 'ECM'. Editable in the CRM contact dialog. */
+  department?: string;
+  /** Sector / product focus, free text. */
+  specialization?: string;
+  /** Rank — coarser than the free-text `title`. */
+  seniority?: string;
+  /** Geography covered. */
+  coverage_region?: string;
+  linkedin_url?: string;
+  /** Free-text background, shown under the contact in the CRM card. */
+  bio?: string;
   notes?: string;
 };
 
@@ -239,6 +250,12 @@ const seedContacts: SeedContact[] = [
     company: 'Golden Sacks',
     title: 'Managing Director',
     type: 'external',
+    department: 'M&A',
+    specialization: 'Technology, semiconductors',
+    seniority: 'Managing Director',
+    coverage_region: 'Asia Pacific',
+    linkedin_url: 'https://www.linkedin.com/in/jimmy-sprinkles-example',
+    bio: 'Runs the APAC tech M&A desk; has brought us three semiconductor carve-outs.',
     notes: 'Primary contact for tech M&A deals in Asia',
   },
   {
@@ -248,6 +265,12 @@ const seedContacts: SeedContact[] = [
     company: 'JP Organ',
     title: 'Executive Director',
     type: 'external',
+    department: 'Sector Coverage',
+    specialization: 'Industrials, specialty chemicals',
+    seniority: 'Executive Director',
+    coverage_region: 'Global',
+    linkedin_url: 'https://www.linkedin.com/in/sally-bubbles-example',
+    bio: 'Industrials coverage banker; strongest source of chemicals teasers.',
     notes: 'Specializes in industrial sector transactions',
   },
   {
@@ -257,6 +280,12 @@ const seedContacts: SeedContact[] = [
     company: 'Organ Stanley',
     title: 'Vice President',
     type: 'external',
+    department: 'M&A',
+    specialization: 'Consumer, industrial tech',
+    seniority: 'Vice President',
+    coverage_region: 'Southeast Asia',
+    linkedin_url: 'https://www.linkedin.com/in/mikey-noodle-example',
+    bio: 'Leads the SEA coverage team out of Singapore.',
     notes: 'SEA coverage team lead',
   },
   {
@@ -266,6 +295,11 @@ const seedContacts: SeedContact[] = [
     company: 'SparkleCapital',
     title: 'Investment Director',
     type: 'internal',
+    department: 'Investment Team',
+    specialization: 'Industrial tech roll-ups',
+    seniority: 'Director',
+    coverage_region: 'Southeast Asia',
+    bio: 'Internal deal lead for the SEA industrial tech thesis.',
     notes: 'Internal deal team lead',
   },
   {
@@ -275,6 +309,11 @@ const seedContacts: SeedContact[] = [
     company: 'SparkleCapital',
     title: 'Associate',
     type: 'internal',
+    department: 'Investment Team',
+    specialization: 'Financial analysis, due diligence',
+    seniority: 'Associate',
+    coverage_region: 'Southeast Asia',
+    bio: 'Internal — models and diligence support across live mandates.',
     notes: 'Financial analysis and due diligence',
   },
   {
@@ -284,6 +323,12 @@ const seedContacts: SeedContact[] = [
     company: 'Credit Sweets',
     title: 'Director',
     type: 'external',
+    department: 'Leveraged Finance',
+    specialization: 'Cross-border M&A financing',
+    seniority: 'Director',
+    coverage_region: 'Greater China',
+    linkedin_url: 'https://www.linkedin.com/in/bobby-waffles-example',
+    bio: 'Lev-fin contact for cross-border structures out of Hong Kong.',
     notes: 'Cross-border M&A specialist',
   },
   {
@@ -293,6 +338,12 @@ const seedContacts: SeedContact[] = [
     company: 'Bank of Atlantis Marble Lynx',
     title: 'Managing Director',
     type: 'external',
+    department: 'Sector Coverage',
+    specialization: 'Healthcare, life sciences',
+    seniority: 'Managing Director',
+    coverage_region: 'North America',
+    linkedin_url: 'https://www.linkedin.com/in/lizzy-doodle-example',
+    bio: 'Healthcare coverage MD; mostly US assets, occasional APAC crossover.',
     notes: 'Healthcare and life sciences focus',
   },
   {
@@ -302,6 +353,12 @@ const seedContacts: SeedContact[] = [
     company: 'Kittygroup',
     title: 'Director',
     type: 'external',
+    department: 'ECM',
+    specialization: 'Consumer, retail',
+    seniority: 'Director',
+    coverage_region: 'Southeast Asia',
+    linkedin_url: 'https://www.linkedin.com/in/andy-pancake-example',
+    bio: 'Consumer/retail ECM; good read on pre-IPO sellers in Indonesia.',
     notes: 'Consumer and retail sector coverage',
   },
 ];
@@ -3760,6 +3817,12 @@ async function main() {
       phone: c.phone,
       title: c.title,
       type: c.type,
+      department: c.department,
+      specialization: c.specialization,
+      seniority: c.seniority,
+      coverage_region: c.coverage_region,
+      linkedin_url: c.linkedin_url,
+      bio: c.bio,
       is_primary: false,
       source: 'manual',
     }));

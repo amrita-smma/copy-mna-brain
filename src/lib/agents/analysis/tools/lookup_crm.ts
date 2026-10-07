@@ -89,9 +89,16 @@ export const lookupCrm = tool(
                       `**${b.name}**${b.is_primary ? " (primary)" : ""}`,
                     ];
                     if (b.title) parts.push(b.title);
+                    if (b.department) parts.push(`${b.department} desk`);
+                    if (b.seniority && b.seniority !== b.title) {
+                      parts.push(b.seniority);
+                    }
+                    if (b.specialization) parts.push(`focus: ${b.specialization}`);
+                    if (b.coverage_region) parts.push(`covers ${b.coverage_region}`);
                     if (b.email) parts.push(b.email);
                     if (b.phone) parts.push(b.phone);
-                    return `- ${parts.join(" — ")}`;
+                    const line = `- ${parts.join(" — ")}`;
+                    return b.bio ? `${line}\n  - _${b.bio.trim()}_` : line;
                   })
                   .join("\n");
 

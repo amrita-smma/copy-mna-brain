@@ -1,6 +1,7 @@
 import type {
   CompanyRepository,
   Correspondent,
+  CorrespondentCurationEdit,
   CorrespondentInsert,
   CorrespondentCurationRepository,
   CorrespondentRepository,
@@ -131,7 +132,82 @@ export interface CreateContactInput {
   phone?: string;
   title?: string;
   type?: string;
+  department?: string;
+  specialization?: string;
+  seniority?: string;
+  coverageRegion?: string;
+  linkedinUrl?: string;
+  bio?: string;
   isPrimary?: boolean;
+}
+
+/**
+ * Correspondent fields a human edit routes to the `correspondent_curation`
+ * overlay rather than the machine-owned `correspondents` base row (RFC §3.4),
+ * so a later ETL re-ingest can never clobber the edit.
+ */
+const OVERLAY_CONTACT_FIELDS = [
+  "name",
+  "title",
+  "phone",
+  "type",
+  "department",
+  "specialization",
+  "seniority",
+  "coverage_region",
+  "linkedin_url",
+  "bio",
+] as const satisfies ReadonlyArray<keyof CorrespondentCurationEdit>;
+
+/**
+ * Every field the CRM contact editor may write, named exactly as it arrives in
+ * the request body. Enumerated so a route can whitelist an untrusted body
+ * (`pickEditableContactFields`) instead of forwarding arbitrary column names.
+ */
+export const EDITABLE_CONTACT_FIELDS = [
+  ...OVERLAY_CONTACT_FIELDS,
+  // The only editable field that is NOT an overlay column: `email` is the
+  // natural key behind the `(employer_id, email)` ingest upsert, so it has to
+  // stay on the base table where that unique index lives.
+  "email",
+] as const;
+
+export type EditableContactField = (typeof EDITABLE_CONTACT_FIELDS)[number];
+
+/**
+ * What `CRMService.updateContact` accepts. Deliberately narrower than
+ * `Partial<CorrespondentInsert>`: only human-editable fields, plus the
+ * editor stamp. `null` clears a field — for an overlay column that means the
+ * machine value on `correspondents` shows through again.
+ */
+export type UpdateContactInput = Partial<
+  Record<EditableContactField, string | null>
+> & {
+  last_edited_by_user_id?: string | null;
+};
+
+/**
+ * Narrows an untrusted request body to the editable contact fields, so a route
+ * can never forward `origin`, `employer_id`, `source` or any other
+ * machine-owned column into `CRMService.updateContact`. Values are trimmed;
+ * an empty string clears the field (`null`) rather than storing `""`.
+ */
+export function pickEditableContactFields(
+  body: Record<string, unknown>,
+): Partial<Record<EditableContactField, string | null>> {
+  const out: Partial<Record<EditableContactField, string | null>> = {};
+  for (const field of EDITABLE_CONTACT_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (value === null) {
+      out[field] = null;
+      continue;
+    }
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    out[field] = trimmed === "" ? null : trimmed;
+  }
+  return out;
 }
 
 function normalizeName(s: string): string {
@@ -394,6 +470,12 @@ export class CRMService {
           title: input.title,
           phone: input.phone,
           type: input.type,
+          department: input.department,
+          specialization: input.specialization,
+          seniority: input.seniority,
+          coverage_region: input.coverageRegion,
+          linkedin_url: input.linkedinUrl,
+          bio: input.bio,
         });
       }
     }
@@ -406,6 +488,12 @@ export class CRMService {
         phone: input.phone,
         title: input.title,
         type: input.type,
+        department: input.department,
+        specialization: input.specialization,
+        seniority: input.seniority,
+        coverage_region: input.coverageRegion,
+        linkedin_url: input.linkedinUrl,
+        bio: input.bio,
         source: "manual",
         // Human-added: the ETL must never touch this row (RFC §3.4).
         origin: "manual",
@@ -426,21 +514,16 @@ export class CRMService {
 
   async updateContact(
     id: string,
-    data: Partial<CorrespondentInsert>,
+    data: UpdateContactInput,
   ): Promise<Correspondent> {
-    // Split: name/title/phone/type are machine-derived → overlay.
+    // Split: every human-editable field except email goes to the overlay.
     // email (the natural key) and last_edited_* stay on the base table.
     const editedBy = data.last_edited_by_user_id ?? null;
-    const overlay: {
-      name?: string | null;
-      title?: string | null;
-      phone?: string | null;
-      type?: string | null;
-    } = {};
-    if (data.name !== undefined) overlay.name = data.name;
-    if (data.title !== undefined) overlay.title = data.title;
-    if (data.phone !== undefined) overlay.phone = data.phone;
-    if (data.type !== undefined) overlay.type = data.type;
+    const overlay: CorrespondentCurationEdit = {};
+    for (const field of OVERLAY_CONTACT_FIELDS) {
+      const value = data[field];
+      if (value !== undefined) overlay[field] = value ?? null;
+    }
     if (Object.keys(overlay).length > 0) {
       await this.correspondentCurationRepo.upsert(id, overlay, editedBy);
     }
@@ -449,6 +532,7 @@ export class CRMService {
     if (data.email !== undefined) base.email = data.email;
     if (data.last_edited_by_user_id !== undefined) {
       base.last_edited_by_user_id = data.last_edited_by_user_id;
+      base.last_edited_at = new Date().toISOString();
     }
     if (Object.keys(base).length > 0) {
       const updated = await this.correspondentRepo.update(

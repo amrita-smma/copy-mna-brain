@@ -8,13 +8,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CompanyPicker } from "./CompanyPicker";
-import type { CompanyPickerValue, EmployerSummary } from "./types";
+import { ContactFields, EMPTY_CONTACT_FORM } from "./ContactFields";
+import type {
+  CompanyPickerValue,
+  ContactFormValues,
+  EmployerSummary,
+} from "./types";
+import { contactFormToPayload } from "./utils";
 
 export function AddContactDialog({
   open,
@@ -30,19 +35,13 @@ export function AddContactDialog({
   onCreated: () => void;
 }) {
   const [firm, setFirm] = useState<CompanyPickerValue | null>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [title, setTitle] = useState("");
+  const [values, setValues] = useState<ContactFormValues>(EMPTY_CONTACT_FORM);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setFirm(null);
-      setName("");
-      setEmail("");
-      setPhone("");
-      setTitle("");
+      setValues(EMPTY_CONTACT_FORM);
     } else if (employerId) {
       const existing = employers.find((e) => e.id === employerId);
       setFirm(existing ? { name: existing.name, id: existing.id } : null);
@@ -52,7 +51,7 @@ export function AddContactDialog({
   const lockedFirm = !!employerId;
 
   const submit = async () => {
-    if (!name.trim()) {
+    if (!values.name.trim()) {
       toast.error("Name is required");
       return;
     }
@@ -66,7 +65,7 @@ export function AddContactDialog({
       const res = await fetch(`/api/crm/employers/${targetId}/contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone, title }),
+        body: JSON.stringify(contactFormToPayload(values)),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -83,7 +82,7 @@ export function AddContactDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add new contact</DialogTitle>
         </DialogHeader>
@@ -98,47 +97,21 @@ export function AddContactDialog({
               onChange={setFirm}
             />
           </div>
-          <div>
-            <Label className="text-[10px] uppercase">Full name *</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="John Doe"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-[10px] uppercase">Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="john@example.com"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] uppercase">Phone</Label>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 234 567 890"
-              />
-            </div>
-          </div>
-          <div>
-            <Label className="text-[10px] uppercase">Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Managing Director"
-            />
-          </div>
+          <ContactFields
+            values={values}
+            onChange={setValues}
+            disabled={submitting}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={submitting}>
+          <Button
+            onClick={submit}
+            disabled={submitting}
+            data-testid="contact-create-submit"
+          >
             {submitting && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
             Create contact
           </Button>

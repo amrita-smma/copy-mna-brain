@@ -118,6 +118,74 @@ describe("lookupCrm", () => {
     expect(result).toContain("Acme Corp (confidence: high)");
   });
 
+  it("renders a banker's desk, focus, coverage and background", async () => {
+    employerListMock.mockResolvedValue([
+      {
+        id: "emp-1",
+        name: "Evercore",
+        industry: "Investment Banking",
+        status: "inbound",
+        email_count: 1,
+        last_contact_at: null,
+      },
+    ]);
+    emptyRelations();
+    findByEmployerIdMock.mockResolvedValue([
+      {
+        name: "Jane Doe",
+        title: "MD, TMT",
+        seniority: "Managing Director",
+        department: "M&A",
+        specialization: "Semiconductors",
+        coverage_region: "Asia Pacific",
+        bio: "Ex-Lazard; brought us three carve-outs.",
+        email: "jane@evercore.com",
+        phone: null,
+        is_primary: true,
+      },
+    ]);
+
+    const result = (await lookupCrm.invoke({ query: "Evercore" })) as string;
+
+    expect(result).toContain(
+      "**Jane Doe** (primary) — MD, TMT — M&A desk — Managing Director — focus: Semiconductors — covers Asia Pacific — jane@evercore.com",
+    );
+    expect(result).toContain("_Ex-Lazard; brought us three carve-outs._");
+  });
+
+  it("does not repeat seniority when it already equals the title", async () => {
+    employerListMock.mockResolvedValue([
+      {
+        id: "emp-1",
+        name: "Evercore",
+        industry: null,
+        status: "inbound",
+        email_count: 0,
+        last_contact_at: null,
+      },
+    ]);
+    emptyRelations();
+    findByEmployerIdMock.mockResolvedValue([
+      {
+        name: "Jane Doe",
+        title: "Managing Director",
+        seniority: "Managing Director",
+        department: null,
+        specialization: null,
+        coverage_region: null,
+        bio: null,
+        email: null,
+        phone: null,
+        is_primary: false,
+      },
+    ]);
+
+    const result = (await lookupCrm.invoke({ query: "Evercore" })) as string;
+
+    expect(result).toContain("- **Jane Doe** — Managing Director\n");
+    expect(result).not.toContain("Managing Director — Managing Director");
+  });
+
   it("renders topics, team coverage, recent emails, and notes", async () => {
     employerListMock.mockResolvedValue([
       {

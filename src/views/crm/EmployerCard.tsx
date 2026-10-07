@@ -14,10 +14,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
-import { ChevronDown, Loader2, Mail, Plus, X } from "lucide-react";
+import { ChevronDown, Linkedin, Loader2, Mail, Pencil, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { EditContactDialog } from "./EditContactDialog";
 import type {
+  Correspondent,
   EmployerDetail,
   EmployerNote,
   EmployerRelatedCompany,
@@ -30,6 +32,7 @@ import {
   colorForId,
   formatResponseP50,
   initialsOf,
+  safeProfileUrl,
   tabTriggerCls,
 } from "./utils";
 
@@ -431,63 +434,14 @@ function ExpandedTabs({
       </TabsList>
 
       <TabsContent value="contacts" className="px-5 pb-5 pt-4">
-        <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          <span>Contacts ({detail.correspondents.length})</span>
-          <button
-            className="text-xs font-bold normal-case text-blue-600 hover:underline"
-            onClick={onAddContact}
-          >
-            + Add contact
-          </button>
-        </div>
-        <div className="divide-y">
-          {detail.correspondents.length === 0 ? (
-            <div className="py-6 text-sm text-muted-foreground">
-              No contacts on file.
-            </div>
-          ) : (
-            detail.correspondents.map((c) => (
-              <div key={c.id} className="flex items-start gap-3 py-3">
-                <div
-                  className={cn(
-                    "grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white",
-                    colorForId(c.id),
-                  )}
-                >
-                  {initialsOf(c.name)}
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-bold">
-                    {c.name}
-                    {c.is_primary && (
-                      <Badge
-                        variant="outline"
-                        className="ml-2 h-4 bg-emerald-50 px-1.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                      >
-                        Primary
-                      </Badge>
-                    )}
-                  </div>
-                  {c.title && (
-                    <div className="text-xs text-muted-foreground">
-                      {c.title}
-                    </div>
-                  )}
-                  {c.email && (
-                    <div className="mt-0.5 font-mono text-[11px] text-blue-600 dark:text-blue-400">
-                      {c.email}
-                    </div>
-                  )}
-                  {c.phone && (
-                    <div className="text-[11px] text-muted-foreground">
-                      {c.phone}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        <ContactsTab
+          correspondents={detail.correspondents}
+          onAddContact={onAddContact}
+          onChanged={() => {
+            onRefreshDetail();
+            onRefreshList();
+          }}
+        />
       </TabsContent>
 
       <TabsContent value="topics" className="px-5 pb-5 pt-4">
@@ -518,6 +472,162 @@ function ExpandedTabs({
         />
       </TabsContent>
     </Tabs>
+  );
+}
+
+function ContactsTab({
+  correspondents,
+  onAddContact,
+  onChanged,
+}: {
+  correspondents: Correspondent[];
+  onAddContact: () => void;
+  onChanged: () => void;
+}) {
+  // Record-scoped dialog: `open` is derived from the selection rather than
+  // tracked as a second boolean, per .claude/rules/dialog-open-state.md. The
+  // row is already in hand, so there is no fetch to race on open.
+  const [editing, setEditing] = useState<Correspondent | null>(null);
+
+  return (
+    <>
+      <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <span>Contacts ({correspondents.length})</span>
+        <button
+          className="text-xs font-bold normal-case text-blue-600 hover:underline"
+          onClick={onAddContact}
+        >
+          + Add contact
+        </button>
+      </div>
+      <div className="divide-y">
+        {correspondents.length === 0 ? (
+          <div className="py-6 text-sm text-muted-foreground">
+            No contacts on file.
+          </div>
+        ) : (
+          correspondents.map((c) => {
+            // Profile fields are free text, so the stored URL is only safe to
+            // put in an href once its scheme has been checked.
+            const linkedinHref = safeProfileUrl(c.linkedin_url);
+            return (
+              <div
+                key={c.id}
+                className="group flex items-start gap-3 py-3"
+                data-testid="crm-contact-row"
+              >
+                <div
+                  className={cn(
+                    "grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white",
+                    colorForId(c.id),
+                  )}
+                >
+                  {initialsOf(c.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold">
+                    {c.name}
+                    {c.is_primary && (
+                      <Badge
+                        variant="outline"
+                        className="ml-2 h-4 bg-emerald-50 px-1.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                      >
+                        Primary
+                      </Badge>
+                    )}
+                  </div>
+                  {(c.title || c.seniority) && (
+                    <div className="text-xs text-muted-foreground">
+                      {c.title || c.seniority}
+                    </div>
+                  )}
+                  {(c.department ||
+                    c.specialization ||
+                    c.coverage_region ||
+                    (c.seniority && c.title)) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {c.department && (
+                        <ContactTag label="Dept" value={c.department} />
+                      )}
+                      {c.seniority && c.title && (
+                        <ContactTag label="Level" value={c.seniority} />
+                      )}
+                      {c.specialization && (
+                        <ContactTag label="Focus" value={c.specialization} />
+                      )}
+                      {c.coverage_region && (
+                        <ContactTag label="Covers" value={c.coverage_region} />
+                      )}
+                    </div>
+                  )}
+                  {c.email && (
+                    <div className="mt-0.5 break-all font-mono text-[11px] text-blue-600 dark:text-blue-400">
+                      {c.email}
+                    </div>
+                  )}
+                  {c.phone && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {c.phone}
+                    </div>
+                  )}
+                  {linkedinHref && (
+                    <a
+                      href={linkedinHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      <Linkedin className="h-3 w-3" />
+                      LinkedIn
+                    </a>
+                  )}
+                  {c.bio && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      {c.bio}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                  onClick={() => setEditing(c)}
+                  aria-label={`Edit ${c.name}`}
+                  data-testid="crm-contact-edit"
+                >
+                  <Pencil className="mr-1 h-3 w-3" />
+                  Edit
+                </Button>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {editing && (
+        <EditContactDialog
+          key={editing.id}
+          contact={editing}
+          open={!!editing}
+          onOpenChange={(open) => {
+            if (!open) setEditing(null);
+          }}
+          onSaved={() => {
+            setEditing(null);
+            onChanged();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function ContactTag({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      <span className="font-semibold uppercase tracking-wide">{label}</span>
+      <span className="text-foreground">{value}</span>
+    </span>
   );
 }
 

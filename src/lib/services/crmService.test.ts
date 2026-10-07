@@ -3,6 +3,7 @@ import {
   CRMService,
   DuplicateEmployerError,
   EmployerNotFoundError,
+  pickEditableContactFields,
 } from './crmService';
 
 const employerRepo = {
@@ -381,6 +382,189 @@ describe('CRMService.createContact', () => {
       WORKSPACE_ID,
       'dupe-c',
       'manual',
+    );
+  });
+});
+
+describe('CRMService.createContact (profile fields)', () => {
+  it('writes the banker profile fields onto a brand-new contact row', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.insert.mockResolvedValue({ id: 'c-new' });
+
+    await makeService().createContact({
+      employerId: 'e1',
+      name: 'Jane Banker',
+      email: 'jane@bank.com',
+      department: 'M&A',
+      specialization: 'Semiconductors',
+      seniority: 'Managing Director',
+      coverageRegion: 'Asia Pacific',
+      linkedinUrl: 'https://linkedin.com/in/jane',
+      bio: 'Covers our semi mandates.',
+    });
+
+    expect(correspondentRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        department: 'M&A',
+        specialization: 'Semiconductors',
+        seniority: 'Managing Director',
+        coverage_region: 'Asia Pacific',
+        linkedin_url: 'https://linkedin.com/in/jane',
+        bio: 'Covers our semi mandates.',
+      }),
+      WORKSPACE_ID,
+    );
+  });
+
+  it('routes profile fields of a duplicate (employer, email) to the overlay', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
+
+    await makeService().createContact({
+      employerId: 'e1',
+      name: 'Jane Banker',
+      email: 'jane@bank.com',
+      department: 'ECM',
+      seniority: 'Director',
+    });
+
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c1',
+      { name: 'Jane Banker', department: 'ECM', seniority: 'Director' },
+      null,
+    );
+    expect(correspondentRepo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('CRMService.updateContact', () => {
+  it('routes every profile field to the curation overlay, not the base table', async () => {
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
+
+    await makeService().updateContact('c1', {
+      name: 'Jane B.',
+      title: 'MD, TMT',
+      phone: '+65 1234',
+      type: 'external',
+      department: 'M&A',
+      specialization: 'Semis',
+      seniority: 'Managing Director',
+      coverage_region: 'SEA',
+      linkedin_url: 'https://linkedin.com/in/jane',
+      bio: 'Ex-Lazard.',
+    });
+
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c1',
+      {
+        name: 'Jane B.',
+        title: 'MD, TMT',
+        phone: '+65 1234',
+        type: 'external',
+        department: 'M&A',
+        specialization: 'Semis',
+        seniority: 'Managing Director',
+        coverage_region: 'SEA',
+        linkedin_url: 'https://linkedin.com/in/jane',
+        bio: 'Ex-Lazard.',
+      },
+      null,
+    );
+    expect(correspondentRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('clears an overlay field when it is explicitly set to null', async () => {
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
+
+    await makeService().updateContact('c1', { department: null });
+
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c1',
+      { department: null },
+      null,
+    );
+  });
+
+  it('keeps email on the base table and stamps the editor', async () => {
+    correspondentRepo.update.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
+
+    await makeService().updateContact('c1', {
+      email: 'new@bank.com',
+      department: 'DCM',
+      last_edited_by_user_id: 'u-1',
+    });
+
+    expect(correspondentRepo.update).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({
+        email: 'new@bank.com',
+        last_edited_by_user_id: 'u-1',
+        last_edited_at: expect.any(String),
+      }),
+      WORKSPACE_ID,
+    );
+    // department must NOT leak onto the base row.
+    expect(correspondentRepo.update.mock.calls[0][1]).not.toHaveProperty(
+      'department',
+    );
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c1',
+      { department: 'DCM' },
+      'u-1',
+    );
+  });
+
+  it('skips the overlay write entirely when no overlay field is present', async () => {
+    correspondentRepo.update.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
+
+    await makeService().updateContact('c1', { email: 'only@mail.com' });
+
+    expect(correspondentCurationRepo.upsert).not.toHaveBeenCalled();
+  });
+
+  it('throws when the correspondent is not visible to this workspace', async () => {
+    correspondentRepo.findById.mockResolvedValue(undefined);
+
+    await expect(
+      makeService().updateContact('c1', { department: 'M&A' }),
+    ).rejects.toThrow(/Correspondent c1 not found/);
+  });
+});
+
+describe('pickEditableContactFields', () => {
+  it('drops machine-owned columns a client might smuggle into the body', () => {
+    expect(
+      pickEditableContactFields({
+        name: 'Jane',
+        department: 'M&A',
+        employer_id: 'other-employer',
+        origin: 'auto',
+        source: 'ingest',
+        is_primary: true,
+        id: 'c-other',
+      }),
+    ).toEqual({ name: 'Jane', department: 'M&A' });
+  });
+
+  it('trims values and turns a blank string into null so the field clears', () => {
+    expect(
+      pickEditableContactFields({ department: '  M&A  ', bio: '   ' }),
+    ).toEqual({ department: 'M&A', bio: null });
+  });
+
+  it('passes an explicit null through and omits absent fields', () => {
+    expect(pickEditableContactFields({ seniority: null })).toEqual({
+      seniority: null,
+    });
+  });
+
+  it('ignores non-string values rather than writing them', () => {
+    expect(pickEditableContactFields({ department: 42, bio: { a: 1 } })).toEqual(
+      {},
     );
   });
 });

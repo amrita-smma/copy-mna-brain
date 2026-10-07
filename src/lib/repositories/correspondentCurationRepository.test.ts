@@ -56,6 +56,49 @@ describe('CorrespondentCurationRepository.upsert', () => {
     expect(setArg).toHaveProperty('edited_by', 'u1');
   });
 
+  it('writes the banker profile fields to both the insert values and the conflict set', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.upsert(
+      'c1',
+      {
+        department: 'M&A',
+        specialization: 'Semiconductors',
+        seniority: 'Managing Director',
+        coverage_region: 'Asia Pacific',
+        linkedin_url: 'https://linkedin.com/in/jane',
+        bio: 'Ex-Lazard.',
+      },
+      'u1',
+    );
+
+    const expected = {
+      department: 'M&A',
+      specialization: 'Semiconductors',
+      seniority: 'Managing Director',
+      coverage_region: 'Asia Pacific',
+      linkedin_url: 'https://linkedin.com/in/jane',
+      bio: 'Ex-Lazard.',
+    };
+    expect(db.onConflictDoUpdate.mock.calls[0][0].set).toMatchObject(expected);
+    expect(db.values.mock.calls[0][0]).toMatchObject({
+      correspondent_id: 'c1',
+      ...expected,
+    });
+  });
+
+  it('nulls a profile field that is explicitly cleared', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.upsert('c1', { department: null }, 'u1');
+    expect(db.onConflictDoUpdate.mock.calls[0][0].set).toHaveProperty(
+      'department',
+      null,
+    );
+  });
+
   it('does not accept is_primary (kept on the base table)', async () => {
     const db = makeDb();
     db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
