@@ -108,6 +108,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "172a9b2268e5906e5fa16e15f7a582a50c043806",
+    "date": "2026-10-07",
+    "subject": "Add architecture orientation docs and generated code map",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "593972c9b431686214a22f568edc9a6d332dcc29",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
