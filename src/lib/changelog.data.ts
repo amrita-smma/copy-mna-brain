@@ -124,6 +124,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "ec3a6f481e866b6f62f79bdcbf5ee3c816f035e6",
+    "date": "2026-10-07",
+    "subject": "Customize Deal Pipeline page title and subtitle per workspace",
+    "category": "improvement"
+  },
+  {
+    "hash": "eb7b555ca397a1320f64d2c8e60445bd35300387",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
