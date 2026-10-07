@@ -159,7 +159,8 @@ describe("save_ai_opinion", () => {
   });
 
   it("requires the verdict to weigh mandate fit, not just fundamentals", () => {
-    expect(saveAiOpinion.description).toContain("MANDATE FIT COUNTS");
+    expect(saveAiOpinion.description).toContain("MANDATE FIT COUNTS when a mandate exists");
+    expect(saveAiOpinion.description).toContain("no active mandate");
     expect(saveAiOpinion.description).toContain("get_investment_theses");
     expect(saveAiOpinion.description).toContain(
       "A target outside that stated scope is a strong negative signal",

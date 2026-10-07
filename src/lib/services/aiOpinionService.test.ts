@@ -215,6 +215,18 @@ describe('AiOpinionService.dispatch', () => {
     expect(input.instruction).toContain('Name the mandate fit');
   });
 
+  it('tells the agent a missing mandate is normal and not a negative signal', async () => {
+    const service = makeService(makeCompanyRepo());
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain('IF NO ACTIVE MANDATE IS CONFIGURED');
+    expect(input.instruction).toContain('entirely normal and NOT a negative signal');
+    expect(input.instruction).toContain('Drop the mandate dimension altogether');
+    expect(input.instruction).toContain('Judge the company on the data you do have');
+    expect(input.instruction).toContain('still commit to pass or fail');
+  });
+
   it('routes the AI Opinion run to high effort (Opus)', async () => {
     const service = makeService(makeCompanyRepo());
     await service.dispatch('co-1');

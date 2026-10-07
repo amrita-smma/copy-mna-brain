@@ -141,9 +141,11 @@ describe("get_investment_theses", () => {
 
     const result = (await getInvestmentTheses.invoke({})) as string;
 
-    expect(result).toBe(
+    expect(result).toContain(
       "No active investment thesis configured in this workspace.",
     );
+    expect(result).toContain("This is a normal setup, not an error or a data gap");
+    expect(result).toContain("Skip mandate fit entirely");
   });
 
   it("returns a clear empty message when no theses exist with include_inactive: true", async () => {
@@ -153,7 +155,11 @@ describe("get_investment_theses", () => {
       include_inactive: true,
     })) as string;
 
-    expect(result).toBe("No investment theses configured in this workspace.");
+    expect(result).toContain(
+      "No investment theses configured in this workspace.",
+    );
+    expect(result).toContain("This is a normal setup, not an error or a data gap");
+    expect(result).toContain("Skip mandate fit entirely");
   });
 
   it("returns all active theses without choosing, scoring, or judging fit when multiple exist", async () => {

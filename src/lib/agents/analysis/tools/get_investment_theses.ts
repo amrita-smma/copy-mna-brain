@@ -25,9 +25,19 @@ export const getInvestmentTheses = tool(
         : await thesisRepo.findAllActive();
 
       if (!theses || theses.length === 0) {
-        return include_inactive
+        // A workspace with no mandate on file is a normal configuration, not a
+        // problem to flag. Say so explicitly: otherwise an opinion-forming
+        // agent reads the empty result as a missing input and either hedges
+        // its verdict or holds the absence against the company.
+        const none = include_inactive
           ? "No investment theses configured in this workspace."
           : "No active investment thesis configured in this workspace.";
+        return (
+          `${none} This is a normal setup, not an error or a data gap — ` +
+          `there is simply no mandate to score against. Skip mandate fit entirely, ` +
+          `do not mention its absence in any written output, and judge on the data ` +
+          `you do have.`
+        );
       }
 
       const sections = theses.map((thesis) => {

@@ -121,11 +121,11 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // investor base, regime and window.
   capital_markets: 'd776e959c3703d176e6cacfc2c3b0f89457cacf04047e9183123b9c57edc1226',
 };
-// The Workforce prompt changed on purpose: `financial_equity_analysis` is now
-// in its read-tool catalogue, and "Forming an AI Opinion" gained a step that
-// routes the growth/margin/multiple arithmetic through it instead of the
-// agent's head (renumbering the steps that follow).
-const EXPECTED_WORKFORCE_HASH = 'c23303fd09d12f1d597a693b220974d8f66c89ebd5b4f916cbf1f0388eb5b627';
+// The Workforce prompt changed on purpose: the mandate-fit step of "Forming an
+// AI Opinion" now says what to do when the workspace has no active mandate —
+// drop the dimension, don't flag its absence, and judge the company on the data
+// that does exist rather than softening or withholding the verdict.
+const EXPECTED_WORKFORCE_HASH = '3300ffa37b2b7dcdf6b434be9bd1ab3b4a0d4b854cc11ab5a03988e079d26093';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {
@@ -170,6 +170,17 @@ describe('existing CoPilot prompts', () => {
     expect(INSIGHT_TEMPLATE_AUTHORING_GUIDE).toContain('Save as template');
     await getWorkforceAgentGraphForEffort('medium');
     expect(lastSystemPrompt()).not.toContain(INSIGHT_TEMPLATE_AUTHORING_GUIDE);
+  });
+
+  it('tells the workforce a missing investment mandate is not a negative signal', async () => {
+    await getWorkforceAgentGraphForEffort('medium');
+    const workforce = lastSystemPrompt();
+    expect(workforce).toContain('**If no active mandate is configured**');
+    expect(workforce).toContain('entirely normal and NOT a negative signal');
+    expect(workforce).toContain('judge the company on the data you do have');
+    expect(workforce).toContain(
+      'Never soften, delay or withhold a verdict because no mandate exists.',
+    );
   });
 
   it('routes a template too large for chat to the Workforce, which reads it in parts', async () => {

@@ -125,7 +125,7 @@ Be DECISIVE. Do NOT use "tentative" unless it is absolutely necessary — in alm
 
 Keep the verdict UNBIASED, but NOT mandate-blind:
 - Form it from fundamentals only. Do not read any human-recorded drop reason before deciding; consult it only afterwards, if your verdict disagrees with an existing drop decision, and note the disagreement in the summary.
-- MANDATE FIT COUNTS. Read the firm's active investment mandate with get_investment_theses and judge the company against what it actually says — sector, sub-sector, geography, deal size, deal type. A target outside that stated scope is a strong negative signal and normally warrants "fail" unless there is a specific, compelling reason to pursue it anyway. Name the mandate fit — aligned or mismatched, and on which dimension — in the summary.
+- MANDATE FIT COUNTS when a mandate exists. Read the firm's active investment mandate with get_investment_theses and judge the company against what it actually says — sector, sub-sector, geography, deal size, deal type. A target outside that stated scope is a strong negative signal and normally warrants "fail" unless there is a specific, compelling reason to pursue it anyway. Name the mandate fit — aligned or mismatched, and on which dimension — in the summary. If get_investment_theses reports no active mandate, that is normal — omit mandate fit from the summary entirely, do not flag the absence, and still commit to pass or fail on the other evidence.
 - Track *tagging* is a separate thing: it is an organizational grouping, not a screening criterion. Matching no track is never a reason to "fail", and track tagging should carry little weight either way.
 
 Args:

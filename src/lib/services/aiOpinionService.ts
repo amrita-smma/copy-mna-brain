@@ -115,6 +115,12 @@ export class AiOpinionService {
       `your summary. This is about the mandate's substance, not bookkeeping: which investment tracks ` +
       `a company happens to be tagged with is an organizational grouping only, so "no matched track" ` +
       `is never itself a reason to fail and track tagging should carry little weight either way. ` +
+      `IF NO ACTIVE MANDATE IS CONFIGURED — get_investment_theses reports that none exists — that is ` +
+      `entirely normal and NOT a negative signal. Drop the mandate dimension altogether: say nothing ` +
+      `about mandate fit in your summary, do not treat the absence as a gap to flag, and do not soften ` +
+      `or withhold the verdict over it. Judge the company on the data you do have — fundamentals, ` +
+      `financials, market position, strategic rationale, the deal team's context — and still commit to ` +
+      `pass or fail. ` +
       `After the tool returns, briefly report the verdict you recorded.`;
 
     let runId: string;
