@@ -26,6 +26,32 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "45b7477235665cbae2c6052a096145fdce5a0e52",
+    "date": "2026-10-07",
+    "subject": "Added Investment Banking Advisory and Capital Markets Copilot options for personalized deal insights",
+    "category": "feature"
+  },
+  {
+    "hash": "32543f5e6fc4e110c0fe06938aedd7f78831fc29",
+    "date": "2026-10-07",
+    "subject": "Improved copilot responsiveness by reducing unnecessary app re-renders",
+    "category": "improvement"
+  },
+  {
+    "hash": "edacc6ac91aa69d477dc37fef2ca6c1b2dd80d74",
+    "date": "2026-10-07",
+    "subject": "Smart Files landing tab now displays correctly with accurate search-aware tab counts",
+    "category": "fix"
+  },
+  {
+    "hash": "bbeed3b32895abfc3d942e99174eea6bd47d4974",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "7a975f8a58bbad5cb37b143501a4e308ca0fa3c0",
     "date": "2026-10-06",
     "subject": "Pipeline view now shows deal source type and supports filtering by all sources",
