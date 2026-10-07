@@ -221,6 +221,46 @@ test.describe('Pipeline page', () => {
     await expect(page.getByRole('button', { name: 'Wayne Enterprises', exact: true })).toBeVisible();
   });
 
+  test('User switches to the AI Screening tab and back to the same stage', async ({ page }) => {
+    await mockAuthSession(page);
+    await mockApis(page, MOCK_COMPANIES);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline?stage=L2'),
+    ]);
+
+    await expect(page.getByTestId('pipeline-page-tab-pipeline')).toHaveAttribute('data-state', 'active');
+    await expect(page.getByText('AI Screening Progress')).not.toBeVisible();
+
+    await page.getByTestId('pipeline-page-tab-screening').click();
+    await expect(page).toHaveURL(/[?&]tab=screening/);
+    await expect(page).toHaveURL(/[?&]stage=L2/);
+    await expect(page.getByText('AI Screening Progress')).toBeVisible();
+    await expect(page.getByTestId('pipeline-stage-tabs')).not.toBeVisible();
+
+    await page.getByTestId('pipeline-page-tab-pipeline').click();
+    await expect(page).not.toHaveURL(/[?&]tab=/);
+    await expect(page.getByRole('tab', { name: 'L2 · Deep Dive' })).toHaveAttribute('data-state', 'active');
+    await expect(page.getByRole('button', { name: 'Stark Industries', exact: true })).toBeVisible();
+  });
+
+  test('User opens the Pipeline with ?tab=screening', async ({ page }) => {
+    await mockAuthSession(page);
+    await mockApis(page, MOCK_COMPANIES);
+
+    await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/api/companies') && !res.url().includes('countOnly') && res.status() === 200),
+      page.goto('/pipeline?tab=screening'),
+    ]);
+
+    await expect(page.getByTestId('pipeline-page-tab-screening')).toHaveAttribute('data-state', 'active');
+    await expect(page.getByText('AI Screening Progress')).toBeVisible();
+    // With no screenings the tab shows an empty state rather than a blank page.
+    await expect(page.getByTestId('screening-progress-empty')).toBeVisible();
+    await expect(page).toHaveURL(/[?&]tab=screening/);
+  });
+
   test('User searches across every stage, including Pending Confirmation', async ({ page }) => {
     const companies = [
       ...MOCK_COMPANIES,

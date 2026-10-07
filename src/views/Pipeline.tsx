@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useSetPageDetail } from "@/components/layout/PageContextProvider";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -201,7 +200,10 @@ const STAGE_DESCRIPTION_PREVIEW_CHARS = 160;
 
 type SourcingTab = "pending" | "scanning";
 
-const SOURCING_TAB_CLASS =
+/** Pipeline's page tabs: the deal table, and the AI Screening progress (`?tab=screening`). */
+type PipelineTab = "pipeline" | "screening";
+
+const PAGE_TAB_CLASS =
   "shrink-0 rounded-none border-b-2 border-transparent px-3 py-2 -mb-px text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 // "Resurface at" presets offered when dropping a deal.
@@ -275,6 +277,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   const [sourcingTab, setSourcingTab] = useState<SourcingTab>(() =>
     searchParams.get("tab") === "scanning" ? "scanning" : "pending",
   );
+  const [pipelineTab, setPipelineTab] = useState<PipelineTab>(() =>
+    searchParams.get("tab") === "screening" ? "screening" : "pipeline",
+  );
   const [companies, setCompanies] = useState<PipelineCompany[]>([]);
   const [loading, setLoading] = useState(true);
   // True once a fetch has succeeded — until then `companies` is an empty
@@ -305,12 +310,6 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     Set<string>
   >(new Set());
   const [newCandidatesCount, setNewCandidatesCount] = useState(0);
-
-  // Section visibility
-  const [showScreeningProgress, setShowScreeningProgress] = useLocalStorage(
-    "pipeline:show-screening-progress",
-    true,
-  );
 
   // Sorting state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -507,9 +506,16 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     if (isSourcing) fetchNewCandidatesCount();
   }, [isSourcing]);
 
-  const pipelineUrl = (view: StageView, query: string) => {
+  // Every Pipeline URL keeps the page tab, the stage and the search, so
+  // switching tabs and back restores the table's filter.
+  const pipelineUrl = (
+    view: StageView,
+    query: string,
+    tab: PipelineTab = pipelineTab,
+  ) => {
     const params = new URLSearchParams({ stage: view });
     if (query.trim()) params.set("q", query.trim());
+    if (tab === "screening") params.set("tab", tab);
     return `${pipelineHref}?${params.toString()}`;
   };
 
@@ -944,6 +950,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // isn't rewritten on every keystroke-driven re-render.
   useSetPageDetail(
     useMemo(() => {
+      if (!isSourcing && pipelineTab === 'screening') {
+        return 'The Deal Pipeline page, AI Screening tab: the progress and results of AI screening runs on L0 deals against their matched tracks.';
+      }
       if (isSourcing) {
         if (sourcingTab === 'scanning') {
           return 'The Sourcing page, AI Market Scanning tab: the market scan status and the AI-discovered companies waiting to be added to L0.';
@@ -988,6 +997,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     }, [
       isSourcing,
       sourcingTab,
+      pipelineTab,
       docTypeFilter,
       stageView,
       pipelineStages,
@@ -1190,10 +1200,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
         ? undefined
         : stageView;
 
-  // AI screening runs on L0 deals, so its progress panel shows on the views
-  // that cover L0.
-  const showScreeningPanel =
-    stageView === "all" || stageView === "L0" || stageView === "pending";
+  const handlePipelineTabChange = (tab: PipelineTab) => {
+    setPipelineTab(tab);
+    router.replace(pipelineUrl(stageView, searchQuery, tab));
+  };
 
   const handleSourcingTabChange = (tab: SourcingTab) => {
     setSourcingTab(tab);
@@ -1398,7 +1408,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                 <TabsTrigger
                   data-testid="sourcing-tab-pending"
                   value="pending"
-                  className={SOURCING_TAB_CLASS}
+                  className={PAGE_TAB_CLASS}
                 >
                   Pending Confirmation
                   {pendingCount > 0 && (
@@ -1410,7 +1420,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                 <TabsTrigger
                   data-testid="sourcing-tab-scanning"
                   value="scanning"
-                  className={SOURCING_TAB_CLASS}
+                  className={PAGE_TAB_CLASS}
                 >
                   AI Market Scanning
                 </TabsTrigger>
@@ -1499,288 +1509,316 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
           </>
         ) : (
           <>
-            <Card className="shadow-md">
-              <CardHeader className="pb-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="text-lg">Pipeline Companies</CardTitle>
-                    <CardDescription>Manage your deals in the pipeline</CardDescription>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 ml-auto">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button data-testid="pipeline-add-company-button" size="sm">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Company
-                          <ChevronDown className="ml-2 h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          data-testid="pipeline-add-company-manual"
-                          onSelect={() => setAddCompanyOpen(true)}
-                        >
-                          <PencilLine className="mr-2 h-4 w-4" />
-                          Manual
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          data-testid="pipeline-add-company-ask-ai"
-                          onSelect={handleAddCompanyWithAI}
-                        >
-                          <Sparkles className="mr-2 h-4 w-4" />
-                          Ask AI
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          data-testid="pipeline-add-company-drop-file"
-                          onSelect={() => router.push(smartFilesHref)}
-                        >
-                          <Upload className="mr-2 h-4 w-4" />
-                          Drop File
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    data-testid="pipeline-search-input"
-                    placeholder="Search companies or sectors..."
-                    value={searchQuery}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <button
-                      type="button"
-                      data-testid="pipeline-pending-chip"
-                      aria-pressed={pendingActive}
-                      disabled={searchesAllStages}
-                      onClick={() =>
-                        handleStageViewChange(pendingActive ? "all" : "pending")
-                      }
-                      className={cn(
-                        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                        pendingActive
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      Pending Confirmation
-                      {pendingCount > 0 && (
-                        <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-red-700 dark:bg-red-950 dark:text-red-300">
-                          {pendingCount}
-                        </span>
-                      )}
-                    </button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-testid="pipeline-stage-help-button"
-                      className="h-6 w-6 shrink-0 text-muted-foreground"
-                      title="What are pipeline stages?"
-                      aria-label="What are pipeline stages?"
-                      onClick={() => setStageHelpOpen(true)}
-                    >
-                      <HelpCircle className="h-4 w-4" />
-                    </Button>
-                    <span className="shrink-0 text-xs font-bold tracking-wider text-muted-foreground">
-                      STAGE
+            <Tabs
+              value={pipelineTab}
+              onValueChange={(value) =>
+                handlePipelineTabChange(value as PipelineTab)
+              }
+            >
+              <TabsList
+                data-testid="pipeline-page-tabs"
+                className="h-auto w-full justify-start gap-1 rounded-none border-b bg-transparent p-0"
+              >
+                <TabsTrigger
+                  data-testid="pipeline-page-tab-pipeline"
+                  value="pipeline"
+                  className={PAGE_TAB_CLASS}
+                >
+                  Pipeline
+                </TabsTrigger>
+                <TabsTrigger
+                  data-testid="pipeline-page-tab-screening"
+                  value="screening"
+                  className={PAGE_TAB_CLASS}
+                >
+                  AI Screening
+                  {runningScreeningCompanyIds.size > 0 && (
+                    <span className="ml-1.5 rounded-full bg-yellow-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">
+                      {runningScreeningCompanyIds.size}
                     </span>
-                    <Tabs
-                      value={stageView}
-                      onValueChange={(value) =>
-                        handleStageViewChange(parseStageView(value, stageKeys))
-                      }
-                      className="min-w-0"
-                    >
-                      <TabsList
-                        data-testid="pipeline-stage-tabs"
-                        className="h-auto max-w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0"
-                      >
-                        {stageTabs.map((tab) => (
-                          <TabsTrigger
-                            key={tab.value}
-                            data-testid={`pipeline-tab-${tab.value.toLowerCase()}`}
-                            value={tab.value}
-                            disabled={searchesAllStages}
-                            className="shrink-0 gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none disabled:cursor-not-allowed"
-                          >
-                            {tab.label}
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                  {searchesAllStages && (
-                    <p
-                      data-testid="pipeline-search-scope-hint"
-                      className="text-xs text-muted-foreground"
-                    >
-                      Searching every stage, including Pending Confirmation.
-                      Clear the search to filter by stage.
-                    </p>
                   )}
-                  {otherSourceMatchCount > 0 && (
-                    <p
-                      data-testid="pipeline-other-source-hint"
-                      className="text-xs text-muted-foreground"
-                    >
-                      {otherSourceMatchCount}{" "}
-                      {otherSourceMatchCount === 1 ? "match" : "matches"} in{" "}
-                      {otherSource === "inbound" ? "Inbound" : "Outbound"}
-                      {" — "}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            {pipelineTab === "screening" ? (
+              // AI screening runs on L0 deals; the panel lists them whatever
+              // stage the Pipeline tab is filtered to.
+              <ScreeningProgressPanel
+                refreshTrigger={screeningProgressRefresh}
+                onScreeningComplete={() => {
+                  fetchCompanies();
+                }}
+                onCompanyClick={(companyId) => {
+                  const company = companies.find((c) => c.id === companyId);
+                  if (company) {
+                    setOpenDetailInEdit(false);
+                    setSelectedCompany(company);
+                  }
+                }}
+              />
+            ) : (
+              <Card className="shadow-md">
+                <CardHeader className="pb-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="text-lg">Pipeline Companies</CardTitle>
+                      <CardDescription>Manage your deals in the pipeline</CardDescription>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 ml-auto">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button data-testid="pipeline-add-company-button" size="sm">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Company
+                            <ChevronDown className="ml-2 h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            data-testid="pipeline-add-company-manual"
+                            onSelect={() => setAddCompanyOpen(true)}
+                          >
+                            <PencilLine className="mr-2 h-4 w-4" />
+                            Manual
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            data-testid="pipeline-add-company-ask-ai"
+                            onSelect={handleAddCompanyWithAI}
+                          >
+                            <Sparkles className="mr-2 h-4 w-4" />
+                            Ask AI
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            data-testid="pipeline-add-company-drop-file"
+                            onSelect={() => router.push(smartFilesHref)}
+                          >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Drop File
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      data-testid="pipeline-search-input"
+                      placeholder="Search companies or sectors..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex min-w-0 items-center gap-3">
                       <button
                         type="button"
-                        className="font-semibold text-primary hover:underline"
-                        onClick={() => setSourceFilter(otherSource)}
+                        data-testid="pipeline-pending-chip"
+                        aria-pressed={pendingActive}
+                        disabled={searchesAllStages}
+                        onClick={() =>
+                          handleStageViewChange(pendingActive ? "all" : "pending")
+                        }
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          pendingActive
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground",
+                        )}
                       >
-                        Show
+                        Pending Confirmation
+                        {pendingCount > 0 && (
+                          <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-red-700 dark:bg-red-950 dark:text-red-300">
+                            {pendingCount}
+                          </span>
+                        )}
                       </button>
-                    </p>
-                  )}
-                  {stageDescription && !searchesAllStages && (
-                    <p
-                      data-testid="pipeline-stage-description"
-                      className="text-xs text-muted-foreground"
-                    >
-                      <span className="font-semibold">Description: </span>
-                      {stageDescriptionPreview}
-                      {stageDescriptionTruncated && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        data-testid="pipeline-stage-help-button"
+                        className="h-6 w-6 shrink-0 text-muted-foreground"
+                        title="What are pipeline stages?"
+                        aria-label="What are pipeline stages?"
+                        onClick={() => setStageHelpOpen(true)}
+                      >
+                        <HelpCircle className="h-4 w-4" />
+                      </Button>
+                      <span className="shrink-0 text-xs font-bold tracking-wider text-muted-foreground">
+                        STAGE
+                      </span>
+                      <Tabs
+                        value={stageView}
+                        onValueChange={(value) =>
+                          handleStageViewChange(parseStageView(value, stageKeys))
+                        }
+                        className="min-w-0"
+                      >
+                        <TabsList
+                          data-testid="pipeline-stage-tabs"
+                          className="h-auto max-w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0"
+                        >
+                          {stageTabs.map((tab) => (
+                            <TabsTrigger
+                              key={tab.value}
+                              data-testid={`pipeline-tab-${tab.value.toLowerCase()}`}
+                              value={tab.value}
+                              disabled={searchesAllStages}
+                              className="shrink-0 gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none disabled:cursor-not-allowed"
+                            >
+                              {tab.label}
+                            </TabsTrigger>
+                          ))}
+                        </TabsList>
+                      </Tabs>
+                    </div>
+                    {searchesAllStages && (
+                      <p
+                        data-testid="pipeline-search-scope-hint"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Searching every stage, including Pending Confirmation.
+                        Clear the search to filter by stage.
+                      </p>
+                    )}
+                    {otherSourceMatchCount > 0 && (
+                      <p
+                        data-testid="pipeline-other-source-hint"
+                        className="text-xs text-muted-foreground"
+                      >
+                        {otherSourceMatchCount}{" "}
+                        {otherSourceMatchCount === 1 ? "match" : "matches"} in{" "}
+                        {otherSource === "inbound" ? "Inbound" : "Outbound"}
+                        {" — "}
                         <button
                           type="button"
-                          data-testid="pipeline-stage-description-more"
-                          className="ml-1 font-semibold text-primary hover:underline"
-                          onClick={() => setStageHelpOpen(true)}
+                          className="font-semibold text-primary hover:underline"
+                          onClick={() => setSourceFilter(otherSource)}
                         >
-                          Show more
+                          Show
                         </button>
-                      )}
-                    </p>
-                  )}
-                </div>
+                      </p>
+                    )}
+                    {stageDescription && !searchesAllStages && (
+                      <p
+                        data-testid="pipeline-stage-description"
+                        className="text-xs text-muted-foreground"
+                      >
+                        <span className="font-semibold">Description: </span>
+                        {stageDescriptionPreview}
+                        {stageDescriptionTruncated && (
+                          <button
+                            type="button"
+                            data-testid="pipeline-stage-description-more"
+                            className="ml-1 font-semibold text-primary hover:underline"
+                            onClick={() => setStageHelpOpen(true)}
+                          >
+                            Show more
+                          </button>
+                        )}
+                      </p>
+                    )}
+                  </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <Select
-                    value={sourceFilter}
-                    onValueChange={(value) =>
-                      setSourceFilter(value as SourceFilter)
-                    }
-                  >
-                    <SelectTrigger
-                      data-testid="pipeline-source-select"
-                      className="w-36 h-9"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Sources</SelectItem>
-                      <SelectItem value="inbound">Inbound</SelectItem>
-                      <SelectItem value="outbound">Outbound</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={viewMode}
-                    onValueChange={(value) =>
-                      setViewMode(value as PipelineViewMode)
-                    }
-                  >
-                    <SelectTrigger
-                      data-testid="pipeline-status-select"
-                      className="w-44 h-9"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Pipeline Status</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="dropped">Dropped</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {tracks.length > 0 && (
-                    <TrackMultiSelect
-                      tracks={tracks}
-                      value={trackFilter}
-                      onChange={setTrackFilter}
-                      variant="filter"
-                      placeholder="All Tracks"
-                      className="w-44 h-9"
-                      includeUnassigned
-                    />
-                  )}
-                  {stageView === screeningStage && !searchesAllStages && (
+                  <div className="flex flex-wrap items-center gap-3">
                     <Select
-                      value={l1StatusFilter}
-                      onValueChange={(v) => setL1StatusFilter(v as "all" | L1Status)}
+                      value={sourceFilter}
+                      onValueChange={(value) =>
+                        setSourceFilter(value as SourceFilter)
+                      }
                     >
-                      <SelectTrigger className="w-40 h-9">
-                        <SelectValue placeholder="Status" />
+                      <SelectTrigger
+                        data-testid="pipeline-source-select"
+                        className="w-36 h-9"
+                      >
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="Pass">Pass</SelectItem>
-                        <SelectItem value="Fail">Fail</SelectItem>
-                        <SelectItem value="Inconclusive">Inconclusive</SelectItem>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="inbound">Inbound</SelectItem>
+                        <SelectItem value="outbound">Outbound</SelectItem>
                       </SelectContent>
                     </Select>
-                  )}
-                  <Select
-                    value={sortPreset}
-                    onValueChange={(value) => {
-                      if (value === "newest") setSortField(null);
-                      else setSortColumn(dateSortField, "asc");
-                    }}
-                  >
-                    <SelectTrigger
-                      data-testid="pipeline-sort-select"
-                      className="w-44 h-9"
+                    <Select
+                      value={viewMode}
+                      onValueChange={(value) =>
+                        setViewMode(value as PipelineViewMode)
+                      }
                     >
-                      <SelectValue placeholder="Sort by: Column" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="newest">Sort by: Newest</SelectItem>
-                      <SelectItem value="oldest">Sort by: Oldest</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {/* Column-config gear portals in here (see tables). */}
-                  <div
-                    id="pipeline-columns-config"
-                    className="shrink-0 flex items-center"
-                  />
-                </div>
+                      <SelectTrigger
+                        data-testid="pipeline-status-select"
+                        className="w-44 h-9"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Pipeline Status</SelectItem>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="dropped">Dropped</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {tracks.length > 0 && (
+                      <TrackMultiSelect
+                        tracks={tracks}
+                        value={trackFilter}
+                        onChange={setTrackFilter}
+                        variant="filter"
+                        placeholder="All Tracks"
+                        className="w-44 h-9"
+                        includeUnassigned
+                      />
+                    )}
+                    {stageView === screeningStage && !searchesAllStages && (
+                      <Select
+                        value={l1StatusFilter}
+                        onValueChange={(v) => setL1StatusFilter(v as "all" | L1Status)}
+                      >
+                        <SelectTrigger className="w-40 h-9">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          <SelectItem value="Pass">Pass</SelectItem>
+                          <SelectItem value="Fail">Fail</SelectItem>
+                          <SelectItem value="Inconclusive">Inconclusive</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Select
+                      value={sortPreset}
+                      onValueChange={(value) => {
+                        if (value === "newest") setSortField(null);
+                        else setSortColumn(dateSortField, "asc");
+                      }}
+                    >
+                      <SelectTrigger
+                        data-testid="pipeline-sort-select"
+                        className="w-44 h-9"
+                      >
+                        <SelectValue placeholder="Sort by: Column" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="newest">Sort by: Newest</SelectItem>
+                        <SelectItem value="oldest">Sort by: Oldest</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {/* Column-config gear portals in here (see tables). */}
+                    <div
+                      id="pipeline-columns-config"
+                      className="shrink-0 flex items-center"
+                    />
+                  </div>
 
-                {companiesTable}
-              </CardContent>
-            </Card>
-
-            {showScreeningPanel && (
-              <>
-                <ScreeningProgressPanel
-                  refreshTrigger={screeningProgressRefresh}
-                  onScreeningComplete={() => {
-                    fetchCompanies();
-                  }}
-                  onCompanyClick={(companyId) => {
-                    const company = companies.find((c) => c.id === companyId);
-                    if (company) {
-                      setOpenDetailInEdit(false);
-                      setSelectedCompany(company);
-                    }
-                  }}
-                  collapsed={!showScreeningProgress}
-                  onToggleCollapse={() =>
-                    setShowScreeningProgress(!showScreeningProgress)
-                  }
-                />
-            </>
-        )}
-        </>
+                  {companiesTable}
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
 
         {/* Opened only from the Pipeline view, never on Sourcing. */}
