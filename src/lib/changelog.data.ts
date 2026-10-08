@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "98735cbab051972805fda24a316ce26e41e89011",
+    "date": "2026-10-08",
+    "subject": "Pipeline page now includes separate AI Screening tab for deal analysis",
+    "category": "improvement"
+  },
+  {
     "hash": "ecce229850a06f8ad5a5583cb540ccbf26572bc1",
     "date": "2026-10-07",
     "subject": "CRM banker contacts now support editing and expanded profile information",
@@ -145,6 +151,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "4688db434efc147abcf99d7a4b2bfb83e4e6094e",
+    "date": "2026-10-07",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "7f596458dbf67bb23dea1ce9a58ff3dfdbe52b60",
     "date": "2026-10-07",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
