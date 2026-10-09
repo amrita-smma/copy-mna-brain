@@ -21,6 +21,7 @@ import {
   companyCardSpecSchema,
   buildCompanyExcelAttachment,
   buildResearchSummaryAttachment,
+  ResearchSummaryTooLargeError,
   buildPresentationAttachment,
   buildCompanyCardAttachment,
 } from './emailArtifacts';
@@ -219,12 +220,21 @@ export const sendEmailTool = tool(
         documentBytes + attachments.reduce((sum, a) => sum + a.content.length, 0);
 
       if (args.research_summary) {
-        const artifact = await buildResearchSummaryAttachment(
-          args.research_summary,
-          recipients.length === 1 ? recipients[0].email : undefined,
-        );
-        attachments.push(artifact.attachment);
-        attachmentLabels.push('research summary (PDF)');
+        try {
+          const artifact = await buildResearchSummaryAttachment(
+            args.research_summary,
+            recipients.length === 1 ? recipients[0].email : undefined,
+          );
+          attachments.push(artifact.attachment);
+          attachmentLabels.push('research summary (PDF)');
+        } catch (err) {
+          // Surfaced as its own error rather than through the outer catch, so
+          // the model is told the PDF was the problem and nothing was sent.
+          if (err instanceof ResearchSummaryTooLargeError) {
+            return `**Error:** ${err.message}`;
+          }
+          throw err;
+        }
       }
 
       if (args.company_excel) {
@@ -365,13 +375,17 @@ ${COMPANY_FILTER_DOC}
   - \`heading\` { text, level?: "section" | "subsection" }
   - \`paragraph\` { text }
   - \`bullets\` { items }
-  - \`kpi_cards\` { cards: [{ label, value, hint? }] }
-  - \`bar_chart\` { title?, unit?, data: [{ year, value }], accent?: "primary" | "secondary" }
+  - \`kpi_cards\` { cards: [{ label, value, hint?, logo_url? }] }
+  - \`chart\` { type: "bar" | "stacked_bar" | "line" | "pie", title?, unit?, categories: [...], series: [{ name, values: [...] }] }
+  - \`bar_chart\` { title?, unit?, data: [{ year, value }], accent?: "primary" | "secondary" } — the older single-series form; prefer \`chart\`
+  - \`image\` { url, caption?, maxHeight? } — https PNG/JPEG only
   - \`gauges\` { gauges: [{ label, valuePct, tone?, trendLabel? }] }
-  - \`scorecard\` { rows: [{ label, pill: { label, tone }, rationale }], columns?, overallPill?, overallNote? }
+  - \`scorecard\` { rows: [{ label, pill: { label, tone }, rationale, logo_url? }], columns?, overallPill?, overallNote? }
   - \`quadrants\` { quadrants: { topLeft, topRight, bottomLeft, bottomRight, xLabelLow?, xLabelHigh?, yLabelHigh?, yLabelLow? } }
   - \`priority_list\` { items: [{ priority: { label, tone: "high" | "medium" | "low" }, description, meta? }] }
-  Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`. Rules: keep one unit per bar_chart series; no markdown inside block strings; keep KPI \`value\` to one short line.
+  Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`.
+  Choosing a \`chart\` type: \`bar\` compares magnitudes across categories, \`stacked_bar\` shows the composition of a total, \`line\` shows a trend over an ordered axis, \`pie\` shows one share-of-whole split. Every series needs EXACTLY one value per category, in the same order — a shorter \`values\` array is rejected. \`stacked_bar\` stacks positive values only; for a series with negatives use \`bar\`. Keep one unit per chart (never mix revenue and a percentage in the same chart — use two).
+  Rules: no markdown inside block strings. Text wraps and is never truncated, so write what the point needs rather than padding it to fill a card. \`logo_url\` is an https PNG/JPEG logo URL — pass one only when you already have it from a search or a page you read, never a guessed URL; one that cannot be fetched is skipped and the row still renders.
 
 - \`company_card\` — Attach the **Company Card** deck (.pptx): a faithful, condensed export of the "L0 to L1 Submission" card shown in the company detail view (header + stage track, Project Type / Geography / Business Line / End Sector, Source / Deal Sponsor / Deal Status / NBO Due, Target Overview, Indicative Financials, Proposed Deal Structure, Investment Thesis, L1 scope of work, Kill criteria). Pass \`company_ids\` from a previous query_companies call (preferred — exact, no fuzzy matching), or \`company_names\` when you have no id. One slide set per company, in the order given; ids and names are deduplicated so the same company never appears twice. Optional \`title\`. Content that does not fit one slide continues on "(cont.)" slides. Ids/names that cannot be resolved are reported and skipped. This is FAST — it renders existing data and does NOT call an LLM.
 

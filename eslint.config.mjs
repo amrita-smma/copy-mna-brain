@@ -54,6 +54,14 @@ const eslintConfig = [
       "react/no-unescaped-entities": "warn",
     },
   },
+  {
+    // The PDF renderer's `<Image>` is `@react-pdf/renderer`'s, not an HTML
+    // `<img>` — it paints into a PDF page and has no alt attribute to give.
+    files: ["src/lib/pdf/**/*.tsx", "src/lib/pdfSummary.tsx"],
+    rules: {
+      "jsx-a11y/alt-text": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

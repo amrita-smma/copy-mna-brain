@@ -52,10 +52,13 @@ vi.mock('@/lib/services/container', () => ({ createContainer }));
 vi.mock('@/lib/companyExcel', () => ({ generateCompanyExcel }));
 vi.mock('@/lib/pdfSummary', () => ({ generateResearchSummaryPdf }));
 
+import { PPTX_MAX_EMAIL_BYTES } from '@/lib/pptx/generatePptxBuffer';
 import {
   buildCompanySheets,
   buildCompanyExcelAttachment,
   buildResearchSummaryAttachment,
+  researchSummarySpecSchema,
+  ResearchSummaryTooLargeError,
   summarizeFilters,
   slugifyTitle,
 } from './emailArtifacts';
@@ -287,6 +290,158 @@ describe('buildResearchSummaryAttachment', () => {
     expect(arg.title).toBe('Acme summary');
     expect(arg.subtitle).toMatch(/nico@e\.com/);
     expect(arg.sections).toHaveLength(1);
+  });
+
+  it('maps the agent\'s snake_case logo_url onto the renderer\'s logoUrl', async () => {
+    await buildResearchSummaryAttachment({
+      title: 't',
+      sections: [
+        {
+          kind: 'kpi_cards',
+          cards: [
+            { label: 'Price', value: 'IDR 30', logo_url: 'https://cdn.example.com/a.png' },
+            { label: 'Net cash', value: 'IDR 13.7T' },
+          ],
+        },
+        {
+          kind: 'scorecard',
+          rows: [
+            {
+              label: 'GoTo',
+              pill: { label: 'PASS', tone: 'positive' },
+              rationale: 'r',
+              logo_url: 'https://cdn.example.com/b.png',
+            },
+            { label: 'Grab', pill: { label: 'FAIL', tone: 'negative' }, rationale: 'r' },
+          ],
+        },
+      ],
+    });
+    const arg = generateResearchSummaryPdf.mock.calls[0][0];
+    expect(arg.sections[0].cards).toEqual([
+      { label: 'Price', value: 'IDR 30', logoUrl: 'https://cdn.example.com/a.png' },
+      { label: 'Net cash', value: 'IDR 13.7T', logoUrl: null },
+    ]);
+    expect(arg.sections[1].rows[0].logoUrl).toBe('https://cdn.example.com/b.png');
+    expect(arg.sections[1].rows[1].logoUrl).toBeNull();
+    // The snake_case key must not survive into the renderer input.
+    expect(arg.sections[0].cards[0]).not.toHaveProperty('logo_url');
+  });
+
+  it('passes the chart block through with its series intact', async () => {
+    await buildResearchSummaryAttachment({
+      title: 't',
+      sections: [
+        {
+          kind: 'chart',
+          type: 'stacked_bar',
+          title: 'Revenue mix',
+          unit: 'IDR bn',
+          categories: ['FY24', 'FY25'],
+          series: [
+            { name: 'On-demand', values: [6200, 6900] },
+            { name: 'Fintech', values: [4100, 5600] },
+          ],
+        },
+      ],
+    });
+    expect(generateResearchSummaryPdf.mock.calls[0][0].sections[0]).toEqual({
+      kind: 'chart',
+      type: 'stacked_bar',
+      title: 'Revenue mix',
+      unit: 'IDR bn',
+      categories: ['FY24', 'FY25'],
+      series: [
+        { name: 'On-demand', values: [6200, 6900] },
+        { name: 'Fintech', values: [4100, 5600] },
+      ],
+    });
+  });
+
+  it('passes the image block through', async () => {
+    await buildResearchSummaryAttachment({
+      title: 't',
+      sections: [
+        { kind: 'image', url: 'https://cdn.example.com/chart.png', caption: 'Fig 1' },
+      ],
+    });
+    expect(generateResearchSummaryPdf.mock.calls[0][0].sections[0]).toEqual({
+      kind: 'image',
+      url: 'https://cdn.example.com/chart.png',
+      caption: 'Fig 1',
+      maxHeight: undefined,
+    });
+  });
+
+  it('rejects a chart whose series is shorter than its category list', () => {
+    const result = researchSummarySpecSchema.safeParse({
+      title: 't',
+      sections: [
+        {
+          kind: 'chart',
+          type: 'bar',
+          categories: ['FY24', 'FY25', 'FY26'],
+          series: [{ name: 'Revenue', values: [1, 2] }],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues[0].message).toMatch(/2 values but there are 3 categories/);
+    expect(result.error!.issues[0].path).toEqual(['sections', 0, 'series', 0, 'values']);
+  });
+
+  it('accepts a chart whose every series matches the category count', () => {
+    expect(
+      researchSummarySpecSchema.safeParse({
+        title: 't',
+        sections: [
+          {
+            kind: 'chart',
+            type: 'line',
+            categories: ['Q1', 'Q2'],
+            series: [
+              { name: 'a', values: [1, 2] },
+              { name: 'b', values: [3, 4] },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('caps scorecard rows so one spec cannot fan out without limit', () => {
+    const rows = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        label: `r${i}`,
+        pill: { label: 'PASS', tone: 'positive' as const },
+        rationale: 'x',
+      }));
+    const spec = (n: number) => ({
+      title: 't',
+      sections: [{ kind: 'scorecard' as const, rows: rows(n) }],
+    });
+    expect(researchSummarySpecSchema.safeParse(spec(60)).success).toBe(true);
+    expect(researchSummarySpecSchema.safeParse(spec(61)).success).toBe(false);
+  });
+
+  it('rejects a PDF too large for SES instead of attaching it', async () => {
+    generateResearchSummaryPdf.mockResolvedValueOnce(Buffer.alloc(PPTX_MAX_EMAIL_BYTES + 1));
+    await expect(
+      buildResearchSummaryAttachment({
+        title: 't',
+        sections: [{ kind: 'paragraph', text: 'x' }],
+      }),
+    ).rejects.toBeInstanceOf(ResearchSummaryTooLargeError);
+  });
+
+  it('attaches a PDF that sits exactly on the SES budget', async () => {
+    generateResearchSummaryPdf.mockResolvedValueOnce(Buffer.alloc(PPTX_MAX_EMAIL_BYTES));
+    await expect(
+      buildResearchSummaryAttachment({
+        title: 't',
+        sections: [{ kind: 'paragraph', text: 'x' }],
+      }),
+    ).resolves.toMatchObject({ title: 't' });
   });
 
   it('maps references with explicit null defaults for missing link/date', async () => {

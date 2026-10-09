@@ -71,7 +71,19 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  serverExternalPackages: ["@resvg/resvg-js"],
+  // `@react-pdf/renderer` pulls in fontkit and a base64-inlined yoga-layout
+  // wasm module. Bundling those through Turbopack breaks the wasm init, so the
+  // package is loaded from node_modules at runtime instead.
+  serverExternalPackages: ["@resvg/resvg-js", "@react-pdf/renderer"],
+  // The research-summary PDF reads Inter out of `public/fonts` with a plain
+  // `fs.readFileSync`, which the tracer cannot see. Next happens to trace all
+  // of `public/` into every function today, so this is belt-and-braces rather
+  // than load-bearing — it pins the dependency explicitly so the fonts cannot
+  // quietly stop shipping. Without them the renderer falls back to Helvetica
+  // and every non-Latin-1 character disappears (see `src/lib/pdf/fonts.ts`).
+  outputFileTracingIncludes: {
+    "/api/**": ["./public/fonts/**"],
+  },
 };
 
 export default withWorkflow(nextConfig);

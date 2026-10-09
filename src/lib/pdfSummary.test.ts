@@ -181,7 +181,7 @@ describe('generateResearchSummaryPdf', () => {
     expect(isPdf(buffer)).toBe(true);
   });
 
-  it('sanitizes Unicode that WinAnsi cannot encode', async () => {
+  it('embeds Unicode rather than replacing it, now that Inter is embedded', async () => {
     const buffer = await generateResearchSummaryPdf({
       title: 'Unicode test',
       sections: [
@@ -191,14 +191,69 @@ describe('generateResearchSummaryPdf', () => {
             {
               label: 'Revenue ≥ $50M',
               pill: { label: 'PASS', tone: 'positive' },
-              rationale: 'Hit $112M — well above the bar.',
+              rationale: 'Hit $112M — well above the bar. Café, Łódź, ₹450cr.',
             },
           ],
         },
       ],
     });
     expect(isPdf(buffer)).toBe(true);
+    // See `pdf/layout.test.ts` for the assertion that the glyphs survive the
+    // round trip; the standard-14 `?` substitution is gone.
   });
+
+  it('renders the new chart block in each of its four forms', async () => {
+    for (const type of ['bar', 'stacked_bar', 'line', 'pie'] as const) {
+      const buffer = await generateResearchSummaryPdf({
+        title: `Chart — ${type}`,
+        sections: [
+          {
+            kind: 'chart',
+            type,
+            title: 'Revenue mix',
+            unit: 'USD m',
+            categories: ['FY23', 'FY24', 'FY25'],
+            series: [
+              { name: 'Core', values: [10, 14, 19] },
+              { name: 'Adjacent', values: [4, 6, 9] },
+            ],
+          },
+        ],
+      });
+      expect(isPdf(buffer)).toBe(true);
+    }
+  });
+
+  it('skips an image block whose url could not be fetched rather than failing', async () => {
+    const buffer = await generateResearchSummaryPdf({
+      title: 'Dead image',
+      sections: [
+        { kind: 'image', url: 'https://example.invalid/none.png', caption: 'Nothing here' },
+        { kind: 'paragraph', text: 'The rest of the document still renders.' },
+      ],
+    });
+    expect(isPdf(buffer)).toBe(true);
+  }, 30000);
+
+  it('renders a scorecard row whose logo url is unreachable, minus the logo', async () => {
+    const buffer = await generateResearchSummaryPdf({
+      title: 'Dead logo',
+      sections: [
+        {
+          kind: 'scorecard',
+          rows: [
+            {
+              label: 'Acme',
+              logoUrl: 'https://example.invalid/logo.png',
+              pill: { label: 'PASS', tone: 'positive' },
+              rationale: 'Still rendered.',
+            },
+          ],
+        },
+      ],
+    });
+    expect(isPdf(buffer)).toBe(true);
+  }, 30000);
 
   it('renders charts where one bar is negative without crashing', async () => {
     const buffer = await generateResearchSummaryPdf({

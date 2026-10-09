@@ -21,6 +21,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
 - [One company-filter vocabulary across the analysis tools](company-filter-vocabulary.md) — 3KB
 - [Company Card → PowerPoint (email export)](company-card-powerpoint-export.md) — 3KB
+- [Research-summary PDF (email attachment)](research-summary-pdf.md) — 5KB
 - [Presentation page (`/presentation`)](presentation-page.md) — 1KB
 - [Relationship graph (Neo4j)](relationship-graph.md) — 10KB
 - [Data Navigator (RSS news lake)](data-navigator.md) — 9KB

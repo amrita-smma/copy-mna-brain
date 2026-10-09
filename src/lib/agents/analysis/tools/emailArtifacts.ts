@@ -36,17 +36,19 @@ import {
   type ExcelSheet,
   type ExcelCellValue,
 } from '@/lib/companyExcel';
-import {
-  generateResearchSummaryPdf,
-  type ResearchSummaryPdfInput,
-  type SectionBlock,
-  type KpiInput,
-  type YearValueInput,
-  type GaugeInput,
-  type ScorecardRowInput,
-  type PriorityItemInput,
-  type QuadrantsInput,
-  type PillInput,
+// Types only — the renderer itself is imported lazily where it is used. See
+// `buildResearchSummaryAttachment`.
+import type {
+  ResearchSummaryPdfInput,
+  SectionBlock,
+  KpiInput,
+  YearValueInput,
+  GaugeInput,
+  ScorecardRowInput,
+  PriorityItemInput,
+  QuadrantsInput,
+  PillInput,
+  ChartSeriesInput,
 } from '@/lib/pdfSummary';
 import type { EmailAttachment } from '@/lib/ses';
 import { isDealLive } from '@/lib/dealStatus';
@@ -56,7 +58,7 @@ import {
 } from '@/lib/services/companyCardSlideService';
 import { exportElementsToPptx } from '@/lib/pptx/writePptx';
 import type { PptxSlide } from '@/lib/pptx/pptxElements';
-import { generatePptxBuffer } from '@/lib/pptx/generatePptxBuffer';
+import { generatePptxBuffer, PPTX_MAX_EMAIL_BYTES } from '@/lib/pptx/generatePptxBuffer';
 import { buildAgentPresentationPrompt } from '@/lib/pptx/presentationPrompt';
 import { buildPresentationCompanyContext } from '@/lib/pptx/companyContext';
 import { formatDealType } from '@/lib/companies/dealTypes';
@@ -468,10 +470,19 @@ const pillSchema = z.object({
     .describe('Pill color: positive=green, negative=red, warning=amber, info=blue, neutral=gray'),
 });
 
+const logoUrlField = z
+  .string()
+  .url()
+  .optional()
+  .describe(
+    'Optional https URL of a PNG/JPEG logo shown beside this item. Only pass a URL you actually have (from a search result or a page you read) — never a guessed one. A URL that cannot be fetched is skipped silently and the item still renders.',
+  );
+
 const kpiSchema = z.object({
   label: z.string().describe('Short uppercase-able card label'),
-  value: z.string().describe('Single-line headline value'),
-  hint: z.string().optional().describe('Optional one-line context under the value'),
+  value: z.string().describe('Headline value; wraps if long, so it is never truncated'),
+  hint: z.string().optional().describe('Optional context under the value; wraps onto several lines'),
+  logo_url: logoUrlField,
 });
 
 const yearValueSchema = z.object({
@@ -496,6 +507,7 @@ const scorecardRowSchema = z.object({
   label: z.string().describe('Row label, e.g. a criterion, a player, a metric'),
   pill: pillSchema,
   rationale: z.string().describe('One-sentence note rendered in the rationale column'),
+  logo_url: logoUrlField,
 });
 
 const priorityItemSchema = z.object({
@@ -521,6 +533,13 @@ const quadrantsSchema = z.object({
   yLabelLow: z.string().optional().describe('Y-axis label rendered next to the bottom row'),
 });
 
+const chartSeriesSchema = z.object({
+  name: z.string().describe('Series name, shown in the legend'),
+  values: z
+    .array(z.number())
+    .describe('One value per entry in `categories`, in the same order. Use 0 for a genuine zero.'),
+});
+
 const sectionBlockSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('heading'),
@@ -537,10 +556,36 @@ const sectionBlockSchema = z.discriminatedUnion('kind', [
     data: z.array(yearValueSchema).min(1).max(12),
     accent: z.enum(['primary', 'secondary']).optional(),
   }),
+  z.object({
+    kind: z.literal('chart'),
+    type: z
+      .enum(['bar', 'stacked_bar', 'line', 'pie'])
+      .describe(
+        'bar=compare magnitudes across categories; stacked_bar=composition of a total over time (positive values only); line=trend over an ordered axis; pie=one share-of-whole breakdown (uses the first series only).',
+      ),
+    title: z.string().optional(),
+    unit: z.string().optional().describe('Unit shown after the title, e.g. "IDR bn", "%"'),
+    categories: z.array(z.string()).min(1).max(24).describe('X-axis labels (pie: slice labels)'),
+    // `values.length === categories.length` is enforced on the whole spec, not
+    // here: `z.discriminatedUnion` only accepts plain objects, and `.refine()`
+    // would make this member a `ZodEffects`.
+    series: z.array(chartSeriesSchema).min(1).max(8),
+  }),
+  z.object({
+    kind: z.literal('image'),
+    url: z.string().url().describe('https URL of a PNG or JPEG. SVG is not supported.'),
+    caption: z.string().optional(),
+    maxHeight: z.number().optional().describe('Cap on the rendered height in points (default 180)'),
+  }),
   z.object({ kind: z.literal('gauges'), gauges: z.array(gaugeSchema).min(1).max(8) }),
   z.object({
     kind: z.literal('scorecard'),
-    rows: z.array(scorecardRowSchema).min(1),
+    rows: z
+      .array(scorecardRowSchema)
+      .min(1)
+      // Bounded so one spec cannot fan out to hundreds of logo fetches or push
+      // the attachment past what SES will carry.
+      .max(60),
     overallPill: pillSchema.optional(),
     overallNote: z.string().optional(),
     columns: z
@@ -562,14 +607,38 @@ const referenceSchema = z.object({
 });
 
 /** Spec the agent passes to attach a formatted research-summary PDF. */
-export const researchSummarySpecSchema = z.object({
-  title: z.string().describe('Document title (used for the PDF and its filename slug).'),
-  sections: z
-    .array(sectionBlockSchema)
-    .min(1)
-    .describe('Ordered list of rendered blocks. Compose freely; no required structure.'),
-  references: z.array(referenceSchema).optional().describe('Optional source list rendered at the end.'),
-});
+export const researchSummarySpecSchema = z
+  .object({
+    title: z.string().describe('Document title (used for the PDF and its filename slug).'),
+    sections: z
+      .array(sectionBlockSchema)
+      .min(1)
+      // Bounded so one spec cannot fan out to an unlimited number of image
+      // fetches or a PDF too large for SES.
+      .max(120)
+      .describe('Ordered list of rendered blocks. Compose freely; no required structure.'),
+    references: z
+      .array(referenceSchema)
+      .max(60)
+      .optional()
+      .describe('Optional source list rendered at the end.'),
+  })
+  // A chart series shorter than its category list is the easiest mistake to
+  // make here and the hardest to see in the output: the trailing categories are
+  // silently dropped, so the chart comes out wrong rather than absent.
+  .superRefine((spec, ctx) => {
+    spec.sections.forEach((block, i) => {
+      if (block.kind !== 'chart') return;
+      block.series.forEach((series, j) => {
+        if (series.values.length === block.categories.length) return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sections', i, 'series', j, 'values'],
+          message: `series "${series.name}" has ${series.values.length} values but there are ${block.categories.length} categories; every series needs exactly one value per category`,
+        });
+      });
+    });
+  });
 
 export type ResearchSummarySpec = z.infer<typeof researchSummarySpecSchema>;
 
@@ -582,7 +651,14 @@ function mapSection(s: ResearchSummarySpec['sections'][number]): SectionBlock {
     case 'bullets':
       return { kind: 'bullets', items: s.items };
     case 'kpi_cards':
-      return { kind: 'kpi_cards', cards: s.cards as KpiInput[] };
+      return {
+        kind: 'kpi_cards',
+        // The Zod inference widens every field to optional, as elsewhere in
+        // this mapper; the schema itself is what guarantees they are present.
+        cards: s.cards.map(
+          ({ logo_url, ...card }) => ({ ...card, logoUrl: logo_url ?? null }) as KpiInput,
+        ),
+      };
     case 'bar_chart':
       return {
         kind: 'bar_chart',
@@ -591,12 +667,25 @@ function mapSection(s: ResearchSummarySpec['sections'][number]): SectionBlock {
         data: s.data as YearValueInput[],
         accent: s.accent,
       };
+    case 'chart':
+      return {
+        kind: 'chart',
+        type: s.type,
+        title: s.title,
+        unit: s.unit,
+        categories: s.categories,
+        series: s.series as ChartSeriesInput[],
+      };
+    case 'image':
+      return { kind: 'image', url: s.url, caption: s.caption, maxHeight: s.maxHeight };
     case 'gauges':
       return { kind: 'gauges', gauges: s.gauges as GaugeInput[] };
     case 'scorecard':
       return {
         kind: 'scorecard',
-        rows: s.rows as ScorecardRowInput[],
+        rows: s.rows.map(
+          ({ logo_url, ...row }) => ({ ...row, logoUrl: logo_url ?? null }) as ScorecardRowInput,
+        ),
         overallPill: s.overallPill as PillInput | undefined,
         overallNote: s.overallNote,
         columns: s.columns,
@@ -605,12 +694,27 @@ function mapSection(s: ResearchSummarySpec['sections'][number]): SectionBlock {
       return { kind: 'quadrants', quadrants: s.quadrants as QuadrantsInput };
     case 'priority_list':
       return { kind: 'priority_list', items: s.items as PriorityItemInput[] };
+    default: {
+      // Unreachable while the switch covers the Zod union. Kept so adding a
+      // member to `sectionBlockSchema` without a case here is a type error
+      // rather than a block that silently maps to `undefined`.
+      const exhaustive: never = s;
+      throw new Error(`Unhandled research-summary block: ${JSON.stringify(exhaustive)}`);
+    }
   }
 }
 
 export interface ResearchSummaryArtifact {
   attachment: EmailAttachment;
   title: string;
+}
+
+/** The rendered PDF exceeded what SES will carry. */
+export class ResearchSummaryTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResearchSummaryTooLargeError';
+  }
 }
 
 /**
@@ -636,7 +740,25 @@ export async function buildResearchSummaryAttachment(
     })),
   };
 
+  // Loaded here rather than at module scope. The service container reaches
+  // this file transitively (container -> routines -> workforce -> agent tools),
+  // so a static import pulled pdfkit, fontkit and yoga into every module that
+  // touches `createContainer` — including `scripts/seed.ts`, where tsx's
+  // ESM-to-CJS interop then fails to resolve `@react-pdf/hyphenate/en-us`
+  // (that package's `exports` map declares no `require` condition). Deferring
+  // it also keeps the renderer out of requests that attach no PDF.
+  const { generateResearchSummaryPdf } = await import('@/lib/pdfSummary');
   const pdfBuffer = await generateResearchSummaryPdf(pdfInput);
+
+  // Logos and images made an oversized PDF newly reachable; the pure-vector
+  // version could not approach the SES ceiling. Same budget and same wording
+  // as the PowerPoint path, so a user hitting either limit reads one message.
+  if (pdfBuffer.length > PPTX_MAX_EMAIL_BYTES) {
+    const mb = (n: number) => (n / 1_000_000).toFixed(1);
+    throw new ResearchSummaryTooLargeError(
+      `Generated PDF is too large to email (${mb(pdfBuffer.length)}MB). SES limits the total raw message to about 10MB (≈${mb(PPTX_MAX_EMAIL_BYTES)}MB of attachments available here). Drop some images, shorten the document, or remove other attachments and try again.`,
+    );
+  }
 
   return {
     attachment: {
