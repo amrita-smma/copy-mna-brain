@@ -6,10 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "c191098e32f6560a49867e816a73a022a29e5397",
+    "date": "2026-10-09",
+    "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
+    "category": "improvement"
+  },
+  {
     "hash": "98735cbab051972805fda24a316ce26e41e89011",
     "date": "2026-10-08",
     "subject": "Pipeline page now includes separate AI Screening tab for deal analysis",
     "category": "improvement"
+  },
+  {
+    "hash": "18fa8cea023201a45fc786599f009fe5dff7c891",
+    "date": "2026-10-08",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
   },
   {
     "hash": "ecce229850a06f8ad5a5583cb540ccbf26572bc1",
