@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "7b073da2165e827cfc5051c9ca7c7665d9bb913d",
+    "date": "2026-10-09",
+    "subject": "Research summary PDFs now render with improved formatting and faster generation",
+    "category": "improvement"
+  },
+  {
+    "hash": "f7fac1ea0c08083f193e030cdea8115810614e0d",
+    "date": "2026-10-09",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "98735cbab051972805fda24a316ce26e41e89011",
     "date": "2026-10-08",
     "subject": "Pipeline page now includes separate AI Screening tab for deal analysis",
