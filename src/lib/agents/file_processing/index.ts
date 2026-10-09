@@ -10,6 +10,7 @@
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { BETWEEN_TOOLS_THINKING } from "@/lib/ai/thinking";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
 import { logger } from "../logger";
@@ -432,7 +433,7 @@ export async function processFileContent(
   logger.info(`⏱️  Loaded ${allReferences.length} company references + ${tracks.length} tracks in ${Date.now() - refsStart}ms`);
 
   const llm = new ChatAnthropic({
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-5-5",
     anthropicApiKey: apiKey,
     // Documents referenced by Files API id are served from the beta endpoint.
     betas: [FILES_API_BETA],
@@ -442,6 +443,10 @@ export async function processFileContent(
     temperature: undefined,
     // Anthropic defaults to high effort when output_config is omitted; low effort is sufficient for document text extraction.
     outputConfig: { effort: 'low' },
+    // Required: @langchain/anthropic sends thinking {type:'disabled'} when this
+    // is unset, and Sonnet 5.5 rejects that with a 400. No tools are bound
+    // here, so between_tools gives the old no-thinking, text-only response.
+    thinking: BETWEEN_TOOLS_THINKING,
     // Meeting-minutes / shopping-list docs produce very long structured JSON
     // (multi-paragraph summary + dozens of key_points, tags, companies_detected
     // and company_notes). LangChain defaults maxTokens to 2048, which truncates

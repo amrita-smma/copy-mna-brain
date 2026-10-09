@@ -54,7 +54,7 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
     schema,
     systemPrompt,
     prompt,
-    model = 'claude-sonnet-5',
+    model = 'claude-sonnet-5-5',
     effort = 'low',
     maxTokens = 32000,
     maxRetries = 2,
@@ -69,7 +69,8 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
       throw new Error('ANTHROPIC_API_KEY is not configured');
     }
 
-    const supportsEffort = !model.toLowerCase().includes('haiku');
+    // Only Haiku 4.5 and earlier reject output_config.effort; Haiku 5.5 takes it.
+    const supportsEffort = !/^claude-haiku-(3|4-5)(-|$)/.test(model);
 
     llm = new ChatAnthropic({
       model,
@@ -78,8 +79,13 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
       maxTokens,
       streaming: true,
       callbacks: getLangfuseCallbacks(),
+      // Declaring adaptive thinking is what keeps withStructuredOutput off the
+      // forced-tool_choice path: Sonnet 5.5 and Opus 5.5 reject tool_choice of
+      // type `tool`/`any` with a 400. With `thinking` set, @langchain/anthropic
+      // binds the tool without forcing it and throws when the model answers
+      // without calling it — which the retry loop below already handles.
+      thinking: { type: 'adaptive' },
       // Anthropic defaults to high effort when output_config is omitted; low effort is sufficient for schema-constrained output.
-      // Haiku models reject output_config.effort, so omit outputConfig when unsupported.
       ...(supportsEffort ? { outputConfig: { effort } } : {}),
     });
   }

@@ -25,7 +25,7 @@ import { messageText } from './turnBudget';
  * labelled outcomes is both cheaper and quicker than a frontier model, and the
  * decision quality is bounded by the signal (one message), not by the router.
  */
-const ROUTER_MODEL = 'claude-sonnet-5';
+const ROUTER_MODEL = 'claude-sonnet-5-5';
 
 /**
  * Adaptive thinking stays on and `effort` is dropped to `low` instead of being

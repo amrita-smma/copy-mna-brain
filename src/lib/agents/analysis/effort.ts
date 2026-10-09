@@ -48,28 +48,28 @@ export const EFFORT_TIERS: Record<EffortChoice, EffortTier> = {
   // Lookups, follow-ups, ordinary conversation. Adaptive thinking still runs —
   // the model scales its own reasoning inside a cheaper band.
   low: {
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     effort: 'medium',
     turnBudgetMs: 90_000,
     maxTokens: 16_000,
   },
   // Multi-tool turns and attachments.
   medium: {
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     effort: 'high',
     turnBudgetMs: 180_000,
     maxTokens: 32_000,
   },
   // Analysis and authoring that wants the stronger model.
   high: {
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     effort: 'high',
     turnBudgetMs: 300_000,
     maxTokens: 64_000,
   },
   // Auto-only top rung.
   deep: {
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     effort: 'xhigh',
     turnBudgetMs: 420_000,
     maxTokens: 96_000,

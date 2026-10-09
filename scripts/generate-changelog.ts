@@ -235,8 +235,11 @@ async function main(): Promise<void> {
       return {
         custom_id: entry.hash,
         params: {
-          model: 'claude-haiku-4-5-20251001' as const,
-          max_tokens: 100,
+          model: 'claude-haiku-5-5' as const,
+          // Haiku 5.5 thinks by default and thinking tokens count against
+          // max_tokens, so 100 could be spent before any text block.
+          max_tokens: 500,
+          output_config: { effort: 'low' as const },
           messages: [{ role: 'user' as const, content: prompt }],
         },
       };
@@ -256,8 +259,8 @@ async function main(): Promise<void> {
     for await (const result of await anthropic.messages.batches.results(batch.id)) {
       const raw = rawCommitByHash.get(result.custom_id);
       if (result.result.type === 'succeeded') {
-        const block = result.result.message.content[0];
-        const text = block.type === 'text' ? block.text.trim() : '';
+        const block = result.result.message.content.find((b) => b.type === 'text');
+        const text = block?.type === 'text' ? block.text.trim() : '';
         if (shouldSkip(text)) {
           skippedHashes.add(result.custom_id);
         } else {
@@ -280,12 +283,13 @@ async function main(): Promise<void> {
         const prompt = buildPrompt(raw?.subject ?? entry.subject, prs[i] ?? null);
         try {
           const msg = await anthropic.messages.create({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 100,
+            model: 'claude-haiku-5-5',
+            max_tokens: 500,
+            output_config: { effort: 'low' },
             messages: [{ role: 'user', content: prompt }],
           });
-          const block = msg.content[0];
-          const text = block.type === 'text' ? block.text.trim() : '';
+          const block = msg.content.find((b) => b.type === 'text');
+          const text = block?.type === 'text' ? block.text.trim() : '';
           if (shouldSkip(text)) {
             return { hash: entry.hash, subject: null };
           }

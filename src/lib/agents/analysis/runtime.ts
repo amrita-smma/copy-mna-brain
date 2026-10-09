@@ -141,9 +141,11 @@ export function createLocalAgent(
     // deprecated for this model"). Explicitly leave it unset — ChatAnthropic
     // omits the field from the request when this is undefined.
     temperature: undefined,
-    // Opus 4.8/5 run with no reasoning at all when this is omitted;
-    // display: 'summarized' is what makes the reasoning visible to the chat UI
-    // (the default is omitted, which streams empty thinking text).
+    // Opus 5.5 and Sonnet 5.5 always think, so this is no longer what turns
+    // reasoning on — but display: 'summarized' is still what makes it visible
+    // to the chat UI (the default is omitted, which streams empty thinking
+    // text). It also carries the inter-tool-call progress updates, which these
+    // models return as thinking blocks rather than text blocks.
     thinking: {
       type: 'adaptive',
       // Cast until @anthropic-ai/sdk adds `display` to ThinkingConfigAdaptive.

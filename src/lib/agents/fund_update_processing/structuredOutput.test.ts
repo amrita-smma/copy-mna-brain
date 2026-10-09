@@ -121,16 +121,29 @@ describe('invokeStructuredOutput', () => {
     expect(mockStructuredLlm.invoke).toHaveBeenCalledTimes(2); // 1 initial + 1 retry
   });
 
-  it('omits outputConfig for Haiku models, which reject output_config.effort', async () => {
-    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x', model: 'claude-haiku-4-5-20251001' });
+  it('omits outputConfig for Haiku 4.5, which rejects output_config.effort', async () => {
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x', model: 'claude-haiku-4-5' });
 
     expect(chatAnthropicInstances).toHaveLength(1);
     expect(chatAnthropicInstances[0].opts).not.toHaveProperty('outputConfig');
   });
 
+  it('sends outputConfig for Haiku 5.5, which supports effort', async () => {
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x', model: 'claude-haiku-5-5' });
+
+    expect(chatAnthropicInstances[0].opts).toMatchObject({ outputConfig: { effort: 'low' } });
+  });
+
   it('sends outputConfig for Sonnet models, which support effort', async () => {
     await invokeStructuredOutput({ schema: TestSchema, prompt: 'x' });
 
-    expect(chatAnthropicInstances[0].opts).toMatchObject({ model: 'claude-sonnet-5', outputConfig: { effort: 'low' } });
+    expect(chatAnthropicInstances[0].opts).toMatchObject({ model: 'claude-sonnet-5-5', outputConfig: { effort: 'low' } });
+  });
+
+  it('declares adaptive thinking so LangChain does not force tool_choice', async () => {
+    // Sonnet 5.5 / Opus 5.5 reject tool_choice of type `tool` or `any` with a 400.
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x' });
+
+    expect(chatAnthropicInstances[0].opts).toMatchObject({ thinking: { type: 'adaptive' } });
   });
 });

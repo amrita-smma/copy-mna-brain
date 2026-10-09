@@ -1,4 +1,5 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { BETWEEN_TOOLS_THINKING } from '@/lib/ai/thinking';
 import { BaseMessage } from '@langchain/core/messages';
 import type { UIMessageChunk } from 'ai';
 import { parseInsightTemplateBlock } from '@/lib/insights/templateAttachment';
@@ -21,7 +22,7 @@ import { parseInsightTemplateBlock } from '@/lib/insights/templateAttachment';
  */
 
 /** Fast model for the wrap-up — deliberately not the tier's model. */
-export const WRAP_UP_MODEL = 'claude-sonnet-5';
+export const WRAP_UP_MODEL = 'claude-sonnet-5-5';
 export const WRAP_UP_MAX_TOKENS = 1500;
 export const WRAP_UP_TIMEOUT_MS = 60_000;
 
@@ -228,6 +229,9 @@ const defaultCompletion =
       anthropicApiKey: apiKey,
       maxTokens: WRAP_UP_MAX_TOKENS,
       // No thinking and no tools: this call exists to be fast and to finish.
+      // between_tools is how Sonnet 5.5 spells that — it rejects the
+      // {type:'disabled'} that @langchain/anthropic would otherwise send.
+      thinking: BETWEEN_TOOLS_THINKING,
       temperature: undefined,
     });
     const res = await llm.invoke(

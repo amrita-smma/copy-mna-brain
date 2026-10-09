@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { RssCategory, RssFeedTier, RssItemLabels } from '@/lib/db/schema';
 
-export const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001';
+export const CLASSIFY_MODEL = 'claude-haiku-5-5';
 export const CLASSIFY_BATCH_SIZE = 20;
 /** Publisher/wire/regulator feeds — trusted, so a moderate score is enough. */
 export const CURATED_THRESHOLD = 0.5;
@@ -211,6 +211,9 @@ export async function classifyBatch(
     const response = await client.messages.create({
       model: deps.model ?? CLASSIFY_MODEL,
       max_tokens: 2048,
+      // Haiku 5.5 thinks by default; classification is a labelling task, so
+      // keep the thinking short rather than paying for it on every batch.
+      output_config: { effort: 'low' },
       messages: [{ role: 'user', content: buildClassifyPrompt(items) }],
     });
 

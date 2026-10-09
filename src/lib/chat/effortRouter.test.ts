@@ -102,7 +102,7 @@ describe('routeEffort', () => {
     await routeEffort({ message: 'hi' }, 'k');
     expect(ctor).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         outputConfig: { effort: 'low' },
       }),
     );

@@ -212,7 +212,7 @@ describe('getStatelessAgentGraph', () => {
     const model = mocks.createAgent.mock.calls[0][0].model as {
       opts: Record<string, unknown>;
     };
-    expect(model.opts.model).toBe('claude-sonnet-5');
+    expect(model.opts.model).toBe('claude-sonnet-5-5');
     expect(model.opts.temperature).toBeUndefined();
   });
 
@@ -440,8 +440,8 @@ describe('getAgentGraph flavor selection', () => {
       opts: Record<string, unknown>;
     };
 
-    expect(mediumModel.opts.model).toBe('claude-sonnet-5');
-    expect(highModel.opts.model).toBe('claude-opus-5');
+    expect(mediumModel.opts.model).toBe('claude-sonnet-5-5');
+    expect(highModel.opts.model).toBe('claude-opus-5-5');
 
     expect(await getAgentGraph('vc', 'high')).toBe(high);
     expect(mocks.createAgent).toHaveBeenCalledTimes(2);
@@ -1415,12 +1415,12 @@ describe('Agent LLM configuration', () => {
   });
 
   it.each<[EffortChoice | undefined, string, string, number]>([
-    ['low', 'claude-sonnet-5', 'medium', 16_000],
-    ['medium', 'claude-sonnet-5', 'high', 32_000],
-    ['high', 'claude-opus-5', 'high', 64_000],
-    ['deep', 'claude-opus-5', 'xhigh', 96_000],
+    ['low', 'claude-sonnet-5-5', 'medium', 16_000],
+    ['medium', 'claude-sonnet-5-5', 'high', 32_000],
+    ['high', 'claude-opus-5-5', 'high', 64_000],
+    ['deep', 'claude-opus-5-5', 'xhigh', 96_000],
     // An omitted tier must stay at today's behaviour, not silently drop.
-    [undefined, 'claude-sonnet-5', 'high', 32_000],
+    [undefined, 'claude-sonnet-5-5', 'high', 32_000],
   ])('maps tier %s to its model, output effort and output ceiling', (effort, model, outputEffort, maxTokens) => {
     createLocalAgent({ apiKey: 'test-key', ...(effort ? { effort } : {}) });
     const { opts } = builtModel();
@@ -1440,7 +1440,7 @@ describe('Agent LLM configuration', () => {
     };
     expect(runConfig.metadata).toMatchObject({
       effort_tier: 'deep',
-      effort_model: 'claude-opus-5',
+      effort_model: 'claude-opus-5-5',
       output_effort: 'xhigh',
     });
   });

@@ -1,7 +1,12 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { messageText } from './turnBudget';
+import { DISABLED_THINKING } from '@/lib/ai/thinking';
 
-const TITLE_MODEL = 'claude-haiku-4-5-20251001';
-const TITLE_MAX_TOKENS = 60;
+const TITLE_MODEL = 'claude-haiku-5-5';
+// Thinking is off (see below), so this only has to cover the title itself —
+// with headroom for the newer tokenizer, which produces ~30% more tokens for
+// the same text. The title is truncated to TITLE_MAX_CHARS downstream anyway.
+const TITLE_MAX_TOKENS = 120;
 export const TITLE_MAX_CHARS = 80;
 const TITLE_MAX_WORDS = 8;
 
@@ -80,12 +85,23 @@ export async function generateChatTitle(
   const llm = new ChatAnthropic({
     model: TITLE_MODEL,
     anthropicApiKey: apiKey,
-    temperature: 0,
+    // Haiku 5.5 rejects any non-default `temperature`.
     maxTokens: TITLE_MAX_TOKENS,
+    // Naming a thread needs no reasoning. Haiku 5.5 still accepts thinking off
+    // at effort `high` or below (Sonnet 5.5 and Opus 5.5 do not — see
+    // @/lib/ai/thinking), so this pair is model-specific: switching TITLE_MODEL
+    // to either of those means switching this to BETWEEN_TOOLS_THINKING or
+    // adaptive. Set explicitly rather than relying on @langchain/anthropic's
+    // default, which is this same value sent silently.
+    thinking: DISABLED_THINKING,
+    outputConfig: { effort: 'low' },
   });
   const res = await llm.invoke([
     { role: 'system', content: CHAT_TITLE_SYSTEM_PROMPT },
     { role: 'user', content: firstUserMessage },
   ]);
-  return normalizeChatTitle(String(res.content), firstUserMessage);
+  // Not String(res.content): content is a block array whenever the model
+  // returns anything but a lone string, and String() would stringify it as
+  // "[object Object]".
+  return normalizeChatTitle(messageText(res.content, ' '), firstUserMessage);
 }

@@ -86,7 +86,7 @@ IMPORTANT: Include a citation footer at the bottom of the slide with real source
   }
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     max_tokens: 8192,
     system: SLIDE_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -96,8 +96,10 @@ IMPORTANT: Include a citation footer at the bottom of the slide with real source
     throw new Error('Slide generation response was truncated (exceeded max output length)');
   }
 
-  const content = message.content[0];
-  let html = content.type === 'text' ? content.text : '';
+  // Select by type, not position: Sonnet 5.5 thinks by default, so the first
+  // block is a thinking block rather than the HTML.
+  const content = message.content.find((b) => b.type === 'text');
+  let html = content?.type === 'text' ? content.text : '';
 
   const htmlMatch = html.match(/```html\s*([\s\S]*?)```/);
   if (htmlMatch) {

@@ -173,8 +173,8 @@ describe.each(KEYS)('getSectorAgentSpec(%s)', (key) => {
 
 describe('getSectorAgentGraph', () => {
   const ROLE_CONFIG = [
-    ['chat', 'low', undefined, undefined, 'claude-sonnet-5'],
-    ['workforce', 'high', [WORKFORCE_HITL_MIDDLEWARE], { edits: [{ type: 'clear_tool_uses_20250919' }] }, 'claude-opus-5'],
+    ['chat', 'low', undefined, undefined, 'claude-sonnet-5-5'],
+    ['workforce', 'high', [WORKFORCE_HITL_MIDDLEWARE], { edits: [{ type: 'clear_tool_uses_20250919' }] }, 'claude-opus-5-5'],
   ] as const;
 
   describe.each(KEYS)('%s', (key) => {

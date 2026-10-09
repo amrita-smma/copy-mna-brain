@@ -31,7 +31,7 @@ import { detectLanguage, type LanguageDetection } from '../lib/rssLanguage';
 import { mapWithConcurrency } from '../lib/rssFetch';
 import { languageLabel } from '@/lib/languageNames';
 
-export const TRANSLATE_MODEL = 'claude-haiku-4-5-20251001';
+export const TRANSLATE_MODEL = 'claude-haiku-5-5';
 
 /**
  * Source characters per body call. At ~4 chars/token this is ~1500 input
@@ -308,6 +308,9 @@ async function callModel(
   const response = await client.messages.create({
     model: deps.model ?? TRANSLATE_MODEL,
     max_tokens: MAX_TOKENS_PER_CHUNK,
+    // Haiku 5.5 thinks by default; translation does not benefit from it, and
+    // thinking tokens would eat into the per-chunk output budget.
+    output_config: { effort: 'low' },
     system: TRANSLATE_SYSTEM,
     messages: [{ role: 'user', content: buildTranslatePrompt(source, language) }],
   });

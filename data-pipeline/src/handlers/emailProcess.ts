@@ -56,7 +56,11 @@ import {
 } from './emailProcessCrm';
 
 export const EMAIL_PROCESS_TIMEOUT_SECONDS = 600;
-export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+// Haiku 5.5. Note the extraction calls below force `tool_choice` to a named
+// tool: Haiku accepts that, but Opus 5.5 and Sonnet 5.5 reject it with a 400,
+// so switching this constant to either of those needs `tool_choice: auto` plus
+// `strict: true` on the tool.
+export const DEFAULT_MODEL = 'claude-haiku-5-5';
 export const SOFT_STOP_MS = 480_000;
 /** Messages accumulated before bulk dedupe / LLM / CRM. */
 export const PROCESS_BATCH_SIZE = 50;

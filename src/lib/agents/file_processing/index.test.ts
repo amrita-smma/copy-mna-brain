@@ -118,7 +118,7 @@ describe('processFileContent (Files API for PDFs)', () => {
     const model = mocks.createAgent.mock.calls[0][0].model as {
       opts: Record<string, unknown>;
     };
-    expect(model.opts.model).toBe('claude-sonnet-5');
+    expect(model.opts.model).toBe('claude-sonnet-5-5');
     expect(model.opts.temperature).toBeUndefined();
   });
 

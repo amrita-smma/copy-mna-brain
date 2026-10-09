@@ -1,7 +1,11 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { messageText } from './turnBudget';
+import { DISABLED_THINKING } from '@/lib/ai/thinking';
 
-const IMPROVE_MODEL = 'claude-haiku-4-5-20251001';
-const IMPROVE_MAX_TOKENS = 500;
+const IMPROVE_MODEL = 'claude-haiku-5-5';
+// Thinking is off (see below); the bump over the previous 500 is headroom for
+// the newer tokenizer, which produces ~30% more tokens for the same text.
+const IMPROVE_MAX_TOKENS = 700;
 const IMPROVE_MAX_CHARS = 2000;
 
 // Returned verbatim by the model when the input is too vague to improve; the
@@ -55,8 +59,12 @@ export async function improvePrompt(prompt: string): Promise<string> {
   const llm = new ChatAnthropic({
     model: IMPROVE_MODEL,
     anthropicApiKey: apiKey,
-    temperature: 0.3,
+    // Haiku 5.5 rejects any non-default `temperature`.
     maxTokens: IMPROVE_MAX_TOKENS,
+    // Rewriting one prompt needs no reasoning; valid on Haiku at effort <=
+    // high. See @/lib/ai/thinking before pointing IMPROVE_MODEL elsewhere.
+    thinking: DISABLED_THINKING,
+    outputConfig: { effort: 'low' },
   });
 
   const res = await llm.invoke([
@@ -64,7 +72,9 @@ export async function improvePrompt(prompt: string): Promise<string> {
     { role: 'user', content: trimmed },
   ]);
 
-  const improved = String(res.content).trim().slice(0, IMPROVE_MAX_CHARS);
+  // Not String(res.content): content is a block array whenever the model
+  // returns anything but a lone string.
+  const improved = messageText(res.content, ' ').trim().slice(0, IMPROVE_MAX_CHARS);
   if (!improved) {
     throw new Error('Prompt improvement returned an empty result');
   }

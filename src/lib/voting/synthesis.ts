@@ -6,7 +6,7 @@ import {
 import { htmlToPlainText } from './html';
 import { VOTE_CHOICE_LABELS, type VoteChoice, type VoteTally } from './tally';
 
-export const VOTE_SYNTHESIS_MODEL = 'claude-sonnet-5';
+export const VOTE_SYNTHESIS_MODEL = 'claude-sonnet-5-5';
 
 const voteSynthesisSchema = z.object({
   synthesis: z

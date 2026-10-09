@@ -111,7 +111,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(extractText).toHaveBeenCalledOnce();
@@ -130,7 +130,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'Project_Nova_Teaser.docx',
       bytes: Buffer.from('fake-docx'),
       client: mockClient({ doc_type: 'teaser', confidence: 'medium' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome).toEqual({ kind: 'upload', fileTypeOverride: undefined });
@@ -145,7 +145,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'shopping.docx',
       bytes: Buffer.from('fake-docx'),
       client: mockClient({ doc_type: 'other', confidence: 'high' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome).toEqual({ kind: 'skip' });
@@ -161,7 +161,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(extractText).toHaveBeenCalledOnce();
@@ -175,7 +175,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'logo.png',
       bytes: Buffer.from('fake-png'),
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome).toEqual({ kind: 'skip' });
@@ -190,7 +190,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'encrypted.pdf',
       bytes: Buffer.from('fake-pdf'),
       client: { messages: { create } } as never,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(extractText).toHaveBeenCalledWith(
@@ -210,7 +210,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'scan.pdf',
       bytes: Buffer.from('fake-pdf'),
       client: { messages: { create } } as never,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome.kind).toBe('retry');
@@ -224,7 +224,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'huge.docx',
       bytes: Buffer.alloc(PDF_TRIAGE_SOFT_MAX_BYTES + 1),
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(extractText).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'empty.docx',
       bytes: Buffer.from('fake-docx'),
       client: { messages: { create } } as never,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome).toEqual({ kind: 'skip' });
@@ -258,7 +258,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'broken.docx',
       bytes: Buffer.from('fake-docx'),
       client: { messages: { create } } as never,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome).toEqual({ kind: 'skip' });
@@ -279,7 +279,7 @@ describe('triageAttachmentForSmartFiles', () => {
       fileName: 'Project_Alpha_IM.docx',
       bytes: Buffer.from('fake-docx'),
       client,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-5-5',
       extractText,
     });
     expect(outcome.kind).toBe('retry');
@@ -292,7 +292,7 @@ describe('triageAttachmentForSmartFiles', () => {
     });
     await triageDealDocumentText(
       { messages: { create } } as never,
-      'claude-haiku-4-5-20251001',
+      'claude-haiku-5-5',
       { fileName: 'big.docx', text: huge },
     );
     const prompt = create.mock.calls[0]![0].messages[0].content[0].text as string;
@@ -312,7 +312,7 @@ describe('triageAttachmentForSmartFiles', () => {
     });
     await triageDealDocumentText(
       { messages: { create } } as never,
-      'claude-haiku-4-5-20251001',
+      'claude-haiku-5-5',
       { fileName: 'notes.docx', text: 'x'.repeat(80) },
     );
     const system = create.mock.calls[0]![0].system as string;

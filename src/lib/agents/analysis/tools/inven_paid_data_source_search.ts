@@ -47,8 +47,12 @@ Country codes examples: US (United States), KR (Korea), JP (Japan), CN (China), 
 Respond ONLY with a valid JSON object, no explanation.`;
 
     const response = await client.messages.create({
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
+      // Sonnet 5.5 thinks by default and thinking tokens count against
+      // max_tokens; query parsing needs none of it, and the 1024 cap has to
+      // leave room for the JSON object.
       max_tokens: 1024,
+      output_config: { effort: "low" },
       system: systemPrompt,
       messages: [
         {

@@ -291,7 +291,7 @@ async function createPptxSkillMessage(
       }
       const stream = anthropic.beta.messages.stream(
         {
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-5-5',
           max_tokens: PPTX_MAX_TOKENS,
           betas: betas as never,
           container: opts?.containerId
@@ -357,7 +357,7 @@ export async function runPptxSkillUntilFileId(
 
   const gen0 = trace?.startGeneration({
     name: `${turnPrefix}-turn-0`,
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     input: firstInputPreview,
   });
 
@@ -402,7 +402,7 @@ export async function runPptxSkillUntilFileId(
 
     const gen = trace?.startGeneration({
       name: `${turnPrefix}-turn-${i + 1}`,
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       input: CONTINUE_PROMPT,
       metadata: { container_id: containerId },
     });

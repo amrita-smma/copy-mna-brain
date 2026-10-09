@@ -1,10 +1,14 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { messageText } from '@/lib/chat/turnBudget';
+import { DISABLED_THINKING } from '@/lib/ai/thinking';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { withBackgroundDb } from '@/lib/server/db';
 
-const TITLE_MODEL = 'claude-haiku-4-5-20251001';
-const TITLE_MAX_TOKENS = 60;
+const TITLE_MODEL = 'claude-haiku-5-5';
+// See src/lib/chat/title.ts — thinking is off; headroom is for the newer
+// tokenizer, which produces ~30% more tokens for the same text.
+const TITLE_MAX_TOKENS = 120;
 export const TITLE_MAX_CHARS = 80;
 
 const SYSTEM_PROMPT =
@@ -54,8 +58,12 @@ export async function generateWorkforceTitle(
     const llm = new ChatAnthropic({
       model: TITLE_MODEL,
       anthropicApiKey: apiKey,
-      temperature: 0,
+      // Haiku 5.5 rejects any non-default `temperature`.
       maxTokens: TITLE_MAX_TOKENS,
+      // Titling needs no reasoning; valid on Haiku at effort <= high. See
+      // @/lib/ai/thinking before pointing TITLE_MODEL at Sonnet/Opus 5.5.
+      thinking: DISABLED_THINKING,
+      outputConfig: { effort: 'low' },
     });
 
     const res = await llm.invoke([
@@ -63,7 +71,9 @@ export async function generateWorkforceTitle(
       { role: 'user', content: prompt },
     ]);
 
-    const title = String(res.content).trim().slice(0, TITLE_MAX_CHARS);
+    // Not String(res.content): content is a block array whenever the model
+    // returns anything but a lone string.
+    const title = messageText(res.content, ' ').trim().slice(0, TITLE_MAX_CHARS);
     if (!title) return null;
 
     await persistWorkforceTitle(runId, title);
