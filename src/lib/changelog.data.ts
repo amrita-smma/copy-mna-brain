@@ -142,6 +142,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "03ffefa75a5e378d88aa304b90e41602454c4fa9",
+    "date": "2026-10-12",
+    "subject": "Deals now auto-assign CRM bankers by region, desk, and expertise",
+    "category": "improvement"
+  },
+  {
+    "hash": "f1be02887a46b3820bbab72c34209d4c25b1d53f",
+    "date": "2026-10-12",
+    "subject": "Fixed AI assistant web search failing after the first message in a conversation",
+    "category": "fix"
+  },
+  {
+    "hash": "f28ea9695af7a5dc7653bad4b547bdb50569208d",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
