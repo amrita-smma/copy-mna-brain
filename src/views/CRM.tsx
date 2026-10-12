@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { AddContactDialog } from "./crm/AddContactDialog";
 import { CurationDialog } from "./crm/CurationDialog";
 import { EmployerCard } from "./crm/EmployerCard";
-import { PageHeader } from "./crm/Header";
+import { CrmHeader } from "./crm/Header";
 import { LastContactFilter } from "./crm/LastContactFilter";
 import { Pagination } from "./crm/Pagination";
 import { TeamFilter } from "./crm/TeamFilter";
@@ -264,7 +264,7 @@ export default function CRM() {
         ))}
       </datalist>
       <div className="flex flex-col h-full">
-        <PageHeader
+        <CrmHeader
           insights={insights}
           onOpenAddContact={() => {
             setAddContactEmployerId(null);

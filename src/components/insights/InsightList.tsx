@@ -62,6 +62,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
 
 // Module-level: shared across remounts of this component within the tab,
@@ -393,9 +394,9 @@ export function InsightList({
     return (
       <>
         <div className="flex items-baseline gap-2 mb-4">
-          <h1 className="text-lg font-semibold text-foreground">
+          <h2 className="text-lg font-semibold text-foreground">
             {itemsArchived ? 'Archived insights' : 'All insights'}
-          </h1>
+          </h2>
           <span className="text-xs text-muted-foreground" data-testid="insight-list-total">
             {total} {total === 1 ? 'insight' : 'insights'}
           </span>
@@ -652,6 +653,12 @@ export function InsightList({
           </div>
         </div>
       )}
+      <PageHeader
+        title="Insights"
+        subtitle="CoPilot-authored documents — reports, briefs and one-off analyses"
+        innerClassName="mx-auto max-w-4xl"
+      />
+
       <div className="mx-auto max-w-4xl p-6">
         <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="mb-4">

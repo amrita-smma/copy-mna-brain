@@ -62,6 +62,7 @@ import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
 import PipelineHeadingDialog from "@/components/pipeline/PipelineHeadingDialog";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { usePipelineHeading } from "@/components/layout/PipelineHeadingContext";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { usePublishSourcingPendingCount } from "@/hooks/useSourcingPendingCount";
@@ -1373,42 +1374,34 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
 
   return (
     <>
-      {/* The SQE Suite surface palette (MB-648 prototypes): a full-bleed
-          header band over the flat page colour, with the cards below. */}
+      {/* The SQE Suite surface palette (MB-648 prototypes): the shared
+          full-bleed header band over the flat page colour, cards below. */}
       <div className="suite-surface min-h-full bg-background animate-fade-in">
-        <div className="suite-hero px-6 pb-7 pt-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1
-                  data-testid="pipeline-heading-title"
-                  className="text-3xl font-bold tracking-tight"
-                >
-                  {isSourcing ? "Sourcing" : pipelineHeading.title}
-                </h1>
-                {!isSourcing && (
-                  <Button
-                    data-testid="pipeline-heading-edit-button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Edit pipeline heading"
-                    title="Edit title and subtitle"
-                    className="h-8 w-8 text-muted-foreground"
-                    onClick={() => setHeadingDialogOpen(true)}
-                  >
-                    <PencilLine className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              <p
-                data-testid="pipeline-heading-subtitle"
-                className="text-muted-foreground"
+        <PageHeader
+          title={isSourcing ? "Sourcing" : pipelineHeading.title}
+          titleTestId="pipeline-heading-title"
+          subtitle={
+            isSourcing
+              ? "Candidates not yet promoted into L0 sourcing"
+              : pipelineHeading.subtitle
+          }
+          subtitleTestId="pipeline-heading-subtitle"
+          titleAdornment={
+            !isSourcing && (
+              <Button
+                data-testid="pipeline-heading-edit-button"
+                variant="ghost"
+                size="icon"
+                aria-label="Edit pipeline heading"
+                title="Edit title and subtitle"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() => setHeadingDialogOpen(true)}
               >
-                {isSourcing
-                  ? "Candidates not yet promoted into L0 sourcing"
-                  : pipelineHeading.subtitle}
-              </p>
-            </div>
+                <PencilLine className="h-4 w-4" />
+              </Button>
+            )
+          }
+          actions={
             <Button
               data-testid={
                 isSourcing ? "sourcing-track-button" : "pipeline-configure-button"
@@ -1420,8 +1413,8 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
               <Settings className="h-4 w-4" />
               {isSourcing ? "Track" : "Configure"}
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         <div className="space-y-6 p-6">
         {isSourcing ? (

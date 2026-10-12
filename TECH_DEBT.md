@@ -280,10 +280,9 @@ There are also 13 UI↔view circular imports, e.g. a 7-file cycle around
 **Area:** repo-wide.
 
 **What it is:**
-- **28 orphan files** with zero importers: `src/views/AIDiscovery.tsx`,
+- **25 orphan files** with zero importers: `src/views/AIDiscovery.tsx`,
   `src/views/Index.tsx`, `src/views/NotFound.tsx` (leftovers from a
-  pre-App-Router SPA), three `LivingBackground-*.tsx` variants, and ~13 never-used
-  shadcn components.
+  pre-App-Router SPA), and ~13 never-used shadcn components.
 - **843 exported symbols never referenced in any other file**, across 316 files.
   Worst: `emailService.ts` (27), `schema.ts` (21), `dashboardActivityService.ts`
   (15), `googleVaultService.ts` (14). Much of this inflates the barrels in the

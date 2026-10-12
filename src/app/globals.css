@@ -173,16 +173,47 @@
     --border: 214 16% 28%; /* n800 #3B4552 */
     --input: 214 16% 37%; /* n700 #505D6E */
   }
+}
 
-  /* The page header band above the cards. */
-  .suite-hero {
-    background-image: linear-gradient(135deg, #e6f0fd, #f9fafc); /* blue-50 → n50 */
+/* The page header band every page wears above its content, rendered by
+   `PageHeader` (`src/components/layout/PageHeader.tsx`). Started as the
+   Pipeline prototype's `suite-hero` (MB-648) and is now app-wide.
+
+   The gradient ends at `--background` rather than a literal, so the band fades
+   into whatever page colour it sits on: inside `.suite-surface` that resolves
+   to n50/n1000 — pixel-identical to the Pipeline original — and on a plain page
+   to the app surface. A literal end colour left a visible seam under the band
+   on every page that was not Pipeline. */
+@layer base {
+  .page-hero {
+    background-image: linear-gradient(135deg, #e6f0fd, hsl(var(--background))); /* blue-50 → page */
   }
 
-  /* The prototype keeps the light gradient in dark mode too, which leaves its
-     white title unreadable; this is the dark counterpart (blue-950 → n1000). */
-  .dark .suite-hero {
-    background-image: linear-gradient(135deg, #00234d, #13171c);
+  /* The light gradient in dark mode leaves the white title unreadable; this is
+     the dark counterpart (blue-950 → page). */
+  .dark .page-hero {
+    background-image: linear-gradient(135deg, #00234d, hsl(var(--background)));
+  }
+
+  /* The sign-in backdrop: a slight wash of the same blue, angled down the page
+     and fading through the page colour, so the auth card has something behind
+     it without the old full-bleed brand gradient. */
+  .auth-backdrop {
+    background-image: linear-gradient(
+      160deg,
+      #e6f0fd 0%,
+      hsl(var(--background)) 55%,
+      #eaf1fd 100%
+    );
+  }
+
+  .dark .auth-backdrop {
+    background-image: linear-gradient(
+      160deg,
+      #0a2142 0%,
+      hsl(var(--background)) 55%,
+      #0d1a33 100%
+    );
   }
 }
 

@@ -20,6 +20,7 @@ import {
   usePresentationViewer,
   fileKind,
 } from "@/components/presentation/PresentationViewerContext";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { PresentationFileSearch } from "@/components/presentation/PresentationFileSearch";
 import { detectFileKind, isPresentableFileKind } from "@/lib/fileType";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
@@ -211,17 +212,14 @@ export default function Presentation() {
   // ---------------------------------------------------------------------------
   return (
     <>
-      <div className="mx-auto w-full max-w-3xl p-6">
-        <div className="mb-6 flex items-center gap-3">
-          <PresentationIcon className="h-7 w-7 text-primary" />
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Presentation</h1>
-            <p className="text-sm text-muted-foreground">
-              Recently opened files. Select one to display it full screen.
-            </p>
-          </div>
-        </div>
+      <div className="min-h-full">
+        <PageHeader
+          title="Presentation"
+          subtitle="Recently opened files. Select one to display it full screen."
+          innerClassName="mx-auto w-full max-w-3xl"
+        />
 
+        <div className="mx-auto w-full max-w-3xl p-6">
         <PresentationFileSearch onSelect={openSearchResult} className="mb-6" />
 
         {listLoading ? (
@@ -302,6 +300,7 @@ export default function Presentation() {
             )}
           </>
         )}
+        </div>
       </div>
     </>
   );

@@ -100,7 +100,7 @@ new `{feature}.spec.ts` only for a genuinely new page/feature.
 
 | Feature | Route / Page | View (test target) | Key components | Spec file |
 |---|---|---|---|---|
-| Login | `/login` → `src/app/login/page.tsx` | (page is client) | `GoogleSignInButton`, `LivingBackground` | `e2e/login.spec.ts` |
+| Login | `/login` → `src/app/login/page.tsx` | (page is client) | `GoogleSignInButton` | `e2e/login.spec.ts` |
 | Forgot/Reset password | `/reset-password` → `src/app/reset-password/page.tsx` | (page is client) | reset form | `e2e/forgot-password.spec.ts` |
 | Dashboard | `/dashboard` | `src/views/Dashboard.tsx` | `DashboardLayout`, activity feed, `AskAIButton` | `e2e/dashboard.spec.ts` |
 | Master data | `/master-data` | `src/views/MasterData.tsx` | criteria/settings forms | `e2e/master-data.spec.ts` |

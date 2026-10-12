@@ -79,7 +79,6 @@ import {
   FileText,
   FileChartColumn,
   FileUp,
-  FileStack,
   Landmark,
   Loader2,
   Pencil,
@@ -100,6 +99,7 @@ import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { HitlReviewDialog } from "@/components/Files/HitlReviewDialog";
 import { FundUpdateReviewDialog } from "@/components/Files/FundUpdateReviewDialog";
+import { PageHeader } from "@/components/layout/PageHeader";
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
@@ -1917,44 +1917,25 @@ export default function SmartFiles({
 
   return (
     <>
-      <div className="flex flex-col min-h-full p-6 space-y-6 animate-fade-in">
-        {/* Header */}
-        <div className="relative flex-shrink-0">
-          <div className="absolute -inset-2 rounded-2xl opacity-20 blur-xl transition-colors duration-500 bg-gradient-to-r from-blue-500 via-sky-500 to-indigo-500" />
-          <div className="relative flex items-center gap-5">
-            <div className="relative group">
-              <div className="absolute inset-0 rounded-2xl blur-md opacity-60 group-hover:opacity-80 transition-opacity bg-gradient-to-br from-blue-400 to-indigo-600" />
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl transition-all duration-300 group-hover:scale-105 bg-gradient-to-br from-blue-500 via-sky-500 to-indigo-600">
-                <FileStack className="h-7 w-7 text-white drop-shadow-lg" />
-                <div
-                  className="absolute inset-0 rounded-2xl animate-ping opacity-20 bg-blue-400"
-                  style={{ animationDuration: "3s" }}
-                />
-              </div>
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-                  Smart Files
-                </h1>
-                <AskAIButton
-                  variant="button"
-                  label="Analyze"
-                  onClick={() =>
-                    analyzeWithAI(
-                      "Analyze the files in Smart Files and summarize the key takeaways across them.",
-                    )
-                  }
-                />
-              </div>
-              <p className="text-muted-foreground text-sm">
-                Drop your files and let AI automatically organize and categorize
-                them
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-col min-h-full animate-fade-in">
+        <PageHeader
+          className="flex-shrink-0"
+          title="Smart Files"
+          subtitle="Drop your files and let AI automatically organize and categorize them"
+          titleAdornment={
+            <AskAIButton
+              variant="button"
+              label="Analyze"
+              onClick={() =>
+                analyzeWithAI(
+                  "Analyze the files in Smart Files and summarize the key takeaways across them.",
+                )
+              }
+            />
+          }
+        />
 
+        <div className="space-y-6 p-6">
         {/* Upload Section */}
         <Card>
           <CardHeader>
@@ -2388,6 +2369,7 @@ export default function SmartFiles({
           })}
         </Tabs>
         </Card>
+        </div>
       </div>
 
       {viewFundUpdateFileId && (

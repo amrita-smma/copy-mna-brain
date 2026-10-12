@@ -58,6 +58,7 @@ import { EntitySummaryTable } from './fundManagement/EntitySummaryTable';
 import { CommitmentLedgerDialog } from './fundManagement/CommitmentLedgerDialog';
 import { Combobox } from './fundManagement/Combobox';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { GlossaryTerm } from './fundManagement/parts';
 import { FundDataContext } from './fundManagement/context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
@@ -1077,18 +1078,20 @@ export default function FundManagement() {
     <>
       <FundDataContext.Provider value={dataCtx}>
         <TooltipProvider delayDuration={120}>
-          <div className="mx-auto max-w-[1180px] px-5 pb-16 pt-6">
-            <header className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-xl font-semibold text-foreground">Fund Management</h1>
-                <p className="mt-1 text-[13px] text-muted-foreground">
+          <div className="min-h-full">
+            <PageHeader
+              title="Fund Management"
+              innerClassName="mx-auto max-w-[1180px]"
+              subtitle={
+                <>
                   Your funds, what they hold, and how each investor is doing. Hover any{' '}
                   <GlossaryTerm term="dotted">dotted term</GlossaryTerm> for a plain-English
                   explanation.
-                </p>
-              </div>
-            </header>
+                </>
+              }
+            />
 
+            <div className="mx-auto max-w-[1180px] px-5 pb-16 pt-6">
             {loadError && (
               <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {loadError}{' '}
@@ -1215,6 +1218,7 @@ export default function FundManagement() {
                 </div>
               </>
             )}
+            </div>
           </div>
         </TooltipProvider>
       </FundDataContext.Provider>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
 import { SheetTable, sheetSection, type SheetRow } from '@/components/sheet';
 import * as fundLedgerApi from '@/lib/api/fundLedger';
@@ -331,23 +332,27 @@ export default function Ledger() {
         sheet taking the rest via `min-h-0 flex-1` — makes the sheet itself
         the only thing that scrolls, so its sticky header actually stays put.
       */}
-      <div className="flex h-full flex-col px-5 pb-6 pt-6">
-        <div className="shrink-0">
-          <div className="mb-2 text-[12px] text-muted-foreground">
-            <WorkspaceLink href="/fund-management" className="text-primary hover:underline">
-              Fund Management
-            </WorkspaceLink>{' '}
-            / Ledger
-          </div>
-
-          <header className="mb-4">
-            <h1 className="text-xl font-semibold text-foreground">Ledger</h1>
-            <p className="mt-1 text-[13px] text-muted-foreground">
+      <div className="flex h-full flex-col">
+        <PageHeader
+          className="shrink-0"
+          title="Ledger"
+          eyebrow={
+            <>
+              <WorkspaceLink href="/fund-management" className="text-primary hover:underline">
+                Fund Management
+              </WorkspaceLink>{' '}
+              / Ledger
+            </>
+          }
+          subtitle={
+            <>
               Every posted movement against the position that holds it. Hover any{' '}
               <Term k="dotted">dotted term</Term> for a plain-English explanation.
-            </p>
-          </header>
+            </>
+          }
+        />
 
+        <div className="shrink-0 px-5 pt-4">
           <div className="mb-4">
             <EntitySearch index={index} onPick={pickEntity} />
           </div>
@@ -362,7 +367,7 @@ export default function Ledger() {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 pb-6">
           <div className="flex shrink-0 flex-col gap-3">
             <LedgerToolbar
               mode={mode}

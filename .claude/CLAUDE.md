@@ -130,6 +130,27 @@ The backend layers as: **repositories** (`src/lib/repositories/*`, workspace-sco
 - A `rounded-* border` container with no `bg-*` class at all is also transparent — give it one.
 - Check both themes: a tint that looks solid in light mode is usually see-through in dark mode.
 
+## Page Headers
+
+**Every console page's title row is the shared `PageHeader`**
+(`src/components/layout/PageHeader.tsx`) — the Pipeline band, now app-wide.
+Never hand-roll a page title.
+
+- The band is **full-bleed**: it carries its own `px-6 pb-7 pt-6`, so the page
+  puts its padding on the content *below* the header, not on a wrapper around
+  both.
+- The band's `title` is the page's **only `<h1>`**; a section or list heading
+  beneath it is an `<h2>`.
+- Use the slots for meaning, not decoration: `actions` (controls),
+  `titleAdornment` (badge/count/edit), `eyebrow` (breadcrumb), `innerClassName`
+  (align with a width-constrained body). `leading` is for identity content only
+  — the Profile avatar — never a decorative icon tile.
+- The gradient is `.page-hero` in `globals.css` and ends at
+  `hsl(var(--background))` so it fades into whatever page colour it sits on.
+  Don't re-hardcode the end colour.
+
+Full rule, slot table and review checklist: `.claude/rules/page-header.md`.
+
 ## Country Codes
 
 Country values (`companies.geography`) are stored as free-text country **names**, not codes. When rendering a flag, do not hardcode a flag emoji per country — resolve the name to its **ISO 3166-1 alpha-2** code with the `country-to-iso` library (`countryToAlpha2("South Korea")` → `"KR"`; it tolerates inconsistent inputs like `USA`/`United States`), then derive the emoji from that code via Unicode regional indicator symbols (`0x1F1E6 + (charCode - 'A')`). Values that aren't countries (e.g. `"Asia Pacific"`) return `null` → fall back to a globe. Avoid hand-maintained name→code maps; only add a tiny alias for genuinely ambiguous names the library can't resolve (e.g. bare `"Korea"` → `"South Korea"`).

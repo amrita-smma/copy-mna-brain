@@ -149,6 +149,11 @@ fetch-before-open with an `activeRequestIdRef`. Full rule:
 Alpha-suffixed utilities are banned on surfaces — they look solid in light mode
 and see-through in dark.
 
+**Every console page opens with the shared `PageHeader` band**
+(`src/components/layout/PageHeader.tsx`), not a hand-rolled title row. The band
+is full-bleed, so page padding goes on the content below it, and its title is
+the page's only `<h1>`. Full rule: `.claude/rules/page-header.md`.
+
 **Migrations use a date + per-day counter, not a timestamp.** Always
 `pnpm db:migration:new <name>`; never hand-name a file or edit `_journal.json`.
 

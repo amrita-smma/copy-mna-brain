@@ -39,7 +39,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LivingBackground } from '@/components/LivingBackground';
 import { BrandMark, BrandWordmark } from '@/components/BrandMark';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { useChatActions } from '@/components/chat/ChatProvider';
@@ -87,17 +86,6 @@ import {
  *    the copilot docked to the right. Expanding the copilot keeps the URL, so
  *    collapsing returns to the same page.
  */
-/**
- * Pages that sit on the flat SQE Suite page colour rather than the gradient and
- * earth photo, in both themes. Pipeline and Sourcing because they are dense
- * tables (MB-648); Profile because it is a settings surface, where the branded
- * backdrop competes with the forms and cards stacked on top of it.
- *
- * Matched exactly, so deal and company detail pages under `/pipeline` keep the
- * gradient.
- */
-const PLAIN_BACKGROUND_PATHS = ['/pipeline', '/sourcing', '/profile'];
-
 export function AppShell({
   children,
   initialUser,
@@ -118,10 +106,6 @@ export function AppShell({
   // deeplinks both point at it.
   const isLandingRoute = logicalPath === '/' || logicalPath.startsWith('/chat');
   const activeTab = findTabByPath(logicalPath);
-  const backgroundVariant = PLAIN_BACKGROUND_PATHS.includes(logicalPath)
-    ? 'plain'
-    : 'default';
-
   // Chat history is the whole point of the sidebar now, so it starts open. New
   // key rather than reusing `layout:sidebar-open`, whose stored `false` was a
   // sensible default for a strip of nav icons and a bad one for a chat list.
@@ -263,7 +247,6 @@ export function AppShell({
 
   return (
     <ProtectedRoute initialUser={initialUser}>
-      <LivingBackground variant={backgroundVariant} />
       <PageContextProvider>
         <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
           <NavigationActionHandler onNavigate={handleAgentNavigate} />
@@ -279,7 +262,7 @@ export function AppShell({
           <div className="relative z-10 flex min-h-screen w-full">
             <Sidebar
               collapsible="icon"
-              className="border-r border-sidebar-border bg-white/70 dark:bg-[hsl(240,14%,4%)]/70 backdrop-blur-xl"
+              className="border-r border-sidebar-border bg-sidebar"
             >
               <SidebarHeader className="border-b border-sidebar-border p-2 group-data-[state=expanded]:p-4">
                 {/* Brand logo on top; the workspace name + nav trigger stack
@@ -362,7 +345,7 @@ export function AppShell({
                       // all this bar carries is the full-screen toggle for the
                       // page under it.
                       <motion.div
-                        className="flex items-center justify-end gap-2 border-b bg-background/80 p-2 backdrop-blur-xl shrink-0 sticky top-0 z-10"
+                        className="flex items-center justify-end gap-2 border-b bg-background p-2 shrink-0 sticky top-0 z-10"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { formatMoneyMn } from '@/lib/currency';
+import { PageHeader } from '@/components/layout/PageHeader';
 import CompanyDetailDialog, { type CompanyData } from '@/components/pipeline/CompanyDetailDialog';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
 import DropDealDialog from '@/components/pipeline/DropDealDialog';
@@ -628,30 +629,30 @@ export default function MasterData() {
 
   return (
     <>
-      <div className="p-6 space-y-6 animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Master Data</h1>
-            <p className="text-muted-foreground">Complete overview of all companies in the system</p>
-          </div>
-          <Button
-            data-testid="master-data-add-company-button"
-            className="gap-2"
-            onClick={() => {
-              analyzeWithAI('How do I add a new company?');
-              if (isMobile) {
-                router.push(chatHref);
-                return;
-              }
-              focusCopilot();
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            Add Company
-          </Button>
-        </div>
+      <div className="min-h-full animate-fade-in">
+        <PageHeader
+          title="Master Data"
+          subtitle="Complete overview of all companies in the system"
+          actions={
+            <Button
+              data-testid="master-data-add-company-button"
+              className="gap-2"
+              onClick={() => {
+                analyzeWithAI('How do I add a new company?');
+                if (isMobile) {
+                  router.push(chatHref);
+                  return;
+                }
+                focusCopilot();
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add Company
+            </Button>
+          }
+        />
 
+        <div className="space-y-6 p-6">
         {/* Stats Cards — hidden on mobile to keep the view focused on search */}
         {!isMobile && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -1096,6 +1097,7 @@ export default function MasterData() {
             </CardContent>
           </Card>
         )}
+        </div>
 
         {selectedCompany && (
           <CompanyDetailDialog

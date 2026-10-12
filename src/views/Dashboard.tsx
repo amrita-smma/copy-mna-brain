@@ -45,6 +45,7 @@ import type {
 } from "@/lib/services/dashboardActivityService";
 import type { DailyPulse } from "@/lib/services/dailyPulseService";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { PageHeader } from "@/components/layout/PageHeader";
 import CompanyDetailDialog, {
   type CompanyData,
 } from "@/components/pipeline/CompanyDetailDialog";
@@ -53,7 +54,6 @@ import {
   Building2,
   TrendingUp,
   Loader2,
-  Layers,
   Activity,
   XCircle,
   ChevronDown,
@@ -1150,27 +1150,15 @@ export default function Dashboard({
 
   return (
     <>
-      <div className="p-6 lg:p-8 space-y-8 animate-fade-in">
-        {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/10">
-                <Layers className="h-5 w-5 text-foreground" />
-              </div>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                Dashboard
-              </h1>
-            </div>
-            <p className="text-muted-foreground ml-[52px]">
-              Real-time overview of your M&A deal pipeline
-            </p>
-          </div>
-
-          {/* Global date range filter — desktop only; the mobile feed scrolls
-              infinitely and has no date window. Two components: the active
-              date range trigger and the date picker popover. */}
-          <div className="hidden md:flex items-center gap-1 shrink-0 self-start sm:mt-1">
+      <div className="min-h-full animate-fade-in">
+        <PageHeader
+          title="Dashboard"
+          subtitle="Real-time overview of your M&A deal pipeline"
+          actions={
+            /* Global date range filter — desktop only; the mobile feed scrolls
+               infinitely and has no date window. Two components: the active
+               date range trigger and the date picker popover. */
+            <div className="hidden md:flex items-center gap-1">
             <button
               type="button"
               data-testid="dashboard-date-shift-left"
@@ -1316,9 +1304,11 @@ export default function Dashboard({
             >
               <ChevronRight className="h-4 w-4" />
             </button>
-          </div>
-        </div>
+            </div>
+          }
+        />
 
+        <div className="space-y-8 p-6 lg:p-8">
         {/* Today's Recap — the daily pipeline pulse. Hidden on mobile (Activity
             Feed only). The Analyst agent's markdown, cached once per day and
             shown as-is. */}
@@ -2119,6 +2109,7 @@ export default function Dashboard({
         {showInsightsDashboard && (
           <InsightsModule from={dateRange.from} to={dateRange.to} />
         )}
+        </div>
       </div>
 
       {

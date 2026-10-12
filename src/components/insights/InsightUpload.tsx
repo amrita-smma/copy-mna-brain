@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { useWorkspacePush } from '@/hooks/useWorkspaceHref';
 import { uploadInsightFile } from '@/lib/api/insights';
 import { MAX_INSIGHT_NAME_LENGTH } from '@/lib/insights/srcdoc';
@@ -160,15 +161,14 @@ export function InsightUpload() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Upload HTML file</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Turn an HTML document into an insight without prompting Copilot. It is saved exactly as
-          uploaded, and you can refine it with Copilot afterwards.
-        </p>
-      </div>
+    <div className="min-h-full">
+      <PageHeader
+        title="Upload HTML file"
+        subtitle="Turn an HTML document into an insight without prompting Copilot. It is saved exactly as uploaded, and you can refine it with Copilot afterwards."
+        innerClassName="mx-auto w-full max-w-5xl"
+      />
 
+      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 space-y-6">
       <form
         onSubmit={handleSubmit}
         className="rounded-xl border border-border bg-card p-5 space-y-4"
@@ -236,6 +236,7 @@ export function InsightUpload() {
           </div>
         </section>
       )}
+      </div>
     </div>
   );
 }

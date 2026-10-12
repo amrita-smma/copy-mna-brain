@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { LivingBackground } from '@/components/LivingBackground';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiRequest } from '@/lib/api/client';
@@ -45,9 +44,8 @@ function ResetPasswordPageInner() {
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center p-4 overflow-hidden">
-      <LivingBackground variant="default" />
       <div className="relative z-10 w-full flex justify-center">
-        <Card className="w-full max-w-md min-h-[480px] flex flex-col rounded-md border-white/20 bg-white/10 backdrop-blur-xl shadow-lg">
+        <Card className="w-full max-w-md min-h-[480px] flex flex-col rounded-md bg-card shadow-lg">
           {children}
         </Card>
       </div>
@@ -61,7 +59,7 @@ function CardLogo() {
       <div className="mx-auto mb-4 flex h-10 items-center justify-center">
         <BrandWordmark className="h-9 w-auto" />
       </div>
-      <CardTitle className="text-2xl font-bold tracking-tight text-black dark:text-white">
+      <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
         Reset Password
       </CardTitle>
     </CardHeader>
@@ -70,7 +68,7 @@ function CardLogo() {
 
 function PageLoading() {
   return (
-    <CardContent className="flex-1 flex items-center justify-center text-black dark:text-white">
+    <CardContent className="flex-1 flex items-center justify-center text-foreground">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </CardContent>
   );
@@ -78,7 +76,7 @@ function PageLoading() {
 
 function BackToSignInFooter() {
   return (
-    <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+    <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">
       <Link href="/login" className="hover:underline">
         Back to sign in
       </Link>
@@ -116,8 +114,8 @@ function RequestForm() {
   return (
     <>
       <CardLogo />
-      <CardContent className="flex-1 text-black dark:text-white">
-        <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-black/70 dark:text-white/70 text-center mb-6">
+      <CardContent className="flex-1">
+        <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground text-center mb-6">
           Enter your email to receive a reset link
         </CardDescription>
 
@@ -132,7 +130,7 @@ function RequestForm() {
         ) : (
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="reset-email" className="text-sm text-black/80 dark:text-white/80">
+              <Label htmlFor="reset-email" className="text-sm">
                 Email
               </Label>
               <Input
@@ -143,7 +141,6 @@ function RequestForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={isLoading}
-                className="border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-black/30 dark:focus-visible:ring-white/30"
               />
             </div>
 
@@ -209,8 +206,8 @@ function ResetForm({ token }: { token: string }) {
   return (
     <>
       <CardLogo />
-      <CardContent className="flex-1 text-black dark:text-white">
-        <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-black/70 dark:text-white/70 text-center mb-6">
+      <CardContent className="flex-1">
+        <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground text-center mb-6">
           Choose a new password
         </CardDescription>
 
@@ -224,7 +221,7 @@ function ResetForm({ token }: { token: string }) {
         ) : (
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="new-password" className="text-sm text-black/80 dark:text-white/80">
+              <Label htmlFor="new-password" className="text-sm">
                 New Password
               </Label>
               <PasswordInput
@@ -234,11 +231,10 @@ function ResetForm({ token }: { token: string }) {
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                className="border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-black/30 dark:focus-visible:ring-white/30"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-sm text-black/80 dark:text-white/80">
+              <Label htmlFor="confirm-password" className="text-sm">
                 Confirm Password
               </Label>
               <PasswordInput
@@ -248,7 +244,6 @@ function ResetForm({ token }: { token: string }) {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                className="border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-black/30 dark:focus-visible:ring-white/30"
               />
             </div>
 

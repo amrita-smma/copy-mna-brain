@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { LivingBackground } from '@/components/LivingBackground';
 import { Loader2, ArrowRight, Settings, LogOut } from 'lucide-react';
 import { apiRequest } from '@/lib/api/client';
 import { consentUrlWithCallback } from '@/lib/callbackUrl';
@@ -108,7 +107,6 @@ export default function WorkspacePage() {
   if (showLoader) {
     return (
       <div className="relative flex min-h-screen items-center justify-center">
-        <LivingBackground variant="default" />
         <div className="relative z-10">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -120,14 +118,12 @@ export default function WorkspacePage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-4">
-      <LivingBackground variant="default" />
-
       <div className="relative z-10 w-full max-w-3xl">
         <div className="mb-10 text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-black dark:text-white">
+          <h1 className="text-4xl font-bold tracking-tight">
             {memberships.length === 0 ? "You're not in a workspace yet" : 'Select a workspace'}
           </h1>
-          <p className="mt-3 text-sm text-black/60 dark:text-white/60">
+          <p className="mt-3 text-sm text-muted-foreground">
             {memberships.length === 0
               ? `Hi ${displayName}, ask your admin to add you to a workspace to get started.`
               : `Welcome back, ${displayName}. Choose which workspace you'd like to enter.`}
@@ -141,20 +137,20 @@ export default function WorkspacePage() {
                 key={membership.workspaceId}
                 type="button"
                 onClick={() => handleSelect(membership)}
-                className="group flex items-center gap-4 rounded-2xl border border-white/20 bg-white/10 p-4 text-left shadow-lg backdrop-blur-xl transition hover:border-white/40 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                className="group flex items-center gap-4 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:border-primary/40 hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white shadow-md">
                   {initialsFor(membership.workspaceName)}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block truncate text-base font-bold text-black dark:text-white">
+                  <span className="block truncate text-base font-bold">
                     {membership.workspaceName}
                   </span>
-                  <span className="block truncate text-sm text-black/50 dark:text-white/50">
+                  <span className="block truncate text-sm text-muted-foreground">
                     {membership.roleName}
                   </span>
                 </span>
-                <ArrowRight className="h-5 w-5 shrink-0 text-black/40 transition group-hover:translate-x-0.5 group-hover:text-black/70 dark:text-white/40 dark:group-hover:text-white/70" />
+                <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
               </button>
             ))}
           </div>
@@ -164,7 +160,7 @@ export default function WorkspacePage() {
       {user.isSuperadmin && (
         <Link
           href="/admin-portal"
-          className="hidden absolute bottom-6 left-6 z-10 md:flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-black/70 shadow-lg backdrop-blur-xl transition hover:border-white/40 hover:bg-white/20 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 dark:text-white/70 dark:hover:text-white"
+          className="hidden absolute bottom-6 left-6 z-10 md:flex items-center gap-2 rounded-lg border bg-card px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground shadow-sm transition hover:border-primary/40 hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Settings className="h-4 w-4" />
           Admin Portal
@@ -174,7 +170,7 @@ export default function WorkspacePage() {
       <button
         type="button"
         onClick={() => signOut()}
-        className="absolute bottom-6 right-6 z-10 flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-black/40 backdrop-blur-xl transition hover:border-white/30 hover:bg-white/15 hover:text-black/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 dark:text-white/40 dark:hover:text-white/80"
+        className="absolute bottom-6 right-6 z-10 flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <LogOut className="h-3.5 w-3.5" />
         Sign out

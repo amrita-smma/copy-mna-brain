@@ -23,6 +23,7 @@ import { countryFlag } from '@/lib/countryFlag';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { getProfileItems } from '@/lib/api/profile';
 import type {
   ProfileActionItem,
@@ -310,7 +311,7 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
   );
 
   return (
-    <div className="flex min-h-full flex-col gap-6 px-4 pb-10 pt-6">
+    <div className="flex min-h-full flex-col">
       <ProfileHeader
         name={displayName}
         email={user?.email ?? ''}
@@ -318,6 +319,7 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
         showWorkspaceSelector={isMobile}
       />
 
+      <div className="flex flex-col gap-6 px-4 pb-10 pt-6">
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
@@ -392,6 +394,7 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
           </AlertDialogContent>
         </AlertDialog>
       )}
+      </div>
     </div>
   );
 }
@@ -409,31 +412,29 @@ function ProfileHeader({
   showWorkspaceSelector: boolean;
 }) {
   return (
-    <header className="flex flex-col gap-3">
-      <div className="flex items-center gap-4">
-        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-xl font-bold text-white">
-          {loading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            userInitials(name, email)
-          )}
-        </span>
-        <div className="flex min-w-0 flex-col">
-          <h1
-            className="truncate text-2xl font-bold tracking-tight"
-            data-testid="profile-name"
-          >
-            {name || 'Your profile'}
-          </h1>
-          {email && (
-            <p className="truncate text-sm text-muted-foreground">{email}</p>
-          )}
-        </div>
-      </div>
+    <>
+      {/* The avatar earns the `leading` slot: on a profile it is identity, not
+          the decorative icon tile the other pages dropped. */}
+      <PageHeader
+        title={name || 'Your profile'}
+        titleTestId="profile-name"
+        subtitle={email || undefined}
+        leading={
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-xl font-bold text-white">
+            {loading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              userInitials(name, email)
+            )}
+          </span>
+        }
+      />
 
       {/* The workspace selector: a dropdown-looking control that opens the
-          mobile workspace sheet this page replaced as the Profile tab. */}
+          mobile workspace sheet this page replaced as the Profile tab. It sits
+          below the band, so it carries the page padding itself. */}
       {showWorkspaceSelector && (
+        <div className="px-4 pt-4">
         <MobileWorkspaceDrawer
           renderTrigger={({ current, loading: workspacesLoading }) => (
             <button
@@ -458,8 +459,9 @@ function ProfileHeader({
             </button>
           )}
         />
+        </div>
       )}
-    </header>
+    </>
   );
 }
 

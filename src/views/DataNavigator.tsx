@@ -8,7 +8,7 @@ import { FilterBar, type FilterState } from './dataNavigator/FilterBar';
 import { NewsList } from './dataNavigator/NewsList';
 import { NewsPreview } from './dataNavigator/NewsPreview';
 import { sortByPublishedDesc } from './dataNavigator/sortByTime';
-import { Newspaper } from 'lucide-react';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -185,20 +185,14 @@ export default function DataNavigator() {
   }, [sortedItems, selectedId]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 p-6 lg:p-8">
-      <header className="shrink-0">
-        <div className="mb-2 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground/10">
-            <Newspaper className="h-5 w-5 text-foreground" />
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Data Navigator</h1>
-        </div>
-        <p className="ml-[52px] text-muted-foreground">
-          Curated market news and industry coverage, newest first
-        </p>
-      </header>
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        className="shrink-0"
+        title="Data Navigator"
+        subtitle="Curated market news and industry coverage, newest first"
+      />
 
-      <div className="flex min-h-0 flex-1 gap-5">
+      <div className="flex min-h-0 flex-1 gap-5 px-6 pb-6 lg:px-8 lg:pb-8">
         <aside className="flex min-h-0 w-[380px] shrink-0 flex-col gap-3">
           <FilterBar options={options ?? null} value={filters} onChange={setFilters} />
           {/* The scroll container owns the padding so card shadows/rings are

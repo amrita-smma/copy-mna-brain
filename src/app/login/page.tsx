@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { LivingBackground } from '@/components/LivingBackground';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -21,8 +20,7 @@ import { CALLBACK_URL_PARAM, sanitizeCallbackUrl } from '@/lib/callbackUrl';
 /** Full-screen loader shared by the Suspense fallback and the session-loading state. */
 function LoginLoader() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center">
-      <LivingBackground variant="default" />
+    <div className="auth-backdrop relative flex min-h-screen items-center justify-center">
       <div className="relative z-10">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
@@ -129,23 +127,22 @@ function LoginForm() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-4 overflow-hidden">
-      <LivingBackground variant="default" />
+    <div className="auth-backdrop relative flex min-h-screen items-center justify-center p-4 overflow-hidden">
       <div className="relative z-10 w-full flex justify-center">
-      <Card className="w-full max-w-md min-h-[480px] flex flex-col rounded-md border-white/20 bg-white/10 backdrop-blur-xl shadow-lg">
+      <Card className="w-full max-w-md min-h-[480px] flex flex-col rounded-md bg-card shadow-lg">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-10 items-center justify-center">
             <BrandWordmark className="h-9 w-auto" />
           </div>
-          <CardTitle className="font-display text-2xl font-bold tracking-tight text-black dark:text-white">Investment Brain</CardTitle>
-          <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-black/70 dark:text-white/70">
+          <CardTitle className="font-display text-2xl font-bold tracking-tight">Investment Brain</CardTitle>
+          <CardDescription className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
             ENTERPRISE DEAL INTELLIGENCE
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex-1 text-black dark:text-white">
+        <CardContent className="flex-1">
           <form onSubmit={handleSignIn} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="signin-email" className="text-sm text-black/80 dark:text-white/80">Email</Label>
+              <Label htmlFor="signin-email" className="text-sm">Email</Label>
               <Input
                 id="signin-email"
                 type="email"
@@ -154,11 +151,10 @@ function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={isLoading}
-                className="border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-black/30 dark:focus-visible:ring-white/30"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="signin-password" className="text-sm text-black/80 dark:text-white/80">Password</Label>
+              <Label htmlFor="signin-password" className="text-sm">Password</Label>
               <PasswordInput
                 id="signin-password"
                 placeholder="••••••••"
@@ -166,12 +162,11 @@ function LoginForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
-                className="border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-black/30 dark:focus-visible:ring-white/30"
               />
               <div className="text-right">
                 <Link
                   href="/reset-password"
-                  className="text-xs text-black/70 hover:text-black dark:text-white/70 dark:hover:text-white hover:underline"
+                  className="text-xs text-muted-foreground hover:text-foreground hover:underline"
                 >
                   Forgot password?
                 </Link>
@@ -198,16 +193,16 @@ function LoginForm() {
           </form>
 
           <div className="my-4 flex items-center gap-3">
-            <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
-            <span className="text-xs font-medium uppercase tracking-[0.15em] text-black/50 dark:text-white/50">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">
               Or
             </span>
-            <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+            <span className="h-px flex-1 bg-border" />
           </div>
 
           <GoogleSignInButton onCredential={handleGoogleCredential} disabled={isLoading} />
         </CardContent>
-        <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-black/60 dark:text-white/60">
+        <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">
           SECURED BY NEURAL CORE LOGIC
         </CardFooter>
       </Card>

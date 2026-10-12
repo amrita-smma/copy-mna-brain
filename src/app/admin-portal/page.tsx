@@ -48,7 +48,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
-import { LivingBackground } from '@/components/LivingBackground';
 import { UserManagementSection } from './UserManagementSection';
 import {
   Loader2,
@@ -669,7 +668,6 @@ export default function AdminPortalPage() {
   if (loading || !user || !user.isSuperadmin || !user.hasConsented) {
     return (
       <div className="relative flex min-h-screen items-center justify-center">
-        <LivingBackground variant="default" />
         <Loader2 className="relative z-10 h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -677,8 +675,7 @@ export default function AdminPortalPage() {
 
   return (
     <div className="relative flex h-screen flex-col text-foreground">
-      <LivingBackground variant="default" />
-      <header className="relative z-10 border-b border-border/60 bg-background/70 px-6 py-4 backdrop-blur-xl sm:px-8">
+      <header className="relative z-10 border-b border-border/60 bg-background px-6 py-4 sm:px-8">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-3">
           <Button
             variant="ghost"
@@ -704,7 +701,7 @@ export default function AdminPortalPage() {
       <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-6 sm:px-8">
         <UserManagementSection currentUserId={user?.id} />
 
-        <div className="shrink-0 rounded-2xl border bg-card shadow-sm backdrop-blur-xl">
+        <div className="shrink-0 rounded-2xl border bg-card shadow-sm">
           <button
             type="button"
             onClick={() => setWorkspaceMgmtExpanded((prev) => !prev)}
@@ -1347,7 +1344,7 @@ function WorkspaceListItem({
       type="button"
       onClick={() => onSelect(workspace.id)}
       className={cn(
-        'flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left backdrop-blur-xl transition hover:border-primary/40 hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isSelected && 'border-primary/60 ring-1 ring-primary/30 border-blue-400 border-2',
       )}
     >

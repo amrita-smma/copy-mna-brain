@@ -99,10 +99,10 @@ export function GoogleSignInButton({ onCredential, disabled = false }: GoogleSig
       <div className="flex justify-center">
         {/* GIS renders its button inside a fixed-width iframe; this wrapper is
             sized to it so the drop shadow hugs the button rather than the full
-            card width. `opacity` blends it into the glassmorphism design. */}
+            card width. */}
         <div
           ref={containerRef}
-          className="overflow-hidden rounded-md opacity-90 shadow-lg shadow-black/20 transition-opacity duration-200 hover:opacity-100 dark:shadow-black/40"
+          className="overflow-hidden rounded-md shadow-lg shadow-black/20 dark:shadow-black/40"
         />
       </div>
     </div>
