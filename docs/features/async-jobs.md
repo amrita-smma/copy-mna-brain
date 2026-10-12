@@ -203,7 +203,13 @@ otherwise swamp the prompt it was meant to inform — so the cap lives in one
 place rather than per caller, and callers that want to say "there is more" read
 the `truncated` flag (the AI Opinion instruction uses it to point the run at
 `get_company_details`).
-- **Agent read tools** — `get_company_details` prints it in full;
+- **Agent read tools** — `get_company_details` prints it in full, followed by a
+  **Notes** section carrying the same `deal_notes` timeline the tab shows beside
+  it. Notes are user-authored and unbounded too, so that section reads only the
+  15 newest rows (`findByDealId(id, limit)`, with `countByDealId` supplying the
+  true total), clips each body through `clipCompanyContext` at 1.5k characters,
+  stops once those bodies total 6k, and says how many older notes it left out
+  — one chatty company must not crowd the financials out of the reply;
   `query_companies` takes `include_context` to append a truncated Context column;
   and `companyFilterShape` gains `context` (partial match) + `has_context`, so
   every tool sharing that vocabulary can filter on it. `search_term` matches the

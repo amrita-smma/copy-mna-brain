@@ -6,6 +6,7 @@ interface MockDb {
   from: ReturnType<typeof vi.fn>;
   where: ReturnType<typeof vi.fn>;
   orderBy: ReturnType<typeof vi.fn>;
+  limit: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
   returning: ReturnType<typeof vi.fn>;
@@ -17,7 +18,8 @@ function makeMockDb(): MockDb {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
-    orderBy: vi.fn(),
+    orderBy: vi.fn().mockReturnThis(),
+    limit: vi.fn(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     returning: vi.fn(),
@@ -43,6 +45,35 @@ describe('DealNoteRepository', () => {
     expect(result).toEqual(rows);
     // One where() for the outer query, one for the workspace-companies subquery.
     expect(mockDb.where).toHaveBeenCalledTimes(2);
+    expect(mockDb.limit).not.toHaveBeenCalled();
+  });
+
+  it('findByDealId bounds the read to the newest rows when a limit is given', async () => {
+    const rows = [{ id: 'n2' }];
+    mockDb.limit.mockResolvedValueOnce(rows);
+
+    const result = await repo.findByDealId('deal-1', 15);
+
+    expect(result).toEqual(rows);
+    expect(mockDb.limit).toHaveBeenCalledWith(15);
+  });
+
+  it('countByDealId returns the full count for the deal, scoped to this workspace', async () => {
+    // The workspace-companies subquery resolves first, then the outer count.
+    mockDb.where.mockReturnValueOnce(mockDb as never);
+    mockDb.where.mockResolvedValueOnce([{ value: 42 }]);
+
+    const result = await repo.countByDealId('deal-1');
+
+    expect(result).toBe(42);
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
+  it('countByDealId reports 0 when the deal has no notes', async () => {
+    mockDb.where.mockReturnValueOnce(mockDb as never);
+    mockDb.where.mockResolvedValueOnce([]);
+
+    expect(await repo.countByDealId('deal-1')).toBe(0);
   });
 
   it('insert writes the row without stamping a workspace_id (deal_notes has no own column)', async () => {

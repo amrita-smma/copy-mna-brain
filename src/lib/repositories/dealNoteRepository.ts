@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, count as drizzleCount, desc, eq, inArray } from 'drizzle-orm';
 import { companies, dealNotes } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
@@ -12,12 +12,22 @@ export class DealNoteRepository {
     return this.db.select({ id: companies.id }).from(companies).where(eq(companies.workspace_id, this.workspaceId));
   }
 
-  async findByDealId(dealId: string): Promise<Tables<'deal_notes'>[]> {
-    return this.db
+  /** Newest first. Pass `limit` when the caller only renders a recent slice — pair it with `countByDealId` for the true total. */
+  async findByDealId(dealId: string, limit?: number): Promise<Tables<'deal_notes'>[]> {
+    const query = this.db
       .select()
       .from(dealNotes)
       .where(and(eq(dealNotes.deal_id, dealId), inArray(dealNotes.deal_id, this.workspaceCompanyIds())))
       .orderBy(desc(dealNotes.created_at));
+    return limit === undefined ? query : query.limit(limit);
+  }
+
+  async countByDealId(dealId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ value: drizzleCount() })
+      .from(dealNotes)
+      .where(and(eq(dealNotes.deal_id, dealId), inArray(dealNotes.deal_id, this.workspaceCompanyIds())));
+    return Number(row?.value ?? 0);
   }
 
   async insert(data: TablesInsert<'deal_notes'>): Promise<Tables<'deal_notes'>> {

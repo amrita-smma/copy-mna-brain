@@ -8,13 +8,25 @@ import {
   CompanyFinancialRepository,
   CompanyRepository,
   CompanyScreeningDerivedRepository,
+  DealNoteRepository,
 } from "@/lib/repositories";
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
+import { clipCompanyContext } from "@/lib/companyContextPrompt";
 
 /** Canonical 8-4-4-4-12 UUID, the shape every `companies.id` takes. */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Ceilings on the Notes section: how many of the most recent notes to read,
+ * how much of one note's body survives, and the budget they share. Keep
+ * MAX_NOTE_CHARS below MAX_NOTES_CHARS so a single note can never exhaust the
+ * budget before anything prints.
+ */
+const MAX_NOTES = 15;
+const MAX_NOTE_CHARS = 1_500;
+const MAX_NOTES_CHARS = 6_000;
 
 /**
  * Get detailed information about a specific company.
@@ -42,10 +54,12 @@ export const getCompanyDetails = tool(
 
     try {
       const db = createDb();
-      const companyRepo = new CompanyRepository(db, await getActiveWorkspaceId());
-      const financialRepo = new CompanyFinancialRepository(db, await getActiveWorkspaceId());
-      const screeningRepo = new CompanyScreeningDerivedRepository(db, await getActiveWorkspaceId());
-      const stageText = await loadStageLabeler(db, await getActiveWorkspaceId());
+      const workspaceId = await getActiveWorkspaceId();
+      const companyRepo = new CompanyRepository(db, workspaceId);
+      const financialRepo = new CompanyFinancialRepository(db, workspaceId);
+      const screeningRepo = new CompanyScreeningDerivedRepository(db, workspaceId);
+      const noteRepo = new DealNoteRepository(db, workspaceId);
+      const stageText = await loadStageLabeler(db, workspaceId);
       const c = id
         ? await companyRepo.findByIdOrNull(id)
         : await companyRepo.findByNameFuzzy(trimmed);
@@ -56,9 +70,11 @@ export const getCompanyDetails = tool(
           : `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
       }
 
-      const [financials, screening] = await Promise.all([
+      const [financials, screening, recentNotes, noteCount] = await Promise.all([
         financialRepo.findByCompany(c.id),
         screeningRepo.findByCompany(c.id),
+        noteRepo.findByDealId(c.id, MAX_NOTES),
+        noteRepo.countByDealId(c.id),
       ]);
       const byYear = new Map<number, typeof financials[number]>();
       for (const row of financials) byYear.set(row.fiscal_year, row);
@@ -78,6 +94,38 @@ export const getCompanyDetails = tool(
       const growthRow = displayYears.map((y, i) => i === 0 ? "-" : fmtPct(byYear.get(y)?.revenue_cagr_vs_prior)).join(" | ");
       const ebitdaRow = displayYears.map((y) => fmtNum(byYear.get(y)?.ebitda_usd_mn)).join(" | ");
       const marginRow = displayYears.map((y) => fmtPct(byYear.get(y)?.ebitda_margin)).join(" | ");
+
+      // The deal_notes timeline, which the Context tab shows next to the
+      // free-form Context because it answers the same question ("what do we
+      // know that no column holds?"), just dated. The read is bounded to the
+      // newest MAX_NOTES rows with the true total counted separately; notes
+      // are user-authored markdown with no length bound, so each body is
+      // clipped and the section stops once the shared budget is spent. One
+      // chatty company must not crowd the financials out of the reply.
+      const shownNotes: Array<{ heading: string; body: string }> = [];
+      let notesChars = 0;
+      for (const note of recentNotes) {
+        const { text } = clipCompanyContext(note.content, MAX_NOTE_CHARS);
+        if (shownNotes.length > 0 && notesChars + text.length > MAX_NOTES_CHARS) break;
+        notesChars += text.length;
+        shownNotes.push({
+          heading: [note.created_at?.slice(0, 10) || "Undated", stageText(note.stage)]
+            .filter((part): part is string => !!part)
+            .join(" · "),
+          body: text,
+        });
+      }
+      // Everything dropped is strictly older than everything kept: the rows
+      // arrive newest first and only a prefix of them is taken.
+      const hiddenNotes = noteCount - shownNotes.length;
+      const notesSection =
+        shownNotes.length === 0
+          ? ""
+          : `### Notes (${noteCount})
+Dated notes the deal team logged against this company, newest first. Like Context, treat them as first-hand internal knowledge.
+
+${shownNotes.map((n) => `**${n.heading}**\n${n.body}`).join("\n\n")}
+${hiddenNotes > 0 ? `\n_${hiddenNotes} older note${hiddenNotes === 1 ? "" : "s"} not shown._\n` : ""}`;
 
       const result = `## Company Details: ${companyDisplayTitle(c)}
 
@@ -112,6 +160,7 @@ export const getCompanyDetails = tool(
 ${screening?.l1_screening_result ? `### L1 Screening\n- **Result:** ${screening.l1_screening_result}${screening.l1_rationale ? `\n- **Rationale:** ${screening.l1_rationale}` : ""}\n` : ""}
 ${c.comments ? `### Comments\n${c.comments}` : ""}
 ${c.context?.trim() ? `### Context\nFree-form background the deal team wrote on this company. Treat it as first-hand internal knowledge and weigh it alongside the structured fields above.\n\n${c.context.trim()}\n` : ""}
+${notesSection}
 `;
 
       logger.debug("✓ Company details retrieved");
@@ -149,7 +198,7 @@ Args:
 Provide at least one of the two.
 
 Returns:
-    Detailed company profile including the company ID (UUID), all available financial data, and the company's free-form Context — the background the deal team wrote on the company card's Context tab. When a Context section is present, weigh it alongside the structured fields; it is first-hand internal knowledge that no column captures.`,
+    Detailed company profile including the company ID (UUID), all available financial data, the company's free-form Context — the background the deal team wrote on the company card's Context tab — and its Notes, the dated deal-team note timeline shown beside that Context. When a Context or Notes section is present, weigh it alongside the structured fields; both are first-hand internal knowledge that no column captures. Only the most recent notes are printed when a company has many.`,
     schema: z.object({
       company_id: z
         .string()

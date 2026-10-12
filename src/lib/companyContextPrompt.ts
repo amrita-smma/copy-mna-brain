@@ -11,6 +11,10 @@
  * The cap lives here rather than per-caller so the limits cannot silently drift
  * apart, and so a caller that needs to say "there is more" can tell whether it
  * actually clipped anything.
+ *
+ * The same clip serves the other unbounded user-authored prose on a company —
+ * a `deal_notes` body in the `get_company_details` Notes section — which passes
+ * its own, smaller `maxChars`.
  */
 
 /**

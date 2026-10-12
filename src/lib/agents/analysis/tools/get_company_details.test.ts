@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const findByNameFuzzyMock = vi.fn();
 const findByIdOrNullMock = vi.fn();
 const findByCompanyFinancialsMock = vi.fn();
 const findByCompanyScreeningMock = vi.fn();
+const findByDealIdMock = vi.fn();
+const countByDealIdMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -22,6 +24,9 @@ vi.mock('@/lib/repositories', () => ({
   CompanyScreeningDerivedRepository: function CompanyScreeningDerivedRepository() {
     return { findByCompany: findByCompanyScreeningMock };
   },
+  DealNoteRepository: function DealNoteRepository() {
+    return { findByDealId: findByDealIdMock, countByDealId: countByDealIdMock };
+  },
 }));
 
 vi.mock('./stageLabels', () => ({
@@ -32,6 +37,15 @@ vi.mock('./stageLabels', () => ({
 
 import { getCompanyDetails } from './get_company_details';
 import { parseCompanyMentions } from '@/lib/navigation/companyMentions';
+
+// Most cases are not about notes; default them to a company with none so each
+// test only states the data it actually exercises.
+beforeEach(() => {
+  findByDealIdMock.mockReset();
+  findByDealIdMock.mockResolvedValue([]);
+  countByDealIdMock.mockReset();
+  countByDealIdMock.mockResolvedValue(0);
+});
 
 afterEach(() => vi.clearAllMocks());
 
@@ -99,6 +113,129 @@ describe('getCompanyDetails', () => {
     const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
 
     expect(result).not.toContain('### Context');
+  });
+
+  it('prints the deal notes newest first, dated and stage-labelled', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    countByDealIdMock.mockResolvedValue(2);
+    findByDealIdMock.mockResolvedValue([
+      {
+        id: 'n2',
+        content: 'Management call: founder open to a majority sale.',
+        stage: 'stg-post',
+        created_at: '2026-03-04T09:15:00.000Z',
+      },
+      {
+        id: 'n1',
+        content: 'Teaser received from the banker.',
+        stage: 'L1',
+        created_at: '2026-01-02T11:00:00.000Z',
+      },
+    ]);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    // Bounded read: only the slice that can be printed is pulled off the table.
+    expect(findByDealIdMock).toHaveBeenCalledWith('c1', 15);
+    expect(countByDealIdMock).toHaveBeenCalledWith('c1');
+    expect(result).toContain('### Notes (2)');
+    expect(result).toContain('first-hand internal knowledge');
+    expect(result).toContain('**2026-03-04 · L6 · Post-Close**');
+    expect(result).toContain('Management call: founder open to a majority sale.');
+    expect(result).toContain('**2026-01-02 · L1**');
+    expect(result).toContain('Teaser received from the banker.');
+    // The repository already orders newest first — the reply must not reshuffle it.
+    expect(result.indexOf('Management call')).toBeLessThan(result.indexOf('Teaser received'));
+    expect(result).not.toContain('not shown');
+  });
+
+  it('omits the Notes section when the company has none', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).not.toContain('### Notes');
+  });
+
+  it('caps a long note history and says how many it left out', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    countByDealIdMock.mockResolvedValue(18);
+    // The repository is asked for 15 and returns 15; the other 3 never load.
+    findByDealIdMock.mockResolvedValue(
+      Array.from({ length: 15 }, (_, i) => ({
+        id: `n${i}`,
+        content: `Note ${i}`,
+        stage: 'L1',
+        created_at: '2026-01-02T11:00:00.000Z',
+      })),
+    );
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('### Notes (18)');
+    // The cap is enforced at the query, not by filtering rows after the fact.
+    expect(findByDealIdMock).toHaveBeenCalledWith('c1', 15);
+    expect(result).toContain('Note 0');
+    expect(result).toContain('Note 14');
+    expect(result).toContain('3 older notes not shown.');
+  });
+
+  it('stops at the character budget when several notes are long', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    countByDealIdMock.mockResolvedValue(5);
+    findByDealIdMock.mockResolvedValue(
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `n${i}`,
+        content: `note-${i} ${'x'.repeat(2_000)}`,
+        stage: 'L1',
+        created_at: null,
+      })),
+    );
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('### Notes (5)');
+    // Each body clips to 1.5k, so three fit under the 6k section budget and the
+    // fourth would not — the rest are reported rather than printed.
+    expect(result).toContain('note-0');
+    expect(result).toContain('note-2');
+    expect(result).not.toContain('note-3');
+    expect(result).toContain('2 older notes not shown.');
+    // A note saved before created_at defaulted still gets a heading.
+    expect(result).toContain('**Undated · L1**');
+  });
+
+  it('clips a single enormous note instead of printing the whole transcript', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    countByDealIdMock.mockResolvedValue(1);
+    findByDealIdMock.mockResolvedValue([
+      { id: 'n1', content: `call transcript ${'x'.repeat(20_000)}`, stage: 'L1', created_at: null },
+    ]);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('call transcript');
+    expect(result).toContain('…');
+    // The one note prints, and the reply stays nowhere near the raw 20k body.
+    expect(result).not.toContain('not shown');
+    expect(result.length).toBeLessThan(6_000);
+  });
+
+  it('tells the model the reply carries the notes timeline', async () => {
+    expect(getCompanyDetails.description).toContain('Notes');
+    expect(getCompanyDetails.description).toContain(
+      'Only the most recent notes are printed when a company has many',
+    );
   });
 
   it('rejects whitespace-only input without hitting the repository', async () => {
