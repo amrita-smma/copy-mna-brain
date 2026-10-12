@@ -79,6 +79,17 @@ variable "key_pair_name" {
   nullable    = true
 }
 
+variable "disable_signup" {
+  description = <<-EOT
+    Disable self-service sign-up on the Langfuse UI (AUTH_DISABLE_SIGNUP). This
+    also blocks invited users who have no account yet, so set it to false while
+    onboarding someone, then back. Each toggle replaces the instance (the value
+    lives in the compose file, which is part of user_data).
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "acme_email" {
   description = "Contact address Let's Encrypt uses for expiry notices on the Caddy-issued certificate"
   type        = string

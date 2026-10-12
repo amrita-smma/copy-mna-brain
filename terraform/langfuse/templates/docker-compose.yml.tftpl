@@ -86,6 +86,10 @@ services:
       SALT: $${SALT}
       ENCRYPTION_KEY: $${ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "false"
+      # Only existing accounts can sign in. This also blocks anyone holding a
+      # pending project invite who has no account yet, so flip disable_signup
+      # off while onboarding someone new.
+      AUTH_DISABLE_SIGNUP: "${auth_disable_signup}"
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
 
       DATABASE_URL: postgresql://langfuse:$${POSTGRES_PASSWORD}@postgres:5432/langfuse

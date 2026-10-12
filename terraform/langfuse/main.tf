@@ -9,14 +9,15 @@ locals {
   data_device = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(aws_ebs_volume.data.id, "-", "")}"
 
   compose_file = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
-    langfuse_image_tag = var.langfuse_image_tag
-    clickhouse_image   = var.clickhouse_image
-    redis_image        = var.redis_image
-    postgres_image     = var.postgres_image
-    caddy_image        = var.caddy_image
-    clickhouse_heap    = local.current_config.clickhouse_heap
-    blob_bucket        = aws_s3_bucket.blob.bucket
-    aws_region         = var.aws_region
+    langfuse_image_tag  = var.langfuse_image_tag
+    clickhouse_image    = var.clickhouse_image
+    redis_image         = var.redis_image
+    postgres_image      = var.postgres_image
+    caddy_image         = var.caddy_image
+    clickhouse_heap     = local.current_config.clickhouse_heap
+    blob_bucket         = aws_s3_bucket.blob.bucket
+    aws_region          = var.aws_region
+    auth_disable_signup = var.disable_signup
   })
 
   caddyfile = templatefile("${path.module}/templates/Caddyfile.tftpl", {
