@@ -61,8 +61,7 @@ clean import reports **256 imported**, not 263.
   - **Surfaces:** the news list always renders the English headline plus a
     language badge — a foreign headline is unreadable to someone scanning the
     feed — while the reading pane adds the per-article toggle and a
-    machine-translation notice. `search_news` marks a translated hit in its
-    output so the agent doesn't quote machine copy as verbatim. The single
+    machine-translation notice. The single
     shared answer to "which text do I show" lives in
     `src/views/dataNavigator/translation.ts`.
   - **Detection bias:** the heuristic answers "English" when unsure (including
@@ -81,8 +80,8 @@ clean import reports **256 imported**, not 263.
 - **Bedrock IAM — two sides, not one.** The pipeline Lambdas embed article
   chunks and get `bedrock:InvokeModel` from
   `data-pipeline/terraform/pipeline-compute/iam.tf`. The **app** separately
-  embeds the *search query* in-process — `createContainer` and the
-  `search_news` tool each build a `BedrockEmbeddingClient` — under the
+  embeds the *search query* in-process — `createContainer` builds a
+  `BedrockEmbeddingClient` — under the
   `mna-app` IAM user, which gets `mna-app-bedrock-invoke` from
   `terraform/iam`. Miss the app-side grant and
   `DataNavigatorService.vectorHalf` swallows the `AccessDenied`, logs
@@ -98,14 +97,12 @@ clean import reports **256 imported**, not 263.
   [Runtime feature toggles](runtime-feature-toggles.md) — **defaults to
   disabled**, so the feature ships dark until a superadmin turns it on per
   workspace).
-- **RAG:** the `search_news` agent tool runs hybrid search (pgvector cosine
-  similarity + trigram `ILIKE`, merged and re-ranked in
-  `DataNavigatorService.searchNews`) over the lake. It's registered on the
-  base `tools` list, so it reaches the **`mna` chat, AI Workforce,
-  `combined`, `minority`, `crowdfunding`, `investment_banking` and
-  `capital_markets`** Copilot flavors; the **`investment`** and **`vc`** flavors
-  enumerate their own tool lists in `src/lib/agents/analysis/tools/index.ts`
-  and do **not** include it.
+- **RAG:** hybrid search (pgvector cosine similarity + trigram `ILIKE`,
+  merged and re-ranked in `DataNavigatorService.searchNews`) powers the
+  `/api/data-navigator/search` route and the Data Navigator page. The
+  `search_news` agent tool that once exposed the lake to the Copilot flavors
+  has been removed — agents answer recent-news questions with `web_search`
+  on the open web.
 - **Feed admin:** `X-Api-Secret`-gated routes under `/api/auth/rss-feeds`
   (list/create, `/:id`, `/import`) — see [Admin routes](admin-routes.md).
   Bulk-import the checked-in catalog with `pnpm rss:import-feeds`.

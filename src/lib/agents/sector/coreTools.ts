@@ -8,9 +8,8 @@
  *
  * Why these:
  *   - Research: web_search / web_fetch (the only way to the public sector
- *     sources), valyu_search (filings, research; named by the shared
- *     grounding and workforce evidence guides), and search_news (the firm's
- *     curated news lake).
+ *     sources) and valyu_search (filings, research; named by the shared
+ *     grounding and workforce evidence guides).
  *   - Internal record: get_data_schema, query_companies, get_company_stats,
  *     get_company_details (cohort members and deals already on file — the
  *     company-mentions guide names query_companies / get_company_stats), and
@@ -53,7 +52,6 @@ import {
   readPageContext,
   replaceInsightDocument,
   reportProgress,
-  searchNews,
   valyuSearch,
 } from '@/lib/agents/analysis/tools';
 import type { ToolList } from '@/lib/agents/analysis';
@@ -63,7 +61,6 @@ import type { SectorAgentRole } from './types';
 const SECTOR_READ_CORE_TOOLS: ToolList = [
   ...SERVER_TOOLS,
   valyuSearch,
-  searchNews,
   getDataSchema,
   queryCompanies,
   getCompanyStats,

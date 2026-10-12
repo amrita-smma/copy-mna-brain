@@ -497,6 +497,7 @@ export async function POST(req: NextRequest) {
     // ToolMessage Anthropic rejects the next turn.
     if (requestedChatId) {
       await agent.rewriteFileReferences(chat.id, uploadedFileIds, priorMessages);
+      await agent.repairCorruptServerToolCalls(chat.id, priorMessages);
       await agent.repairOrphanedToolCalls(chat.id);
     }
 

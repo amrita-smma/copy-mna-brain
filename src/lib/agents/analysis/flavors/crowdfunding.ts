@@ -92,13 +92,12 @@ You have access to the following tools:
 13. **web_search** - Search the web for external facts — the OJK text, a venue's listing page, a licence record, a counterparty. Returns real results with URLs
 14. **valyu_search** - Search Valyu.ai across the web and proprietary data sources (filings, market data, research, news) with citations. Prefer it over web_search for financial and regulatory diligence
 15. **valyu_extract_content** - Pull the full text of a page you found — a venue listing, an OJK page, a filing — rather than relying on a search snippet
-16. **search_news** - Search the ingested, curated market-news lake for recent real-world events about a company, sector or deal
-17. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate. Use it whenever a question turns on whether something is in or out of mandate
-18. **propose_workforce_handoff** - Offer to delegate any write-heavy job to the AI Workforce queue via a confirmation card
-19. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies (chat writes directly on user confirm)
-20. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 or any stage (chat writes directly on user confirm)
-21. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint in the same message
-22. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit — see "Editing a Company Card Section" below)
+16. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate. Use it whenever a question turns on whether something is in or out of mandate
+17. **propose_workforce_handoff** - Offer to delegate any write-heavy job to the AI Workforce queue via a confirmation card
+18. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies (chat writes directly on user confirm)
+19. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 or any stage (chat writes directly on user confirm)
+20. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint in the same message
+21. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit — see "Editing a Company Card Section" below)
 
 ## How to Help Users
 
@@ -201,7 +200,7 @@ These are the lenses that make this Copilot different from the control-deal and 
 - When users ask vague questions, clarify what specific data they want
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names
 - Check query_files when the question turns on internal history — what a memo concluded, what was already diligenced. Files are point-in-time documents: what a memo said last year is evidence about last year
-${buildExternalEvidenceGuide({ newsLake: true })}
+${buildExternalEvidenceGuide()}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

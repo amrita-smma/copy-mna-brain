@@ -580,17 +580,22 @@ describe('runAgent — resume branch (rows carrying a resume_token)', () => {
       getStepMetadataMock.mockReturnValueOnce({ attempt });
     }
     const rewriteFileReferences = vi.fn().mockResolvedValue(undefined);
+    const repairCorruptServerToolCalls = vi.fn().mockResolvedValue(0);
     const repairOrphanedToolCalls = vi.fn().mockResolvedValue(0);
     findById.mockResolvedValueOnce(makeRow({ resume_token }));
-    getWorkforceAgentGraph.mockResolvedValueOnce(graph({ rewriteFileReferences, repairOrphanedToolCalls }));
+    getWorkforceAgentGraph.mockResolvedValueOnce(
+      graph({ rewriteFileReferences, repairCorruptServerToolCalls, repairOrphanedToolCalls }),
+    );
 
     await runAgent({ runId: RUN_ID });
 
     if (repairs) {
       expect(rewriteFileReferences).toHaveBeenCalledWith(RUN_ID, []);
+      expect(repairCorruptServerToolCalls).toHaveBeenCalledWith(RUN_ID);
       expect(repairOrphanedToolCalls).toHaveBeenCalledWith(RUN_ID);
     } else {
       expect(rewriteFileReferences).not.toHaveBeenCalled();
+      expect(repairCorruptServerToolCalls).not.toHaveBeenCalled();
       expect(repairOrphanedToolCalls).not.toHaveBeenCalled();
     }
     expect(markSucceeded).toHaveBeenCalledTimes(1);

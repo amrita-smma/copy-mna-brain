@@ -223,8 +223,10 @@ message naming the missing variables and telling the agent to fall back to
 degrades instead of breaking a chat turn. With the tool retired, the routing
 guidance in each flavor's system prompt now reads: `valyu_search` when the answer
 should rest on filings, transcripts, analyst research or proprietary datasets;
-`web_search` for quick general lookups; `search_news` first for recent market
-news the internal lake may already cover.
+`web_search` for everything else — current facts, recent market news, deals and
+funding — run aggressively, several calls from different angles per turn. (The
+`search_news` lake tool has been removed from the agents; recent-news questions
+go straight to the open web.)
 
 Every invocation was logged to the `alphasense_tool_calls` table
 (`AlphasenseToolCallRepository` / `AlphasenseToolCallService`, wired into

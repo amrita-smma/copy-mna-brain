@@ -95,7 +95,7 @@ export function composeSectorRolePrompt(
     return `${sectorPrompt}
 
 ${sectorChatGuide(agent.handle)}
-${buildExternalEvidenceGuide({ newsLake: toolNames.includes('search_news') })}
+${buildExternalEvidenceGuide()}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${COMPANY_MENTIONS_PROMPT_GUIDE}`;

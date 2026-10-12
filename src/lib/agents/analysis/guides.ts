@@ -92,24 +92,23 @@ A template is not an insight. It is a reusable starting point in the workspace's
  * single statement of how to weigh internal records against outside evidence,
  * and it replaces all of them.
  *
- * `newsLake` and `topicTools` gate the tool names the block is allowed to
- * mention: only the M&A and combined lists carry `search_news`, and only the VC
- * list carries the five focused topic tools. Naming a tool a flavor does not
- * have invites a hallucinated call, and omitting one it prefers sends it to the
- * wrong tool.
+ * `topicTools` gates the topic-tool names the block is allowed to mention:
+ * only the VC list carries the five focused topic tools. Naming a tool a
+ * flavor does not have invites a hallucinated call, and omitting one it
+ * prefers sends it to the wrong tool.
  */
 export const buildExternalEvidenceGuide = ({
-  newsLake,
   topicTools = false,
 }: {
-  newsLake: boolean;
   topicTools?: boolean;
-}) => `
+} = {}) => `
 ## Grounding: Internal Records and the Outside World
 
 Internal records tell you what the firm has recorded and decided. They do not tell you what is true today. Every row was typed in by a person at some point and has not updated itself since: financials sit at whatever fiscal year was entered, a deal still flagged live may be dead, a stored AI Opinion reflects the day it was written, a CRM relationship may have moved on. Treat internal data as authoritative about the firm's own state — and about nothing else. In every other respect the internal record is a **guideline**: it orients the research, scopes the question and names the entities, but it is never itself the answer.
 
-**Research is the default, not a step and not a fallback.** Your default mode on any substantive question is to RESEARCH: go outside, then reconcile what you find with what the firm has on file. The moment a company is detected in a request — named outright, implied by a codename or ticker, or surfaced by one of your own internal queries — run at least one external search in that same turn, whichever research tool fits, per "Choosing among the external tools" below${topicTools ? " and the topic-tool routing above" : ""}. The same goes for a sector, a valuation, a competitor, a counterparty, or anything else that moves. In practice that means almost every query gets an external call — including, and especially, when the internal record looks complete: a full-looking row is the most common reason an answer here turns out to be wrong. \`web_search\` is the cheap, fast one: reach for it freely, and more than once in a turn when you need several angles (the company, its market, its comparables).
+**Research is the default, not a step and not a fallback.** This is a research tool, and web search is its backbone: treat every query as a research query unless it is purely about the firm's own bookkeeping. Your default mode on any substantive question is to RESEARCH: go outside, then reconcile what you find with what the firm has on file. The moment a company is detected in a request — named outright, implied by a codename or ticker, or surfaced by one of your own internal queries — run at least one external search in that same turn, whichever research tool fits, per "Choosing among the external tools" below${topicTools ? " and the topic-tool routing above" : ""}. The same goes for a sector, a valuation, a competitor, a counterparty, or anything else that moves. In practice that means almost every query gets an external call — including, and especially, when the internal record looks complete: a full-looking row is the most common reason an answer here turns out to be wrong. \`web_search\` is the cheap, fast one: reach for it freely, and more than once in a turn when you need several angles (the company, its market, its comparables). When in doubt, search — a redundant search costs seconds; a stale answer costs the user a decision.
+
+**\`web_search\` is always available — never conclude otherwise.** Call it with a JSON object carrying a non-empty query, e.g. \`web_search({"query": "Dorf Ketal Italmatch acquisition"})\`, from inside code execution. If a call returns an error such as \`invalid_tool_input\`, that verdict is about that one call's arguments — not about the tool. Fix the input (a non-empty, specific query string) and retry immediately; do not downgrade to a weaker tool, skip the search, or caveat that web search is unavailable or has a formatting problem. Earlier turns in this conversation may show past \`web_search\` calls with empty input (\`{}\`) — that is a display artifact of how the history was recorded, not how the tool is called and not a pattern to imitate.
 
 **Search while you pull internal data, not after it.** Fire the external call in the same turn as the internal query rather than waiting to discover the record is thin. The questions that need no outside look are the ones purely about the firm's own bookkeeping: counts, coverage, stage breakdowns, who covers a relationship, what a ledger row says.
 
@@ -119,6 +118,4 @@ Internal records tell you what the firm has recorded and decided. They do not te
 
 **Never report "not found" or "no data" on the strength of internal tools alone.** A name missing from the workspace is a name to research, not a dead end.
 
-**Choosing among the external tools.** ${topicTools ? "The five focused topic tools (\`get_company_profile\`, \`get_sector_context\`, \`get_competitor_landscape\`, \`get_regulatory_context\`, \`get_market_signals\`) are the first stop for the standard diligence dimensions, per the routing guidance above. " : ""}\`valyu_search\` when the answer should rest on filings, research or proprietary datasets — financial and market diligence, richer cited context.${newsLake ? " \`search_news\` for the firm's own curated news lake." : ""} \`web_search\` for everything else — quick current facts, general context, corroboration.${newsLake ? `
-
-\`search_news\` and the open web are complements, not a sequence: query the lake for what the firm has ingested and the web for what it hasn't, and when a news question matters, do both in the same turn. An empty \`search_news\` result means nothing was ingested — never that nothing happened — so don't tell the user there is no such news on the lake's word alone.` : ""}`;
+**Choosing among the external tools.** ${topicTools ? "The five focused topic tools (\`get_company_profile\`, \`get_sector_context\`, \`get_competitor_landscape\`, \`get_regulatory_context\`, \`get_market_signals\`) are the first stop for the standard diligence dimensions, per the routing guidance above. " : ""}\`valyu_search\` when the answer should rest on filings, research or proprietary datasets — financial and market diligence, richer cited context. \`web_search\` for everything else — current facts, recent news, deals and funding, market context, corroboration. News lives on the open web: for any question touching recent events, run \`web_search\` aggressively — several calls from different angles (the company, the counterparty, the sector, the deal) beat one broad query, and each costs seconds.`;

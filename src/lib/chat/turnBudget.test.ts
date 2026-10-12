@@ -96,7 +96,7 @@ describe('collectAbandonedTurnWork', () => {
           { type: 'thinking', thinking: 'ignored' },
         ],
       }),
-      tool('search_news', 'a headline'),
+      tool('web_search', 'a headline'),
     ];
 
     const work = collectAbandonedTurnWork(messages);

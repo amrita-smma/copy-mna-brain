@@ -141,6 +141,7 @@ describe('POST /api/chat', () => {
     invoke: invokeMock,
     getMessages: getMessagesMock,
     rewriteFileReferences: vi.fn(),
+    repairCorruptServerToolCalls: vi.fn(),
     repairOrphanedToolCalls: vi.fn(),
   };
   const ownedRefsMock = vi.fn();
@@ -172,6 +173,7 @@ describe('POST /api/chat', () => {
     getChatContextMock.mockReset().mockResolvedValue(null);
     getMessagesMock.mockReset().mockResolvedValue([]);
     graph.rewriteFileReferences.mockReset();
+    graph.repairCorruptServerToolCalls.mockReset();
     ownedRefsMock.mockReset().mockImplementation((refs: unknown) =>
       (refs as Array<{ key: string }>).filter((r) => r.key.startsWith('chat-attachments/ws-1/')),
     );
@@ -386,6 +388,7 @@ describe('POST /api/chat', () => {
       expect(getMessagesMock).toHaveBeenCalledTimes(1);
       expect(getMessagesMock).toHaveBeenCalledWith(CHAT_ID);
       expect(graph.rewriteFileReferences).toHaveBeenCalledWith(CHAT_ID, [], []);
+      expect(graph.repairCorruptServerToolCalls).toHaveBeenCalledWith(CHAT_ID, []);
     });
 
     it('does not read history on a brand-new thread', async () => {

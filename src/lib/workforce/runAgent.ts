@@ -361,6 +361,7 @@ export async function invokeAgent(
   if (isResumedThread || resumePayloadJson || isRetryAttempt) {
     try {
       await graph.rewriteFileReferences(threadId, []);
+      await graph.repairCorruptServerToolCalls(threadId);
       await graph.repairOrphanedToolCalls(threadId);
     } catch (err) {
       console.warn('[runAgent] thread repair failed; continuing', err);

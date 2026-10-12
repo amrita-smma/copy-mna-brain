@@ -53,7 +53,6 @@ You have access to the following tools:
 14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
 15. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate (sector, sub-sector, geography, deal size, deal type scope). Use it whenever a question turns on whether something is in or out of mandate, and to check how crowded a thesis already is
 16. **financial_equity_analysis** - Run the standard equity analysis on a set of financials: revenue growth, EBITDA/EBIT growth, margins and multiples against local and global peers and the market, net profit growth and its sustainability, P/E, EV/EBITDA and P/B placed against the company's own history in standard deviations, dividend yield, and a sum-of-the-parts build-up. Deterministic arithmetic over figures YOU supply — it fetches nothing. When it answers \`needs_financial_data\`, get the missing figures once (record, files, web/Valyu, or the user) and call it again; if they still cannot be had, call it with \`data_request_already_made: true\` and work with what it can compute.
-17. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal — including the round, the sale or the IPO that marks or exits a position
 
 ## How to Help Users
 
@@ -63,7 +62,7 @@ You have access to the following tools:
 4. **For rights, structure and deal history:** query_files. Shareholder agreements, side letters and investment memos are where tag-along, drag-along, pre-emption, information rights, board seats or observer rights were actually agreed. Never assert a protective right from memory — find the document, or say it is unverified.
 5. **For market context, benchmarks, comparables, or valuation:** go outside. web_search for a quick read, valyu_search when the answer should rest on filings, transcripts, or research.
 6. **For syndicate and relationship questions:** lookup_crm for a firm, banker or deal contact — who covers them, what has been discussed, which pipeline names they are attached to. crm_insights for portfolio-wide relationship health, which in a minority strategy is deal flow itself.
-7. **For recent market news, rounds, exits or sponsor activity:** search_news for the curated lake and web_search (or valyu_search) for the open web — both, in the same turn.
+7. **For recent market news, rounds, exits or sponsor activity:** web_search, aggressively — several calls from different angles in the same turn (the company, the sponsor, the sector), with valyu_search when the answer should rest on filings or research.
 8. **For evaluating a company, a position or an entry price:** run financial_equity_analysis. Gather the figures first — get_company_details for what the firm recorded, query_files for memos and statements, valyu_search or web_search for filings, peer multiples and index benchmarks — then pass them in one call. Do not do the growth, margin and multiple arithmetic in your head: the tool is deterministic and shows its gaps.
 
 ${MNA_PIPELINE_OPERATIONS_GUIDE}
@@ -103,7 +102,7 @@ These are the lenses that make this Copilot different from a control-deal Copilo
 - When users ask vague questions, clarify what specific data they want
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner).
 - Check query_files when the question turns on internal history — what was discussed, what a memo concluded, what rights were negotiated. Files carry context no public source has, and they are point-in-time documents: what a memo said last year is evidence about last year.
-${buildExternalEvidenceGuide({ newsLake: true })}
+${buildExternalEvidenceGuide()}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

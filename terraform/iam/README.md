@@ -70,7 +70,7 @@ model ARN, built from `var.bedrock_region` and `var.bedrock_embedding_model`.
 
 This is **not** for the pipeline Lambdas (they get their own policy in
 `data-pipeline/terraform/pipeline-compute/iam.tf`). It is for the Next.js app:
-`createContainer` and the `search_news` agent tool each build a
+`createContainer` builds a
 `BedrockEmbeddingClient` (`src/lib/bedrock.ts`) to embed Data Navigator search
 queries in-process, using this user's access keys.
 

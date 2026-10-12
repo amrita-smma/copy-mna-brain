@@ -54,7 +54,6 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 23. **valyu_search** - Search Valyu.ai across web + proprietary sources (filings, market data, research) for deeper investment/company research with citations. Prefer over web_search for financial/market diligence and proprietary datasets.
 24. **lookup_user** - Resolve a platform user by name/email fragment (name + email only). Use before send_email when the user names a recipient.
 25. **send_email** - Send ONE email to the signed-in user or named platform users, optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`). To send an HTML file the user uploaded in this chat, pass \`attached_html\` with its \`file_name\` — it is reformatted for email and becomes the email body; never retype the document. Recipients are restricted to registered platform users.
-26. **search_news** - Search the ingested, curated market-news lake (funding rounds, M&A and partnerships, market assessments, expert insights, industry/analyst reports) for recent real-world events about a company, sector, or deal.
 
 ## How to Help Users
 
@@ -85,7 +84,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 ## Adding a New Company (Chat-Initiated)
 
 When asked how to add a company, answer directly in chat with short bullet-point instructions — do NOT call \`navigate_page\`. Offer these: type the name/details right here, attach a screenshot or document, upload a teaser in Smart Files, or fill in the form under Add Company → Manual on the Pipeline page. When the user then names companies, extract what details you have and call \`propose_workforce_handoff\` telling the Workforce to run \`add_company\` with every detail given (segment, geography, what it does, website, ownership, source, financials with fiscal year, notes) at \`stage: "unreviewed"\`, and to pass everything that doesn't fit a column — background, deal situation, why it matters, caveats — as \`add_company\`'s \`context\` argument (never \`market_screening\`) — this is a human-initiated add, not an AI discovery.
-${buildExternalEvidenceGuide({ newsLake: true })}
+${buildExternalEvidenceGuide()}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

@@ -15,6 +15,7 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
 import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
 import { buildOrphanedToolRepairMessages } from "./repairOrphanedToolCalls";
+import { stripCorruptServerToolCalls } from "./repairCorruptServerToolCalls";
 import { withLangfuseCallbacks } from "@/lib/langfuse";
 import { logger } from "../logger";
 // The `mna` flavor module directly, not the `./flavors` barrel: the runtime
@@ -507,6 +508,34 @@ export class AgentGraph {
       { configurable: { thread_id: threadId } },
       { messages: replacements },
     );
+  }
+
+  /**
+   * Strip server_tool_use blocks whose input was blanked by the pre-patch
+   * `@langchain/anthropic` (see repairCorruptServerToolCalls.ts). Threads
+   * checkpointed before the patch replay searches as `input: {}`, which the
+   * model reads as its own malformed calls and imitates — producing real
+   * `invalid_tool_input` errors and "web search is unavailable" caveats.
+   */
+  async repairCorruptServerToolCalls(
+    threadId: string,
+    /** The thread's messages when the caller already read them, to skip a second read. */
+    knownMessages?: BaseMessage[],
+  ): Promise<number> {
+    const messages = knownMessages ?? (await this.getMessages(threadId));
+    const replacements = stripCorruptServerToolCalls(messages);
+    if (replacements.length === 0) return 0;
+    const agent = this.defaultAgent as unknown as {
+      updateState: (
+        config: { configurable: { thread_id: string } },
+        values: { messages: BaseMessage[] },
+      ) => Promise<unknown>;
+    };
+    await agent.updateState(
+      { configurable: { thread_id: threadId } },
+      { messages: replacements },
+    );
+    return replacements.length;
   }
 
   /**

@@ -23,7 +23,7 @@ environment, and the `--base` URL.
 | Bronze archive bucket `mna-<env>-rss-lake` | `terraform/s3-rss` | `terraform apply` (step 4) |
 | `rss-poll` / `rss-enrich` Lambdas, schedules, DLQs, alarms, S3 + Bedrock IAM | `data-pipeline/terraform/pipeline-compute` | `terraform apply` (step 5) |
 | Lambda **code** after the first apply | `data-pipeline/src/lambda/rss*.ts` | `.github/workflows/pipeline-lambda.yml` (step 6) |
-| API routes, service, `/data-navigator` page, `search_news` agent tool | `src/**` | Vercel (step 2) |
+| API routes, service, `/data-navigator` page | `src/**` | Vercel (step 2) |
 | Feed catalog rows (256 distinct feeds) | `data-pipeline/fixtures/rss-feeds.csv` | `pnpm rss:import-feeds` (step 8) |
 
 ---
@@ -246,7 +246,7 @@ succeed, step 5 is a hard prerequisite for this step in each environment.
 **This is a known gap in the branch and it is not optional for search.**
 
 `createContainer` builds `new BedrockEmbeddingClient()` inside the Next.js
-process, so `/api/data-navigator/search` and the `search_news` agent tool embed
+process, so `/api/data-navigator/search` embeds
 the query **from the app**, not from a Lambda. The app's AWS identity is the
 `mna-app` IAM user (`terraform/iam/main.tf`), which currently carries only S3,
 SES, and RDS policies — no Bedrock.
@@ -406,12 +406,10 @@ Verify:
    All-`"text"` `matchedBy` values mean the app cannot reach Bedrock — go back
    to step 7 and check the app logs for
    `[data-navigator] vector search unavailable`.
-3. **Agent tool** — ask the Copilot something like "what's the latest news on
-   semiconductor M&A". `search_news` is on the base tool list, so it reaches
-   the **`mna` chat, AI Workforce, and `combined`** flavors. The
-   **`investment`** and **`vc`** flavors enumerate their own tool lists in
-   `src/lib/agents/analysis/tools/index.ts` and deliberately exclude it — its
-   absence there is not a bug.
+3. **Agent news research** — the `search_news` agent tool has been removed;
+   the Copilot answers recent-news questions with `web_search` on the open
+   web. The lake is reachable only through the Data Navigator page and
+   `/api/data-navigator/search`.
 4. **E2E** — `pnpm test:e2e:staging e2e/data-navigator.spec.ts` (or
    `test:e2e:production`); the spec is written to tolerate data churn.
 5. **Alarms** — confirm `mna-<env>-pipeline-rss-poll-errors` and

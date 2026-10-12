@@ -86,7 +86,7 @@ resource "aws_iam_user_policy_attachment" "mna_files_user_rds_attachment" {
 
 # Bedrock — the app embeds Data Navigator search queries in-process via
 # `BedrockEmbeddingClient` (src/lib/bedrock.ts), constructed in
-# `createContainer` and in the `search_news` agent tool. Without this the
+# `createContainer`. Without this the
 # embed call fails, `DataNavigatorService.vectorHalf` swallows the error and
 # returns [], and hybrid search silently degrades to trigram-only. Scoped to
 # the single embedding model, mirroring the pipeline Lambdas' policy in

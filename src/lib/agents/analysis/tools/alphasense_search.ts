@@ -176,7 +176,7 @@ Use this tool when the question needs institutional-grade, citation-backed evide
 - Sector and competitive dynamics, market sizing, pricing trends, and regulatory developments
 - Diligence background and comparables for a target, holding, or fund investment
 
-Tool selection: prefer alphasense_search when the answer should rest on filings, transcripts, or broker research; prefer valyu_search for broad multi-source/proprietary dataset research; use web_search for quick general web lookups. Use search_news first for recent market news that the internal news lake may already cover.
+Tool selection: prefer alphasense_search when the answer should rest on filings, transcripts, or broker research; prefer valyu_search for broad multi-source/proprietary dataset research; use web_search for quick general web lookups.
 
 Notes:
 - Answers are generated asynchronously and can take up to ~2 minutes; call it once per question rather than retrying.

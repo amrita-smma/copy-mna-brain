@@ -901,36 +901,24 @@ describe('external evidence grounding (chat flavors)', () => {
     expect(prompt).toMatch(/Never report "not found" or "no data" on the strength of internal tools alone/);
   });
 
-  // Only the flavors built on the M&A tool list (plus combined) carry
-  // search_news, so only those prompts may mention the lake.
-  it.each([
-    'mna',
-    'combined',
-    'minority',
-    'investment_banking',
-    'capital_markets',
-  ] as const)(
-    'treats search_news and the open web as complements in the %s flavor',
-    async (flavor) => {
-      const prompt = await promptFor(flavor);
+  // The search_news tool was removed with the news lake's retirement from the
+  // agents: recent-news questions now go to web_search, run from several
+  // angles, in every flavor.
+  it.each(FLAVORS)('never names search_news to the %s flavor', async (flavor) => {
+    const prompt = await promptFor(flavor);
 
-      expect(prompt).toMatch(/complements, not a sequence/);
-      // An empty lake is an ingest gap, never evidence the event did not happen.
-      expect(prompt).toMatch(/means nothing was ingested — never that nothing happened/);
-    },
-  );
+    expect(prompt).not.toMatch(/search_news/);
+    // The rest of the grounding block still applies.
+    expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
+    expect(prompt).toMatch(/valyu_search/);
+  });
 
-  it.each(['investment', 'vc'] as const)(
-    'never names search_news to the %s flavor, which has no such tool',
-    async (flavor) => {
-      const prompt = await promptFor(flavor);
+  it.each(FLAVORS)('tells the %s flavor to run web_search aggressively for news', async (flavor) => {
+    const prompt = await promptFor(flavor);
 
-      expect(prompt).not.toMatch(/search_news/);
-      // The rest of the grounding block still applies.
-      expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
-      expect(prompt).toMatch(/valyu_search/);
-    },
-  );
+    expect(prompt).toMatch(/News lives on the open web/);
+    expect(prompt).toMatch(/run \`web_search\` aggressively/);
+  });
 
   it.each(FLAVORS)('drops the old fallback-only framing from the %s flavor', async (flavor) => {
     const prompt = await promptFor(flavor);
@@ -1080,11 +1068,11 @@ describe('workforce prompt evidence rules', () => {
     expect(prompt).toMatch(/call `ask_owner` with your recommended answer instead of guessing/);
   });
 
-  it('treats the news lake and the web as one turn, not a precedence chain', async () => {
+  it('sends recent-news work to web_search, with no lake tool to defer to', async () => {
     const prompt = await workforcePrompt();
 
-    expect(prompt).toMatch(/complements, not a sequence/);
-    expect(prompt).not.toMatch(/call this FIRST, before web_search/);
+    expect(prompt).not.toMatch(/search_news/);
+    expect(prompt).toMatch(/Use it aggressively — several calls per turn, from different angles/);
   });
 });
 
