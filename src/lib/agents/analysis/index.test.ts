@@ -111,6 +111,7 @@ import {
   createLocalAgent,
   extractMessageText,
   extractFirstTurn,
+  extractLastTurn,
   getStatelessAgentGraph,
   getAgentGraph,
   AgentGraph,
@@ -1295,6 +1296,48 @@ describe('extractMessageText', () => {
   it('returns empty string for undefined or empty content', () => {
     expect(extractMessageText(undefined)).toBe('');
     expect(extractMessageText(msg([]))).toBe('');
+  });
+});
+
+describe('extractLastTurn', () => {
+  it('returns the most recent human message and the reply to it', () => {
+    const messages = [
+      typed('human', 'first question'),
+      typed('ai', 'first answer'),
+      typed('human', 'second question'),
+      typed('ai', 'second answer'),
+    ];
+    expect(extractLastTurn(messages)).toEqual({
+      userText: 'second question',
+      assistantText: 'second answer',
+    });
+  });
+
+  it('concatenates every assistant message in the last turn, skipping tool results', () => {
+    const messages = [
+      typed('human', 'old'),
+      typed('ai', 'old answer'),
+      typed('human', 'q'),
+      typed('ai', 'Let me check.'),
+      typed('tool', 'result'),
+      typed('ai', 'The answer is X.'),
+    ];
+    expect(extractLastTurn(messages).assistantText).toBe('Let me check.\n\nThe answer is X.');
+  });
+
+  it('returns an empty assistantText when the last turn has not been answered yet', () => {
+    expect(extractLastTurn([typed('human', 'q'), typed('ai', 'a'), typed('human', 'pending')])).toEqual({
+      userText: 'pending',
+      assistantText: '',
+    });
+  });
+
+  it('returns both fields empty when there is no human message at all', () => {
+    expect(extractLastTurn([typed('ai', 'orphan')])).toEqual({
+      userText: '',
+      assistantText: '',
+    });
+    expect(extractLastTurn([])).toEqual({ userText: '', assistantText: '' });
   });
 });
 

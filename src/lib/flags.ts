@@ -1,4 +1,5 @@
 import { flag } from "flags/next";
+import { memoryDeploymentEnabled } from "./memory/switch";
 import { vercelAdapter } from "@flags-sdk/vercel";
 import { featureEnvDefault } from "./features/catalog";
 import { resolveFeatureOverride } from "./features/overrides";
@@ -48,3 +49,25 @@ export const fundVehicleViewEnabled = booleanFlag("FUND_VEHICLE_VIEW_ENABLED");
 export const corporateActionsEnabled = booleanFlag("CORPORATE_ACTIONS_ENABLED");
 
 export const insightsEnabled = booleanFlag("INSIGHTS_ENABLED");
+
+/**
+ * The CoPilot's long-term memory (mem0) — a deployment-wide kill-switch, ON by
+ * default.
+ *
+ * Deliberately NOT a `booleanFlag`, and deliberately absent from
+ * `FEATURE_CATALOG`: memory is a per-user setting
+ * (`users.copilot_memory_enabled`, owned from Profile → Memory), not a
+ * per-workspace one, so there must be no admin-portal toggle that turns it off
+ * for one workspace's members.
+ *
+ * The implementation lives in `@/lib/memory/switch` — a module with no imports
+ * — so `UserMemoryService` can enforce it without pulling `flags/next` into the
+ * service layer, and so this file stays cheap to import. This is the
+ * route-facing alias, async to match every other flag's call shape.
+ *
+ * Set `COPILOT_MEMORY_ENABLED=false` to switch memory off for the whole
+ * deployment regardless of anyone's preference.
+ */
+export async function copilotMemoryEnabled(): Promise<boolean> {
+  return memoryDeploymentEnabled();
+}

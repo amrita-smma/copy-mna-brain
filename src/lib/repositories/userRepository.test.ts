@@ -241,3 +241,51 @@ describe('UserRepository.update / deactivate / reactivate', () => {
     );
   });
 });
+
+/**
+ * A `db` double for the two preference methods: `select…from…where…limit` and
+ * `update…set…where…returning` both resolve to `rows`.
+ */
+function makePreferenceDb(rows: unknown[]) {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  Object.assign(chain, {
+    from: vi.fn(self),
+    set: vi.fn(self),
+    where: vi.fn(self),
+    limit: vi.fn(() => Promise.resolve(rows)),
+    returning: vi.fn(() => Promise.resolve(rows)),
+  });
+  return { select: vi.fn(self), update: vi.fn(self) };
+}
+
+describe('UserRepository.findCopilotMemoryEnabled', () => {
+  it('reads the stored preference', async () => {
+    const repo = new UserRepository(makePreferenceDb([{ enabled: false }]) as never);
+
+    expect(await repo.findCopilotMemoryEnabled('u1')).toBe(false);
+  });
+
+  it('fails OPEN for an unknown id', async () => {
+    // Read on the chat path: a missing row means something is already wrong,
+    // and silently disabling memory for everyone is harder to notice than the
+    // opposite. See the method's doc comment.
+    const repo = new UserRepository(makePreferenceDb([]) as never);
+
+    expect(await repo.findCopilotMemoryEnabled('nobody')).toBe(true);
+  });
+});
+
+describe('UserRepository.setCopilotMemoryEnabled', () => {
+  it('returns the value the database stored, not the one passed in', async () => {
+    const repo = new UserRepository(makePreferenceDb([{ enabled: true }]) as never);
+
+    expect(await repo.setCopilotMemoryEnabled('u1', true)).toBe(true);
+  });
+
+  it('falls back to the requested value when the update matched no row', async () => {
+    const repo = new UserRepository(makePreferenceDb([]) as never);
+
+    expect(await repo.setCopilotMemoryEnabled('nobody', false)).toBe(false);
+  });
+});

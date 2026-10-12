@@ -79,6 +79,9 @@ export async function GET(req: NextRequest) {
 - Services receive repositories by constructor injection and never call
   `createDb()` themselves.
 - Repositories are workspace-scoped classes. Business rules do not live there.
+  The one exception is `UserMemoryRepository`, which is scoped to the *user*:
+  CoPilot memory follows a person across workspaces by design, so adding a
+  workspace filter there silently breaks recall (`docs/features/copilot-memory.md`).
 - Slow I/O goes through `JobDispatcher`, not inline in the request.
 
 Full rules: `.claude/rules/api-routes.md`, `services.md`, `repositories.md`.

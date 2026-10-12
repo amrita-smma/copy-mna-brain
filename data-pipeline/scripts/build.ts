@@ -61,7 +61,19 @@ async function main() {
       // try/catch and falls back to a no-op `canvas-shim.cjs` stub when the
       // module is absent — which it deliberately is here, since rssEnrich only
       // strips/parses HTML text and never renders to a real <canvas>.
+      //
+      // `mem0ai` is the CoPilot's memory library (src/lib/memory). No Lambda
+      // calls it, but esbuild still follows the dynamic `import('mem0ai/oss')`
+      // in `memory/client.ts`, which every entrypoint reaches by accident:
+      // `@/lib/repositories` → flFundRepository → features/overrides →
+      // workspace → session → auth → services/container → userMemoryService.
+      // Bundling it fails, because mem0 lazy-imports ~40 optional vector-store
+      // and LLM SDKs (oracledb, ollama, groq-sdk, cohere-ai, ...) that we do
+      // not install. Keeping it external leaves the import unresolved in a
+      // branch no Lambda executes — the same treatment `canvas` gets above, and
+      // the counterpart of `serverExternalPackages: ['mem0ai']` in next.config.ts.
       external: [
+        'mem0ai',
         '@aws-sdk/client-s3',
         '@aws-sdk/client-ssm',
         '@aws-sdk/client-sns',

@@ -593,6 +593,23 @@ export const users = pgTable(
     // every foreign key referencing it are kept — a superadmin can
     // reactivate the account at any time via the admin portal.
     deactivated_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Whether the CoPilot may remember this user across conversations
+    // (src/lib/memory/). Owned by the user from Profile → Memory — not an
+    // admin toggle, and not per-workspace. On by default; the deployment-wide
+    // COPILOT_MEMORY_ENABLED kill-switch sits above it.
+    copilot_memory_enabled: boolean().default(true).notNull(),
+    // Profile → Your Profile. `name` and `email` above are the ones the rest
+    // of the app reads; these are edited on that form and nowhere else.
+    nickname: text(),
+    phone_code: text(),
+    phone: text(),
+    job_title: text(),
+    /**
+     * The user's own words on what they want out of the product. Shown back to
+     * them on the profile form; deliberately NOT fed to the CoPilot as an
+     * instruction — memory is that channel.
+     */
+    how_brain_helps: text(),
   },
   (table) => {
     return {
@@ -4508,6 +4525,56 @@ export const pipelineStages = pgTable(
       idxPipelineStagesWorkspacePosition: index(
         "idx_pipeline_stages_workspace_position",
       ).on(table.workspace_id, table.position),
+    };
+  },
+);
+
+/**
+ * The CoPilot's long-term memory (mem0), stored in our own Postgres with
+ * pgvector instead of a mem0-provisioned database — see
+ * `drizzle/migrations/*_user_memories.sql` and `src/lib/memory/`.
+ *
+ * Scoped to the USER. What the CoPilot learns about someone is about the
+ * person, so it follows them into every workspace they belong to.
+ * `workspace_id` is provenance only — where the memory was formed — and is
+ * never part of a read or delete predicate, which is why it is nullable and
+ * `SET NULL` rather than `CASCADE`.
+ *
+ * `payload` is mem0's own record; `memory` and `user_id` are denormalized out
+ * of it so the Profile listing and the scoping filter hit an index.
+ *
+ * `collection` separates mem0's `memories` store from its internal
+ * `memories_entities` link index; the UI only ever lists `memories`.
+ */
+export const userMemories = pgTable(
+  "user_memories",
+  {
+    id: uuid().primaryKey().notNull(),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Provenance only — never filtered on. */
+    workspace_id: uuid().references(() => workspaces.id, { onDelete: "set null" }),
+    collection: text().default("memories").notNull(),
+    memory: text().notNull(),
+    // Titan Embed Text v2, the same model `rss.item_chunks` uses.
+    embedding: vector({ dimensions: 1024 }).notNull(),
+    payload: jsonb().default({}).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxUserMemoriesScope: index("idx_user_memories_scope").using(
+        "btree",
+        table.user_id.asc().nullsLast().op("uuid_ops"),
+        table.collection.asc().nullsLast().op("text_ops"),
+        table.created_at.desc().nullsLast().op("timestamptz_ops"),
+      ),
     };
   },
 );

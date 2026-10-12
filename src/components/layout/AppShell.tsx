@@ -87,6 +87,17 @@ import {
  *    the copilot docked to the right. Expanding the copilot keeps the URL, so
  *    collapsing returns to the same page.
  */
+/**
+ * Pages that sit on the flat SQE Suite page colour rather than the gradient and
+ * earth photo, in both themes. Pipeline and Sourcing because they are dense
+ * tables (MB-648); Profile because it is a settings surface, where the branded
+ * backdrop competes with the forms and cards stacked on top of it.
+ *
+ * Matched exactly, so deal and company detail pages under `/pipeline` keep the
+ * gradient.
+ */
+const PLAIN_BACKGROUND_PATHS = ['/pipeline', '/sourcing', '/profile'];
+
 export function AppShell({
   children,
   initialUser,
@@ -107,11 +118,9 @@ export function AppShell({
   // deeplinks both point at it.
   const isLandingRoute = logicalPath === '/' || logicalPath.startsWith('/chat');
   const activeTab = findTabByPath(logicalPath);
-  // The Pipeline and Sourcing lists are dense tables, so they sit on the flat
-  // SQE Suite page colour instead of the gradient and earth photo, in both
-  // themes (MB-648). Exact match: deal and company detail pages keep it.
-  const backgroundVariant =
-    logicalPath === '/pipeline' || logicalPath === '/sourcing' ? 'plain' : 'default';
+  const backgroundVariant = PLAIN_BACKGROUND_PATHS.includes(logicalPath)
+    ? 'plain'
+    : 'default';
 
   // Chat history is the whole point of the sidebar now, so it starts open. New
   // key rather than reusing `layout:sidebar-open`, whose stored `false` was a

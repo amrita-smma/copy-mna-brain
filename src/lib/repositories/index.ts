@@ -73,3 +73,4 @@ export * from './insightRunDraftRepository';
 export * from './insightTemplateRepository';
 export * from './agentCheckpointRepository';
 
+export * from './userMemoryRepository';

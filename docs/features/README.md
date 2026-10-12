@@ -34,6 +34,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Sector agents (`@minerba`, `@dikti`, `@bangun`)](sector-agents.md) — 882B
 - [In-app Copilot chat caching](copilot-chat-caching.md) — 2KB
 - [In-app Copilot chat attachments](copilot-chat-attachments.md) — 6KB
+- [CoPilot memory (mem0, pgvector)](copilot-memory.md) — 20KB
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB
 - [Async jobs](async-jobs.md) — 38KB
 

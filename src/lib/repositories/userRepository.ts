@@ -11,6 +11,17 @@ export type AdminUserListItem = Pick<
   'id' | 'name' | 'email' | 'role' | 'is_superadmin' | 'deactivated_at' | 'created_at'
 >;
 
+/** The shape Profile → Your Profile reads and writes. */
+export type UserProfileRow = Pick<
+  Tables<'users'>,
+  'id' | 'name' | 'email' | 'nickname' | 'phone_code' | 'phone' | 'job_title' | 'how_brain_helps'
+>;
+
+/** Editable subset. `email` is absent on purpose — see `updateProfile`. */
+export type UserProfileUpdate = Partial<
+  Pick<Tables<'users'>, 'name' | 'nickname' | 'phone_code' | 'phone' | 'job_title' | 'how_brain_helps'>
+>;
+
 export class UserRepository {
   constructor(private readonly db: DbClient) {}
 
@@ -151,5 +162,77 @@ export class UserRepository {
       .where(eq(users.id, id))
       .returning();
     return row;
+  }
+
+  /**
+   * Whether the CoPilot may remember this user (`users.copilot_memory_enabled`).
+   *
+   * Defaults to `true` for an unknown id rather than `false`: this is read on
+   * the chat path, and a missing row there means something is already wrong —
+   * failing closed would silently disable memory for everyone if the lookup
+   * ever broke, which is harder to notice than the opposite.
+   */
+  async findCopilotMemoryEnabled(id: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ enabled: users.copilot_memory_enabled })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    return row?.enabled ?? true;
+  }
+
+  /** Set the user's CoPilot memory preference. Returns the stored value. */
+  async setCopilotMemoryEnabled(id: string, enabled: boolean): Promise<boolean> {
+    const [row] = await this.db
+      .update(users)
+      .set({ copilot_memory_enabled: enabled, updated_at: sql`now()` })
+      .where(eq(users.id, id))
+      .returning({ enabled: users.copilot_memory_enabled });
+    return row?.enabled ?? enabled;
+  }
+
+  /**
+   * The fields Profile → Your Profile shows. `email` is read-only on that form
+   * (it is the sign-in identity), so it is returned but never written here.
+   */
+  async findProfile(id: string): Promise<UserProfileRow | null> {
+    const [row] = await this.db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        nickname: users.nickname,
+        phone_code: users.phone_code,
+        phone: users.phone,
+        job_title: users.job_title,
+        how_brain_helps: users.how_brain_helps,
+      })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Write the editable profile fields. `email` is deliberately absent from the
+   * input type: changing a sign-in identity is an admin operation
+   * (`/api/users/:id`), not something this self-service form may do.
+   */
+  async updateProfile(id: string, updates: UserProfileUpdate): Promise<UserProfileRow | null> {
+    const [row] = await this.db
+      .update(users)
+      .set({ ...updates, updated_at: sql`now()` })
+      .where(eq(users.id, id))
+      .returning({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        nickname: users.nickname,
+        phone_code: users.phone_code,
+        phone: users.phone,
+        job_title: users.job_title,
+        how_brain_helps: users.how_brain_helps,
+      });
+    return row ?? null;
   }
 }

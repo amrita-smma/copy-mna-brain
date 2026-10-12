@@ -69,6 +69,7 @@ import {
   InsightRunDraftRepository,
   InsightTemplateRepository,
   AgentCheckpointRepository,
+  UserMemoryRepository,
 } from '@/lib/repositories';
 import { JobDispatcher } from './jobDispatcher';
 import { CompanyService } from './companyService';
@@ -133,6 +134,8 @@ import { BedrockEmbeddingClient } from '@/lib/bedrock';
 import { ConsentService } from './consentService';
 import { InsightService } from './insightService';
 import { ProfileService } from './profileService';
+import { UserMemoryService } from './userMemoryService';
+import { UserProfileService } from './userProfileService';
 import { InterventionRecipientService } from './interventionRecipientService';
 import { InsightTemplateService } from './insightTemplateService';
 import { RoutineService } from './routineService';
@@ -198,6 +201,14 @@ export interface Container {
   flPortfolioService: FlPortfolioService;
   insightService: InsightService;
   profileService: ProfileService;
+  /**
+   * The CoPilot's long-term memory. A factory, not an instance: every memory
+   * is scoped to one user as well as to the workspace, and the container is
+   * built before a route knows who is signed in. Call it with the session
+   * user's id and nothing else can reach their memories.
+   */
+  userMemoryService: (userId: string) => UserMemoryService;
+  userProfileService: UserProfileService;
   interventionRecipientService: InterventionRecipientService;
   insightTemplateService: InsightTemplateService;
   routineService: RoutineService;
@@ -578,6 +589,15 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceId,
   );
 
+  // The one repository here that is NOT workspace-scoped: a memory belongs to
+  // a person and follows them across workspaces. The workspace is passed only
+  // so a new memory records where it was formed.
+  const userMemoryRepo = new UserMemoryRepository(db, workspaceId);
+  const userMemoryService = (userId: string) =>
+    new UserMemoryService(userMemoryRepo, userRepo, userId);
+
+  const userProfileService = new UserProfileService(userRepo);
+
   const routineService = new RoutineService(
     routinesRepo,
     insightRepo,
@@ -652,6 +672,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flPortfolioService,
     insightService,
     profileService,
+    userMemoryService,
+    userProfileService,
     interventionRecipientService,
     insightTemplateService,
     routineService,

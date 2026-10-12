@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 
 const {
   authMock,
@@ -13,6 +13,12 @@ const {
   getCopilotAgentMock,
   buildContextMock,
   chatCacheEnabledMock,
+  copilotMemoryEnabledMock,
+  extractLastTurnMock,
+  recallForTurnMock,
+  rememberTurnMock,
+  userMemoryServiceMock,
+  withBackgroundDbMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   createContainerMock: vi.fn(),
@@ -25,6 +31,14 @@ const {
   getCopilotAgentMock: vi.fn(),
   buildContextMock: vi.fn(),
   chatCacheEnabledMock: vi.fn(),
+  copilotMemoryEnabledMock: vi.fn(),
+  extractLastTurnMock: vi.fn(),
+  recallForTurnMock: vi.fn(),
+  rememberTurnMock: vi.fn(),
+  userMemoryServiceMock: vi.fn(),
+  // Runs the callback against the same container double the request used, so a
+  // background write can be asserted the way a foreground one is.
+  withBackgroundDbMock: vi.fn(async (fn: (db: unknown) => Promise<unknown>) => fn({})),
 }));
 
 vi.mock('next/server', async (importOriginal) => ({
@@ -32,7 +46,10 @@ vi.mock('next/server', async (importOriginal) => ({
   after: vi.fn(),
 }));
 vi.mock('@/auth', () => ({ auth: authMock }));
-vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})), withBackgroundDb: vi.fn() }));
+vi.mock('@/lib/server/db', () => ({
+  createDb: vi.fn(() => ({})),
+  withBackgroundDb: withBackgroundDbMock,
+}));
 vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceId: vi.fn(async () => 'ws-1'),
   workspaceSlugFromClaims: vi.fn(() => 'ws-slug'),
@@ -49,6 +66,7 @@ vi.mock('@/lib/agents/analysis', () => ({
     }
   },
   extractFirstTurn: vi.fn(() => ({ userText: '', assistantText: '' })),
+  extractLastTurn: extractLastTurnMock,
   asEffortChoice: (v: unknown) => (typeof v === 'string' ? v : null),
   asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
   EFFORT_TIERS: { low: { turnBudgetMs: 30_000 }, medium: { turnBudgetMs: 60_000 } },
@@ -56,6 +74,7 @@ vi.mock('@/lib/agents/analysis', () => ({
 vi.mock('@ai-sdk/langchain', () => ({ toBaseMessages: vi.fn(async () => []) }));
 vi.mock('@/lib/flags', () => ({
   chatCacheEnabled: chatCacheEnabledMock,
+  copilotMemoryEnabled: copilotMemoryEnabledMock,
   sourceOfFundsEnabled: vi.fn(async () => true),
 }));
 vi.mock('@/lib/langfuse', () => ({ flushLangfuse: vi.fn() }));
@@ -139,6 +158,15 @@ describe('POST /api/chat', () => {
     getCopilotAgentMock.mockReset().mockResolvedValue('investment');
     buildContextMock.mockReset().mockResolvedValue('WORKSPACE CONTEXT');
     chatCacheEnabledMock.mockReset().mockResolvedValue(false);
+    copilotMemoryEnabledMock.mockReset().mockResolvedValue(false);
+    recallForTurnMock.mockReset().mockResolvedValue(null);
+    rememberTurnMock.mockReset().mockResolvedValue(0);
+    extractLastTurnMock.mockReset().mockReturnValue({ userText: '', assistantText: '' });
+    userMemoryServiceMock
+      .mockReset()
+      .mockReturnValue({ recallForTurn: recallForTurnMock, rememberTurn: rememberTurnMock });
+    withBackgroundDbMock.mockClear();
+    vi.mocked(after).mockClear();
     invokeMock.mockReset().mockResolvedValue({ messages: [] });
     resolveChatAgentGraphMock.mockReset();
     getChatContextMock.mockReset().mockResolvedValue(null);
@@ -160,6 +188,7 @@ describe('POST /api/chat', () => {
       insightTemplateService: { prepareForMessage: templatePrepareMock },
       insightService,
       workspaceService: { getCopilotAgent: getCopilotAgentMock },
+      userMemoryService: userMemoryServiceMock,
     });
   });
 
@@ -556,6 +585,123 @@ describe('POST /api/chat', () => {
       expect(invokeMock.mock.calls[0][1].configurable.originalUserQuestion).toBe(
         'How is this developer doing?',
       );
+    });
+  });
+
+  describe('the CoPilot\u2019s memory (mem0)', () => {
+    /** Run every callback the route handed to `after()`. */
+    const runAfterCallbacks = async () => {
+      for (const [fn] of vi.mocked(after).mock.calls) {
+        await (fn as () => unknown)();
+      }
+    };
+
+    it('does nothing at all when the memory flag is off', async () => {
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await runAfterCallbacks();
+
+      expect(recallForTurnMock).not.toHaveBeenCalled();
+      expect(rememberTurnMock).not.toHaveBeenCalled();
+      expect(systemContext()).toBe('WORKSPACE CONTEXT');
+    });
+
+    it('recalls on this turn\u2019s text and puts the memories right after the workspace context', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      recallForTurnMock.mockResolvedValue('## What you remember about this user\n\n- Covers coal');
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+
+      expect(userMemoryServiceMock).toHaveBeenCalledWith('u1');
+      expect(recallForTurnMock).toHaveBeenCalledWith('How is this developer doing?');
+      expect(systemContext()).toBe(
+        'WORKSPACE CONTEXT\n\n## What you remember about this user\n\n- Covers coal',
+      );
+    });
+
+    it('places the memories before the open insight\u2019s outline', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      recallForTurnMock.mockResolvedValue('MEMORY BLOCK');
+      getChatContextMock.mockResolvedValue({
+        insightId: INSIGHT_ID,
+        name: 'Java universities',
+        versionNo: 1,
+        publishedAt: '2026-09-24T00:00:00Z',
+        outline: 'outline',
+        truncated: false,
+      });
+      resolve({ agentKey: 'bangun' });
+
+      await POST(
+        chatRequest({
+          chat_id: CHAT_ID,
+          page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
+        }),
+      );
+
+      expect(systemContext()).toMatch(
+        /^WORKSPACE CONTEXT\n\nMEMORY BLOCK\n\n## The insight open on screen\n/,
+      );
+    });
+
+    it('runs the turn without memory when recall fails', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      recallForTurnMock.mockRejectedValue(new Error('bedrock down'));
+      resolve();
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+
+      expect(res.status).toBe(200);
+      expect(systemContext()).toBe('WORKSPACE CONTEXT');
+      spy.mockRestore();
+    });
+
+    it('records the finished turn after the response, from the persisted messages', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: 'the answer' });
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+      expect(rememberTurnMock).not.toHaveBeenCalled();
+
+      await runAfterCallbacks();
+
+      expect(getMessagesMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(withBackgroundDbMock).toHaveBeenCalled();
+      expect(rememberTurnMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        chatId: CHAT_ID,
+        userText: 'q',
+        assistantText: 'the answer',
+      });
+    });
+
+    it('records nothing when the turn persisted no answer', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: '   ' });
+      resolve();
+
+      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await runAfterCallbacks();
+
+      expect(rememberTurnMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fail the turn when the write-back throws', async () => {
+      copilotMemoryEnabledMock.mockResolvedValue(true);
+      extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: 'a' });
+      rememberTurnMock.mockRejectedValue(new Error('anthropic 529'));
+      resolve();
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+      await expect(runAfterCallbacks()).resolves.not.toThrow();
+
+      expect(res.status).toBe(200);
+      spy.mockRestore();
     });
   });
 });

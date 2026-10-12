@@ -74,7 +74,14 @@ const nextConfig: NextConfig = {
   // `@react-pdf/renderer` pulls in fontkit and a base64-inlined yoga-layout
   // wasm module. Bundling those through Turbopack breaks the wasm init, so the
   // package is loaded from node_modules at runtime instead.
-  serverExternalPackages: ["@resvg/resvg-js", "@react-pdf/renderer"],
+  //
+  // `mem0ai` is server-only and reaches ~40 optional vector-store / LLM / graph
+  // SDKs through dynamic `import()`s guarded by `loadPeer`. Bundling it makes
+  // the compiler try to resolve every one of those at build time and fail on
+  // the ~39 we do not install (zeroentropy, oracledb, weaviate-client, ...).
+  // Kept external so those imports stay runtime-lazy, which is what mem0 already
+  // assumes. See src/lib/memory/.
+  serverExternalPackages: ["@resvg/resvg-js", "@react-pdf/renderer", "mem0ai"],
   // The research-summary PDF reads Inter and Source Serif 4 out of
   // `public/fonts` with a plain `fs.readFileSync`, which the tracer cannot
   // see. Next happens to trace all

@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import {
   AIMessage,
   extractFirstTurn,
+  extractLastTurn,
   asEffortChoice,
   asManualEffort,
   EFFORT_TIERS,
@@ -23,7 +24,7 @@ import {
   ChatAttachmentForbiddenError,
   type ChatAttachmentRef,
 } from '@/lib/services/chatAttachmentService';
-import { chatCacheEnabled, sourceOfFundsEnabled } from '@/lib/flags';
+import { chatCacheEnabled, copilotMemoryEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { flushLangfuse } from '@/lib/langfuse';
 import { generateChatTitle } from '@/lib/chat/title';
 import { sanitizePageContext } from '@/lib/chat/pageContext';
@@ -128,6 +129,7 @@ export async function POST(req: NextRequest) {
       insightTemplateService,
       insightService,
       workspaceService,
+      userMemoryService,
     } = createContainer(db, workspaceId);
 
     // Composer attachments the client is carrying for this turn. Each is an S3
@@ -236,6 +238,27 @@ export async function POST(req: NextRequest) {
     // never see the content blocks: effort routing and the question recorded
     // against research tool calls.
     const turnText = withInsightSelection(firstUserText, insightSelection);
+
+    // What the CoPilot remembers about this user (mem0, see src/lib/memory).
+    // Two switches: the deployment kill-switch, and the user's own
+    // `copilot_memory_enabled`. The service reads the second itself (and
+    // memoizes it), so the recall below is safe even before `memoryEnabled`
+    // resolves — it is awaited only to decide whether to schedule the
+    // write-back.
+    //
+    // Started here so the recall — an embedding plus one indexed query —
+    // overlaps the attachment upload and the flag/workspace reads below rather
+    // than adding its latency on top of them. Best-effort by construction:
+    // `recallForTurn` resolves to null on any failure or past its deadline,
+    // and the turn runs without memory.
+    const memory = userMemoryService(userId);
+    const memoryAllowed = await copilotMemoryEnabled();
+    const memoryContextPromise: Promise<string | null> = memoryAllowed
+      ? memory.recallForTurn(turnText).catch((err: unknown) => {
+          console.error('[chat] memory recall failed:', err);
+          return null;
+        })
+      : Promise.resolve(null);
 
     // Auto tiering. Kicked off HERE and awaited just before the graph is built,
     // so the routing call overlaps the attachment upload and the workspace/flag
@@ -378,6 +401,7 @@ export async function POST(req: NextRequest) {
       { workspaceId, copilotChatsService, insightService },
     );
     const insightContext = await insightContextPromise;
+    const memoryContext = await memoryContextPromise;
     if (!agent) {
       return NextResponse.json(
         {
@@ -449,9 +473,13 @@ export async function POST(req: NextRequest) {
     // every turn and never written into the thread's messages, so the outline
     // always describes the insight open now, not the one open when the thread
     // started.
+    // `memoryContext` sits after the workspace context and before anything
+    // about the page: it is background on the person asking, not on the thing
+    // being asked about.
     const additionalSystemContext =
       [
         contextData,
+        memoryContext,
         agentNotice,
         insightContext,
         timeoutFollowUpContext(previousTimeout),
@@ -510,6 +538,37 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           console.error('[chat] failed to record cache entry:', err);
+        }
+      });
+    }
+
+    // Record what this turn established, AFTER the response has streamed —
+    // mem0's extraction is an LLM call plus embeddings, which has no business
+    // on the user's critical path. Reads the persisted turn rather than the
+    // request body so it sees the answer that was actually given (including a
+    // budget wrap-up), and never runs for an aborted turn that persisted
+    // nothing. Gated on the same flag as recall, so memory is all-or-nothing.
+    //
+    // Deliberately NOT a job row: it is a one-shot, best-effort side effect
+    // with nothing to retry and no status anyone waits on. A failure is logged
+    // and the turn stands.
+    if (memoryAllowed) {
+      after(async () => {
+        try {
+          const finalMessages = await agent.getMessages(chat.id);
+          const { userText, assistantText } = extractLastTurn(finalMessages);
+          if (!assistantText.trim()) return;
+          await withBackgroundDb(async (bgDb) => {
+            const { userMemoryService: bgMemoryService } = createContainer(bgDb, workspaceId);
+            await bgMemoryService(userId).rememberTurn({
+              userId,
+              chatId: chat.id,
+              userText,
+              assistantText,
+            });
+          });
+        } catch (err) {
+          console.error('[chat] failed to record the turn to memory:', err);
         }
       });
     }

@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import {
+  Brain,
   Building2,
   ChevronDown,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
   LogOut,
   ShieldCheck,
   Sparkles,
+  UserRound,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -47,6 +49,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import MemoryTab from '@/components/profile/MemoryTab';
+import ProfileDetailsTab from '@/components/profile/ProfileDetailsTab';
 
 /** Cards per section. The page is a jumping-off point, not a full list view. */
 const SECTION_LIMIT = 8;
@@ -56,6 +61,31 @@ const ROLE_LABELS: Record<ProfileCompanyRole, string> = {
   sponsor: 'Deal Sponsor',
   assignee: 'Assignee',
 };
+
+/**
+ * Tab values in the order they appear, mirrored in the `?tab=` query param so a
+ * refresh restores one. The first is what the page opens on.
+ */
+const PROFILE_TAB_VALUES = ['you', 'items', 'memory'] as const;
+export type ProfileTab = (typeof PROFILE_TAB_VALUES)[number];
+const DEFAULT_PROFILE_TAB: ProfileTab = 'you';
+
+/**
+ * Which tab a `?tab=` value selects.
+ *
+ * Falls back to the first tab for anything unrecognised, and for `memory` when
+ * the Memory tab is not available — a bookmark kept from before memory was
+ * switched off, or a link shared with someone whose deployment never had it,
+ * should land on a tab that exists rather than on an empty strip.
+ */
+export function resolveProfileTab(
+  value: string | null | undefined,
+  showMemoryTab: boolean,
+): ProfileTab {
+  if (value === 'memory') return showMemoryTab ? 'memory' : DEFAULT_PROFILE_TAB;
+  if (value === 'you') return 'you';
+  return value === 'items' ? 'items' : DEFAULT_PROFILE_TAB;
+}
 
 /**
  * Possessive form of a display name — "Nico's", but "Chris'" for a name that
@@ -106,13 +136,39 @@ function relativeTime(value: string | null): string | null {
  * not one per card. Do not add a per-row fetch to these cards; batch it into
  * that endpoint instead.
  */
-export default function Profile() {
+export interface ProfileProps {
+  /**
+   * `COPILOT_MEMORY_ENABLED`, resolved server-side in the page file. With it
+   * off there is nothing to show under Memory, so the tab strip is not
+   * rendered at all and the page looks exactly as it did before.
+   */
+  showMemoryTab?: boolean;
+}
+
+export default function Profile({ showMemoryTab = false }: ProfileProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const { user, loading: authLoading, signOut } = useAuth();
   const [data, setData] = useState<ProfileItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // The open tab lives in the URL (`?tab=`) so a refresh — or a shared link —
+  // reopens the one you were on. Local state mirrors it so the switch renders
+  // immediately instead of waiting on the navigation, matching the `?tab=`
+  // handling in CompanyDetail.
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() =>
+    resolveProfileTab(tabParam, showMemoryTab),
+  );
+
+  // Back/forward, an external link, or the flag resolving late changes the
+  // param rather than the state.
+  useEffect(() => {
+    setActiveTab(resolveProfileTab(tabParam, showMemoryTab));
+  }, [tabParam, showMemoryTab]);
 
   const profileHref = useWorkspaceHref('/profile');
   const pipelineHref = useWorkspaceHref('/pipeline');
@@ -138,6 +194,19 @@ export default function Profile() {
       cancelled = true;
     };
   }, []);
+
+  // `push`, not `replace`: a tab switch is a place you can go Back from, which
+  // is the choice CompanyDetail's `?tab=` and Pipeline's `?stage=` already make.
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const next = resolveProfileTab(value, showMemoryTab);
+      setActiveTab(next);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', next);
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams, showMemoryTab],
+  );
 
   const handleLogout = useCallback(async () => {
     try {
@@ -174,6 +243,72 @@ export default function Profile() {
 
   const displayName = user?.name?.trim() || user?.email?.trim() || '';
 
+  // Rendered under the Items tab, or on its own when the Memory tab is off.
+  // Hoisted so both branches below share one definition rather than a copy.
+  const itemsSection = (
+    <>
+      {loading ? (
+        <ProfileSkeleton />
+      ) : error ? (
+        <div className="rounded-xl border bg-card p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            Could not load your items.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-6">
+          <SectionGroup
+            title="Needs your attention"
+            icon={ShieldCheck}
+            count={data?.actionItems.total ?? 0}
+            shown={data?.actionItems.items.length ?? 0}
+            emptyLabel="Nothing is waiting on you right now."
+          >
+            {(data?.actionItems.items ?? []).map((item) => (
+              <ActionItemCard
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                onOpen={() => openActionItem(item)}
+              />
+            ))}
+          </SectionGroup>
+
+          <SectionGroup
+            title="Your companies"
+            icon={Building2}
+            count={data?.companies.total ?? 0}
+            shown={data?.companies.items.length ?? 0}
+            emptyLabel="No deals are assigned to you yet."
+          >
+            {(data?.companies.items ?? []).map((company) => (
+              <CompanyCard
+                key={company.id}
+                company={company}
+                onOpen={() => openCompany(company.id)}
+              />
+            ))}
+          </SectionGroup>
+
+          <SectionGroup
+            title="Your insights"
+            icon={FileText}
+            count={data?.insights.total ?? 0}
+            shown={data?.insights.items.length ?? 0}
+            emptyLabel="You haven't created an insight yet."
+          >
+            {(data?.insights.items ?? []).map((insight) => (
+              <InsightCard
+                key={insight.id}
+                insight={insight}
+                onOpen={() => router.push(`${insightHref}/${insight.id}`)}
+              />
+            ))}
+          </SectionGroup>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="flex min-h-full flex-col gap-6 px-4 pb-10 pt-6">
       <ProfileHeader
@@ -183,74 +318,47 @@ export default function Profile() {
         showWorkspaceSelector={isMobile}
       />
 
-      <section className="flex flex-col gap-3">
-        <h2
-          className="text-lg font-semibold tracking-tight"
-          data-testid="profile-items-heading"
-        >
-          {possessive(displayName)} items
-        </h2>
-
-        {loading ? (
-          <ProfileSkeleton />
-        ) : error ? (
-          <div className="rounded-xl border bg-card p-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              Could not load your items.
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-6">
-            <SectionGroup
-              title="Needs your attention"
-              icon={ShieldCheck}
-              count={data?.actionItems.total ?? 0}
-              shown={data?.actionItems.items.length ?? 0}
-              emptyLabel="Nothing is waiting on you right now."
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="flex flex-col gap-3"
+      >
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="you" className="gap-1.5" data-testid="profile-tab-you">
+            <UserRound className="h-3.5 w-3.5" />
+            Your Profile
+          </TabsTrigger>
+          <TabsTrigger value="items" data-testid="profile-tab-items">
+            {possessive(displayName)} items
+          </TabsTrigger>
+          {showMemoryTab && (
+            <TabsTrigger
+              value="memory"
+              className="gap-1.5"
+              data-testid="profile-tab-memory"
             >
-              {(data?.actionItems.items ?? []).map((item) => (
-                <ActionItemCard
-                  key={`${item.kind}-${item.id}`}
-                  item={item}
-                  onOpen={() => openActionItem(item)}
-                />
-              ))}
-            </SectionGroup>
+              <Brain className="h-3.5 w-3.5" />
+              Memory
+            </TabsTrigger>
+          )}
+        </TabsList>
 
-            <SectionGroup
-              title="Your companies"
-              icon={Building2}
-              count={data?.companies.total ?? 0}
-              shown={data?.companies.items.length ?? 0}
-              emptyLabel="No deals are assigned to you yet."
-            >
-              {(data?.companies.items ?? []).map((company) => (
-                <CompanyCard
-                  key={company.id}
-                  company={company}
-                  onOpen={() => openCompany(company.id)}
-                />
-              ))}
-            </SectionGroup>
+        <TabsContent value="you" className="mt-1">
+          <ProfileDetailsTab />
+        </TabsContent>
 
-            <SectionGroup
-              title="Your insights"
-              icon={FileText}
-              count={data?.insights.total ?? 0}
-              shown={data?.insights.items.length ?? 0}
-              emptyLabel="You haven't created an insight yet."
-            >
-              {(data?.insights.items ?? []).map((insight) => (
-                <InsightCard
-                  key={insight.id}
-                  insight={insight}
-                  onOpen={() => router.push(`${insightHref}/${insight.id}`)}
-                />
-              ))}
-            </SectionGroup>
-          </div>
+        <TabsContent value="items" className="mt-1">
+          {itemsSection}
+        </TabsContent>
+
+        {/* Radix unmounts an inactive tab, so a visit that never opens one of
+            these never issues its request. */}
+        {showMemoryTab && (
+          <TabsContent value="memory" className="mt-1">
+            <MemoryTab />
+          </TabsContent>
         )}
-      </section>
+      </Tabs>
 
       {isMobile && (
         <AlertDialog>

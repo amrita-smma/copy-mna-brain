@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 191 | `src/app/api/**/route.ts` |
-| Services | 76 | `src/lib/services/` |
-| Repositories | 73 | `src/lib/repositories/` |
-| Agents | 7 | `src/lib/agents/` |
+| API routes | 196 | `src/app/api/**/route.ts` |
+| Services | 78 | `src/lib/services/` |
+| Repositories | 74 | `src/lib/repositories/` |
+| Agents | 8 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 151 | `drizzle/migrations/` |
+| Migrations (app) | 154 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -110,7 +110,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/auth/rss-feeds/import` | POST | `rssFeedService` |
 | `/api/auth/signup` | POST | `authService` |
 | `/api/auth/sso` | GET | `authService`, `workspaceService` |
-| `/api/chat` | POST | `chatAttachmentService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `workspaceService` |
+| `/api/chat` | POST | `chatAttachmentService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
 | `/api/chat/attachments` | DELETE | `chatAttachmentService` |
 | `/api/chat/attachments/upload-url` | GET | `chatAttachmentService` |
 | `/api/chat/cache-check` | POST | `copilotChatsService`, `insightService` |
@@ -239,6 +239,11 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/pipeline-stages/[key]` | PATCH, DELETE | `pipelineStageService` |
 | `/api/pipeline-stages/[key]/move` | POST | `pipelineStageService` |
 | `/api/profile/items` | GET | `profileService` |
+| `/api/profile/me` | GET, PATCH | `userProfileService` |
+| `/api/profile/memories` | GET, PATCH, DELETE | `userMemoryService` |
+| `/api/profile/memories/[id]` | DELETE | `userMemoryService` |
+| `/api/profile/memories/import` | POST | `userMemoryService` |
+| `/api/profile/memories/import/confirm` | POST | `userMemoryService` |
 | `/api/queues/send-email` | — | — |
 | `/api/recent-files` | GET, POST | `recentFileService` |
 | `/api/recent-files/signed-url` | GET | `recentFileService` |
@@ -290,7 +295,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 62 keys. Wire new services in
+`Container` exposes 64 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -369,6 +374,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `tableLayoutService.ts` | `InvalidTableLayoutError`, `InvalidTableIdError`, `TableLayoutService` | ✅ |
 | `trackMatchingService.ts` | `TrackMatchingService` | ✅ |
 | `trackVariableService.ts` | `TrackVariableService` | ❌ |
+| `userMemoryService.ts` | `MemoryUnavailableError`, `MemoryImportTooLargeError`, `UserMemoryService` | ✅ |
+| `userProfileService.ts` | `UserProfileNotFoundError`, `UserProfileInvalidError`, `UserProfileService` | ✅ |
 | `userService.ts` | `UserNotFoundError`, `CannotDeactivateSelfError`, `UserService` | ✅ |
 | `workspaceService.ts` | `RoleNotFoundError`, `NotSuperadminError`, `WorkspaceNotFoundError`, `WorkspaceService` | ✅ |
 
@@ -448,6 +455,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `trackVariableRepository.ts` | `TrackVariableRepository` | ✅ |
 | `types.ts` | — | ❌ |
 | `userConsentRepository.ts` | `UserConsentRepository` | ✅ |
+| `userMemoryRepository.ts` | `UserMemoryRepository` | ✅ |
 | `userRepository.ts` | `UserRepository` | ✅ |
 | `userWorkspaceRepository.ts` | `UserWorkspaceRepository` | ✅ |
 | `workspaceCorrespondentRepository.ts` | `WorkspaceCorrespondentRepository` | ✅ |
@@ -468,6 +476,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 | `dikti` | 0 | 0/0 | ✅ |
 | `file_processing` | 2 | 2/2 | ✅ |
 | `fund_update_processing` | 0 | 0/0 | ✅ |
+| `memory_import` | 1 | 1/1 | ✅ |
 | `minerba` | 0 | 0/0 | ✅ |
 | `sector` | 0 | 0/0 | ❌ |
 

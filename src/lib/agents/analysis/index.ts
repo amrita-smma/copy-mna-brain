@@ -76,4 +76,10 @@ export {
 } from "./graphs";
 
 // --- Messages ---------------------------------------------------------------
-export { extractMessageText, extractFirstTurn, HumanMessage, AIMessage } from "./messages";
+export {
+  extractMessageText,
+  extractFirstTurn,
+  extractLastTurn,
+  HumanMessage,
+  AIMessage,
+} from "./messages";
