@@ -210,6 +210,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "40118d9c4e77bf214c5e0a41cc3cee0812840904",
+    "date": "2026-10-12",
+    "subject": "Company mentions now get a fresh web search for up-to-date information",
+    "category": "improvement"
+  },
+  {
+    "hash": "db658c8dda6920556337840971a8fb3008ed0151",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
