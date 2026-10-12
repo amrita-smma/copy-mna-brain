@@ -15,9 +15,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
 import { ChevronDown, Linkedin, Loader2, Mail, Pencil, Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EditContactDialog } from "./EditContactDialog";
+import { FillContactButton, type EnrichmentRun } from "./FillContactButton";
 import type {
   Correspondent,
   EmployerDetail,
@@ -435,6 +436,7 @@ function ExpandedTabs({
 
       <TabsContent value="contacts" className="px-5 pb-5 pt-4">
         <ContactsTab
+          employerId={employerId}
           correspondents={detail.correspondents}
           onAddContact={onAddContact}
           onChanged={() => {
@@ -476,10 +478,12 @@ function ExpandedTabs({
 }
 
 function ContactsTab({
+  employerId,
   correspondents,
   onAddContact,
   onChanged,
 }: {
+  employerId: string;
   correspondents: Correspondent[];
   onAddContact: () => void;
   onChanged: () => void;
@@ -488,6 +492,37 @@ function ContactsTab({
   // tracked as a second boolean, per .claude/rules/dialog-open-state.md. The
   // row is already in hand, so there is no fetch to race on open.
   const [editing, setEditing] = useState<Correspondent | null>(null);
+  // Every row's latest @crm_contact run in one request, so the fill buttons
+  // can render their state without a GET per rendered contact.
+  const [enrichRuns, setEnrichRuns] = useState<Record<string, EnrichmentRun>>(
+    {},
+  );
+  const enrichRunsLive = useRef(true);
+
+  const loadEnrichRuns = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/crm/employers/${employerId}/contact-enrichment`,
+        { credentials: "same-origin" },
+      );
+      if (!res.ok) return;
+      const { data } = (await res.json()) as {
+        data: Record<string, EnrichmentRun>;
+      };
+      if (enrichRunsLive.current) setEnrichRuns(data ?? {});
+    } catch {
+      // No run state is the same as no runs — the buttons stay idle and a
+      // click still works.
+    }
+  }, [employerId]);
+
+  useEffect(() => {
+    enrichRunsLive.current = true;
+    void loadEnrichRuns();
+    return () => {
+      enrichRunsLive.current = false;
+    };
+  }, [loadEnrichRuns]);
 
   return (
     <>
@@ -525,16 +560,28 @@ function ContactsTab({
                   {initialsOf(c.name)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold">
-                    {c.name}
+                  <div className="flex items-center gap-1 text-sm font-bold">
+                    <span className="truncate">{c.name}</span>
                     {c.is_primary && (
                       <Badge
                         variant="outline"
-                        className="ml-2 h-4 bg-emerald-50 px-1.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        className="h-4 bg-emerald-50 px-1.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                       >
                         Primary
                       </Badge>
                     )}
+                    <FillContactButton
+                      correspondentId={c.id}
+                      contactName={c.name}
+                      initialRun={enrichRuns[c.id]}
+                      onFilled={() => {
+                        onChanged();
+                        // Otherwise this contact's entry stays "active" until
+                        // the tab remounts, and a later re-render would offer
+                        // to resume a run that has already finished.
+                        void loadEnrichRuns();
+                      }}
+                    />
                   </div>
                   {(c.title || c.seniority) && (
                     <div className="text-xs text-muted-foreground">

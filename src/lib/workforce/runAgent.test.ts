@@ -25,8 +25,10 @@ const {
   publishRunDraftMock,
   notifyInsightRefreshedMock,
   getSectorAgentGraphMock,
+  getCrmContactAgentGraphMock,
 } = vi.hoisted(() => ({
   getSectorAgentGraphMock: vi.fn(),
+  getCrmContactAgentGraphMock: vi.fn(),
   findById: vi.fn(),
   heartbeat: vi.fn(),
   markSucceeded: vi.fn(),
@@ -163,6 +165,10 @@ vi.mock('@/lib/agents/sector/graph', () => ({
   getSectorAgentGraph: getSectorAgentGraphMock,
 }));
 
+vi.mock('@/lib/agents/crm_contact', () => ({
+  getCrmContactAgentGraph: getCrmContactAgentGraphMock,
+}));
+
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
 vi.mock('./clearAiOpinionOnFailure', () => ({
@@ -243,6 +249,7 @@ beforeEach(() => {
   resumeMock.mockReset().mockResolvedValue(makeAgentResult({ finalText: 'Resumed.' }));
   getWorkforceAgentGraph.mockReset().mockResolvedValue(graph());
   getSectorAgentGraphMock.mockReset();
+  getCrmContactAgentGraphMock.mockReset();
   dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
   failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
   prepareForMessageMock.mockReset().mockResolvedValue({
@@ -1334,5 +1341,51 @@ describe('runAgent — refresh runs on the bound agent (MB-560)', () => {
         agentKey: 'bangun',
       }),
     ).rejects.toThrow('sector agent graph unavailable (bangun)');
+  });
+});
+
+
+describe('runAgent — @crm_contact rows run on their own agent', () => {
+  function crmRow(overrides: Record<string, unknown> = {}) {
+    return makeRow({
+      agent_name: 'crm_contact',
+      trigger_meta: { correspondent_id: 'corr-1' },
+      input: { prompt: PROMPT, correspondent_id: 'corr-1' },
+      ...overrides,
+    });
+  }
+
+  it('builds the crm_contact graph, not the general workforce one', async () => {
+    findById.mockResolvedValueOnce(crmRow());
+    getCrmContactAgentGraphMock.mockResolvedValueOnce(graph());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getCrmContactAgentGraphMock).toHaveBeenCalledTimes(1);
+    expect(getWorkforceAgentGraph).not.toHaveBeenCalled();
+    expect(getSectorAgentGraphMock).not.toHaveBeenCalled();
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves every other agent_name on the general workforce graph', async () => {
+    findById.mockResolvedValueOnce(makeRow({ agent_name: 'company_card' }));
+    getWorkforceAgentGraph.mockResolvedValueOnce(graph());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getCrmContactAgentGraphMock).not.toHaveBeenCalled();
+    expect(getWorkforceAgentGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unavailable crm_contact graph is retryable, and says which agent', async () => {
+    getCrmContactAgentGraphMock.mockResolvedValueOnce(null);
+
+    await expect(
+      invokeAgent(
+        RUN_ID, PROMPT, null, RUN_ID, [], 'ws-1', 'medium', null, null, undefined,
+        { originRoutineId: null, refreshInsightId: null },
+        'crm_contact',
+      ),
+    ).rejects.toThrow('crm_contact agent graph unavailable');
   });
 });

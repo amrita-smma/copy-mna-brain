@@ -967,6 +967,122 @@ describe('AiWorkforceQueueRepository.findActiveByFundAssetId', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.findLatestByCorrespondentId', () => {
+  function makeFindDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn(),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('returns the newest row for the contact, newest first', async () => {
+    const { db, chain } = makeFindDb();
+    const row = { id: 'run-1', status: 'running' };
+    chain.limit.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findLatestByCorrespondentId('crm_contact', 'corr-1');
+
+    expect(result).toBe(row);
+    expect(chain.limit).toHaveBeenCalledWith(1);
+    const { sql: orderText } = new PgDialect().sqlToQuery(
+      chain.orderBy.mock.calls[0][0] as SQL,
+    );
+    expect(orderText).toContain('desc');
+  });
+
+  it('does NOT filter out terminal runs — the caller needs the last outcome', async () => {
+    const { db, chain } = makeFindDb();
+    chain.limit.mockResolvedValueOnce([{ id: 'run-1', status: 'succeeded' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.findLatestByCorrespondentId('crm_contact', 'corr-1');
+
+    const { sql: whereText } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(whereText).not.toContain('succeeded');
+    expect(whereText).toContain("->>'correspondent_id'");
+  });
+
+  it('returns null when the contact has never been enriched', async () => {
+    const { db, chain } = makeFindDb();
+    chain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    expect(
+      await repo.findLatestByCorrespondentId('crm_contact', 'corr-1'),
+    ).toBeNull();
+  });
+});
+
+describe('AiWorkforceQueueRepository.findLatestByCorrespondentIds', () => {
+  function makeDistinctDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn(),
+    };
+    const db = { selectDistinctOn: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    const { db } = makeDistinctDb();
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    expect(await repo.findLatestByCorrespondentIds('crm_contact', [])).toEqual([]);
+    expect(db.selectDistinctOn).not.toHaveBeenCalled();
+  });
+
+  it('answers every contact in one query, newest run per contact', async () => {
+    const { db, chain } = makeDistinctDb();
+    const a = { id: 'run-a', status: 'running' };
+    const b = { id: 'run-b', status: 'succeeded' };
+    chain.orderBy.mockResolvedValueOnce([{ run: a }, { run: b }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const rows = await repo.findLatestByCorrespondentIds('crm_contact', [
+      'corr-1',
+      'corr-2',
+    ]);
+
+    expect(rows).toEqual([a, b]);
+    expect(db.selectDistinctOn).toHaveBeenCalledTimes(1);
+  });
+
+  it('orders by the distinct-on expression first, then created_at desc', async () => {
+    const { db, chain } = makeDistinctDb();
+    chain.orderBy.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.findLatestByCorrespondentIds('crm_contact', ['corr-1']);
+
+    const dialect = new PgDialect();
+    const [groupKey, newestFirst] = chain.orderBy.mock.calls[0] as SQL[];
+    expect(dialect.sqlToQuery(groupKey).sql).toContain("->>'correspondent_id'");
+    expect(dialect.sqlToQuery(newestFirst).sql).toContain('desc');
+  });
+
+  it('scopes to the workspace and does not filter out terminal runs', async () => {
+    const { db, chain } = makeDistinctDb();
+    chain.orderBy.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.findLatestByCorrespondentIds('crm_contact', ['corr-1']);
+
+    const { sql: whereText } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(whereText).toContain('workspace_id');
+    expect(whereText).not.toContain('succeeded');
+  });
+});
+
 describe('AiWorkforceQueueRepository.findActiveCompanyIds', () => {
   it('returns the subset of ids with a non-terminal run, in one query', async () => {
     const { db, selectChain } = makeMockDb();

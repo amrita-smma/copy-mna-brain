@@ -19,6 +19,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
 - [CRM banker matching ("which banker can help me close this deal?")](crm-banker-matching.md) — 8KB
+- [Filling a CRM contact from the web (`@crm_contact`)](crm-contact-fill.md) — 4KB
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
 - [Company detail tabs (page + pipeline dialog)](company-detail-tabs.md) — 4KB
 - [One company-filter vocabulary across the analysis tools](company-filter-vocabulary.md) — 3KB

@@ -110,6 +110,7 @@ import { JobService } from './jobService';
 import { AuthService } from './authService';
 import { UserService } from './userService';
 import { CRMService } from './crmService';
+import { CrmContactEnrichmentService } from './crmContactEnrichmentService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
 import { AlphasenseToolCallService } from './alphasenseToolCallService';
@@ -170,6 +171,7 @@ export interface Container {
   authService: AuthService;
   userService: UserService;
   crmService: CRMService;
+  crmContactEnrichmentService: CrmContactEnrichmentService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
   alphasenseToolCallService: AlphasenseToolCallService;
@@ -363,6 +365,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     employerRelatedCompanyRepo,
     companyRepo,
     workspaceCorrespondentRepo,
+    workspaceId,
+  );
+  const crmContactEnrichmentService = new CrmContactEnrichmentService(
+    correspondentRepo,
+    employerRepo,
+    db,
     workspaceId,
   );
 
@@ -641,6 +649,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     authService,
     userService,
     crmService,
+    crmContactEnrichmentService,
     aiWorkforceService,
     copilotChatsService,
     alphasenseToolCallService,

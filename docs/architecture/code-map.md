@@ -12,10 +12,10 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 196 | `src/app/api/**/route.ts` |
-| Services | 78 | `src/lib/services/` |
+| API routes | 198 | `src/app/api/**/route.ts` |
+| Services | 79 | `src/lib/services/` |
 | Repositories | 74 | `src/lib/repositories/` |
-| Agents | 8 | `src/lib/agents/` |
+| Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
@@ -144,7 +144,9 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm` | GET, POST | `crmService` |
 | `/api/crm/banker-related-companies` | GET | `crmService` |
 | `/api/crm/correspondents/[id]` | PATCH, DELETE | `crmService` |
+| `/api/crm/correspondents/[id]/enrich` | GET, POST | `crmContactEnrichmentService` |
 | `/api/crm/employers/[id]` | GET, PATCH, DELETE | `crmService` |
+| `/api/crm/employers/[id]/contact-enrichment` | GET | `crmContactEnrichmentService` |
 | `/api/crm/employers/[id]/contacts` | GET, POST | `crmService` |
 | `/api/crm/employers/[id]/curate` | POST | `crmService` |
 | `/api/crm/employers/[id]/notes` | GET, POST | `crmService` |
@@ -295,7 +297,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 64 keys. Wire new services in
+`Container` exposes 65 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -320,6 +322,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `container.ts` | — | ✅ |
 | `copilotChatsService.ts` | `CopilotChatNotFoundError`, `CopilotChatForbiddenError`, `CopilotChatsService` | ✅ |
 | `criteriaService.ts` | `CriteriaService` | ✅ |
+| `crmContactEnrichmentService.ts` | `ContactNotFoundError`, `CrmContactEnrichmentService` | ✅ |
 | `crmService.ts` | `DuplicateEmployerError`, `EmployerNotFoundError`, `CRMService` | ✅ |
 | `dailyPulseService.ts` | `DailyPulseService` | ✅ |
 | `dashboardActivityService.ts` | `DashboardActivityService` | ✅ |
@@ -473,6 +476,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 |---|---|---|---|
 | `analysis` | 74 | 67/74 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
+| `crm_contact` | 2 | 2/2 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
 | `file_processing` | 2 | 2/2 | ✅ |
 | `fund_update_processing` | 0 | 0/0 | ✅ |

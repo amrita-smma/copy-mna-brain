@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { aiWorkforceQueue, workforceStatus } from '@/lib/db/schema';
 import type {
   HumanDecision,
@@ -284,6 +284,67 @@ export class AiWorkforceQueueRepository {
       .orderBy(desc(aiWorkforceQueue.created_at))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * The newest run of `agentName` for one CRM contact, whatever its status.
+   *
+   * Unlike {@link findActiveByCompanyId} this does NOT filter to non-terminal
+   * rows, because its caller — the contact-enrichment button — needs both
+   * answers from one query: "is a run in flight?" (derive with
+   * {@link isTerminalWorkforceStatus}) and "how did the last one end?", so the
+   * UI can poll a single endpoint and then report success or failure instead
+   * of just watching the row disappear.
+   */
+  async findLatestByCorrespondentId(
+    agentName: string,
+    correspondentId: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          sql`${aiWorkforceQueue.trigger_meta}->>'correspondent_id' = ${correspondentId}`,
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Batched {@link findLatestByCorrespondentId}: the newest run of `agentName`
+   * for each of `correspondentIds`, whatever its status.
+   *
+   * The contacts tab renders one fill-contact button per row and every one of
+   * them needs its contact's latest run. Asking per row would be an HTTP
+   * fan-out on the client and a query fan-out here; this answers the whole
+   * tab in one `DISTINCT ON`.
+   */
+  async findLatestByCorrespondentIds(
+    agentName: string,
+    correspondentIds: string[],
+  ): Promise<Row[]> {
+    if (correspondentIds.length === 0) return [];
+    const correspondentId = sql`${aiWorkforceQueue.trigger_meta}->>'correspondent_id'`;
+    const rows = await this.db
+      .selectDistinctOn([correspondentId], { run: aiWorkforceQueue })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          inArray(correspondentId, correspondentIds),
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      // DISTINCT ON keeps the first row of each group, so the expression it
+      // distinguishes on has to lead the sort; created_at desc is what makes
+      // that first row the newest one.
+      .orderBy(asc(correspondentId), desc(aiWorkforceQueue.created_at));
+    return rows.map((r) => r.run);
   }
 
   // ─────────────────────────────────────────────────────────────────────

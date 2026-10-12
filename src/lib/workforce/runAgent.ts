@@ -40,6 +40,7 @@ import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { asWorkforceEffort } from '@/lib/chat/effortTiers';
 import { ChatAttachmentService, type ChatAttachmentRef } from '@/lib/services/chatAttachmentService';
 import { resolveInsightAgentStamp } from '@/lib/insights/agentStamp';
+import { isCrmContactAgent } from '@/lib/agents/crm_contact/constants';
 import { readRefreshInsightId, readRunAgentKey } from '@/lib/routines/refreshAgent';
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { dispatcherTick } from './dispatcher';
@@ -292,6 +293,7 @@ export async function invokeAgent(
     originRoutineId: null,
     refreshInsightId: null,
   },
+  agentName: string | null = null,
 ): Promise<InvokeStepResult> {
   'use step';
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -320,13 +322,21 @@ export async function invokeAgent(
   // being evaluated (SERVER_TOOLS undefined → "not iterable"). Inside the step
   // body it is also stripped from the workflow bundle with the step.
   const agentKey = refresh.agentKey ?? null;
+  // A row enqueued by the CRM "fill this contact" button runs on @crm_contact
+  // rather than the general workforce agent — a five-tool graph whose prompt
+  // is about identity evidence, not the M&A pipeline. Lazily imported for the
+  // same reason the sector stack is (see the comment above): a static import
+  // would close the analysis/tools → @/lib/workforce → runAgent cycle, and it
+  // keeps the agent out of the workflow bundle.
   const graph = agentKey
     ? await (await import('@/lib/agents/sector/graph')).getSectorAgentGraph(
         agentKey,
         'workforce',
         effort,
       )
-    : await getWorkforceAgentGraphForEffort(effort);
+    : isCrmContactAgent(agentName)
+      ? await (await import('@/lib/agents/crm_contact')).getCrmContactAgentGraph(effort)
+      : await getWorkforceAgentGraphForEffort(effort);
   if (!graph) {
     // Returns null on initialization failure (logs the cause). Surface as
     // retryable in case it was a transient DB blip during
@@ -334,7 +344,9 @@ export async function invokeAgent(
     throw new RetryableError(
       agentKey
         ? `sector agent graph unavailable (${agentKey})`
-        : 'workforce agent graph unavailable',
+        : isCrmContactAgent(agentName)
+          ? 'crm_contact agent graph unavailable'
+          : 'workforce agent graph unavailable',
     );
   }
 
@@ -845,6 +857,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       triggered_by_user_id,
       attachments,
       { originRoutineId, refreshInsightId, agentKey },
+      agentName,
     );
     if (result.kind === 'interrupted') {
       // Healthy pause: HITL middleware caught a gated tool call. The decision
