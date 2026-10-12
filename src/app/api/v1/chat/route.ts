@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { flushLangfuse } from '@/lib/langfuse';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
@@ -10,6 +11,7 @@ import {
 import type { BaseMessage } from '@langchain/core/messages';
 import {
   ChatRequestError,
+  langfuseUserForApiKey,
   prepareConversationRun,
 } from '@/lib/server/apiChatSupport';
 import { resolveChatAgentGraph } from '@/lib/chat/chatAgent';
@@ -30,11 +32,11 @@ export async function POST(req: NextRequest) {
       createContainer(db, workspaceId);
 
     const body = await req.json().catch(() => undefined);
-    const { conversationId, messages, originalUserQuestion } = await prepareConversationRun(
-      req,
-      body,
-      { apiKeyService, apiChatConversationService },
-    );
+    const { principal, conversationId, messages, originalUserQuestion } =
+      await prepareConversationRun(req, body, {
+        apiKeyService,
+        apiChatConversationService,
+      });
 
     // External API conversations are not CoPilot threads and carry no page,
     // so they resolve to the general CoPilot with today's defaults. Going
@@ -52,12 +54,16 @@ export async function POST(req: NextRequest) {
 
     let result;
     try {
-      result = await agent.invoke(
-        { messages },
-        {
-          recursionLimit: 50,
-          configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
-        },
+      // Filed under the calling API key rather than a person — see
+      // langfuseUserForApiKey.
+      result = await runWithLangfuseUser(langfuseUserForApiKey(principal), () =>
+        agent.invoke(
+          { messages },
+          {
+            recursionLimit: 50,
+            configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
+          },
+        ),
       );
     } finally {
       // The external chat API runs the same agent as Copilot and so emits the

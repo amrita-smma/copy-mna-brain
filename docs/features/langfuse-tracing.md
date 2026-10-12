@@ -11,9 +11,36 @@ that produced them.
 - **What turns it on.** `LANGFUSE_SECRET_KEY` and `LANGFUSE_PUBLIC_KEY` both
   being set. Nothing else.
 
+## The three modules
+
+Call sites import `@/lib/langfuse`. It is split in three, and the split is
+load-bearing rather than cosmetic:
+
+| Module | Holds | May import `node:`? |
+|---|---|---|
+| `src/lib/langfuseClient.ts` | the gate, the shared handler, `flushLangfuse` | **no** |
+| `src/lib/langfuseUser.ts` | the AsyncLocalStorage carrying who a run belongs to | yes (`node:async_hooks`) |
+| `src/lib/langfuse.ts` | `withLangfuseCallbacks` — where the two meet; re-exports the client | — |
+
+`runAgent`'s `'use workflow'` body drains the queue in its `finally`, so
+whatever it imports is compiled into the WDK workflow bundle, and that bundle
+**fails to build on any use of a `node:` builtin in a module it contains** —
+reachable from the workflow body or not. That is the whole reason
+`flushLangfuse` lives in the client leaf and `runAgent` imports it from
+`@/lib/langfuseClient` directly rather than through the barrel.
+
+Adding a `node:` import to `langfuseClient.ts` — or an import of
+`langfuseUser` — breaks `next build` with `workflow-node-module-error`, pointing
+at a line that looks innocent. `src/lib/langfuseClient.test.ts` walks the import
+graph and fails in a second instead.
+
+`@/lib/workspace` carries the same `node:async_hooks` import without trouble
+because only `'use step'` functions reach it; a step is not part of the workflow
+bundle.
+
 ## The gate
 
-`src/lib/langfuse.ts` is the only place that decides whether to trace:
+`src/lib/langfuseClient.ts` is the only place that decides whether to trace:
 
 ```ts
 isLangfuseEnabled()   // both keys set, and not killed by the switch
@@ -38,6 +65,7 @@ Every trace is tagged with:
 | `environment` | `VERCEL_ENV` ?? `NODE_ENV` | Keeps preview noise out of production dashboards |
 | `release` | `VERCEL_GIT_COMMIT_SHA` | Pins a regression to a deploy, not a date range |
 | `effort_tier`, `effort_model`, `output_effort` | `AnalysisAgent.traceMetadata()` | Answers "which tier ran this turn?" from the trace |
+| `userId` | `runWithLangfuseUser` (see below) | Groups a trace under the person or key that caused it |
 
 `langfuseEnvironment()` normalises the environment name and degrades to
 `"default"` on anything Langfuse would reject — an invalid value 400s the whole
@@ -65,6 +93,63 @@ returning the original config when tracing is off.
 Raw Anthropic SDK call sites (the pptx skill and single-slide generation)
 cannot use callbacks and build spans by hand with `createPptxTrace` in
 `src/lib/pptx/pptxLangfuse.ts`. It gates on the same `isLangfuseEnabled()`.
+
+## Who a trace belongs to
+
+Langfuse's [Users](https://langfuse.com/docs/observability/features/users) view
+groups traces, cost and latency by a single `userId` attribute. An entrypoint
+declares that id once, and everything it runs inherits it:
+
+```ts
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
+
+return runWithLangfuseUser(session.user.id, () => handleChatTurn(req, session, userId));
+```
+
+`runWithLangfuseUser` seeds an `AsyncLocalStorage`, and `withLangfuseCallbacks`
+reads it back out and stamps it onto the RunnableConfig's `metadata` under the
+key `langfuseUserId` — the key the LangChain integration consumes and strips,
+turning it into the trace's `userId` attribute. That is why a side call such as
+`generateChatTitle` or `routeEffort` is attributed without taking a user
+parameter — and it is the reason a call site must use `withLangfuseCallbacks`
+rather than dropping `getLangfuseCallbacks()` into a hand-built config, which
+carries the handler but not the user.
+
+`createPptxTrace` reads the same store directly (`getLangfuseUserId`), since the
+raw SDK takes `userId` on the trace rather than through a RunnableConfig.
+
+| Entrypoint | Filed under |
+|---|---|
+| Copilot chat (`/api/chat`) | `session.user.id` |
+| Prompt improvement (`/api/chat/improve-prompt`) | `session.user.id` |
+| Memory import (`/api/profile/memories/import`) | `session.user.id` |
+| External chat API (`/api/v1/chat`, `…/stream`) | `api-key:<id>` — `api_keys` rows carry no user, so the key is the principal (`langfuseUserForApiKey`) |
+| AI Workforce runs, and the Haiku title generated at enqueue | the queue row's `triggered_by_user_id` |
+| Smart Files upload | the uploading user; an internal pipeline upload has no session |
+| Cron-triggered routines, daily pulse, background jobs | nothing — there is no user, and inventing one would be worse than an unattributed trace |
+
+Rules when adding an entrypoint:
+
+- Seed it as far out as the identity is known. A streamed turn builds its run
+  config deep inside the handler, so wrapping the whole handler is correct;
+  wrapping just the `invoke`/`streamEvents` call is enough only when nothing
+  else in the handler talks to an LLM.
+- **Wrap the work, not just the call that starts it.** The store follows the
+  async chain *inside* the scope, so a fire-and-forget promise started in it
+  (the chat title) stays attributed after the scope returns — but a stream
+  iterator merely *created* in it does not: a `for await` driven from outside
+  reads an empty store. Anything that drains a stream, and so runs the tools,
+  has to be constructed inside the scope too (`/api/v1/chat/stream`), or
+  re-enter it (the Copilot route's SSE `execute`). A `after()` callback never
+  inherits — open the scope inside it (`enqueueAgentRun`'s title).
+- Pass the id through unguarded. `runWithLangfuseUser(null, fn)` is a no-op, so
+  a session-less caller needs no branch of its own. It will not file a trace
+  under an empty-string user.
+- Namespace a non-human principal (`api-key:<id>`) so it can never collide with
+  a `users.id`.
+- Import `runWithLangfuseUser` from `@/lib/langfuseUser`. Never re-export it
+  through `@/lib/langfuse` — that would put `node:async_hooks` back in reach of
+  the workflow bundle (see the module table above).
 
 ## What is covered
 
@@ -140,6 +225,10 @@ Locally they match the dummy init values in `docker-compose.yml`.
 
 - **A trace that never arrives is almost always a missing flush.** Check the
   table above before suspecting the network.
+- **A trace that arrives with no user is almost always a missing
+  `runWithLangfuseUser`** at a new entrypoint — or a call site that built its
+  config by hand around `getLangfuseCallbacks()` instead of going through
+  `withLangfuseCallbacks`.
 - **Do not set the Langfuse S3 env vars to empty strings** in the deployment.
   Langfuse falls back to the AWS default credential chain only when they are
   genuinely unset; empty strings are sent as real (invalid) credentials and 403.

@@ -17,6 +17,7 @@ import {
   CopilotChatForbiddenError,
 } from '@/lib/services/copilotChatsService';
 import { auth } from '@/auth';
+import type { Session } from 'next-auth';
 import { BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { toBaseMessages } from '@ai-sdk/langchain';
 import { createUIMessageStream, createUIMessageStreamResponse, UIMessage } from 'ai';
@@ -26,6 +27,7 @@ import {
 } from '@/lib/services/chatAttachmentService';
 import { chatCacheEnabled, copilotMemoryEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { flushLangfuse } from '@/lib/langfuse';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { generateChatTitle } from '@/lib/chat/title';
 import { sanitizePageContext } from '@/lib/chat/pageContext';
 import { stripComposerMarkup } from '@/lib/chat/composerMarkup';
@@ -103,14 +105,45 @@ async function generateAndSaveTitle(opts: {
   }
 }
 
+/**
+ * The route's uniform error shape. Shared by `POST` and `handleChatTurn` so
+ * that splitting the handler in two did not leave `auth()` outside a `try` —
+ * a rejected session decrypt has to render as JSON here, not as a bare 500.
+ */
+function chatErrorResponse(e: unknown) {
+  if (isGraphRecursionError(e)) {
+    return NextResponse.json(
+      { error: RECURSION_LIMIT_ERROR_MESSAGE },
+      { status: 400 },
+    );
+  }
+  const err = e as { message?: string; status?: number };
+  return NextResponse.json({ error: err.message }, { status: err.status ?? 500 });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    // Every Langfuse trace this turn produces is filed under the signed-in
+    // user: the agent run itself plus the side calls it makes (title
+    // generation, effort routing, turn wrap-up), none of which take a user
+    // parameter. The wrapper has to be out here, around the whole handler,
+    // because the streaming branch builds its config and its title promise
+    // deep inside it.
     const userId = session.user.id;
+    return await runWithLangfuseUser(userId, () =>
+      handleChatTurn(req, session, userId),
+    );
+  } catch (e: unknown) {
+    return chatErrorResponse(e);
+  }
+}
 
+async function handleChatTurn(req: NextRequest, session: Session, userId: string) {
+  try {
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     const requestedChatId: string | undefined = body.chat_id;
@@ -659,48 +692,55 @@ export async function POST(req: NextRequest) {
           console.error(error);
           return 'Internal server error';
         },
-        execute: async ({ writer }) => {
-          writer.merge(
-            withBudgetWrapUp(toThinkingMessageStream(eventStream, writer), {
-              isBudgetAbort,
-              // Stage two: the graph is stopped, but the tool rounds it did
-              // finish are in the checkpoint. Spend the headroom under
-              // maxDuration turning them into an answer, and persist it so the
-              // thread does not reload ending on a tool result.
-              wrapUp: async () => {
-                console.error(
-                  `[chat] turn budget of ${budgetMs}ms elapsed on tier "${effort}" (chat ${chat.id}) — wrapping up`,
-                );
-                const persisted = await agent.getMessages(chat.id).catch(() => []);
-                const text = await summarizeAbandonedTurn({
-                  messages: persisted,
-                  budgetMs,
-                  apiKey,
+        // Re-entered rather than inherited: this callback runs while the SSE
+        // body drains, after the handler's own runWithLangfuseUser scope has
+        // returned. The agent's own LangChain runs already carry the user in the
+        // config built above, but a trace a tool hand-builds mid-drain (the pptx
+        // skill) and the budget wrap-up's own LLM call both read the ambient
+        // store, so it has to still be set here.
+        execute: async ({ writer }) =>
+          runWithLangfuseUser(userId, async () => {
+            writer.merge(
+              withBudgetWrapUp(toThinkingMessageStream(eventStream, writer), {
+                isBudgetAbort,
+                // Stage two: the graph is stopped, but the tool rounds it did
+                // finish are in the checkpoint. Spend the headroom under
+                // maxDuration turning them into an answer, and persist it so the
+                // thread does not reload ending on a tool result.
+                wrapUp: async () => {
+                  console.error(
+                    `[chat] turn budget of ${budgetMs}ms elapsed on tier "${effort}" (chat ${chat.id}) — wrapping up`,
+                  );
+                  const persisted = await agent.getMessages(chat.id).catch(() => []);
+                  const text = await summarizeAbandonedTurn({
+                    messages: persisted,
+                    budgetMs,
+                    apiKey,
+                  });
+                  try {
+                    await agent.seedMessages(chat.id, [new AIMessage(text)]);
+                  } catch (err) {
+                    console.error('[chat] failed to persist wrap-up message:', err);
+                  }
+                  return text;
+                },
+              }),
+            );
+            if (titlePromise) {
+              // Cap so a slow Haiku call can't hold the response open.
+              const title = await Promise.race([
+                titlePromise,
+                new Promise<null>((r) => setTimeout(() => r(null), 15000)),
+              ]);
+              if (title) {
+                writer.write({
+                  type: 'data-chat-title',
+                  data: { chatId: chat.id, title },
+                  transient: true,
                 });
-                try {
-                  await agent.seedMessages(chat.id, [new AIMessage(text)]);
-                } catch (err) {
-                  console.error('[chat] failed to persist wrap-up message:', err);
-                }
-                return text;
-              },
-            }),
-          );
-          if (titlePromise) {
-            // Cap so a slow Haiku call can't hold the response open.
-            const title = await Promise.race([
-              titlePromise,
-              new Promise<null>((r) => setTimeout(() => r(null), 15000)),
-            ]);
-            if (title) {
-              writer.write({
-                type: 'data-chat-title',
-                data: { chatId: chat.id, title },
-                transient: true,
-              });
+              }
             }
-          }
-        },
+          }),
       });
 
       // Delete the per-turn Anthropic uploads once the streamed response has
@@ -767,13 +807,6 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (e: unknown) {
-    if (isGraphRecursionError(e)) {
-      return NextResponse.json(
-        { error: RECURSION_LIMIT_ERROR_MESSAGE },
-        { status: 400 },
-      );
-    }
-    const err = e as { message?: string; status?: number };
-    return NextResponse.json({ error: err.message }, { status: err.status ?? 500 });
+    return chatErrorResponse(e);
   }
 }

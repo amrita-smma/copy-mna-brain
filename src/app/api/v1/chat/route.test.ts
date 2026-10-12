@@ -21,9 +21,12 @@ vi.mock('@/lib/server/apiChatSupport', () => ({
     status = 400;
   },
   prepareConversationRun: prepareConversationRunMock,
+  langfuseUserForApiKey: (principal: { id: string }) => `api-key:${principal.id}`,
 }));
 vi.mock('@/lib/chat/chatAgent', () => ({ resolveChatAgentGraph: resolveChatAgentGraphMock }));
 
+// Deliberately NOT mocked: the attribution assertion below needs the real store.
+import { getLangfuseUserId } from '@/lib/langfuseUser';
 import { POST } from './route';
 
 describe('POST /api/v1/chat', () => {
@@ -37,6 +40,7 @@ describe('POST /api/v1/chat', () => {
   beforeEach(() => {
     createContainerMock.mockReset().mockReturnValue(services);
     prepareConversationRunMock.mockReset().mockResolvedValue({
+      principal: { id: 'key-1', name: 'bot', scopes: ['chat:write'] },
       conversationId: 'conv-1',
       messages: [],
       originalUserQuestion: 'Q',
@@ -65,6 +69,19 @@ describe('POST /api/v1/chat', () => {
       originalUserQuestion: 'Q',
       agent_key: 'general',
     });
+  });
+
+  it('invokes under the calling API key, which has no user of its own', async () => {
+    let userDuringRun: string | undefined;
+    invokeMock.mockImplementation(async () => {
+      userDuringRun = getLangfuseUserId();
+      return { messages: [] };
+    });
+
+    await POST(new NextRequest('http://localhost/api/v1/chat', { method: 'POST', body: '{}' }));
+
+    expect(userDuringRun).toBe('api-key:key-1');
+    expect(getLangfuseUserId()).toBeUndefined();
   });
 
   it('returns 503 when the agent is unavailable', async () => {

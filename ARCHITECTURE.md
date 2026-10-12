@@ -161,7 +161,9 @@ still queued. `runJob`, `runAgent`, the chat route and the daily pulse each
 `await flushLangfuse()` in a `finally`; a new agent entrypoint that bypasses all
 four must do the same. Merge the handler with `withLangfuseCallbacks(config)`,
 never by spreading `callbacks` by hand — LangChain allows a bare handler there
-and the hand-rolled spread throws on it. See
+and the hand-rolled spread throws on it. A WDK `'use workflow'` body may import
+only `@/lib/langfuseClient`, never the `@/lib/langfuse` barrel: the barrel
+reaches `node:async_hooks` and the workflow bundle refuses to build on it. See
 `docs/features/langfuse-tracing.md`.
 
 ## Commands

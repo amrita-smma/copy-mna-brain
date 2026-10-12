@@ -3,7 +3,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { BETWEEN_TOOLS_THINKING } from '@/lib/ai/thinking';
 import { BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { createAgent } from 'langchain';
-import { getLangfuseCallbacks } from '@/lib/langfuse';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 import { logger } from '../logger';
 import type { ParsedAsset, TxnTypeEnum, ValuationMethodEnum } from '@/lib/fund_updates/parsers/startech_quarterly';
 import { normalizeParsedAssets } from '@/lib/fund_updates/normalizeParsedAsset';
@@ -121,7 +121,7 @@ async function streamAgentMessages(
   let finalMessages: BaseMessage[] = [];
   const stream = await agent.stream(
     { messages } as any,
-    { streamMode: 'values', callbacks: getLangfuseCallbacks() } as any,
+    withLangfuseCallbacks({ streamMode: 'values' }) as any,
   );
   for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
     if (chunk?.messages) {

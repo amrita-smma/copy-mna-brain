@@ -29,7 +29,14 @@ import { NotificationService } from '@/lib/services/notificationService';
 import { InterventionRecipientService } from '@/lib/services/interventionRecipientService';
 import type { NotificationKind } from '@/lib/notifications/types';
 import { createDb } from '@/lib/server/db';
-import { flushLangfuse } from '@/lib/langfuse';
+// `@/lib/langfuseClient`, not the `@/lib/langfuse` barrel: `runAgent` below is
+// a `'use workflow'` body, and a WDK workflow bundle rejects any module in it
+// that touches a `node:` builtin. The barrel reaches the AsyncLocalStorage in
+// `@/lib/langfuseUser`; this leaf does not. `runWithLangfuseUser` itself is
+// only ever called from `invokeAgent`, which is a `'use step'` and so is not
+// part of that bundle.
+import { flushLangfuse } from '@/lib/langfuseClient';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { asWorkforceEffort } from '@/lib/chat/effortTiers';
 import { ChatAttachmentService, type ChatAttachmentRef } from '@/lib/services/chatAttachmentService';
 import { resolveInsightAgentStamp } from '@/lib/insights/agentStamp';
@@ -384,15 +391,29 @@ export async function invokeAgent(
   const chatAttachmentService = new ChatAttachmentService(workspaceId);
   let uploadedFileIds: string[] = [];
 
-  // Agent tools call getActiveWorkspaceId() the same way request-handling
-  // code does, but there's no session here to resolve it from. Wrapping the
-  // whole invoke (and any tool calls LangGraph makes inside it) in this
-  // context makes the seam resolve to the row's real workspace instead of
-  // silently falling back to MnA. Verified this survives through
-  // LangChain's tool() wrapper and an async DB-call hop, not just a bare
-  // promise chain.
+  /**
+   * The two ambient contexts every invoke on this run needs.
+   *
+   * Workspace: agent tools call getActiveWorkspaceId() the same way
+   * request-handling code does, but there's no session here to resolve it
+   * from. Wrapping the whole invoke (and any tool calls LangGraph makes inside
+   * it) in this context makes the seam resolve to the row's real workspace
+   * instead of silently falling back to MnA. Verified this survives through
+   * LangChain's tool() wrapper and an async DB-call hop, not just a bare
+   * promise chain.
+   *
+   * Langfuse user: so a Workforce run is attributed to whoever triggered it,
+   * including the hand-built pptx trace an agent tool may start mid-run. A
+   * routine fired by cron has no triggering user, and runWithLangfuseUser is a
+   * no-op for a null id rather than inventing one.
+   */
+  const inRunContext = <T>(fn: () => Promise<T>): Promise<T> =>
+    runWithLangfuseUser(triggered_by_user_id, () =>
+      runWithWorkforceWorkspaceId(workspaceId, fn),
+    );
+
   try {
-    const result = await runWithWorkforceWorkspaceId(workspaceId, async () => {
+    const result = await inRunContext(async () => {
       if (resumePayloadJson) {
         return graph.resume(runId, JSON.parse(resumePayloadJson), {
           configurable: toolConfig,
@@ -452,7 +473,7 @@ export async function invokeAgent(
     // handled by the same WDK retry envelope as the main invoke.
     let finalResult = result;
     if (resumePayloadJson && pendingMessages.length > 0) {
-      finalResult = await runWithWorkforceWorkspaceId(workspaceId, () =>
+      finalResult = await inRunContext(() =>
         graph.invoke(
           { messages: pendingMessages.map((t) => new HumanMessage(t)) },
           { configurable: toolConfig, recursionLimit: 50 },

@@ -1,10 +1,12 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { flushLangfuse } from '@/lib/langfuse';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import {
   ChatRequestError,
+  langfuseUserForApiKey,
   prepareConversationRun,
   eventStreamToSse,
 } from '@/lib/server/apiChatSupport';
@@ -28,11 +30,11 @@ export async function POST(req: NextRequest) {
       createContainer(db, workspaceId);
 
     const body = await req.json().catch(() => undefined);
-    const { conversationId, messages, originalUserQuestion } = await prepareConversationRun(
-      req,
-      body,
-      { apiKeyService, apiChatConversationService },
-    );
+    const { principal, conversationId, messages, originalUserQuestion } =
+      await prepareConversationRun(req, body, {
+        apiKeyService,
+        apiChatConversationService,
+      });
 
     // External API conversations are not CoPilot threads and carry no page,
     // so they resolve to the general CoPilot with today's defaults. Going
@@ -48,16 +50,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const eventStream = await agent.streamEvents(
-      { messages },
-      {
-        version: 'v2',
-        recursionLimit: 50,
-        configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
+    // The SSE reader is built inside the scope, not just `streamEvents`.
+    // `eventStreamToSse` drains the event stream from inside the
+    // ReadableStream's `start`, so building it here is what puts the drain —
+    // and the tool calls it drives — on an async chain that inherits the
+    // store. Merely creating the iterator in scope is not enough: a `for await`
+    // run from outside reads an empty store, which would leave a trace a tool
+    // hand-builds mid-drain (the pptx skill) unattributed.
+    const sse = await runWithLangfuseUser(
+      langfuseUserForApiKey(principal),
+      async () => {
+        const eventStream = await agent.streamEvents(
+          { messages },
+          {
+            version: 'v2',
+            recursionLimit: 50,
+            configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
+          },
+        );
+        return eventStreamToSse(eventStream, conversationId);
       },
     );
-
-    const sse = eventStreamToSse(eventStream, conversationId);
 
     // Not a `finally`: streamEvents returns the iterator immediately and the
     // trace events are emitted while the SSE body drains, so the drain has to

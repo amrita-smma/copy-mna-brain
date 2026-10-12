@@ -4,7 +4,8 @@ import { ChatAnthropic } from '@langchain/anthropic';
 
 // Mock Langfuse to prevent telemetry during tests
 vi.mock('@/lib/langfuse', () => ({
-  getLangfuseCallbacks: vi.fn(() => []),
+  // The real helper's tracing-off behaviour: hand the config straight back.
+  withLangfuseCallbacks: vi.fn((config: unknown) => config ?? {}),
 }));
 
 // Mock createAgent from langchain since the test environment crashes inside langgraph

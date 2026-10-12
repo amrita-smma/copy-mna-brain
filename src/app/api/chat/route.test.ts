@@ -77,7 +77,12 @@ vi.mock('@/lib/flags', () => ({
   copilotMemoryEnabled: copilotMemoryEnabledMock,
   sourceOfFundsEnabled: vi.fn(async () => true),
 }));
-vi.mock('@/lib/langfuse', () => ({ flushLangfuse: vi.fn() }));
+// Partial: only the network-touching drain is stubbed. `runWithLangfuseUser`
+// stays real so the attribution assertion below exercises the actual store.
+vi.mock('@/lib/langfuse', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  flushLangfuse: vi.fn(),
+}));
 vi.mock('@/lib/chat/title', () => ({ generateChatTitle: vi.fn() }));
 // The real tier resolution (escalate-only, the open-insight floor); only the
 // routing call is stubbed.
@@ -112,6 +117,8 @@ import {
   INSIGHT_SELECTION_KWARG,
   formatInsightSelectionBlock,
 } from '@/lib/insights/selectionAttachment';
+import { getLangfuseUserId } from '@/lib/langfuseUser';
+import { generateChatTitle } from '@/lib/chat/title';
 
 const CHAT_ID = '11111111-2222-4333-8444-555555555555';
 const INSIGHT_ID = '99999999-8888-4777-8666-555555555555';
@@ -133,6 +140,7 @@ describe('POST /api/chat', () => {
     create: createChatMock,
     setEffortTier: setEffortTierMock,
     touchLastActive: touchLastActiveMock,
+    setTitle: vi.fn(),
   };
   const getChatContextMock = vi.fn();
   const insightService = { findBoundAgent: vi.fn(), getChatContext: getChatContextMock };
@@ -266,6 +274,82 @@ describe('POST /api/chat', () => {
 
       expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
     });
+  });
+
+  it('runs the turn under the signed-in user so its Langfuse traces are attributed', async () => {
+    // Not asserted on the invoke config: the id reaches Langfuse through the
+    // ambient store that `withLangfuseCallbacks` reads inside the agent
+    // runtime, which is mocked out here.
+    let userDuringTurn: string | undefined;
+    resolve();
+    invokeMock.mockImplementation(async () => {
+      userDuringTurn = getLangfuseUserId();
+      return { messages: [] };
+    });
+
+    await POST(chatRequest({ chat_id: CHAT_ID }));
+
+    expect(userDuringTurn).toBe('u1');
+    expect(getLangfuseUserId()).toBeUndefined();
+  });
+
+  it('keeps the fire-and-forget title generation attributed after the turn returns', async () => {
+    // Why `generateAndSaveTitle` needs no re-entry of its own: it is started
+    // inside the scope and settles after `handleChatTurn` has returned, and the
+    // store follows that async chain. Contrast the v1 SSE drain, where the
+    // consumer is *built* outside the scope and inherits nothing.
+    resolve();
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test');
+    assertOwnedByMock.mockResolvedValue({
+      id: CHAT_ID,
+      title: null,
+      effort_tier: 'medium',
+      agent_key: null,
+    });
+    let userDuringTitle: string | undefined;
+    let settleTitle: (() => void) | undefined;
+    const titleStarted = new Promise<void>((started) => {
+      vi.mocked(generateChatTitle).mockImplementation(async () => {
+        started();
+        // Held open until the handler has returned, so the assertion cannot
+        // pass on a title that resolved while the scope was still on the stack.
+        await new Promise<void>((resolve) => {
+          settleTitle = resolve;
+        });
+        userDuringTitle = getLangfuseUserId();
+        return 'A title';
+      });
+    });
+
+    await POST(chatRequest({ chat_id: CHAT_ID }));
+    await titleStarted;
+    expect(getLangfuseUserId()).toBeUndefined();
+    settleTitle?.();
+    await vi.waitFor(() => expect(userDuringTitle).toBeDefined());
+
+    expect(userDuringTitle).toBe('u1');
+    vi.unstubAllEnvs();
+  });
+
+  it('leaves an unauthenticated request unattributed and unanswered', async () => {
+    authMock.mockResolvedValue(null);
+
+    const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+
+    expect(res.status).toBe(401);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('renders a failed session read as the route\'s own JSON error, not a bare throw', async () => {
+    // auth() sits outside handleChatTurn so the user can be resolved before the
+    // turn runs; POST keeps its own try/catch so that move did not take the
+    // session decrypt out from under the route's error shape.
+    authMock.mockRejectedValue(Object.assign(new Error('JWEDecryptionFailed'), { status: 401 }));
+
+    const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({ error: 'JWEDecryptionFailed' });
   });
 
   it("passes the thread's agent to tools via configurable.agent_key", async () => {

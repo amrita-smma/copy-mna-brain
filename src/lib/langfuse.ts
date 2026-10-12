@@ -1,83 +1,64 @@
-import { CallbackHandler } from "langfuse-langchain";
+import { getLangfuseCallbacks } from "./langfuseClient";
+import { getLangfuseUserId } from "./langfuseUser";
 
 /**
- * Single gate for Langfuse tracing across every agent path.
+ * Single gate for Langfuse tracing across every agent path — this is the module
+ * call sites import.
  *
- * Tracing is on wherever a Langfuse project key pair is configured. That is the
- * whole point of the self-hosted instance in `terraform/langfuse`: traces from
- * staging and production are the ones worth having, and withholding them was
- * only ever a stand-in for "we have nowhere safe to send them". The two ways to
- * turn it off are to leave the keys unset (which is what any environment
- * without a Langfuse deployment does) or to set `LANGFUSE_TRACING_DISABLED=true`
- * as a kill switch.
+ * Whether to trace at all, and the handler itself, live in
+ * `@/lib/langfuseClient`, which this re-exports. Whoever a run belongs to lives
+ * in `@/lib/langfuseUser`. What is here is the one place those two meet:
+ * building the LangChain `RunnableConfig` that carries both.
  *
  * Callbacks go in the `callbacks` array of a LangChain/LangGraph invocation.
  * Raw Anthropic SDK call sites use `@/lib/pptx/pptxLangfuse` instead, which
- * gates on this same function.
+ * gates on the same `isLangfuseEnabled`.
+ *
+ * One caller must NOT come through here: a WDK `'use workflow'` body, which
+ * cannot contain a `node:` builtin and so cannot reach `@/lib/langfuseUser`.
+ * `runAgent`'s drain imports `flushLangfuse` from `@/lib/langfuseClient`
+ * directly for that reason.
  */
 
-type LangfuseEnv = Partial<
-  Record<
-    | "NODE_ENV"
-    | "VERCEL_ENV"
-    | "LANGFUSE_SECRET_KEY"
-    | "LANGFUSE_PUBLIC_KEY"
-    | "LANGFUSE_BASE_URL"
-    | "LANGFUSE_TRACING_DISABLED"
-    | "VERCEL_GIT_COMMIT_SHA",
-    string
-  >
->;
-
-let langfuseHandler: CallbackHandler | null = null;
-
-export function isLangfuseEnabled(env: LangfuseEnv = process.env): boolean {
-  if (env.LANGFUSE_TRACING_DISABLED === "true") return false;
-  // Both keys, not just the secret: Langfuse authenticates ingestion with the
-  // pair, so a half-configured environment would emit traces that are rejected
-  // at the far end with nothing failing locally to say so.
-  return Boolean(env.LANGFUSE_SECRET_KEY && env.LANGFUSE_PUBLIC_KEY);
-}
+export {
+  flushLangfuse,
+  getLangfuseCallbacks,
+  isLangfuseEnabled,
+  langfuseEnvironment,
+  resetLangfuseHandlerForTests,
+} from "./langfuseClient";
 
 /**
- * Which Langfuse environment a trace is filed under. Langfuse accepts a
- * lowercase alphanumeric string with hyphens and underscores that does not
- * start with `langfuse`, and uses `default` as its own fallback for an unset
- * value — so an unrecognised input degrades to that rather than making the
- * whole ingestion batch 400.
+ * The metadata key Langfuse's LangChain integration reads a trace's user from.
+ * It is consumed and stripped by the callback handler, so it never shows up as
+ * a stray metadata field on the trace.
  */
-export function langfuseEnvironment(env: LangfuseEnv = process.env): string {
-  const candidate = env.VERCEL_ENV ?? env.NODE_ENV;
-  if (!candidate) return "default";
-  const normalized = candidate.toLowerCase();
-  if (normalized.startsWith("langfuse")) return "default";
-  return /^[a-z0-9_-]+$/.test(normalized) ? normalized : "default";
-}
+const LANGFUSE_USER_METADATA_KEY = "langfuseUserId";
 
 /**
- * Traces are flushed explicitly at the end of a turn (see `flushLangfuse`), but
- * serverless functions can be frozen before a background timer runs. Batching
- * one event at a time keeps a dropped flush from costing the whole trace, at
- * the price of more requests — acceptable for a self-hosted instance that only
- * this app writes to.
+ * Stamp the ambient user onto a RunnableConfig's `metadata`.
+ *
+ * An explicit `langfuseUserId` from the call site wins — a caller that knows
+ * better than the ambient context (say, a run executing work on someone else's
+ * behalf) should not have it overwritten.
  */
-const FLUSH_AT = 1;
+function withLangfuseUserMetadata<T extends Record<string, unknown>>(
+  config: T,
+): T {
+  const userId = getLangfuseUserId();
+  if (!userId) return config;
 
-export function getLangfuseCallbacks() {
-  if (!isLangfuseEnabled()) return [];
+  const incoming = (config as { metadata?: unknown }).metadata;
+  const existing =
+    typeof incoming === "object" && incoming !== null && !Array.isArray(incoming)
+      ? (incoming as Record<string, unknown>)
+      : undefined;
+  if (existing?.[LANGFUSE_USER_METADATA_KEY]) return config;
 
-  if (!langfuseHandler) {
-    langfuseHandler = new CallbackHandler({
-      secretKey: process.env.LANGFUSE_SECRET_KEY,
-      publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-      baseUrl: process.env.LANGFUSE_BASE_URL || "http://langfuse-web:3000",
-      environment: langfuseEnvironment(),
-      // Lets a regression be pinned to a deploy instead of a date range.
-      release: process.env.VERCEL_GIT_COMMIT_SHA,
-      flushAt: FLUSH_AT,
-    });
-  }
-  return [langfuseHandler];
+  return {
+    ...config,
+    metadata: { ...(existing ?? {}), [LANGFUSE_USER_METADATA_KEY]: userId },
+  };
 }
 
 /**
@@ -88,14 +69,19 @@ export function getLangfuseCallbacks() {
  * spread: `callbacks` is legally a single handler, an array, or a
  * CallbackManager, and the hand-rolled `[...(config?.callbacks || [])]` form
  * silently discards a non-array value.
+ *
+ * Also stamps the ambient `runWithLangfuseUser` id into `metadata`, which is
+ * the whole reason a call site gets user attribution for free. Callers that
+ * build a config by hand and pass `getLangfuseCallbacks()` straight into it
+ * bypass that — use this helper instead.
  */
 export function withLangfuseCallbacks<T extends Record<string, unknown>>(
   config?: T,
 ): T | (T & { callbacks: unknown[] }) {
-  const base = config ?? ({} as T);
   const handlers = getLangfuseCallbacks();
-  if (handlers.length === 0) return base;
+  if (handlers.length === 0) return config ?? ({} as T);
 
+  const base = withLangfuseUserMetadata(config ?? ({} as T));
   const incoming = (base as { callbacks?: unknown }).callbacks;
 
   // A CallbackManager is not an array and must not be wrapped in one — LangChain
@@ -130,19 +116,4 @@ function isCallbackManager(value: unknown): value is CallbackManagerLike {
     typeof (value as CallbackManagerLike).copy === "function" &&
     typeof (value as CallbackManagerLike).addHandler === "function"
   );
-}
-
-/** Drain the Langfuse queue — call after streamed chat turns so events aren't dropped. */
-export async function flushLangfuse(): Promise<void> {
-  if (!langfuseHandler) return;
-  try {
-    await langfuseHandler.flushAsync();
-  } catch (err) {
-    console.warn("[langfuse] flush failed", err);
-  }
-}
-
-/** Test seam: drop the memoized handler so the next call re-reads the env. */
-export function resetLangfuseHandlerForTests(): void {
-  langfuseHandler = null;
 }

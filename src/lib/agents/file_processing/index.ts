@@ -14,7 +14,7 @@ import { BETWEEN_TOOLS_THINKING } from "@/lib/ai/thinking";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
 import { logger } from "../logger";
-import { flushLangfuse, getLangfuseCallbacks } from "@/lib/langfuse";
+import { flushLangfuse, withLangfuseCallbacks } from "@/lib/langfuse";
 
 /**
  * Beta flag required for the Files API. Both the upload/delete calls and any
@@ -392,7 +392,7 @@ async function streamAgentMessages(
   let finalMessages: BaseMessage[] = [];
   const stream = await agent.stream(
     { messages } as any,
-    { streamMode: "values", callbacks: getLangfuseCallbacks() } as any,
+    withLangfuseCallbacks({ streamMode: "values" }) as any,
   );
   for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
     if (chunk?.messages) {

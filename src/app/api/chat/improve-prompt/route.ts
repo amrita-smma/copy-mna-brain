@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { improvePrompt } from '@/lib/chat/improvePrompt';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,7 +16,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A non-empty prompt is required' }, { status: 400 });
     }
 
-    const improved = await improvePrompt(prompt);
+    // `improvePrompt` runs a Haiku call and takes no user parameter, so the
+    // trace is attributed from the ambient store like every other entrypoint.
+    const improved = await runWithLangfuseUser(session.user.id, () =>
+      improvePrompt(prompt),
+    );
     return NextResponse.json({ data: { improved } });
   } catch (err) {
     console.error('[chat/improve-prompt]', err);

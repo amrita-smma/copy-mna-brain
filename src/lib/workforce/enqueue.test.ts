@@ -49,6 +49,8 @@ vi.mock('./title', () => ({
 vi.mock('@/lib/server/db', () => ({ createDb, withBackgroundDb: vi.fn(async (cb) => cb(createDb())) }));
 
 import { enqueueAgentRun } from './enqueue';
+// Deliberately not mocked: the attribution assertions below need the real store.
+import { getLangfuseUserId } from '@/lib/langfuseUser';
 
 const fakeDb = {} as never;
 
@@ -300,6 +302,47 @@ describe('enqueueAgentRun', () => {
       'r-t',
       'Refresh project Oriole',
     );
+  });
+
+  it('attributes the generated title to whoever enqueued the run', async () => {
+    // The `after` callback runs after the response, off this request's async
+    // chain, so the scope has to be opened inside it rather than inherited.
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-u' }, created: true });
+    let userDuringTitle: string | undefined;
+    generateWorkforceTitle.mockImplementation(async () => {
+      userDuringTitle = getLangfuseUserId();
+      return 'Mock title';
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'x',
+      triggerSource: 'chat',
+      input: { prompt: 'Refresh project Oriole' },
+      triggeredByUserId: 'u-7',
+    });
+    await afterCalls[0]();
+
+    expect(userDuringTitle).toBe('u-7');
+    expect(getLangfuseUserId()).toBeUndefined();
+  });
+
+  it('leaves a cron enqueue with no user unattributed', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-cron' }, created: true });
+    let userDuringTitle: string | undefined = 'sentinel';
+    generateWorkforceTitle.mockImplementation(async () => {
+      userDuringTitle = getLangfuseUserId();
+      return 'Mock title';
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'x',
+      triggerSource: 'cron',
+      input: { prompt: 'Nightly refresh' },
+    });
+    await afterCalls[0]();
+
+    expect(generateWorkforceTitle).toHaveBeenCalledWith('r-cron', 'Nightly refresh');
+    expect(userDuringTitle).toBeUndefined();
   });
 
   it('skips title generation when input.prompt is missing', async () => {

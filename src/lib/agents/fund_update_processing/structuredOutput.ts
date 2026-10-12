@@ -1,6 +1,6 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { getLangfuseCallbacks } from '@/lib/langfuse';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 import { logger } from '../logger';
 import { z } from 'zod';
 
@@ -10,18 +10,18 @@ export type StructuredOutputClient =
         schema: z.ZodType<unknown> | Record<string, unknown>,
         config?: { name?: string },
       ) => {
-        invoke: (messages: BaseMessage[] | string) => Promise<unknown>;
+        invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
       };
-      invoke?: (messages: BaseMessage[] | string) => Promise<unknown>;
+      invoke?: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
     }
   | {
       withStructuredOutput?: (
         schema: z.ZodType<unknown> | Record<string, unknown>,
         config?: { name?: string },
       ) => {
-        invoke: (messages: BaseMessage[] | string) => Promise<unknown>;
+        invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
       };
-      invoke: (messages: BaseMessage[] | string) => Promise<unknown>;
+      invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
     };
 
 export type LLMClientOverride = StructuredOutputClient | ChatAnthropic;
@@ -78,7 +78,6 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
       temperature: undefined,
       maxTokens,
       streaming: true,
-      callbacks: getLangfuseCallbacks(),
       // Declaring adaptive thinking is what keeps withStructuredOutput off the
       // forced-tool_choice path: Sonnet 5.5 and Opus 5.5 reject tool_choice of
       // type `tool`/`any` with a 400. With `thinking` set, @langchain/anthropic
@@ -118,7 +117,13 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
         );
       }
 
-      const response = await structuredLlm.invoke(messages);
+      // Traced per-invoke rather than from the constructor: `withLangfuseCallbacks`
+      // also stamps the ambient user onto `metadata`, and constructor callbacks
+      // carry no per-run config to stamp it onto.
+      const response = await structuredLlm.invoke(
+        messages,
+        withLangfuseCallbacks({ runName: `fund_update.${toolName}` }),
+      );
       // Validate schema strictly
       const parsed = schema.parse(response);
       return parsed;

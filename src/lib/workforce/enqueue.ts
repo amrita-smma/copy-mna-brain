@@ -5,6 +5,7 @@ import type { DbClient } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { dispatcherTick } from './dispatcher';
 import { generateWorkforceTitle, persistWorkforceTitle, TITLE_MAX_CHARS } from './title';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 
 export type TriggerSource = 'chat' | 'cron' | 'webhook' | 'api';
 
@@ -69,7 +70,7 @@ export async function enqueueAgentRun(
 
   if (created) {
     await scheduleDispatch();
-    scheduleTitleGeneration(row.id, input.input);
+    scheduleTitleGeneration(row.id, input.input, input.triggeredByUserId);
   }
 
   return { runId: row.id, created };
@@ -87,6 +88,7 @@ export async function enqueueAgentRun(
 function scheduleTitleGeneration(
   runId: string,
   input: Record<string, unknown>,
+  triggeredByUserId?: string | null,
 ): void {
   const rawTitle = typeof input.title === 'string' ? input.title.trim() : '';
   if (rawTitle) {
@@ -99,7 +101,14 @@ function scheduleTitleGeneration(
   const prompt = typeof input.prompt === 'string' ? input.prompt : undefined;
   if (!prompt) return;
   after(async () => {
-    await generateWorkforceTitle(runId, prompt);
+    // Attributed to whoever enqueued the run, matching the run's own traces
+    // (`runAgent` seeds the same `triggered_by_user_id`). The scope is opened
+    // inside the `after` callback rather than inherited from the request: a
+    // callback the platform invokes later is not on this request's async
+    // chain. A cron or webhook enqueue has no user, and is a no-op here.
+    await runWithLangfuseUser(triggeredByUserId, () =>
+      generateWorkforceTitle(runId, prompt),
+    );
   });
 }
 

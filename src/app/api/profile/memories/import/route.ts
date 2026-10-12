@@ -9,6 +9,7 @@ import { MemoryImportTooLargeError } from '@/lib/services/userMemoryService';
 import { MAX_IMPORT_CHARS } from '@/lib/memory/limits';
 import { describeMemoryFailure } from '@/lib/memory/failures';
 import { flushLangfuse } from '@/lib/langfuse';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 
 /** Long enough for the agent to read a big paste or document. */
 export const maxDuration = 300;
@@ -91,12 +92,17 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const { statements, summary } = await memory.extractForReview({
-        userId,
-        text,
-        origin,
-        signal: req.signal,
-      });
+      // The `userId` below scopes the memories; this scopes the trace. They
+      // are the same person, but `extractForReview` passes its own id to the
+      // store, not to Langfuse.
+      const { statements, summary } = await runWithLangfuseUser(userId, () =>
+        memory.extractForReview({
+          userId,
+          text,
+          origin,
+          signal: req.signal,
+        }),
+      );
       return NextResponse.json({ data: { statements, summary, origin: origin ?? null } });
     } finally {
       // Awaited rather than deferred: this request already blocks on the agent

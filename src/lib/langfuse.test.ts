@@ -5,6 +5,7 @@ import {
   resetLangfuseHandlerForTests,
   withLangfuseCallbacks,
 } from "./langfuse";
+import { getLangfuseUserId, runWithLangfuseUser } from "./langfuseUser";
 
 afterEach(() => {
   resetLangfuseHandlerForTests();
@@ -190,5 +191,128 @@ describe("withLangfuseCallbacks", () => {
     withLangfuseCallbacks(config);
 
     expect(config.callbacks).toBeUndefined();
+  });
+});
+
+describe("runWithLangfuseUser", () => {
+  it("exposes the user to everything inside the callback", () => {
+    runWithLangfuseUser("user-1", () => {
+      expect(getLangfuseUserId()).toBe("user-1");
+    });
+  });
+
+  it("survives async hops, which is the whole point of the store", async () => {
+    await runWithLangfuseUser("user-1", async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getLangfuseUserId()).toBe("user-1");
+    });
+  });
+
+  it("leaves no user set outside the callback", () => {
+    runWithLangfuseUser("user-1", () => {});
+    expect(getLangfuseUserId()).toBeUndefined();
+  });
+
+  it("nests, so an inner run can re-attribute its own work", () => {
+    runWithLangfuseUser("outer", () => {
+      runWithLangfuseUser("inner", () => {
+        expect(getLangfuseUserId()).toBe("inner");
+      });
+      expect(getLangfuseUserId()).toBe("outer");
+    });
+  });
+
+  it("is a no-op for an absent id rather than inventing an empty user", () => {
+    // A cron-triggered routine and an internal pipeline upload both land here;
+    // an empty-string userId would show up in Langfuse as a real user named "".
+    for (const id of [null, undefined, "", "   "]) {
+      runWithLangfuseUser(id, () => {
+        expect(getLangfuseUserId()).toBeUndefined();
+      });
+    }
+  });
+
+  it("trims, so a padded id does not become a second Langfuse user", () => {
+    runWithLangfuseUser("  user-1  ", () => {
+      expect(getLangfuseUserId()).toBe("user-1");
+    });
+  });
+
+  it("returns whatever the callback returns", () => {
+    expect(runWithLangfuseUser("user-1", () => 42)).toBe(42);
+    expect(runWithLangfuseUser(null, () => 42)).toBe(42);
+  });
+});
+
+describe("withLangfuseCallbacks user attribution", () => {
+  const stubKeys = () => {
+    vi.stubEnv("LANGFUSE_SECRET_KEY", "sk-lf-test");
+    vi.stubEnv("LANGFUSE_PUBLIC_KEY", "pk-lf-test");
+  };
+
+  it("stamps the ambient user as langfuseUserId, the key the handler reads", () => {
+    stubKeys();
+
+    const merged = runWithLangfuseUser("user-1", () =>
+      withLangfuseCallbacks({ runName: "chat.title" }),
+    ) as { runName: string; metadata: Record<string, unknown> };
+
+    expect(merged.runName).toBe("chat.title");
+    expect(merged.metadata.langfuseUserId).toBe("user-1");
+  });
+
+  it("merges into metadata the caller already set instead of replacing it", () => {
+    // The agent runtime stamps its effort tier here; losing it would make
+    // "which tier ran this turn?" unanswerable from a trace.
+    stubKeys();
+
+    const merged = runWithLangfuseUser("user-1", () =>
+      withLangfuseCallbacks({ metadata: { effort_tier: "medium" } }),
+    ) as { metadata: Record<string, unknown> };
+
+    expect(merged.metadata).toEqual({
+      effort_tier: "medium",
+      langfuseUserId: "user-1",
+    });
+  });
+
+  it("lets an explicit langfuseUserId from the call site win", () => {
+    stubKeys();
+
+    const merged = runWithLangfuseUser("ambient", () =>
+      withLangfuseCallbacks({ metadata: { langfuseUserId: "explicit" } }),
+    ) as { metadata: Record<string, unknown> };
+
+    expect(merged.metadata.langfuseUserId).toBe("explicit");
+  });
+
+  it("adds no metadata key when no user is in context", () => {
+    stubKeys();
+
+    const merged = withLangfuseCallbacks({ runName: "cron.daily_pulse" }) as {
+      metadata?: Record<string, unknown>;
+    };
+
+    expect(merged.metadata).toBeUndefined();
+  });
+
+  it("does not mutate the caller's metadata object", () => {
+    stubKeys();
+    const metadata: Record<string, unknown> = { effort_tier: "medium" };
+
+    runWithLangfuseUser("user-1", () => withLangfuseCallbacks({ metadata }));
+
+    expect(metadata).toEqual({ effort_tier: "medium" });
+  });
+
+  it("stamps nothing when tracing is off — there is no trace to attribute", () => {
+    vi.stubEnv("LANGFUSE_SECRET_KEY", "");
+    vi.stubEnv("LANGFUSE_PUBLIC_KEY", "");
+    const config = { runName: "chat.title" };
+
+    expect(runWithLangfuseUser("user-1", () => withLangfuseCallbacks(config))).toBe(
+      config,
+    );
   });
 });

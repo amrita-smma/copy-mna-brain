@@ -205,6 +205,19 @@ export async function prepareConversationRun(
   };
 }
 
+/**
+ * The Langfuse user id for an external API caller.
+ *
+ * `api_keys` rows carry no user — a key is the only principal these requests
+ * have — so the key's own id is the identity, namespaced so it can never
+ * collide with a `users.id` coming off a Copilot session. Keeps the Langfuse
+ * Users view able to answer "which integration drove this spend?" alongside
+ * "which person did?".
+ */
+export function langfuseUserForApiKey(principal: ApiKeyPrincipal): string {
+  return `api-key:${principal.id}`;
+}
+
 /** SSE event types emitted by the streaming endpoint (documented external contract). */
 export type SseEvent =
   | { event: 'delta'; data: { text: string } }

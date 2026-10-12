@@ -4,6 +4,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
 import { asyncJobId, type EmailIngestContext } from '@/lib/services/fileService';
 import { auth } from '@/auth';
+import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import {
   UserWorkspaceRepository,
   type FileSortField,
@@ -131,17 +132,22 @@ export async function POST(request: NextRequest) {
       workspaceId = requestedWorkspaceId;
     }
     const { fileService } = createContainer(db, workspaceId);
-    const data = await fileService.processUpload(
-      key,
-      fileName,
-      contentType,
-      userRawNotes,
-      fileTypeOverride,
-      originEmail,
-      bankerSource,
-      enteredByEmail,
-      uploaderUserId,
-      emailContext,
+    // Extraction runs inline inside this call, so the file-processing and
+    // fund-update agents trace under the uploader. An internal pipeline upload
+    // has no session and stays unattributed.
+    const data = await runWithLangfuseUser(uploaderUserId, () =>
+      fileService.processUpload(
+        key,
+        fileName,
+        contentType,
+        userRawNotes,
+        fileTypeOverride,
+        originEmail,
+        bankerSource,
+        enteredByEmail,
+        uploaderUserId,
+        emailContext,
+      ),
     );
 
     const isAsync = Boolean(asyncJobId(data));

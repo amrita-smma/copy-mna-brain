@@ -22,6 +22,8 @@ vi.mock('@/lib/langfuse', () => ({ flushLangfuse: vi.fn() }));
 
 import { POST } from './route';
 import { MAX_IMPORT_CHARS } from '@/lib/memory/limits';
+// Deliberately not mocked: the attribution assertion below needs the real store.
+import { getLangfuseUserId } from '@/lib/langfuseUser';
 
 const post = (body: unknown) =>
   new NextRequest('http://localhost/api/profile/memories/import', {
@@ -64,6 +66,19 @@ describe('POST /api/profile/memories/import', () => {
     expect(mocks.extractForReview).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', text: 'I cover Indonesian coal.' }),
     );
+  });
+
+  it('runs the extraction under the signed-in user so its trace is attributed', async () => {
+    let userDuringExtract: string | undefined;
+    mocks.extractForReview.mockImplementation(async () => {
+      userDuringExtract = getLangfuseUserId();
+      return { statements: [], summary: 'Found 0.' };
+    });
+
+    await POST(post({ text: 'notes' }));
+
+    expect(userDuringExtract).toBe('user-1');
+    expect(getLangfuseUserId()).toBeUndefined();
   });
 
   it('takes the owner from the session, never from the request body', async () => {
