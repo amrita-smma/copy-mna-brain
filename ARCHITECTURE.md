@@ -162,14 +162,24 @@ with `country-to-iso` before deriving a flag emoji.
 
 **Langfuse traces are lost unless the queue is drained.** Its callbacks are
 fire-and-forget, and a serverless function can be frozen with a turn's events
-still queued. `runJob`, `runAgent`, the chat route and the daily pulse each
-`await flushLangfuse()` in a `finally`; a new agent entrypoint that bypasses all
-four must do the same. Merge the handler with `withLangfuseCallbacks(config)`,
-never by spreading `callbacks` by hand — LangChain allows a bare handler there
-and the hand-rolled spread throws on it. A WDK `'use workflow'` body may import
-only `@/lib/langfuseClient`, never the `@/lib/langfuse` barrel: the barrel
-reaches `node:async_hooks` and the workflow bundle refuses to build on it. See
-`docs/features/langfuse-tracing.md`.
+still queued. `runJob`, the workforce `invokeAgent` step, the chat route and
+the daily pulse each `await flushLangfuse()` in a `finally`; a new agent
+entrypoint that bypasses all four must do the same. Merge the handler with
+`withLangfuseCallbacks(config)`, never by spreading `callbacks` by hand —
+LangChain allows a bare handler there and the hand-rolled spread throws on it.
+See `docs/features/langfuse-tracing.md`.
+
+**A `'use workflow'` body must only await `'use step'` functions.** The WDK
+workflow body runs in a sandbox with no Node core modules; any plain function
+it calls is bundled into that sandbox with its whole import chain. One
+`flushLangfuse()` in `runAgent`'s workflow body dragged the langfuse SDK (and
+langsmith's top-level `require("node:worker_threads")`) into the workflow
+bundle and crashed every AI Workforce run before its first step — a production
+outage; the flush now lives in the `invokeAgent` step. If a workflow body must
+import something anyway, use a leaf module with no `node:` builtins in reach —
+that is why `@/lib/langfuseClient` is split from the `@/lib/langfuse` barrel,
+which reaches the `AsyncLocalStorage` in `@/lib/langfuseUser` and fails the
+workflow build (`src/lib/workforce/runAgent.ts` documents both rules).
 
 ## Commands
 

@@ -61,6 +61,9 @@ const {
 }));
 
 const { getStepMetadataMock } = vi.hoisted(() => ({ getStepMetadataMock: vi.fn() }));
+const { flushLangfuseMock } = vi.hoisted(() => ({ flushLangfuseMock: vi.fn() }));
+
+vi.mock('@/lib/langfuseClient', () => ({ flushLangfuse: flushLangfuseMock }));
 const { resolveRecipientMock, notifyTaskWaitingApprovalMock } = vi.hoisted(() => ({
   resolveRecipientMock: vi.fn(),
   notifyTaskWaitingApprovalMock: vi.fn(),
@@ -247,6 +250,7 @@ beforeEach(() => {
     fileIds: ['file-mock'],
   });
   deleteFromAnthropicMock.mockReset().mockResolvedValue(undefined);
+  flushLangfuseMock.mockReset().mockResolvedValue(undefined);
   publishRunDraftMock.mockReset();
   notifyInsightRefreshedMock.mockReset().mockResolvedValue(true);
   process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -1053,6 +1057,25 @@ describe('invokeAgent', () => {
     invokeMock.mockResolvedValueOnce({ messages: [{ content: 'user msg' }, last] });
 
     expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: NO_OUTPUT_REASON });
+  });
+
+  // The Langfuse drain must live inside this step, where the callback handler
+  // and its event queue exist. It must never move back to the workflow body:
+  // the WDK sandbox has no Node core modules, so bundling the langfuse SDK
+  // into the workflow crashes every run before its first step (the outage of
+  // 2026-10-12).
+  it('flushes langfuse in its finally after a completed invoke', async () => {
+    const result = await callInvokeAgent();
+
+    expect(result.kind).toBe('completed');
+    expect(flushLangfuseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes langfuse even when the invoke throws', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('model exploded'));
+
+    await expect(callInvokeAgent()).rejects.toThrow('model exploded');
+    expect(flushLangfuseMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -22,12 +22,17 @@ load-bearing rather than cosmetic:
 | `src/lib/langfuseUser.ts` | the AsyncLocalStorage carrying who a run belongs to | yes (`node:async_hooks`) |
 | `src/lib/langfuse.ts` | `withLangfuseCallbacks` — where the two meet; re-exports the client | — |
 
-`runAgent`'s `'use workflow'` body drains the queue in its `finally`, so
-whatever it imports is compiled into the WDK workflow bundle, and that bundle
-**fails to build on any use of a `node:` builtin in a module it contains** —
-reachable from the workflow body or not. That is the whole reason
-`flushLangfuse` lives in the client leaf and `runAgent` imports it from
-`@/lib/langfuseClient` directly rather than through the barrel.
+The workforce drain lives in `invokeAgent`'s `finally` — a `'use step'`
+function, **never** `runAgent`'s `'use workflow'` body. Whatever a workflow
+body references is compiled into the WDK workflow bundle: a first-party module
+that touches a `node:` builtin **fails the build** — reachable from the
+workflow body or not — and a drain from the body once bundled the whole
+langfuse SDK (langsmith requires `node:worker_threads` at module scope) into
+the sandbox and crashed every workforce run before its first step, the
+2026-10-12 outage. The client/user split stays load-bearing regardless:
+`runAgent.ts` still imports `flushLangfuse` from `@/lib/langfuseClient`
+directly rather than through the barrel, so a future reference from the
+workflow body breaks the build instead of production.
 
 Adding a `node:` import to `langfuseClient.ts` — or an import of
 `langfuseUser` — breaks `next build` with `workflow-node-module-error`, pointing
@@ -177,7 +182,7 @@ path that ends a unit of agent work drains the queue:
 | Chokepoint | Drains |
 |---|---|
 | `src/lib/jobs/runner.ts` (`runJob`'s `finally`) | Every background job handler |
-| `src/lib/workforce/runAgent.ts` (`finally`) | Workforce runs — WDK workflows, which never pass through `runJob` |
+| `src/lib/workforce/runAgent.ts` (`invokeAgent`'s `finally` — inside the `'use step'` function, **never** the workflow body) | Workforce runs — WDK workflows, which never pass through `runJob`. The flush must stay in the step: the workflow body runs in the WDK sandbox where Node core modules are unavailable, so bundling the langfuse SDK into it crashes every run |
 | `src/app/api/chat/route.ts` (`after()` / `finally`) | Copilot chat turns |
 | `src/app/api/v1/chat/route.ts` (`finally`), `…/stream/route.ts` (`after()`) | External chat API |
 | `src/lib/dashboard/dailyPulseNarrator.ts` (`finally`) | Daily pulse, from both the route and the session-less cron |

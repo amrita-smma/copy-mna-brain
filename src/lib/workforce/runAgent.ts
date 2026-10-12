@@ -577,6 +577,15 @@ export async function invokeAgent(
     throw err;
   } finally {
     clearInterval(heartbeatTimer);
+    // Drain the Langfuse queue here, inside the step that produced the trace
+    // events — the handler and its queue live in this step's Node.js process.
+    // This must NOT move to the workflow body: workflow functions run in the
+    // WDK sandbox where Node core modules are unavailable, so bundling the
+    // langfuse SDK (whose dependency chain requires node:worker_threads /
+    // node:fs at module scope) into the workflow crashes every run before its
+    // first step. In a finally so a HITL pause, a failure and a re-thrown
+    // error all flush what the run produced before stopping.
+    await flushLangfuse();
     if (uploadedFileIds.length > 0) {
       const idsToDelete = uploadedFileIds;
       uploadedFileIds = [];
@@ -916,12 +925,5 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
     }
     // Re-throw so the workflow itself is marked failed in WDK's run record.
     throw err;
-  } finally {
-    // Workforce runs are WDK workflows, not jobs, so they never pass through
-    // runJob's drain. Without this the longest agent traces in the product are
-    // the ones most likely to be lost, because the queued events outlive the
-    // function. In a finally so a HITL pause, a failure and a re-thrown error
-    // all flush what the run produced before stopping.
-    await flushLangfuse();
   }
 }
