@@ -37,7 +37,7 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 11. **query_investors** - List limited partners (LPs) and aggregate returns.
 12. **query_fund_sources** - List capital sources and funding pools.
 13. **query_files** - Search uploaded documents, memos, and meeting notes.
-14. **lookup_crm** - Look up CRM contacts, firms, notes, and relationship context.
+14. **lookup_crm** - Look up CRM contacts, firms, notes, and relationship context — or pass a deal profile (geography + deal_type) to rank bankers by fit.
 15. **crm_insights** - Portfolio-wide CRM relationship health metrics.
 16. **web_search** - Search the web for company data, market context, benchmarks, and news. Returns real results with URLs, not a pre-digested summary.
 17. **valyu_search** - Search Valyu.ai across financial filings, market research, news, and web with citations.

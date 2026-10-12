@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   emailParticipants,
   employerTeamMembers,
@@ -29,6 +29,28 @@ export class EmployerTeamRepository {
       .innerJoin(users, eq(users.id, employerTeamMembers.user_id))
       .where(eq(employerTeamMembers.employer_id, employerId));
     return rows;
+  }
+
+  /**
+   * Batched counterpart to `listForEmployer` — coverage for many employers in
+   * one query, ordered by employer first so callers can group in a single
+   * pass. Use this instead of calling `listForEmployer` per employer.
+   */
+  async listForEmployers(
+    employerIds: string[],
+  ): Promise<Array<TeamMember & { employer_id: string }>> {
+    if (employerIds.length === 0) return [];
+    return this.db
+      .select({
+        employer_id: employerTeamMembers.employer_id,
+        id: users.id,
+        name: users.name,
+        email: users.email,
+      })
+      .from(employerTeamMembers)
+      .innerJoin(users, eq(users.id, employerTeamMembers.user_id))
+      .where(inArray(employerTeamMembers.employer_id, employerIds))
+      .orderBy(asc(employerTeamMembers.employer_id), asc(users.name));
   }
 
   async add(employerId: string, userId: string): Promise<void> {

@@ -114,7 +114,11 @@ describe('insightLayoutNote', () => {
 });
 
 describe('checkInsightLayout on a hostile document', () => {
+  // The assertion is "no RangeError", not "fast": parsing 300k elements takes
+  // well under a second alone but can drift past the 5s default when the full
+  // suite saturates the workers. An explicit timeout keeps this from flaking
+  // on whoever adds the next test file.
   it('handles hundreds of thousands of top-level elements without a RangeError', () => {
     expect(() => checkInsightLayout('<p>x</p>'.repeat(300_000))).not.toThrow();
-  });
+  }, 30_000);
 });

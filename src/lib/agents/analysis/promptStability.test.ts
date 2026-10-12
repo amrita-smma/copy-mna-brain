@@ -97,10 +97,10 @@ function lastSystemPrompt(): string {
 // with a "Default Posture: Research First" section, not a data-analysis
 // assistant.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '6545645a89695ce365f481662abafbac1df20ce810fc50692af90b1ecd4b96e0',
-  investment: 'a7bff6803334bd968e5cb5d94859057d8eacb043a3c93c0034251bd548299458',
-  combined: '74782a7f1afcd6c6afdb07aa3647f66c537246d45a4794bb8db2cba451581be9',
-  vc: '4736949d6ac25e2ede95b9cf03847fed2617f4c1a3656c0cb8081145ff29e038',
+  mna: 'd9fd6bf0905c9e17ac97ed7127688064905f6505c29b744eb48ec4d6edc68671',
+  investment: '194c09f7dc41d8477ea082bd92f61afee0147377f1fd5e354baa3fccec2f2d5f',
+  combined: '2587748a00d07efc769a6d78e1dc2e37208ae93f207179ceacf32278ba85e0ee',
+  vc: '3719679f1c99562e5a265992e2c6a8b473a4860cede6b1ce8e26f14a53718979',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
@@ -110,17 +110,17 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '0924e03eeb32d4a1c469a6034a3ec13cd65a3298a729b145d144ce40835a76d2',
+  crowdfunding: 'bfab0e13b6ef0b5fe69695d54e19353fbbab9bacf84ab64dc5de233e4f098b33',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: 'f6cf192fcad08fc6612e9020e6bf7fc0e2c27fb52acd94c5eb6a2f619d5b5b45',
+  investment_banking: '62720977fcae2e8f2342336462aa3d5a6e89f4757f5b4dcac38f01533de0d617',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: '57b7123d5a20d2c1caf663989a46aef843ae533ed070d83a25018f401a6939bb',
+  capital_markets: 'bf48cbb93bc00a996507407658a6146e078f6a9d2be76274fbc9fd88efed5f49',
 };
 // The Workforce prompt changed on purpose: the mandate-fit step of "Forming an
 // AI Opinion" now says what to do when the workspace has no active mandate —

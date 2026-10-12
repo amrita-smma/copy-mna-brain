@@ -146,6 +146,43 @@ export class TopicRepository {
     return rows;
   }
 
+  /**
+   * Batched counterpart to `listForEmployer` — topics for many employers in one
+   * query, ordered by employer first so callers can group in a single pass.
+   * Use this instead of calling `listForEmployer` per employer (that fan-out is
+   * an N+1: one query per row, see CLAUDE.md §Backend Development).
+   */
+  async listForEmployers(
+    employerIds: string[],
+    workspaceId: string,
+  ): Promise<Array<EmployerTopicAssignment & { employer_id: string }>> {
+    if (employerIds.length === 0) return [];
+    return this.db
+      .select({
+        id: employerTopics.id,
+        employer_id: employerTopics.employer_id,
+        topic_id: topics.id,
+        name: topics.name,
+        slug: topics.slug,
+        source: employerTopics.source,
+        is_highlight: employerTopics.is_highlight,
+        is_deal_related: topics.is_deal_related,
+      })
+      .from(employerTopics)
+      .innerJoin(topics, eq(employerTopics.topic_id, topics.id))
+      .where(
+        and(
+          inArray(employerTopics.employer_id, employerIds),
+          or(isNull(topics.workspace_id), eq(topics.workspace_id, workspaceId)),
+        ),
+      )
+      .orderBy(
+        asc(employerTopics.employer_id),
+        desc(employerTopics.is_highlight),
+        asc(topics.name),
+      );
+  }
+
   async assignToEmployer(
     employerId: string,
     topicId: string,

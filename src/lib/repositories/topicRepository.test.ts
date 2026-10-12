@@ -28,6 +28,28 @@ describe('TopicRepository', () => {
     repo = new TopicRepository(db as never);
   });
 
+  describe('listForEmployers', () => {
+    it('returns [] without hitting the DB when the id list is empty', async () => {
+      const out = await repo.listForEmployers([], 'w1');
+      expect(out).toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('fetches many employers in one query, ordered by employer so callers can group in one pass', async () => {
+      const rows = [
+        { employer_id: 'e1', topic_id: 't1', name: 'LBO financing' },
+        { employer_id: 'e2', topic_id: 't2', name: 'IPO' },
+      ];
+      db.orderBy.mockResolvedValueOnce(rows);
+
+      const out = await repo.listForEmployers(['e1', 'e2'], 'w1');
+
+      expect(out).toEqual(rows);
+      expect(db.select).toHaveBeenCalledTimes(1);
+      expect(db.orderBy.mock.calls[0]?.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('listAll', () => {
     it('scopes to shared vocabulary and this workspace\'s own private topics', async () => {
       const rows = [{ id: 't1', name: 'ECM', workspace_id: null }];

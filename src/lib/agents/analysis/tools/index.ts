@@ -391,7 +391,7 @@ export function getToolDescriptions(): string {
     {
       name: "lookup_crm",
       description:
-        "Look up a CRM firm/banker by name or email and get its full relationship picture — bankers, topics, team coverage, recent emails, notes, and linked pipeline companies",
+        "Look up CRM firms and bankers. By name/email: the firm's full relationship picture (bankers, topics, team coverage, recent emails, notes, linked pipeline companies). By deal profile (geography + deal_type + department): individual bankers ranked by fit, for 'which banker can help me close this deal'",
     },
     {
       name: "crm_insights",

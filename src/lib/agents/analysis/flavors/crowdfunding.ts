@@ -87,7 +87,7 @@ You have access to the following tools:
 8. **get_regulatory_context** - The firm's regulatory watchlist. The crowdfunding regime below is the frame every raise sits inside
 9. **get_sector_context** - Market sizing, demand and input-cost context for the trade the project is in
 10. **query_files** - Search and retrieve files, memos, teasers and meeting records. The sponsor's documents, and what the firm concluded about them before, live here
-11. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture. Small-ticket deal flow is relationship-sourced
+11. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture. Small-ticket deal flow is relationship-sourced. Or pass a deal profile (geography + deal_type) to rank bankers by fit
 12. **crm_insights** - Portfolio-wide CRM health metrics: stale relationships, flagged records, emails received today
 13. **web_search** - Search the web for external facts — the OJK text, a venue's listing page, a licence record, a counterparty. Returns real results with URLs
 14. **valyu_search** - Search Valyu.ai across the web and proprietary data sources (filings, market data, research, news) with citations. Prefer it over web_search for financial and regulatory diligence
