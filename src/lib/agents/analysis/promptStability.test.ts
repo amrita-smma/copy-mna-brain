@@ -106,32 +106,37 @@ function lastSystemPrompt(): string {
 // in that same turn, with further angles on the ones the answer turns on and a
 // bound so a fifty-row table does not owe fifty searches. The
 // mna prompt additionally changed identity: an M&A Specialist with a "Default
-// Posture: Research First" section, not a data-analysis assistant.
+// Posture: Research First" section, not a data-analysis assistant. The
+// web_search mechanics paragraph then changed again on purpose, moving every
+// chat flavor at once: the tools now carry allowed_callers including "direct",
+// so the guide tells the model to call web_search directly as an ordinary tool
+// call, reserving code execution for filtering many results — not as the only
+// route to a search.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '00a7bf38b2e13fa77296f349794e1c0030d3aa3620e2053ef833287b1f35c2c6',
-  investment: 'b706968864d1fcd00f2d4df5ce9ffca7a8a7dc3c6e492f2f2748fb99edd93479',
-  combined: '0fffbdf81fc9e5f89e5b8310314c4d7b992ec8a6fc7d0de99f534b85865cb51d',
-  vc: 'a0e3ea2aea61939bd1e1bc47f29bf5d6fcc44b9fd2a9b7dcd52dac6bba3d3527',
+  mna: 'b3442b4dd59f356b13480ac9b079224076849b33f34d7bc9d41b4538b5bce519',
+  investment: 'b673a8eb63f3ac503d6a190842f9873030bc28122fe47651bf24f170a414ea42',
+  combined: 'd17fad3b5acb6227de8690a92e4220aeb190f7064b02af2ffeb5ceed514c450c',
+  vc: '09b5eae0ca4eae0a2cfda41893c749d6fea98c8c4bf297a9158f05d52c06b080',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: '2222b04850be667b0e3af5391050310cde9aabca05730718928c6fe2d026d515',
+  minority: 'bd3672e3d739e5fe3cf664672286547326c430e40b05d5ad183b7f7d4d39dc3b',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: 'ca6631b03bb3c6916c23c04095f8ab196d942106d9651b3d589bb321813ba67c',
+  crowdfunding: '3a7cc8a25dc41e27e02922759085e92e5ded4b6930d545903e8ffe8d972a9fe1',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: '79d05748a73edd8b81c6ada6829b01b381ffdce640a59fa9d25012aa46ed3d8e',
+  investment_banking: '3074b0abcf142f27a38dd7c99ad76b87606f2b8fc3ea80e3a9c36d14ee8a08cb',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: 'c2e83c61a73125365d3cf7d8c9197420b61d034a315b551f668c142dcd774484',
+  capital_markets: '4954deac3abab80bcee6649f5e57bd4d5dd584bf287ab7106067ad2a681776af',
 };
 // The Workforce prompt changed on purpose: search_news is removed — web_search
 // (run aggressively, several calls per turn) is the one news tool — "Evidence

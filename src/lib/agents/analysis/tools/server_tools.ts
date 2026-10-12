@@ -24,6 +24,19 @@
  *
  * Never declare `code_execution` explicitly (run internally by 2026 variants).
  *
+ * ## `allowed_callers` must include "direct"
+ *
+ * On the `_20260209` variants `allowed_callers` DEFAULTS to
+ * `["code_execution_20260120"]` — direct `web_search`/`web_fetch` calls are
+ * rejected unless "direct" is listed. The prompts (`guides.ts`) tell the model
+ * to "call web_search"; left on the default, its direct attempts bounce and it
+ * narrates a detour ("I need to call web_search through code_execution rather
+ * than invoking it directly") or gives up on searching entirely. Listing both
+ * callers keeps the cheap direct path for single searches while leaving
+ * dynamic filtering (searches issued from inside code execution) available for
+ * multi-query passes. Verified against the live API: with both callers the
+ * model issues direct searches immediately.
+ *
  * ## `max_uses` must not bind during ordinary research
  *
  * `max_uses` caps the searches performed within ONE Messages API request, and
@@ -56,7 +69,15 @@ export interface AnthropicServerTool {
   type: string;
   name: string;
   max_uses?: number;
+  allowed_callers?: string[];
 }
+
+/**
+ * The caller id for searches issued from inside the code-execution sandbox
+ * (dynamic filtering). This is the `_20260209` web tools' implicit default —
+ * and, without "direct" alongside it, the reason direct calls are rejected.
+ */
+export const CODE_EXECUTION_CALLER = "code_execution_20260120";
 
 /**
  * Lower bound enforced by `server_tools.test.ts`. Not a tuning knob — it is the
@@ -71,6 +92,16 @@ export const MIN_SERVER_TOOL_MAX_USES = 25;
 export const MIN_WEB_SEARCH_MAX_USES = 60;
 
 export const SERVER_TOOLS: AnthropicServerTool[] = [
-  { type: "web_search_20260209", name: "web_search", max_uses: 80 },
-  { type: "web_fetch_20260209", name: "web_fetch", max_uses: 30 },
+  {
+    type: "web_search_20260209",
+    name: "web_search",
+    max_uses: 80,
+    allowed_callers: ["direct", CODE_EXECUTION_CALLER],
+  },
+  {
+    type: "web_fetch_20260209",
+    name: "web_fetch",
+    max_uses: 30,
+    allowed_callers: ["direct", CODE_EXECUTION_CALLER],
+  },
 ];

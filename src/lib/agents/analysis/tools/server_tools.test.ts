@@ -6,6 +6,7 @@ import { AIMessage } from '@langchain/core/messages';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  CODE_EXECUTION_CALLER,
   MIN_SERVER_TOOL_MAX_USES,
   MIN_WEB_SEARCH_MAX_USES,
   SERVER_TOOLS,
@@ -51,6 +52,24 @@ describe('SERVER_TOOLS', () => {
   it('gives every server tool an explicit max_uses above the floor', () => {
     for (const tool of SERVER_TOOLS) {
       expect(tool.max_uses, tool.name).toBeGreaterThanOrEqual(MIN_SERVER_TOOL_MAX_USES);
+    }
+  });
+
+  it('allows direct calls on every web tool — the _20260209 default rejects them', () => {
+    // allowed_callers defaults to ["code_execution_20260120"] on these tool
+    // versions, so an unset field means the model's direct web_search calls
+    // bounce: it narrates "I need to call web_search through code_execution
+    // rather than invoking it directly", burns turns on the detour, and
+    // eventually stops searching. Omitting the field reverts to that default,
+    // so this asserts the field is explicit AND contains "direct".
+    for (const tool of SERVER_TOOLS) {
+      expect(tool.allowed_callers, tool.name).toContain('direct');
+    }
+  });
+
+  it('keeps the code-execution caller so dynamic filtering stays available', () => {
+    for (const tool of SERVER_TOOLS) {
+      expect(tool.allowed_callers, tool.name).toContain(CODE_EXECUTION_CALLER);
     }
   });
 });
