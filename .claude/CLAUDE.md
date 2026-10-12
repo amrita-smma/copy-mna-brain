@@ -59,7 +59,31 @@ This project uses **pnpm** instead of npm. All Claude Code commands should use p
 - `pnpm run <script>` (not `npm run <script>`)
 - `pnpm test` (not `npm test`)
 
-**Exception:** For the dev server, use `vercel dev` instead of `pnpm run dev` (we use Vercel's built-in tooling).
+**Exception:** For the dev server, use `vercel dev` instead of `pnpm run dev` (we use Vercel's built-in tooling) — but see §Validating Changes: do not start it yourself.
+
+## Validating Changes
+
+**Never start a Next.js server to validate your work.** Do not run `vercel dev`,
+`pnpm run dev`, `next dev`, `pnpm run build`, `next build`, `pnpm start`, or any
+Playwright/e2e target (`pnpm test:e2e*`) as a check — they are far too expensive in
+time and machine resources for the feedback they give, and a backgrounded dev server
+keeps burning CPU and memory long after the task is done.
+
+Validate with the cheap checks instead:
+
+- `pnpm test` (vitest) — the primary gate; run the focused file first
+  (`pnpm test src/lib/services/foo.test.ts`) and the full suite only when the change
+  is broad.
+- `pnpm exec tsc --noEmit` — type errors, including in React components. This is the
+  substitute for "does it compile?"; a build adds nothing a typecheck doesn't catch.
+- `pnpm lint` — scoped to the files you touched where practical.
+- `pnpm arch:map` when you added or renamed a route, service, repository, agent tool,
+  job handler, flag or page.
+
+If a change genuinely cannot be verified without a running server (visual/layout
+work, a browser-only interaction), say so and let the user run it — the dev server is
+theirs to start, and it is usually already running. Do not start one "just to check",
+and never leave one running in the background.
 
 ## Overview
 
