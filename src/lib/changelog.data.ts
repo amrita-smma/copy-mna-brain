@@ -110,6 +110,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "8443b67cbe6c0b9fe06fba6417c313e060617efd",
+    "date": "2026-10-12",
+    "subject": "Pin the production Langfuse hostname to its Elastic IP",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "829f5f819cea215649d3dafab1e09e3a5e7f7635",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
