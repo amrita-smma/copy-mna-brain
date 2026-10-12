@@ -56,6 +56,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2f820e067c66f14812e46378fb20e13d6b1429c0",
+    "date": "2026-10-12",
+    "subject": "Merge Context and Featured Slide into Additional Context, add a Timeline tab",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "eebcf10d1e52b40bdc6dfcee11ac8fd4a4f786c6",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
