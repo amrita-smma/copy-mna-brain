@@ -39,8 +39,16 @@ const PAD = { top: 10, right: 6, bottom: 20, left: 34 } as const;
 /** Approximate advance width of Inter at a given size — enough for collision tests. */
 export const CHAR_WIDTH_RATIO = 0.55;
 
-export function textWidth(text: string, fontSize: number): number {
-  return text.length * fontSize * CHAR_WIDTH_RATIO;
+/** The same for Inter Bold, which direct value labels are set in. */
+export const BOLD_CHAR_WIDTH_RATIO = 0.6;
+
+export function textWidth(text: string, fontSize: number, ratio = CHAR_WIDTH_RATIO): number {
+  return text.length * fontSize * ratio;
+}
+
+/** Width of a direct value label — always bold, so never measured as regular. */
+export function boldTextWidth(text: string, fontSize: number): number {
+  return textWidth(text, fontSize, BOLD_CHAR_WIDTH_RATIO);
 }
 
 export interface PlotFrame {
@@ -86,11 +94,27 @@ export interface LineMark {
 
 export interface SliceMark {
   categoryIndex: number;
-  /** SVG path for the wedge. */
+  /** SVG path for the ring segment. */
   path: string;
   value: number;
   percent: number;
   label: string;
+}
+
+/**
+ * The ring a `pie` spec is drawn as, and the hole it leaves for the total.
+ *
+ * A donut is used rather than a filled pie because the hole is the only place
+ * in the figure where the total can be printed, and a share-of-whole chart
+ * whose whole is not stated makes the reader derive it from the legend.
+ */
+export interface DonutFrame {
+  cx: number;
+  cy: number;
+  outerRadius: number;
+  innerRadius: number;
+  /** Sum of the positive values the ring is built from. */
+  total: number;
 }
 
 export interface CategoryLabel {
@@ -106,6 +130,8 @@ export interface ChartGeometry {
   bars: BarMark[];
   lines: LineMark[];
   slices: SliceMark[];
+  /** Set for `pie` specs only, and null when nothing positive was plotted. */
+  donut: DonutFrame | null;
   /** Series names in slot order — the caller renders these as the legend. */
   legend: string[];
 }
@@ -141,6 +167,7 @@ export function buildChartGeometry(
   const legend = spec.series.map((s) => s.name);
 
   if (spec.type === 'pie') {
+    const { slices, donut } = buildDonut(spec, box);
     return {
       plot: { x: 0, y: 0, width: box.width, height: box.height },
       ticks: { min: 0, max: 0, step: 1, values: [] },
@@ -148,7 +175,8 @@ export function buildChartGeometry(
       categoryLabels: [],
       bars: [],
       lines: [],
-      slices: buildPieSlices(spec, box),
+      slices,
+      donut,
       legend: spec.categories,
     };
   }
@@ -243,6 +271,14 @@ export function buildChartGeometry(
     const groupWidth = Math.min(slotWidth * 0.72, 54);
     const barWidth = groupWidth / seriesCount;
     const zeroY = toY(0);
+    // How much width a direct value label may claim before it would run into
+    // the next one. With several series the labels are spaced a bar apart, so
+    // the bar is the budget; with a single series there is one label per
+    // category, centred in the slot, so a label may overhang its own bar and
+    // still clear its neighbour. Measuring against the bar in that case
+    // suppressed labels on perfectly legible charts — a lone 46pt bar in a
+    // 160pt slot was refusing to print "15.9k".
+    const labelBudget = seriesCount === 1 ? slotWidth : barWidth;
     for (let c = 0; c < spec.categories.length; c++) {
       for (let s = 0; s < seriesCount; s++) {
         const value = spec.series[s].values[c];
@@ -250,9 +286,9 @@ export function buildChartGeometry(
         const valueY = toY(value);
         const x = plot.x + slotWidth * (c + 0.5) - groupWidth / 2 + barWidth * s;
         const label = formatCompact(value);
-        // Only label where the text fits inside the bar's own slot; otherwise
-        // the axis and the legend carry the reading.
-        const fits = textWidth(label, labelFontSize) <= barWidth + 2;
+        // Only label where the text clears the next label along; otherwise the
+        // axis and the legend carry the reading.
+        const fits = boldTextWidth(label, labelFontSize) <= labelBudget + 2;
         bars.push({
           seriesIndex: s,
           categoryIndex: c,
@@ -270,24 +306,31 @@ export function buildChartGeometry(
     }
   }
 
-  return { plot, ticks, gridLines, categoryLabels, bars, lines, slices: [], legend };
+  return { plot, ticks, gridLines, categoryLabels, bars, lines, slices: [], donut: null, legend };
 }
 
-/** Polar-to-cartesian on the pie's circle. Angles are clockwise from 12 o'clock. */
+/** Polar-to-cartesian on the donut's circle. Angles are clockwise from 12 o'clock. */
 function polar(cx: number, cy: number, r: number, angle: number): [number, number] {
   const rad = (angle - 90) * (Math.PI / 180);
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 }
 
-function buildPieSlices(spec: ChartSpec, box: ChartBox): SliceMark[] {
+/** Fraction of the outer radius left as the hole. */
+const DONUT_HOLE = 0.62;
+
+function buildDonut(
+  spec: ChartSpec,
+  box: ChartBox,
+): { slices: SliceMark[]; donut: DonutFrame | null } {
   const values = spec.categories.map((_, i) => {
     const v = spec.series[0]?.values[i] ?? 0;
     return Number.isFinite(v) && v > 0 ? v : 0;
   });
   const total = values.reduce((a, b) => a + b, 0);
-  if (total <= 0) return [];
+  if (total <= 0) return { slices: [], donut: null };
 
-  const radius = Math.max(8, Math.min(box.width, box.height) / 2 - 6);
+  const outerRadius = Math.max(8, Math.min(box.width, box.height) / 2 - 6);
+  const innerRadius = outerRadius * DONUT_HOLE;
   const cx = box.width / 2;
   const cy = box.height / 2;
 
@@ -296,20 +339,31 @@ function buildPieSlices(spec: ChartSpec, box: ChartBox): SliceMark[] {
   for (let i = 0; i < values.length; i++) {
     if (values[i] === 0) continue;
     const sweep = (values[i] / total) * 360;
-    // A slice at exactly 360° would collapse to a zero-length arc; draw two
-    // half-arcs so a single-category pie still paints a full circle.
+    // A segment at exactly 360° would collapse to a zero-length arc; stopping
+    // a thousandth of a degree short paints the full ring instead.
     const end = angle + Math.min(sweep, 359.999);
-    const [x0, y0] = polar(cx, cy, radius, angle);
-    const [x1, y1] = polar(cx, cy, radius, end);
     const largeArc = sweep > 180 ? 1 : 0;
+    const [xo0, yo0] = polar(cx, cy, outerRadius, angle);
+    const [xo1, yo1] = polar(cx, cy, outerRadius, end);
+    const [xi0, yi0] = polar(cx, cy, innerRadius, angle);
+    const [xi1, yi1] = polar(cx, cy, innerRadius, end);
+    const n = (v: number) => v.toFixed(2);
     slices.push({
       categoryIndex: i,
-      path: `M ${cx.toFixed(2)} ${cy.toFixed(2)} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 ${largeArc} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`,
+      // Out along the start radius, clockwise round the outside, in across the
+      // end radius, then anticlockwise back round the hole.
+      path: [
+        `M ${n(xo0)} ${n(yo0)}`,
+        `A ${n(outerRadius)} ${n(outerRadius)} 0 ${largeArc} 1 ${n(xo1)} ${n(yo1)}`,
+        `L ${n(xi1)} ${n(yi1)}`,
+        `A ${n(innerRadius)} ${n(innerRadius)} 0 ${largeArc} 0 ${n(xi0)} ${n(yi0)}`,
+        'Z',
+      ].join(' '),
       value: values[i],
       percent: (values[i] / total) * 100,
       label: spec.categories[i],
     });
     angle = end;
   }
-  return slices;
+  return { slices, donut: { cx, cy, outerRadius, innerRadius, total } };
 }

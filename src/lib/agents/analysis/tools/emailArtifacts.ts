@@ -482,6 +482,12 @@ const kpiSchema = z.object({
   label: z.string().describe('Short uppercase-able card label'),
   value: z.string().describe('Headline value; wraps if long, so it is never truncated'),
   hint: z.string().optional().describe('Optional context under the value; wraps onto several lines'),
+  tone: z
+    .enum(['positive', 'negative', 'neutral', 'warning', 'info'])
+    .optional()
+    .describe(
+      'Set ONLY when the value is a status rather than a quantity (e.g. "Dropped", "On track"): it renders the value as a coloured pill. Leave unset for any number — a figure set as a pill loses the size that makes it scannable.',
+    ),
   logo_url: logoUrlField,
 });
 
@@ -572,6 +578,25 @@ const sectionBlockSchema = z.discriminatedUnion('kind', [
     series: z.array(chartSeriesSchema).min(1).max(8),
   }),
   z.object({
+    kind: z.literal('callout'),
+    tone: z
+      .enum(['warning', 'takeaway', 'info', 'positive'])
+      .optional()
+      .describe(
+        'warning=amber box, for a caveat the reader must not miss (unverified figures, a data-quality note, a risk); takeaway=filled navy panel, for the two to five things to remember from the section or the document; info=blue; positive=green. Defaults to warning.',
+      ),
+    title: z
+      .string()
+      .optional()
+      .describe('Short label printed in small caps at the top, e.g. "DATA VERIFICATION NOTE"'),
+    text: z.string().optional().describe('Body paragraph. Optional if `items` is given.'),
+    items: z
+      .array(z.string())
+      .max(12)
+      .optional()
+      .describe('Bulleted lines. Optional if `text` is given; a callout with neither is dropped.'),
+  }),
+  z.object({
     kind: z.literal('image'),
     url: z.string().url().describe('https URL of a PNG or JPEG. SVG is not supported.'),
     caption: z.string().optional(),
@@ -623,20 +648,40 @@ export const researchSummarySpecSchema = z
       .optional()
       .describe('Optional source list rendered at the end.'),
   })
-  // A chart series shorter than its category list is the easiest mistake to
-  // make here and the hardest to see in the output: the trailing categories are
-  // silently dropped, so the chart comes out wrong rather than absent.
+  // Two shapes that parse but do not produce what the agent meant. Both are
+  // checked here rather than per block because `z.discriminatedUnion` only
+  // accepts plain objects, and `.refine()` would make the member a
+  // `ZodEffects`.
   .superRefine((spec, ctx) => {
     spec.sections.forEach((block, i) => {
-      if (block.kind !== 'chart') return;
-      block.series.forEach((series, j) => {
-        if (series.values.length === block.categories.length) return;
+      // A chart series shorter than its category list is the easiest mistake to
+      // make here and the hardest to see in the output: the trailing categories
+      // are silently dropped, so the chart comes out wrong rather than absent.
+      if (block.kind === 'chart') {
+        block.series.forEach((series, j) => {
+          if (series.values.length === block.categories.length) return;
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['sections', i, 'series', j, 'values'],
+            message: `series "${series.name}" has ${series.values.length} values but there are ${block.categories.length} categories; every series needs exactly one value per category`,
+          });
+        });
+      }
+
+      // A callout with only a title renders nothing at all — the renderer drops
+      // it rather than boxing an empty tint. Rejecting it here turns a block
+      // the agent believed it had emitted into an error it can act on.
+      if (block.kind === 'callout') {
+        const hasText = Boolean(block.text?.trim());
+        const hasItems = (block.items ?? []).some((item) => item.trim().length > 0);
+        if (hasText || hasItems) return;
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['sections', i, 'series', j, 'values'],
-          message: `series "${series.name}" has ${series.values.length} values but there are ${block.categories.length} categories; every series needs exactly one value per category`,
+          path: ['sections', i],
+          message:
+            'a callout needs `text`, `items`, or both; one carrying neither renders nothing',
         });
-      });
+      }
     });
   });
 
@@ -676,6 +721,8 @@ function mapSection(s: ResearchSummarySpec['sections'][number]): SectionBlock {
         categories: s.categories,
         series: s.series as ChartSeriesInput[],
       };
+    case 'callout':
+      return { kind: 'callout', tone: s.tone, title: s.title, text: s.text, items: s.items };
     case 'image':
       return { kind: 'image', url: s.url, caption: s.caption, maxHeight: s.maxHeight };
     case 'gauges':

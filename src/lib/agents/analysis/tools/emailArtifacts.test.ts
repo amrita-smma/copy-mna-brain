@@ -373,6 +373,85 @@ describe('buildResearchSummaryAttachment', () => {
     });
   });
 
+  it('carries a KPI card’s tone through to the renderer, and renames its logo', async () => {
+    await buildResearchSummaryAttachment({
+      title: 't',
+      sections: [
+        {
+          kind: 'kpi_cards',
+          cards: [
+            { label: 'Status', value: 'Dropped', tone: 'negative' },
+            { label: 'Revenue', value: '$14.5M', logo_url: 'https://cdn.example.com/l.png' },
+          ],
+        },
+      ],
+    });
+    expect(generateResearchSummaryPdf.mock.calls[0][0].sections[0].cards).toEqual([
+      { label: 'Status', value: 'Dropped', tone: 'negative', hint: undefined, logoUrl: null },
+      {
+        label: 'Revenue',
+        value: '$14.5M',
+        tone: undefined,
+        hint: undefined,
+        logoUrl: 'https://cdn.example.com/l.png',
+      },
+    ]);
+  });
+
+  it('passes the callout block through, tone and all', async () => {
+    await buildResearchSummaryAttachment({
+      title: 't',
+      sections: [
+        {
+          kind: 'callout',
+          tone: 'takeaway',
+          title: 'Takeaways',
+          items: ['One.', 'Two.'],
+        },
+      ],
+    });
+    expect(generateResearchSummaryPdf.mock.calls[0][0].sections[0]).toEqual({
+      kind: 'callout',
+      tone: 'takeaway',
+      title: 'Takeaways',
+      text: undefined,
+      items: ['One.', 'Two.'],
+    });
+  });
+
+  it('accepts a callout with only a body, and defaults its tone at render time', () => {
+    const result = researchSummarySpecSchema.safeParse({
+      title: 't',
+      sections: [{ kind: 'callout', text: 'Figures are unverified.' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.sections[0]).toEqual({
+      kind: 'callout',
+      text: 'Figures are unverified.',
+    });
+  });
+
+  it('rejects a callout carrying neither text nor items, which would render nothing', () => {
+    for (const block of [
+      { kind: 'callout', title: 'Nothing to say' },
+      { kind: 'callout', title: 'Nothing to say', text: '   ', items: ['', ' '] },
+    ]) {
+      const result = researchSummarySpecSchema.safeParse({ title: 't', sections: [block] });
+      expect(result.success).toBe(false);
+      expect(result.error!.issues[0].message).toMatch(/needs `text`, `items`, or both/);
+      expect(result.error!.issues[0].path).toEqual(['sections', 0]);
+    }
+  });
+
+  it('rejects a callout tone outside the four the renderer paints', () => {
+    expect(
+      researchSummarySpecSchema.safeParse({
+        title: 't',
+        sections: [{ kind: 'callout', tone: 'danger', text: 'x' }],
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects a chart whose series is shorter than its category list', () => {
     const result = researchSummarySpecSchema.safeParse({
       title: 't',

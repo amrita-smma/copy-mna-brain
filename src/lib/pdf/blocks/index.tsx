@@ -5,7 +5,7 @@
  * `types.ts` without rendering it is a type error rather than a silently blank
  * section.
  */
-import { CONTENT_WIDTH } from '../theme';
+import { FIGURE_WIDTH } from '../theme';
 import type { ImageCache } from '../assets';
 import type { SectionBlock } from '../types';
 import type { ChartSpec } from '../charts/geometry';
@@ -14,14 +14,19 @@ import { Bullets, Paragraph } from './text';
 import { SectionHeading } from './primitives';
 import { KpiCards } from './KpiCards';
 import { Gauges } from './Gauges';
+import { Callout } from './Callout';
 import { Scorecard } from './Scorecard';
 import { Quadrants } from './Quadrants';
 import { PriorityList } from './PriorityList';
 import { ImageBlock } from './ImageBlock';
 
-const CHART_HEIGHT = 150;
-/** A pie is as wide as it is tall; stretching its box only adds white space. */
-const PIE_SIZE = 170;
+const CHART_HEIGHT = 160;
+/**
+ * The donut's box is square and claims only its share of the figure card —
+ * the legend table beside it takes the rest. Stretching the ring to the full
+ * width would only add white space around it.
+ */
+const DONUT_SIZE = 150;
 
 /**
  * Normalise both chart block kinds onto one spec.
@@ -72,13 +77,17 @@ export function Block({ block, images }: { block: SectionBlock; images: ImageCac
       return (
         <Chart
           spec={spec}
-          width={isPie ? PIE_SIZE : CONTENT_WIDTH}
-          height={isPie ? PIE_SIZE : CHART_HEIGHT}
+          width={isPie ? DONUT_SIZE : FIGURE_WIDTH}
+          height={isPie ? DONUT_SIZE : CHART_HEIGHT}
           title={block.title}
           colorOffset={accentOffset}
         />
       );
     }
+    case 'callout':
+      return (
+        <Callout tone={block.tone} title={block.title} text={block.text} items={block.items} />
+      );
     case 'image':
       return (
         <ImageBlock

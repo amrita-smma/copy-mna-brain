@@ -99,6 +99,34 @@ export function extractTextLines(pdf: Buffer): TextLine[] {
   return out;
 }
 
+/**
+ * The colour painted at one point on a page, as `#rrggbb`.
+ *
+ * Everything else in this module reads text, which cannot see a fill. A block
+ * that paints a background and is allowed to break across pages has a failure
+ * mode no text assertion reaches: the continuation keeps the text and loses the
+ * fill, so white-on-navy copy lands on white paper and disappears.
+ *
+ * Coordinates are in PDF points from the top-left of the page, the same space
+ * `TextLine` reports.
+ */
+export function colorAt(pdf: Buffer, page: number, x: number, y: number): string {
+  const doc = mupdf.Document.openDocument(pdf, 'application/pdf');
+  try {
+    const pixmap = doc
+      .loadPage(page - 1)
+      .toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
+    const components = pixmap.getNumberOfComponents();
+    const offset = (pixmap.getWidth() * Math.round(y) + Math.round(x)) * components;
+    const pixels = pixmap.getPixels();
+    return `#${[0, 1, 2]
+      .map((channel) => pixels[offset + channel].toString(16).padStart(2, '0'))
+      .join('')}`;
+  } finally {
+    doc.destroy?.();
+  }
+}
+
 export function pageCount(pdf: Buffer): number {
   const doc = mupdf.Document.openDocument(pdf, 'application/pdf');
   try {

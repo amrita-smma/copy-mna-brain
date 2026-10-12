@@ -85,6 +85,12 @@ export const gotoDocument: ResearchSummaryPdfInput = {
       overallNote:
         'Mechanical de-rating, not an earnings miss — and heavy net buying followed removal of the floor.',
     },
+    {
+      kind: 'callout',
+      tone: 'warning',
+      title: 'Data verification note',
+      text: 'The FY2026E EBITDA range above is management guidance restated at the Q2 call, not a figure we have independently modelled. Treat the 5.5x as a guidance-implied multiple.',
+    },
     { kind: 'heading', text: 'Three dependencies' },
     {
       kind: 'priority_list',
@@ -106,6 +112,16 @@ export const gotoDocument: ResearchSummaryPdfInput = {
             'Regulation — ojol commission cut from 20% to 8% from 1 July 2026, costing ~IDR 300bn of H2 EBITDA.',
           meta: '~9% of guidance, on a service that is only 7% of group net revenue',
         },
+      ],
+    },
+    { kind: 'heading', level: 'subsection', text: 'Takeaways' },
+    {
+      kind: 'callout',
+      tone: 'takeaway',
+      items: [
+        'Cheapest multiple in the peer set with the second-fastest growth, and net cash covering 43% of the market cap.',
+        'Sixty percent of H1 operating profit rests on one related-party fee agreed with a TikTok-controlled counterparty.',
+        'The regulatory cut is real but small — roughly 9% of FY26 EBITDA guidance, on a service that is 7% of group net revenue.',
       ],
     },
   ],
@@ -140,7 +156,16 @@ export const kitchenSinkDocument: ResearchSummaryPdfInput = {
         },
         { label: 'Short', value: '5.5x' },
         { label: 'Another', value: '+31%', hint: 'Two consecutive profitable quarters' },
-        { label: 'Fourth card', value: 'IDR 37.3', hint: 'wraps to a second row' },
+        // Four cards against a three-wide grid, so the last row is short and
+        // its two empty cells must still carry the tint and the rules out to
+        // the frame's right edge. This one also carries a tone, which is the
+        // pill branch rather than the headline-number one.
+        {
+          label: 'Fourth card, a status rather than a quantity',
+          value: 'DROPPED FROM THE PIPELINE',
+          tone: 'negative',
+          hint: 'wraps to a second row',
+        },
       ],
     },
     {
@@ -263,6 +288,28 @@ export const kitchenSinkDocument: ResearchSummaryPdfInput = {
         { year: 'FY2025', value: 18_322 },
       ],
     },
+    {
+      kind: 'callout',
+      tone: 'warning',
+      title: 'A callout eyebrow long enough that it has to wrap onto a second line of small caps',
+      text: 'An amber callout whose body is comfortably longer than the box is wide, so it must wrap, and which is then followed by a bullet list in the same box to check that both halves can coexist.',
+      items: [
+        'A bullet inside a callout, long enough to wrap onto a second line so the dot stays beside the first line rather than centring itself against the block.',
+        'A short one.',
+      ],
+    },
+    {
+      kind: 'callout',
+      tone: 'takeaway',
+      title: 'Takeaways',
+      items: Array.from(
+        { length: 8 },
+        (_, i) =>
+          `Takeaway ${i + 1}: an inverted panel item long enough to wrap, repeated often enough that the panel has to break across a page and keep its fill on the continuation.`,
+      ),
+    },
+    // Neither text nor items: renders nothing rather than an empty box.
+    { kind: 'callout', tone: 'info', title: 'Dropped' },
     { kind: 'bullets', items: [] },
     { kind: 'priority_list', items: [
       {

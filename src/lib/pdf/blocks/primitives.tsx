@@ -115,7 +115,6 @@ export function SectionHeading({ text, level }: { text: string; level: HeadingLe
     // shortest block worth following a heading with — a few lines of prose, or
     // the top of a table.
     <View style={styles.sectionHeading} wrap={false} minPresenceAhead={90}>
-      <View style={styles.sectionAccentBar} />
       <Text style={styles.sectionHeadingText}>{text}</Text>
     </View>
   );

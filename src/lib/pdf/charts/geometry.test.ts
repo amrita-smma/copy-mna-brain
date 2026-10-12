@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildChartGeometry, textWidth, STACK_GAP, type ChartSpec } from './geometry';
+import {
+  buildChartGeometry,
+  boldTextWidth,
+  textWidth,
+  STACK_GAP,
+  type ChartSpec,
+} from './geometry';
 
 const BOX = { width: 500, height: 170 };
 
@@ -48,21 +54,60 @@ describe('buildChartGeometry — bars', () => {
     expect(loss.labelY).toBeGreaterThan(zero.y);
   });
 
-  it('suppresses a direct label that would be wider than its bar — the old collision', () => {
+  it('suppresses a direct label that would reach its neighbour — the old collision', () => {
     const twelve = Array.from({ length: 12 }, (_, i) => `M${i + 1}`);
     const g = buildChartGeometry(
       barSpec(twelve, twelve.map((_, i) => -10279 + i * 137)),
       BOX,
     );
+    // One series, so each label sits alone in its category slot and that slot
+    // is the whole budget it has.
+    const slot = g.plot.width / 12;
     for (const bar of g.bars) {
       if (bar.label === null) continue;
-      expect(textWidth(bar.label, 6.5)).toBeLessThanOrEqual(bar.width + 2);
+      expect(boldTextWidth(bar.label, 6.5)).toBeLessThanOrEqual(slot + 2);
+    }
+  });
+
+  it('measures a grouped chart label against its own bar, not the slot', () => {
+    const categories = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const g = buildChartGeometry(
+      {
+        type: 'bar',
+        categories,
+        // Four series per slot, each value long enough that only the bar
+        // width can decide: anything that fits the slot would collide.
+        series: Array.from({ length: 4 }, (_, s) => ({
+          name: `s${s}`,
+          values: categories.map(() => -102790 - s),
+        })),
+      },
+      BOX,
+    );
+    expect(g.bars.some((b) => b.label === null)).toBe(true);
+    for (const bar of g.bars) {
+      if (bar.label === null) continue;
+      expect(boldTextWidth(bar.label, 6.5)).toBeLessThanOrEqual(bar.width + 2);
     }
   });
 
   it('keeps labels when there is room for them', () => {
     const g = buildChartGeometry(barSpec(['FY24', 'FY25'], [15, 18]), BOX);
     expect(g.bars.every((b) => b.label !== null)).toBe(true);
+  });
+
+  it('labels a lone series even where the text overhangs its own bar', () => {
+    // Sixteen bars in a 460pt plot: each bar is 20.7pt wide inside a 28.8pt
+    // slot, and "-10.3k" is 23.4pt — wider than the bar it sits on, narrower
+    // than the gap to the next label. Budgeting against the bar instead
+    // dropped labels off charts that plainly had room for them.
+    const categories = Array.from({ length: 16 }, (_, i) => `M${i + 1}`);
+    const g = buildChartGeometry(
+      barSpec(categories, categories.map(() => -10_279)),
+      BOX,
+    );
+    expect(g.bars.every((b) => b.label !== null)).toBe(true);
+    expect(g.bars.every((b) => boldTextWidth(b.label!, 6.5) > b.width)).toBe(true);
   });
 
   it('never lets two labelled bars in the same row overlap horizontally', () => {
@@ -226,7 +271,75 @@ describe('buildChartGeometry — lines', () => {
   });
 });
 
-describe('buildChartGeometry — pie', () => {
+describe('buildChartGeometry — donut', () => {
+  it('returns a ring whose hole is inside it, and the total that goes in the hole', () => {
+    const g = buildChartGeometry(
+      {
+        type: 'pie',
+        categories: ['Cash', 'Tokopedia', 'Jago'],
+        series: [{ name: 'Mix', values: [50, 30, 20] }],
+      },
+      { width: 160, height: 160 },
+    );
+    expect(g.donut).not.toBeNull();
+    const donut = g.donut!;
+    expect(donut.total).toBe(100);
+    expect(donut.innerRadius).toBeGreaterThan(0);
+    expect(donut.innerRadius).toBeLessThan(donut.outerRadius);
+    expect(donut.outerRadius).toBeLessThanOrEqual(80);
+    expect(donut.cx).toBeCloseTo(80, 6);
+    expect(donut.cy).toBeCloseTo(80, 6);
+  });
+
+  it('sums only the positive values into the centre total', () => {
+    const g = buildChartGeometry(
+      {
+        type: 'pie',
+        categories: ['a', 'b', 'c'],
+        series: [{ name: 'Mix', values: [10, 0, -5] }],
+      },
+      { width: 120, height: 120 },
+    );
+    // Not 5: the negative is dropped, not subtracted, so the ring and the
+    // number in its hole are built from the same values.
+    expect(g.donut?.total).toBe(10);
+  });
+
+  it('draws each segment as a ring, with an arc out and an arc back', () => {
+    const g = buildChartGeometry(
+      {
+        type: 'pie',
+        categories: ['a', 'b'],
+        series: [{ name: 'Mix', values: [70, 30] }],
+      },
+      { width: 160, height: 160 },
+    );
+    for (const slice of g.slices) {
+      // Two arcs — the outer edge and the hole — not a wedge's single one.
+      expect(slice.path.match(/A /g)).toHaveLength(2);
+      expect(slice.path).not.toMatch(/NaN/);
+    }
+  });
+
+  it('leaves the donut frame null when nothing is positive', () => {
+    const g = buildChartGeometry(
+      { type: 'pie', categories: ['a'], series: [{ name: 'Mix', values: [0] }] },
+      { width: 120, height: 120 },
+    );
+    expect(g.donut).toBeNull();
+    expect(g.slices).toEqual([]);
+  });
+
+  it('leaves the donut frame null for every chart that is not a pie', () => {
+    for (const type of ['bar', 'stacked_bar', 'line'] as const) {
+      const g = buildChartGeometry(
+        { type, categories: ['a'], series: [{ name: 'x', values: [1] }] },
+        BOX,
+      );
+      expect(g.donut).toBeNull();
+    }
+  });
+
   it('produces one wedge per positive category, summing to 100 percent', () => {
     const g = buildChartGeometry(
       {

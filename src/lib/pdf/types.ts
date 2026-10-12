@@ -8,6 +8,7 @@
  */
 
 export type PillTone = 'positive' | 'negative' | 'neutral' | 'warning' | 'info';
+export type CalloutTone = 'warning' | 'takeaway' | 'info' | 'positive';
 export type GaugeTone = 'positive' | 'negative' | 'neutral';
 export type PriorityTone = 'high' | 'medium' | 'low';
 export type ChartAccent = 'primary' | 'secondary';
@@ -23,6 +24,14 @@ export interface KpiInput {
   label: string;
   value: string;
   hint?: string;
+  /**
+   * Renders `value` as a coloured pill instead of a headline number.
+   *
+   * For a cell holding a status rather than a quantity — "Dropped", "On
+   * track". A number set as a pill reads as a label and loses the size that
+   * made it scannable, so leave this unset for anything measurable.
+   */
+  tone?: PillTone;
   /** Optional logo rendered beside the card label. */
   logoUrl?: string | null;
 }
@@ -92,6 +101,18 @@ export type SectionBlock =
       unit?: string;
       categories: string[];
       series: ChartSeriesInput[];
+    }
+  | {
+      /**
+       * A boxed aside that must not be read as body copy: a caveat on the
+       * numbers above it, or the two or three things to take away from the
+       * section. `warning` is the amber box; `takeaway` is the navy one.
+       */
+      kind: 'callout';
+      tone?: CalloutTone;
+      title?: string;
+      text?: string;
+      items?: string[];
     }
   | { kind: 'image'; url: string; caption?: string; maxHeight?: number }
   | { kind: 'gauges'; gauges: GaugeInput[] }

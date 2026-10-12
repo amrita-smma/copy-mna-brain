@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { generateResearchSummaryPdf } from '@/lib/pdfSummary';
 import { gotoDocument, kitchenSinkDocument } from './testFixtures';
 import {
+  colorAt,
   extractTextLines,
   linesOutsideContentBox,
   linesOutsideBodyBand,
   findCollisions,
   describe as describeLine,
 } from './layoutInspector';
+import { COLOR, PAGE } from './theme';
 import type { ResearchSummaryPdfInput } from './types';
 
 /**
@@ -98,6 +100,153 @@ describe('rendered layout invariants', () => {
     });
     const paragraph = lines.find((l) => l.text.startsWith('café'));
     expect(paragraph?.text).toBe(text);
+  }, 60000);
+
+  it('carries the column rules through the empty cells of a short last row', async () => {
+    // Four cards against a three-wide grid. The second row holds one card and
+    // two empty cells; the row's own fill already reaches the right margin, so
+    // what the empty cells are actually for is the two interior rules. Without
+    // them the grid loses its columns halfway down and the last row reads as a
+    // separate, wider box. Only a pixel can see a rule, so this reads some.
+    const buffer = await generateResearchSummaryPdf({
+      title: 'KPI grid',
+      sections: [
+        {
+          kind: 'kpi_cards',
+          cards: [
+            { label: 'Revenue', value: '$14.5M' },
+            { label: 'EBITDA', value: '$1.8M' },
+            { label: 'Margin', value: '~12.4%' },
+            { label: 'Stage', value: 'L0' },
+          ],
+        },
+      ],
+    });
+    const stage = extractTextLines(buffer).find((l) => l.text === 'STAGE');
+    expect(stage).toBeDefined();
+    const y = stage!.y + stage!.height / 2;
+
+    // A hairline is antialiased across a point or two, so each probe takes the
+    // darkest pixel in a small window rather than one exact column.
+    const ink = (hex: string) =>
+      [1, 3, 5].reduce((sum, i) => sum + parseInt(hex.slice(i, i + 2), 16), 0);
+    const darkest = (centre: number) =>
+      Math.min(
+        ...[-1, -0.5, 0, 0.5, 1].map((d) => ink(colorAt(buffer, 1, centre + d, y))),
+      );
+
+    const cell = (PAGE.width - PAGE.marginX * 2) / 3;
+    const tint = ink(COLOR.cardBg);
+
+    // Both interior rules are present...
+    expect(darkest(PAGE.marginX + cell)).toBeLessThan(tint - 20);
+    expect(darkest(PAGE.marginX + cell * 2)).toBeLessThan(tint - 20);
+    // ...and the probe is not simply finding ink everywhere: mid-cell is tint.
+    expect(darkest(PAGE.marginX + cell * 2.5)).toBe(tint);
+  }, 60000);
+
+  it('sets a toned KPI value as a pill rather than as a headline number', async () => {
+    const buffer = await generateResearchSummaryPdf({
+      title: 'KPI grid',
+      sections: [
+        {
+          kind: 'kpi_cards',
+          cards: [{ label: 'Status', value: 'Dropped', tone: 'negative' }],
+        },
+      ],
+    });
+    const value = extractTextLines(buffer).find((l) => l.text === 'Dropped');
+    expect(value).toBeDefined();
+
+    // Inside the pill's left padding, which is solid fill.
+    expect(colorAt(buffer, 1, value!.x - 2.5, value!.y + value!.height / 2)).toBe(
+      COLOR.pillNegativeBg,
+    );
+  }, 60000);
+
+  it('wraps a callout body and its bullets rather than clipping them', async () => {
+    const lines = await inspect({
+      title: 'Callouts',
+      sections: [
+        {
+          kind: 'callout',
+          tone: 'warning',
+          title: 'Data verification note',
+          text: 'A body long enough that it cannot sit on one line of the box it is in, which is the case the previous renderer silently clipped.',
+          items: ['First bullet, also long enough to need a second line of its own.', 'Second.'],
+        },
+      ],
+    });
+    const joined = lines.map((l) => l.text).join(' ');
+    // Small caps come from `textTransform`, so the drawn string is uppercase.
+    expect(joined).toContain('DATA VERIFICATION NOTE');
+    expect(joined).toContain('silently clipped');
+    expect(joined).toContain('a second line of its own');
+    expect(joined).toContain('Second.');
+  }, 60000);
+
+  it('keeps a takeaway panel’s fill on the page it continues onto', async () => {
+    // The panel is inverted — white text on navy — so a continuation that kept
+    // the text and lost the background would print white on white. Text
+    // extraction cannot see that, which is why this one reads a pixel.
+    const items = Array.from(
+      { length: 26 },
+      (_, i) =>
+        `Takeaway ${i + 1}: a panel item long enough to wrap onto a second line, repeated until the panel has to break across a page.`,
+    );
+    const input: ResearchSummaryPdfInput = {
+      title: 'Takeaways',
+      sections: [{ kind: 'callout', tone: 'takeaway', title: 'Takeaways', items }],
+    };
+    const buffer = await generateResearchSummaryPdf(input);
+    const lines = extractTextLines(buffer);
+
+    const continued = lines.filter((l) => l.page === 2 && /^Takeaway \d+:/.test(l.text));
+    expect(continued.length).toBeGreaterThan(0);
+
+    // Just left of the first continued line's ink, inside the panel's padding.
+    const probe = continued[0];
+    expect(colorAt(buffer, 2, probe.x - 6, probe.y + probe.height / 2)).toBe(COLOR.brandNavy);
+  }, 60000);
+
+  it('drops a callout carrying neither text nor items instead of boxing nothing', async () => {
+    const lines = await inspect({
+      title: 'Empty callout',
+      sections: [
+        { kind: 'callout', tone: 'info', title: 'Nothing to say' },
+        { kind: 'paragraph', text: 'The only body content.' },
+      ],
+    });
+    const joined = lines.map((l) => l.text).join(' ');
+    expect(joined).toContain('The only body content.');
+    expect(joined).not.toContain('NOTHING TO SAY');
+  }, 60000);
+
+  it('prints a donut legend with a value and a share for every slice', async () => {
+    const lines = await inspect({
+      title: 'Donut',
+      sections: [
+        {
+          kind: 'chart',
+          type: 'pie',
+          title: 'Market share',
+          unit: 'USD M',
+          categories: ['Thailand', 'Indonesia', 'Malaysia'],
+          series: [{ name: 'IAP revenue', values: [162, 118, 103] }],
+        },
+      ],
+    });
+    const joined = lines.map((l) => l.text).join(' ');
+    for (const label of ['Thailand', 'Indonesia', 'Malaysia']) {
+      expect(joined).toContain(label);
+    }
+    for (const value of ['162', '118', '103']) {
+      expect(joined).toContain(value);
+    }
+    // 162 / 383 — the share is computed from the slice, not restated by the agent.
+    expect(joined).toContain('42.3%');
+    // The total belongs in the hole; nothing else in the document states it.
+    expect(joined).toContain('383');
   }, 60000);
 
   it('never splits a scorecard row across a page break', async () => {

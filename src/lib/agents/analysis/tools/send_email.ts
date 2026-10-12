@@ -375,9 +375,10 @@ ${COMPANY_FILTER_DOC}
   - \`heading\` { text, level?: "section" | "subsection" }
   - \`paragraph\` { text }
   - \`bullets\` { items }
-  - \`kpi_cards\` { cards: [{ label, value, hint?, logo_url? }] }
+  - \`kpi_cards\` { cards: [{ label, value, hint?, tone?, logo_url? }] } — a ruled grid, three per row; \`tone\` turns a status value into a pill
   - \`chart\` { type: "bar" | "stacked_bar" | "line" | "pie", title?, unit?, categories: [...], series: [{ name, values: [...] }] }
   - \`bar_chart\` { title?, unit?, data: [{ year, value }], accent?: "primary" | "secondary" } — the older single-series form; prefer \`chart\`
+  - \`callout\` { tone?: "warning" | "takeaway" | "info" | "positive", title?, text?, items? } — a boxed aside; needs \`text\` or \`items\`
   - \`image\` { url, caption?, maxHeight? } — https PNG/JPEG only
   - \`gauges\` { gauges: [{ label, valuePct, tone?, trendLabel? }] }
   - \`scorecard\` { rows: [{ label, pill: { label, tone }, rationale, logo_url? }], columns?, overallPill?, overallNote? }
@@ -385,6 +386,7 @@ ${COMPANY_FILTER_DOC}
   - \`priority_list\` { items: [{ priority: { label, tone: "high" | "medium" | "low" }, description, meta? }] }
   Pick the visual block whenever the data suits one; fall back to \`paragraph\` / \`bullets\` for narrative. Also pass a \`title\` (used for the PDF + filename) and optional \`references\`.
   Choosing a \`chart\` type: \`bar\` compares magnitudes across categories, \`stacked_bar\` shows the composition of a total, \`line\` shows a trend over an ordered axis, \`pie\` shows one share-of-whole split. Every series needs EXACTLY one value per category, in the same order — a shorter \`values\` array is rejected. \`stacked_bar\` stacks positive values only; for a series with negatives use \`bar\`. Keep one unit per chart (never mix revenue and a percentage in the same chart — use two).
+  Using a \`callout\`: \`warning\` is the amber box for a caveat the reader must not miss — unverified figures, a data-quality note, a risk that qualifies the numbers above it. \`takeaway\` is a filled navy panel for the two to five things to remember; put one at the end of a long section or of the document. Give it a short all-caps-able \`title\` and keep it to the point the surrounding prose does not already make — a callout that repeats the paragraph above it only costs the reader a second reading.
   Rules: no markdown inside block strings. Text wraps and is never truncated, so write what the point needs rather than padding it to fill a card. \`logo_url\` is an https PNG/JPEG logo URL — pass one only when you already have it from a search or a page you read, never a guessed URL; one that cannot be fetched is skipped and the row still renders.
 
 - \`company_card\` — Attach the **Company Card** deck (.pptx): a faithful, condensed export of the "L0 to L1 Submission" card shown in the company detail view (header + stage track, Project Type / Geography / Business Line / End Sector, Source / Deal Sponsor / Deal Status / NBO Due, Target Overview, Indicative Financials, Proposed Deal Structure, Investment Thesis, L1 scope of work, Kill criteria). Pass \`company_ids\` from a previous query_companies call (preferred — exact, no fuzzy matching), or \`company_names\` when you have no id. One slide set per company, in the order given; ids and names are deduplicated so the same company never appears twice. Optional \`title\`. Content that does not fit one slide continues on "(cont.)" slides. Ids/names that cannot be resolved are reported and skipped. This is FAST — it renders existing data and does NOT call an LLM.

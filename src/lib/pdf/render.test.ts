@@ -16,7 +16,7 @@ const SNAPSHOT_DIR = process.env.PDF_SNAPSHOT_DIR;
 
 const CASES: Array<[string, typeof gotoDocument, number]> = [
   ['goto', gotoDocument, 2],
-  ['kitchen', kitchenSinkDocument, 6],
+  ['kitchen', kitchenSinkDocument, 7],
 ];
 
 describe('fixture rendering', () => {

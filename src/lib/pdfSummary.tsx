@@ -50,8 +50,11 @@ export type {
  * Block kinds:
  *   - `heading` / `paragraph` / `bullets` — typography primitives
  *   - `kpi_cards`     — wrapping row of bordered tiles, optional per-card logo
- *   - `chart`         — bar / stacked_bar / line / pie with axes and a legend
+ *   - `chart`         — bar / stacked_bar / line with axes and a legend, or
+ *                       pie, drawn as a donut with the total in its hole and a
+ *                       legend table of values, shares and proportional bars
  *   - `bar_chart`     — the older single-series bar block, folded onto `chart`
+ *   - `callout`       — a boxed aside: an amber caveat or a navy takeaway panel
  *   - `image`         — a fetched image with an optional caption
  *   - `gauges`        — horizontal percentage bars with tone colour
  *   - `scorecard`     — table with pill verdicts and a repeating header row

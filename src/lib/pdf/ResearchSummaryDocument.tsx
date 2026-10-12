@@ -5,15 +5,22 @@
  * page breaks fall and each block declares its own break behaviour. The
  * running header and footer are `fixed`, which repeats them on every page the
  * content spills onto — including pages the author never knew would exist.
+ *
+ * Page 1 opens with a full-bleed navy cover band carrying the serif title,
+ * which starts just below the running header rather than at the top of the
+ * sheet — see `styles.coverBand` for why it does not displace the header.
  */
 import { Document, Page, View, Text, Image } from '@react-pdf/renderer';
-import { COLOR, styles } from './theme';
+import { styles } from './theme';
 import { normalizeTypography } from './fonts';
 import type { ImageCache } from './assets';
 import type { ResearchSummaryPdfInput, SectionBlock } from './types';
 import { Block } from './blocks';
 import { References } from './blocks/text';
 import { SectionHeading } from './blocks/primitives';
+
+/** The wordmark printed opposite the title, on the cover and in every header. */
+const BRAND = 'Investment Brain';
 
 export interface ResearchSummaryDocumentProps {
   input: ResearchSummaryPdfInput;
@@ -60,6 +67,13 @@ function normalizeBlock(block: SectionBlock): SectionBlock {
         title: block.title ? t(block.title) : undefined,
         categories: block.categories.map(t),
         series: block.series.map((s) => ({ ...s, name: t(s.name) })),
+      };
+    case 'callout':
+      return {
+        ...block,
+        title: block.title ? t(block.title) : undefined,
+        text: block.text ? t(block.text) : undefined,
+        items: block.items?.map(t),
       };
     case 'image':
       return { ...block, caption: block.caption ? t(block.caption) : undefined };
@@ -121,11 +135,13 @@ export function ResearchSummaryDocument({ input, images, logo }: ResearchSummary
     <Document title={title} creator="Investment Brain" producer="Investment Brain">
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.header} fixed>
-          <View style={styles.headerLeft}>
-            {logo ? <Image src={logo} style={styles.headerLogo} /> : null}
-            <Text style={styles.headerTitle}>{title}</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              {logo ? <Image src={logo} style={styles.headerLogo} /> : null}
+              <Text style={styles.headerTitle}>{title}</Text>
+            </View>
+            <Text style={styles.headerRight}>{BRAND}</Text>
           </View>
-          <Text style={styles.headerRight}>Investment Brain</Text>
         </View>
 
         <View style={styles.footer} fixed>
@@ -136,17 +152,10 @@ export function ResearchSummaryDocument({ input, images, logo }: ResearchSummary
           />
         </View>
 
-        <View style={styles.titleBlock}>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-          <View
-            style={{
-              height: 2,
-              width: 44,
-              backgroundColor: COLOR.accent,
-              marginTop: 8,
-            }}
-          />
+        <View style={styles.coverBand}>
+          <Text style={styles.coverTitle}>{title}</Text>
+          {subtitle ? <Text style={styles.coverSubtitle}>{subtitle}</Text> : null}
+          <View style={styles.coverRule} />
         </View>
 
         {sections.map((block, i) => (
