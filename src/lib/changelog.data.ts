@@ -294,6 +294,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "057f34d68df4c4ac3af4c6ca1d795f43718764e9",
+    "date": "2026-10-12",
+    "subject": "Pages now share a consistent header and plain background for a cleaner look",
+    "category": "improvement"
+  },
+  {
+    "hash": "b709fb9cb4a9e1b6c8548cdfe02539197a2aaa7d",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
