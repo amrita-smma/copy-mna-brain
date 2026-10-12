@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
 import { CompanyContextCard } from "@/components/pipeline/CompanyContextCard";
+import { CollapsibleSection } from "@/components/pipeline/CollapsibleSection";
+import { CompanyTimeline } from "@/components/pipeline/CompanyTimeline";
 import { formatMoneyMn } from "@/lib/currency";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
@@ -55,6 +57,7 @@ import {
   Download,
   Eye,
   Presentation,
+  BookOpen,
   Pencil,
   Check,
   X,
@@ -71,14 +74,7 @@ import FileBody from "@/components/Files/FileBody";
 import { detectFileKind } from "@/lib/fileType";
 import ExistingAttachmentPicker from "@/components/pipeline/ExistingAttachmentPicker";
 import { cn } from "@/lib/utils";
-import {
-  DocumentStatusBadge,
-  DocumentTagsList,
-  DocumentInsightsToggle,
-  DocumentInsightsPanel,
-  hasDocumentInsights,
-  useDealDocumentProcessingPoll,
-} from "@/components/Files/DocumentInsightsPanel";
+import { useDealDocumentProcessingPoll } from "@/components/Files/DocumentInsightsPanel";
 import {
   OWNERSHIP_OPTIONS,
   isAnalysisInProgress,
@@ -412,20 +408,22 @@ interface AnalysisSource {
   title?: string;
 }
 
+/** Tabs this dialog can show. Mirrors the full-page view's tab set. */
+export type CompanyDialogTab =
+  | "overview"
+  | "additional-context"
+  | "timeline"
+  | "details"
+  | "filters"
+  | "voting";
+
 interface CompanyDetailDialogProps {
   company: CompanyData;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdate: () => void;
   /** Tab to show when the dialog first opens. Defaults to "overview". */
-  initialTab?:
-    | "overview"
-    | "context"
-    | "featured-slide"
-    | "details"
-    | "filters"
-    | "attachments"
-    | "voting";
+  initialTab?: CompanyDialogTab;
   /** When true, the Company Information card opens in inline edit mode. */
   initialEditing?: boolean;
 }
@@ -470,8 +468,6 @@ export default function CompanyDetailDialog({
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
   const [documents, setDocuments] = useState<DealDocument[]>([]);
-  const [expandedDocNotes, setExpandedDocNotes] = useState<Record<string, boolean>>({});
-  const [expandedDocTags, setExpandedDocTags] = useState<Record<string, boolean>>({});
   const [matchedFiles, setMatchedFiles] = useState<MatchedFile[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -803,15 +799,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     return kind === "pdf" || kind === "pptx";
   });
 
-  const [activeTab, setActiveTab] = useState<
-    | "overview"
-    | "context"
-    | "featured-slide"
-    | "details"
-    | "filters"
-    | "attachments"
-    | "voting"
-  >(initialTab);
+  const [activeTab, setActiveTab] = useState<CompanyDialogTab>(initialTab);
 
   // Re-fetch the authoritative company record whenever the dialog opens. The
   // `company` prop can be stale on reopen: some parents keep the dialog mounted
@@ -1637,23 +1625,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           {/* Scrollable tab content */}
           <Tabs
             value={activeTab}
-            onValueChange={(v) =>
-              setActiveTab(
-                v as
-                  | "overview"
-                  | "context"
-                  | "featured-slide"
-                  | "details"
-                  | "filters"
-                  | "attachments"
-                  | "voting",
-              )
-            }
+            onValueChange={(v) => setActiveTab(v as CompanyDialogTab)}
             className="flex flex-col flex-1 min-h-0"
           >
             {/* Tab bar pinned to top */}
             <div className="shrink-0 border-b bg-background">
-              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-7">
+              <TabsList className="w-full h-auto rounded-none bg-transparent p-0 grid grid-cols-6">
                 <TabsTrigger
                   value="overview"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
@@ -1661,16 +1638,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   Overview
                 </TabsTrigger>
                 <TabsTrigger
-                  value="context"
+                  value="additional-context"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
-                  Context
+                  Additional Context
                 </TabsTrigger>
                 <TabsTrigger
-                  value="featured-slide"
+                  value="timeline"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
-                  Featured Slide
+                  Timeline
                 </TabsTrigger>
                 <TabsTrigger
                   value="details"
@@ -1683,12 +1660,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
                   L1 Filters
-                </TabsTrigger>
-                <TabsTrigger
-                  value="attachments"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
-                >
-                  Attachments
                 </TabsTrigger>
                 <TabsTrigger
                   value="voting"
@@ -1745,107 +1716,54 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               )}
             </TabsContent>
 
-            {/* Context — the company's free-form markdown background, with the
-                notes timeline underneath. The context feeds the AI Opinion, the
-                company card / slide generation, and the agent read tools. */}
-            <TabsContent value="context" className="space-y-4 pb-4">
-              <div className="grid grid-cols-1 gap-4">
+            {/* Additional Context — the company's free-form markdown
+                background and its Featured Slide, each in its own collapsible
+                section so neither pushes the other off screen. The context
+                feeds the AI Opinion, the company card / slide generation, and
+                the agent read tools. */}
+            <TabsContent value="additional-context" className="space-y-3 pb-4">
+              <CollapsibleSection
+                title="Context"
+                description="Markdown background on this company. Read by the AI Opinion, the company card and slide generation, and the chat tools."
+                icon={<BookOpen className="h-4 w-4" />}
+              >
                 <CompanyContextCard
                   companyId={company.id}
+                  chrome="bare"
                   value={company.context}
                   variant="dialog"
                   onSaved={(context) =>
                     setCompany((prev) => ({ ...prev, context: context || null }))
                   }
                 />
+              </CollapsibleSection>
 
-                {/* Notes Section — the timeline of dated notes on this deal. */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Notes
-                    </CardTitle>
-                    <CardDescription>
-                      Dated notes recorded as the deal progressed
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex gap-2">
-                      <Textarea
-                        placeholder="Add a note..."
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        className="flex-1 min-h-[60px]"
-                        rows={2}
-                      />
-                      <Button
-                        onClick={addNote}
-                        disabled={isSubmitting || !newNote.trim()}
-                        size="icon"
-                        className="shrink-0"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plus className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <div className="space-y-2 max-h-[280px] overflow-y-auto">
-                      {notes.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">
-                          No notes yet
-                        </p>
-                      ) : (
-                        notes.map((note) => (
-                          <div
-                            key={note.id}
-                            className="p-2 border rounded-lg bg-muted text-sm"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs whitespace-pre-wrap flex-1">
-                                {note.content}
-                              </p>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 shrink-0"
-                                onClick={() => deleteNote(note.id)}
-                              >
-                                <Trash2 className="h-3 w-3 text-destructive" />
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.created_at), "MMM d, yyyy")}{" "}
-                              • {note.stage}
-                            </p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
-                external company card) shown full-width in its own tab. */}
-            <TabsContent value="featured-slide" className="space-y-3 pb-4">
-              <div
-                className={cn(
-                  "space-y-3 rounded-lg transition-shadow",
-                  isDraggingFeaturedSlide && "ring-2 ring-primary ring-offset-2",
-                )}
-                onDragOver={handleFeaturedSlideDragOver}
-                onDragLeave={handleFeaturedSlideDragLeave}
-                onDrop={handleFeaturedSlideDrop}
+              {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
+                  external company card) shown full-width. Collapsed by
+                  default: the viewer is 70vh tall, and the documents it reads
+                  land after this first renders, so an `open` derived from them
+                  would pop the section open mid-read. The current slide's name
+                  goes in the header instead. */}
+              <CollapsibleSection
+                title="Featured Slide"
+                description={
+                  featuredDocument
+                    ? `Currently featuring ${featuredDocument.file_name}.`
+                    : "Highlight a company one-pager (PDF or PPTX) full-width on this card."
+                }
+                icon={<Presentation className="h-4 w-4" />}
+                defaultOpen={false}
               >
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <p className="text-sm text-muted-foreground">
-                    Highlight a company one-pager (PDF or PPTX) full-width on this card.
-                  </p>
-                  <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                <div
+                  className={cn(
+                    "space-y-3 rounded-lg transition-shadow",
+                    isDraggingFeaturedSlide && "ring-2 ring-primary ring-offset-2",
+                  )}
+                  onDragOver={handleFeaturedSlideDragOver}
+                  onDragLeave={handleFeaturedSlideDragLeave}
+                  onDrop={handleFeaturedSlideDrop}
+                >
+                  <div className="flex items-center justify-end gap-1 flex-wrap">
                     {featuredDocument && (
                       <Button
                         variant="outline"
@@ -1894,57 +1812,95 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                       </Button>
                     )}
                   </div>
+                  <Input
+                    id="featured-slide-file-input"
+                    type="file"
+                    accept={FEATURED_SLIDE_ACCEPT}
+                    className="hidden"
+                    onChange={handleFeaturedSlideUpload}
+                    disabled={isUploadingFeaturedSlide}
+                  />
+                  {featuredDocument ? (
+                    <div className="h-[70vh] w-full">
+                      {loadingFeaturedSlide ? (
+                        <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      ) : featuredSlideUrl ? (
+                        <FileBody
+                          url={featuredSlideUrl}
+                          fileName={featuredDocument.file_name}
+                          onDownload={() => downloadDocument(featuredDocument)}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
+                          Preview not available
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
+                        <div
+                          className={cn(
+                            "border-2 border-dashed rounded-lg bg-muted p-10 text-center transition-colors",
+                            isDraggingFeaturedSlide ? "border-primary bg-primary/5" : "hover:border-primary",
+                          )}
+                        >
+                          <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground">
+                            Click to upload, or drag and drop a PDF or PPTX to feature it here
+                          </p>
+                        </div>
+                      </Label>
+                      {isUploadingFeaturedSlide && (
+                        <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Uploading…
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <Input
-                  id="featured-slide-file-input"
-                  type="file"
-                  accept={FEATURED_SLIDE_ACCEPT}
-                  className="hidden"
-                  onChange={handleFeaturedSlideUpload}
-                  disabled={isUploadingFeaturedSlide}
-                />
-                {featuredDocument ? (
-                  <div className="h-[70vh] w-full">
-                    {loadingFeaturedSlide ? (
-                      <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      </div>
-                    ) : featuredSlideUrl ? (
-                      <FileBody
-                        url={featuredSlideUrl}
-                        fileName={featuredDocument.file_name}
-                        onDownload={() => downloadDocument(featuredDocument)}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
-                        Preview not available
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
-                      <div
-                        className={cn(
-                          "border-2 border-dashed rounded-lg bg-muted p-10 text-center transition-colors",
-                          isDraggingFeaturedSlide ? "border-primary bg-primary/5" : "hover:border-primary",
-                        )}
-                      >
-                        <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">
-                          Click to upload, or drag and drop a PDF or PPTX to feature it here
-                        </p>
-                      </div>
-                    </Label>
-                    {isUploadingFeaturedSlide && (
-                      <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Uploading…
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              </CollapsibleSection>
+            </TabsContent>
+
+            {/* Timeline — every dated thing that happened on the deal (stage
+                changes, notes, uploads, links, Smart File references) on one
+                horizontal rail, plus the manual-entry composer that replaced
+                the Attachments tab. */}
+            <TabsContent value="timeline" className="pb-4">
+              <CompanyTimeline
+                variant="dialog"
+                notes={notes}
+                documents={documents}
+                links={links}
+                matchedFiles={matchedFiles}
+                stageHistory={stageHistory}
+                getStageLabel={getStageLabel}
+                newNote={newNote}
+                onNewNoteChange={setNewNote}
+                onAddNote={addNote}
+                newLinkUrl={newLinkUrl}
+                newLinkTitle={newLinkTitle}
+                onNewLinkUrlChange={setNewLinkUrl}
+                onNewLinkTitleChange={setNewLinkTitle}
+                onAddLink={addLink}
+                onUploadFile={handleFileUpload}
+                isSubmitting={isSubmitting}
+                onDeleteNote={deleteNote}
+                onDeleteLink={deleteLink}
+                onDownloadDocument={downloadDocument}
+                onPreviewDocument={handleOpenPreview}
+                onDeleteDocument={deleteDocument}
+                onDownloadMatchedFile={downloadMatchedFile}
+                onPreviewMatchedFile={handleOpenMatchedFilePreview}
+                onOpenMatchedFile={(file) =>
+                  router.push(
+                    `${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`,
+                  )
+                }
+              />
             </TabsContent>
 
             <TabsContent value="details" className="space-y-4 pb-4">
@@ -2822,256 +2778,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </CardContent>
                 </Card>
               )}
-            </TabsContent>
-
-            <TabsContent value="attachments" className="space-y-4 pb-4">
-              <div className="grid grid-cols-1 gap-4">
-                {/* Files mentioning this company (from Smart Files) */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Files mentioning this company
-                    </CardTitle>
-                    <CardDescription>From Smart Files</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {matchedFiles.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">
-                        No Smart Files mention this company yet.
-                      </p>
-                    ) : (
-                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                        {matchedFiles.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <span
-                                className="text-sm truncate"
-                                title={file.file_name}
-                              >
-                                {file.file_name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => downloadMatchedFile(file)}
-                                title="Download"
-                              >
-                                <Download className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  handleOpenMatchedFilePreview(file)
-                                }
-                                title="Preview"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  router.push(
-                                    `${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`,
-                                  )
-                                }
-                                title="Open in Smart Files"
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Documents Section */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Upload className="h-4 w-4" />
-                      Documents
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div>
-                      <Label htmlFor="file-upload" className="cursor-pointer">
-                        <div className="border-2 border-dashed rounded-lg p-3 text-center hover:border-primary transition-colors">
-                          <Upload className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <p className="text-xs text-muted-foreground">
-                            Click to upload
-                          </p>
-                        </div>
-                      </Label>
-                      <Input
-                        id="file-upload"
-                        type="file"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                        disabled={isSubmitting}
-                      />
-                    </div>
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                      {documents.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">
-                          No documents yet
-                        </p>
-                      ) : (
-                        documents.map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="border rounded-lg bg-muted/30 overflow-hidden"
-                          >
-                            <div className="flex items-center justify-between p-2 gap-2">
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <span
-                                  className="text-xs truncate"
-                                  title={doc.file_name}
-                                >
-                                  {doc.file_name}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <DocumentInsightsToggle
-                                  hasNotes={hasDocumentInsights(doc)}
-                                  expanded={Boolean(expandedDocNotes[doc.id])}
-                                  onToggle={() =>
-                                    setExpandedDocNotes((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
-                                  }
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => downloadDocument(doc)}
-                                  title="Download"
-                                >
-                                  <Download className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleOpenPreview(doc)}
-                                  title="Preview"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => deleteDocument(doc)}
-                                  title="Delete"
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 px-2 pb-2">
-                              <DocumentStatusBadge status={doc.processing_status} />
-                              <DocumentTagsList
-                                tags={doc.tags}
-                                expanded={Boolean(expandedDocTags[doc.id])}
-                                onToggleExpand={() =>
-                                  setExpandedDocTags((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
-                                }
-                              />
-                            </div>
-                            {expandedDocNotes[doc.id] && (
-                              <DocumentInsightsPanel
-                                structuredNotes={doc.structured_notes}
-                                status={doc.processing_status}
-                              />
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Links Section */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <LinkIcon className="h-4 w-4" />
-                      Links
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="URL"
-                        value={newLinkUrl}
-                        onChange={(e) => setNewLinkUrl(e.target.value)}
-                        className="h-8 text-sm"
-                      />
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Title (optional)"
-                          value={newLinkTitle}
-                          onChange={(e) => setNewLinkTitle(e.target.value)}
-                          className="h-8 text-sm flex-1"
-                        />
-                        <Button
-                          onClick={addLink}
-                          disabled={isSubmitting || !newLinkUrl.trim()}
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                        >
-                          {isSubmitting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Plus className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {links.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">
-                          No links yet
-                        </p>
-                      ) : (
-                        links.map((link) => (
-                          <div
-                            key={link.id}
-                            className="flex items-center justify-between p-2 border rounded-lg"
-                          >
-                            <a
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline truncate flex-1 flex items-center gap-1"
-                            >
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                              {link.title || link.url}
-                            </a>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 shrink-0"
-                              onClick={() => deleteLink(link.id)}
-                            >
-                              <Trash2 className="h-3 w-3 text-destructive" />
-                            </Button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-              </div>
             </TabsContent>
 
             {/* Voting — Investment-Committee round on this company. */}

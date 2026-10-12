@@ -5,6 +5,8 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { CompanyContextCard } from '@/components/pipeline/CompanyContextCard';
+import { CollapsibleSection } from '@/components/pipeline/CollapsibleSection';
+import { CompanyTimeline } from '@/components/pipeline/CompanyTimeline';
 import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
 import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
@@ -41,6 +43,7 @@ import {
   AlertTriangle,
   Search,
   Briefcase,
+  BookOpen,
   Globe,
   Sparkles,
   Download,
@@ -99,14 +102,7 @@ import FileBody from '@/components/Files/FileBody';
 import { detectFileKind } from '@/lib/fileType';
 import ExistingAttachmentPicker from '@/components/pipeline/ExistingAttachmentPicker';
 import { cn } from '@/lib/utils';
-import {
-  DocumentStatusBadge,
-  DocumentTagsList,
-  DocumentInsightsToggle,
-  DocumentInsightsPanel,
-  hasDocumentInsights,
-  useDealDocumentProcessingPoll,
-} from '@/components/Files/DocumentInsightsPanel';
+import { useDealDocumentProcessingPoll } from '@/components/Files/DocumentInsightsPanel';
 import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
 import { OWNERSHIP_OPTIONS, isAnalysisInProgress } from '@/lib/constants';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
@@ -343,12 +339,37 @@ interface AnalysisSource {
 }
 
 /** Tab values, mirrored in the `?tab=` query param so back/forward restores one. */
-const TAB_VALUES = ['overview', 'context', 'featured-slide', 'company-card', 'filters', 'attachments', 'voting'] as const;
+const TAB_VALUES = [
+  'overview',
+  'additional-context',
+  'timeline',
+  'company-card',
+  'filters',
+  'voting',
+] as const;
 type CompanyTab = (typeof TAB_VALUES)[number];
 const DEFAULT_TAB: CompanyTab = 'overview';
 
+/**
+ * Tabs that no longer exist, pointed at whatever absorbed them — so a link,
+ * bookmark or history entry from before the merge still lands on the content
+ * it was aimed at instead of silently falling back to Overview.
+ */
+const LEGACY_TABS: Record<string, CompanyTab> = {
+  context: 'additional-context',
+  'featured-slide': 'additional-context',
+  attachments: 'timeline',
+};
+
 const isCompanyTab = (value: string | null): value is CompanyTab =>
   value !== null && (TAB_VALUES as readonly string[]).includes(value);
+
+/** Resolve a `?tab=` value (current or legacy) to the tab to show. */
+const resolveTab = (value: string | null): CompanyTab => {
+  if (isCompanyTab(value)) return value;
+  if (value && LEGACY_TABS[value]) return LEGACY_TABS[value];
+  return DEFAULT_TAB;
+};
 
 export default function CompanyDetail() {
   const params = useParams();
@@ -375,13 +396,11 @@ export default function CompanyDetail() {
   // and Back returns to the tab you came from. Local state mirrors it so the
   // switch renders immediately instead of waiting on the navigation.
   const tabParam = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<CompanyTab>(
-    isCompanyTab(tabParam) ? tabParam : DEFAULT_TAB,
-  );
+  const [activeTab, setActiveTab] = useState<CompanyTab>(resolveTab(tabParam));
 
   // Back/forward (and any external link) changes the param, not the state.
   useEffect(() => {
-    setActiveTab(isCompanyTab(tabParam) ? tabParam : DEFAULT_TAB);
+    setActiveTab(resolveTab(tabParam));
   }, [tabParam]);
 
   // router.push — not the history.replaceState trick used for URL-bar-only sync
@@ -438,8 +457,6 @@ export default function CompanyDetail() {
   const [notes, setNotes] = useState<DealNote[]>([]);
   const [links, setLinks] = useState<DealLink[]>([]);
   const [documents, setDocuments] = useState<DealDocument[]>([]);
-  const [expandedDocNotes, setExpandedDocNotes] = useState<Record<string, boolean>>({});
-  const [expandedDocTags, setExpandedDocTags] = useState<Record<string, boolean>>({});
   const [matchedFiles, setMatchedFiles] = useState<MatchedFile[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -1588,13 +1605,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
         {/* Content */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-7 max-w-5xl">
+          <TabsList className="grid grid-cols-6 max-w-5xl">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="context">Context</TabsTrigger>
-            <TabsTrigger value="featured-slide">Featured Slide</TabsTrigger>
+            <TabsTrigger value="additional-context">Additional Context</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
             <TabsTrigger value="filters">L1 Screening</TabsTrigger>
-            <TabsTrigger value="attachments">Attachments</TabsTrigger>
             <TabsTrigger value="voting">Voting</TabsTrigger>
           </TabsList>
 
@@ -1632,79 +1648,53 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             )}
           </TabsContent>
 
-          {/* Context — the company's free-form markdown background, with the
-              notes timeline underneath. The context feeds the AI Opinion, the
-              company card / slide generation, and the agent read tools. */}
-          <TabsContent value="context" className="mt-6">
-            <div className="grid grid-cols-1 gap-6">
+          {/* Additional Context — the company's free-form markdown background
+              and its Featured Slide, each in its own collapsible section so
+              neither pushes the other off screen. The context feeds the AI
+              Opinion, the company card / slide generation, and the agent read
+              tools. */}
+          <TabsContent value="additional-context" className="space-y-4 mt-6">
+            <CollapsibleSection
+              title="Context"
+              description="Markdown background on this company. Read by the AI Opinion, the company card and slide generation, and the chat tools."
+              icon={<BookOpen className="h-4 w-4" />}
+            >
               <CompanyContextCard
                 companyId={company.id}
+                chrome="bare"
                 value={company.context}
                 onSaved={(context) =>
                   setCompany((prev) => (prev ? { ...prev, context: context || null } : prev))
                 }
               />
+            </CollapsibleSection>
 
-              {/* Notes Section — the timeline of dated notes on this deal. */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Notes
-                  </CardTitle>
-                  <CardDescription>Dated notes recorded as the deal progressed</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Textarea
-                      placeholder="Add a note..."
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      rows={3}
-                    />
-                    <Button onClick={addNote} disabled={isSubmitting || !newNote.trim()} size="sm">
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Note
-                    </Button>
-                  </div>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                    {notes.map((note) => (
-                      <div key={note.id} className="p-3 bg-muted rounded-lg">
-                        <div className="flex justify-between items-start gap-2">
-                          <p className="text-sm whitespace-pre-wrap flex-1">{note.content}</p>
-                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {note.created_at && formatDistanceToNow(new Date(note.created_at), { addSuffix: true })} · {note.stage}
-                        </p>
-                      </div>
-                    ))}
-                    {notes.length === 0 && <p className="text-muted-foreground text-sm">No notes yet</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
-              external company card) shown full-width in its own tab. */}
-          <TabsContent value="featured-slide" className="space-y-3 mt-6">
-            <div
-              className={cn(
-                'space-y-3 rounded-lg transition-shadow',
-                isDraggingFeaturedSlide && 'ring-2 ring-primary ring-offset-2',
-              )}
-              onDragOver={handleFeaturedSlideDragOver}
-              onDragLeave={handleFeaturedSlideDragLeave}
-              onDrop={handleFeaturedSlideDrop}
+            {/* Featured Slide — a highlighted PDF/PPTX one-pager (e.g. an
+                external company card) shown full-width. Collapsed by default:
+                the viewer is 75vh tall, and the documents it reads land after
+                this first renders, so an `open` derived from them would pop
+                the section open mid-read. The current slide's name goes in the
+                header instead. */}
+            <CollapsibleSection
+              title="Featured Slide"
+              description={
+                featuredDocument
+                  ? `Currently featuring ${featuredDocument.file_name}.`
+                  : 'Highlight a company one-pager (PDF or PPTX) full-width on this card.'
+              }
+              icon={<Presentation className="h-4 w-4" />}
+              defaultOpen={false}
             >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm text-muted-foreground">
-                  Highlight a company one-pager (PDF or PPTX) full-width on this card.
-                </p>
-                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+              <div
+                className={cn(
+                  'space-y-3 rounded-lg transition-shadow',
+                  isDraggingFeaturedSlide && 'ring-2 ring-primary ring-offset-2',
+                )}
+                onDragOver={handleFeaturedSlideDragOver}
+                onDragLeave={handleFeaturedSlideDragLeave}
+                onDrop={handleFeaturedSlideDrop}
+              >
+                <div className="flex items-center justify-end gap-1 flex-wrap">
                   {featuredDocument && (
                     <Button
                       variant="outline"
@@ -1753,57 +1743,92 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                     </Button>
                   )}
                 </div>
+                <Input
+                  id="featured-slide-file-input"
+                  type="file"
+                  accept={FEATURED_SLIDE_ACCEPT}
+                  className="hidden"
+                  onChange={handleFeaturedSlideUpload}
+                  disabled={isUploadingFeaturedSlide}
+                />
+                {featuredDocument ? (
+                  <div className="h-[75vh] w-full">
+                    {loadingFeaturedSlide ? (
+                      <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : featuredSlideUrl ? (
+                      <FileBody
+                        url={featuredSlideUrl}
+                        fileName={featuredDocument.file_name}
+                        onDownload={() => downloadDocument(featuredDocument)}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
+                        Preview not available
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
+                      <div
+                        className={cn(
+                          'border-2 border-dashed rounded-lg bg-muted p-10 text-center transition-colors',
+                          isDraggingFeaturedSlide ? 'border-primary bg-primary/5' : 'hover:border-primary',
+                        )}
+                      >
+                        <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">
+                          Click to upload, or drag and drop a PDF or PPTX to feature it here
+                        </p>
+                      </div>
+                    </Label>
+                    {isUploadingFeaturedSlide && (
+                      <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Uploading…
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <Input
-                id="featured-slide-file-input"
-                type="file"
-                accept={FEATURED_SLIDE_ACCEPT}
-                className="hidden"
-                onChange={handleFeaturedSlideUpload}
-                disabled={isUploadingFeaturedSlide}
-              />
-              {featuredDocument ? (
-                <div className="h-[75vh] w-full">
-                  {loadingFeaturedSlide ? (
-                    <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    </div>
-                  ) : featuredSlideUrl ? (
-                    <FileBody
-                      url={featuredSlideUrl}
-                      fileName={featuredDocument.file_name}
-                      onDownload={() => downloadDocument(featuredDocument)}
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
-                      Preview not available
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <Label htmlFor="featured-slide-file-input" className="cursor-pointer">
-                    <div
-                      className={cn(
-                        'border-2 border-dashed rounded-lg bg-muted p-10 text-center transition-colors',
-                        isDraggingFeaturedSlide ? 'border-primary bg-primary/5' : 'hover:border-primary',
-                      )}
-                    >
-                      <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">
-                        Click to upload, or drag and drop a PDF or PPTX to feature it here
-                      </p>
-                    </div>
-                  </Label>
-                  {isUploadingFeaturedSlide && (
-                    <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Uploading…
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            </CollapsibleSection>
+          </TabsContent>
+
+          {/* Timeline — every dated thing that happened on the deal (stage
+              changes, notes, uploads, links, Smart File references) on one
+              horizontal rail, plus the manual-entry composer that replaced the
+              Attachments tab. */}
+          <TabsContent value="timeline" className="mt-6">
+            <CompanyTimeline
+              notes={notes}
+              documents={documents}
+              links={links}
+              matchedFiles={matchedFiles}
+              stageHistory={stageHistory}
+              getStageLabel={getStageLabel}
+              newNote={newNote}
+              onNewNoteChange={setNewNote}
+              onAddNote={addNote}
+              newLinkUrl={newLinkUrl}
+              newLinkTitle={newLinkTitle}
+              onNewLinkUrlChange={setNewLinkUrl}
+              onNewLinkTitleChange={setNewLinkTitle}
+              onAddLink={addLink}
+              onUploadFile={handleFileUpload}
+              isSubmitting={isSubmitting}
+              onDeleteNote={deleteNote}
+              onDeleteLink={deleteLink}
+              onDownloadDocument={downloadDocument}
+              onPreviewDocument={handleOpenPreview}
+              onDeleteDocument={deleteDocument}
+              onDownloadMatchedFile={downloadMatchedFile}
+              onPreviewMatchedFile={handleOpenMatchedFilePreview}
+              onOpenMatchedFile={(file) =>
+                router.push(`${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`)
+              }
+            />
           </TabsContent>
 
           <TabsContent value="company-card" className="space-y-6 mt-6">
@@ -2364,198 +2389,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-
-          <TabsContent value="attachments" className="mt-6">
-            <div className="grid grid-cols-1 gap-6">
-              {/* Files mentioning this company (from Smart Files) */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Files mentioning this company
-                  </CardTitle>
-                  <CardDescription>From Smart Files</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {matchedFiles.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">No Smart Files mention this company yet.</p>
-                  ) : (
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                      {matchedFiles.map((file) => (
-                        <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm truncate" title={file.file_name}>
-                              {file.file_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => downloadMatchedFile(file)}
-                              title="Download"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenMatchedFilePreview(file)}
-                              title="Preview"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => router.push(`${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`)}
-                              title="Open in Smart Files"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Documents Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Upload className="h-4 w-4" />
-                    Documents
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="file-upload" className="cursor-pointer">
-                      <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors">
-                        <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Click to upload a document</p>
-                      </div>
-                    </Label>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {documents.map((doc) => (
-                      <div key={doc.id} className="border rounded-lg bg-muted overflow-hidden">
-                        <div className="flex items-center justify-between p-2 gap-2">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            <span className="text-sm truncate" title={doc.file_name}>
-                              {doc.file_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <DocumentInsightsToggle
-                              hasNotes={hasDocumentInsights(doc)}
-                              expanded={Boolean(expandedDocNotes[doc.id])}
-                              onToggle={() =>
-                                setExpandedDocNotes((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
-                              }
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => downloadDocument(doc)}
-                              title="Download"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenPreview(doc)}
-                              title="Preview"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteDocument(doc)} title="Delete">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 px-2 pb-2">
-                          <DocumentStatusBadge status={doc.processing_status} />
-                          <DocumentTagsList
-                            tags={doc.tags}
-                            expanded={Boolean(expandedDocTags[doc.id])}
-                            onToggleExpand={() =>
-                              setExpandedDocTags((prev) => ({ ...prev, [doc.id]: !prev[doc.id] }))
-                            }
-                          />
-                        </div>
-                        {expandedDocNotes[doc.id] && (
-                          <DocumentInsightsPanel
-                            structuredNotes={doc.structured_notes}
-                            status={doc.processing_status}
-                          />
-                        )}
-                      </div>
-                    ))}
-                    {documents.length === 0 && <p className="text-muted-foreground text-sm">No documents yet</p>}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Links Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <LinkIcon className="h-4 w-4" />
-                    Links
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Input
-                      placeholder="https://..."
-                      value={newLinkUrl}
-                      onChange={(e) => setNewLinkUrl(e.target.value)}
-                    />
-                    <Input
-                      placeholder="Title (optional)"
-                      value={newLinkTitle}
-                      onChange={(e) => setNewLinkTitle(e.target.value)}
-                    />
-                    <Button onClick={addLink} disabled={isSubmitting || !newLinkUrl.trim()} size="sm">
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Link
-                    </Button>
-                  </div>
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {links.map((link) => (
-                      <div key={link.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-primary hover:underline text-sm truncate flex-1"
-                        >
-                          <ExternalLink className="h-4 w-4 shrink-0" />
-                          {link.title || link.url}
-                        </a>
-                        <Button variant="ghost" size="icon" onClick={() => deleteLink(link.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    ))}
-                    {links.length === 0 && <p className="text-muted-foreground text-sm">No links yet</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
           </TabsContent>
 
           {/* Voting — Investment-Committee round on this company. */}

@@ -28,6 +28,12 @@ interface CompanyContextCardProps {
   onSaved?: (context: string) => void;
   /** `dialog` tightens the spacing for the company card dialog. */
   variant?: 'page' | 'dialog';
+  /**
+   * `card` (default) renders its own Card with a header. `bare` drops the Card
+   * chrome entirely — for callers that already supply a titled container, such
+   * as the Additional Context tab's collapsible section.
+   */
+  chrome?: 'card' | 'bare';
   className?: string;
 }
 
@@ -51,6 +57,7 @@ export function CompanyContextCard({
   value,
   onSaved,
   variant = 'page',
+  chrome = 'card',
   className,
 }: CompanyContextCardProps) {
   const isDialog = variant === 'dialog';
@@ -102,6 +109,69 @@ export function CompanyContextCard({
     }
   };
 
+  const body = (
+    <>
+      {editing ? (
+        <>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Write the company's context in markdown…"
+            className={cn('font-mono text-sm', isDialog ? 'min-h-[220px]' : 'min-h-[320px]')}
+            disabled={saving}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={cancelEditing} disabled={saving}>
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save} disabled={saving}>
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save Context
+            </Button>
+          </div>
+        </>
+      ) : stored.trim() ? (
+        <div
+          className={cn(
+            'rounded-lg border bg-muted p-4 overflow-x-auto',
+            isDialog ? 'max-h-[320px] overflow-y-auto' : '',
+          )}
+        >
+          <MarkdownRenderer content={stored} variant="card" />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={startEditing}
+          className="w-full rounded-lg border border-dashed bg-muted p-6 text-left text-sm text-muted-foreground transition-colors hover:border-primary"
+        >
+          {EMPTY_HINT}
+        </button>
+      )}
+    </>
+  );
+
+  if (chrome === 'bare') {
+    return (
+      <div className={cn('space-y-3', className)}>
+        {!editing && (
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={startEditing}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          </div>
+        )}
+        {body}
+      </div>
+    );
+  }
+
   return (
     <Card className={className}>
       <CardHeader className={cn('flex-row items-start justify-between gap-2', isDialog && 'pb-3')}>
@@ -122,50 +192,7 @@ export function CompanyContextCard({
           </Button>
         )}
       </CardHeader>
-      <CardContent className="space-y-3">
-        {editing ? (
-          <>
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Write the company's context in markdown…"
-              className={cn('font-mono text-sm', isDialog ? 'min-h-[220px]' : 'min-h-[320px]')}
-              disabled={saving}
-            />
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={cancelEditing} disabled={saving}>
-                <X className="h-4 w-4 mr-2" />
-                Cancel
-              </Button>
-              <Button size="sm" onClick={save} disabled={saving}>
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
-                )}
-                Save Context
-              </Button>
-            </div>
-          </>
-        ) : stored.trim() ? (
-          <div
-            className={cn(
-              'rounded-lg border bg-muted p-4 overflow-x-auto',
-              isDialog ? 'max-h-[320px] overflow-y-auto' : '',
-            )}
-          >
-            <MarkdownRenderer content={stored} variant="card" />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={startEditing}
-            className="w-full rounded-lg border border-dashed bg-muted p-6 text-left text-sm text-muted-foreground transition-colors hover:border-primary"
-          >
-            {EMPTY_HINT}
-          </button>
-        )}
-      </CardContent>
+      <CardContent className="space-y-3">{body}</CardContent>
     </Card>
   );
 }

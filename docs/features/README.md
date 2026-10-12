@@ -19,6 +19,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
+- [Company detail tabs (page + pipeline dialog)](company-detail-tabs.md) — 4KB
 - [One company-filter vocabulary across the analysis tools](company-filter-vocabulary.md) — 3KB
 - [Company Card → PowerPoint (email export)](company-card-powerpoint-export.md) — 3KB
 - [Research-summary PDF (email attachment)](research-summary-pdf.md) — 5KB
