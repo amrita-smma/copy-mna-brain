@@ -13,6 +13,11 @@ import {
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { clipCompanyContext } from "@/lib/companyContextPrompt";
+import {
+  VOTE_NEUTRALITY_NOTE,
+  loadVoteSummaries,
+  voteCountsLine,
+} from "./voteSummaries";
 
 /** Canonical 8-4-4-4-12 UUID, the shape every `companies.id` takes. */
 const UUID_RE =
@@ -70,12 +75,16 @@ export const getCompanyDetails = tool(
           : `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
       }
 
-      const [financials, screening, recentNotes, noteCount] = await Promise.all([
-        financialRepo.findByCompany(c.id),
-        screeningRepo.findByCompany(c.id),
-        noteRepo.findByDealId(c.id, MAX_NOTES),
-        noteRepo.countByDealId(c.id),
-      ]);
+      const [financials, screening, recentNotes, noteCount, voteSummaries] =
+        await Promise.all([
+          financialRepo.findByCompany(c.id),
+          screeningRepo.findByCompany(c.id),
+          noteRepo.findByDealId(c.id, MAX_NOTES),
+          noteRepo.countByDealId(c.id),
+          // Completed voting rounds only — an open round's live tally and a
+          // cancelled round's drafts are never published, so neither is shown.
+          loadVoteSummaries(db, workspaceId, [c.id]),
+        ]);
       const byYear = new Map<number, typeof financials[number]>();
       for (const row of financials) byYear.set(row.fiscal_year, row);
       const fmtNum = (n: number | null | undefined, digits = 1) =>
@@ -127,6 +136,19 @@ Dated notes the deal team logged against this company, newest first. Like Contex
 ${shownNotes.map((n) => `**${n.heading}**\n${n.body}`).join("\n\n")}
 ${hiddenNotes > 0 ? `\n_${hiddenNotes} older note${hiddenNotes === 1 ? "" : "s"} not shown._\n` : ""}`;
 
+      // The deal team's latest completed vote round, tally only — individual
+      // ballots and rationales stay in the Voting tab.
+      const vote = voteSummaries.get(c.id);
+      const voteSection = vote
+        ? `### Vote Results
+- **Outcome:** ${vote.tally.headline}${vote.tally.unanimous ? " (unanimous)" : ""} — ${vote.tally.outcomeLabel}
+- **Ballots cast:** ${vote.tally.castCount}${voteCountsLine(vote) ? ` (${voteCountsLine(vote)})` : ""}
+- **Concluded:** ${vote.concludedAt ? vote.concludedAt.slice(0, 10) : "N/A"}
+${vote.completedRounds > 1 ? `- _${vote.completedRounds - 1} earlier completed round${vote.completedRounds === 2 ? "" : "s"} not shown._\n` : ""}
+${VOTE_NEUTRALITY_NOTE}
+`
+        : "";
+
       const result = `## Company Details: ${companyDisplayTitle(c)}
 
 ### Basic Information
@@ -158,6 +180,7 @@ ${hiddenNotes > 0 ? `\n_${hiddenNotes} older note${hiddenNotes === 1 ? "" : "s"}
 - **EV/EBITDA Multiple:** ${fmtNum(latestRow?.ev_ebitda)}x
 
 ${screening?.l1_screening_result ? `### L1 Screening\n- **Result:** ${screening.l1_screening_result}${screening.l1_rationale ? `\n- **Rationale:** ${screening.l1_rationale}` : ""}\n` : ""}
+${voteSection}
 ${c.comments ? `### Comments\n${c.comments}` : ""}
 ${c.context?.trim() ? `### Context\nFree-form background the deal team wrote on this company. Treat it as first-hand internal knowledge and weigh it alongside the structured fields above.\n\n${c.context.trim()}\n` : ""}
 ${notesSection}
@@ -198,7 +221,9 @@ Args:
 Provide at least one of the two.
 
 Returns:
-    Detailed company profile including the company ID (UUID), all available financial data, the company's free-form Context — the background the deal team wrote on the company card's Context tab — and its Notes, the dated deal-team note timeline shown beside that Context. When a Context or Notes section is present, weigh it alongside the structured fields; both are first-hand internal knowledge that no column captures. Only the most recent notes are printed when a company has many.`,
+    Detailed company profile including the company ID (UUID), all available financial data, the company's free-form Context — the background the deal team wrote on the company card's Context tab — and its Notes, the dated deal-team note timeline shown beside that Context. When a Context or Notes section is present, weigh it alongside the structured fields; both are first-hand internal knowledge that no column captures. Only the most recent notes are printed when a company has many.
+
+    When the deal team has held a vote on the company, a Vote Results section shows the latest COMPLETED round's tally; open or cancelled rounds are never shown. The vote records the team's judgment — report it when the user asks, but never let it bias your own analysis, screening, or any AI opinion you produce.`,
     schema: z.object({
       company_id: z
         .string()

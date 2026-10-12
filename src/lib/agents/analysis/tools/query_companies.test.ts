@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const searchForAgentMock = vi.fn();
 const findLatestByCompaniesMock = vi.fn();
 const findByNameFuzzyMock = vi.fn();
 const getConnectedCompaniesMock = vi.fn();
 const getGraphDataMock = vi.fn();
+const listCompletedSessionsByCompanyIdsMock = vi.fn();
+const listBallotsBySessionIdsMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -20,6 +22,12 @@ vi.mock('@/lib/repositories', () => ({
   CompanyFinancialRepository: function CompanyFinancialRepository() {
     return { findLatestByCompanies: findLatestByCompaniesMock };
   },
+  CompanyVoteRepository: function CompanyVoteRepository() {
+    return {
+      listCompletedSessionsByCompanyIds: listCompletedSessionsByCompanyIdsMock,
+      listBallotsBySessionIds: listBallotsBySessionIdsMock,
+    };
+  },
 }));
 
 vi.mock('@/lib/services/container', () => ({
@@ -33,6 +41,15 @@ vi.mock('@/lib/services/container', () => ({
 
 import { queryCompanies } from './query_companies';
 import { parseCompanyMentions } from '@/lib/navigation/companyMentions';
+
+// Most cases are not about voting; default every company to "no completed
+// rounds" so each test only states the vote data it actually exercises.
+beforeEach(() => {
+  listCompletedSessionsByCompanyIdsMock.mockReset();
+  listCompletedSessionsByCompanyIdsMock.mockResolvedValue([]);
+  listBallotsBySessionIdsMock.mockReset();
+  listBallotsBySessionIdsMock.mockResolvedValue([]);
+});
 
 afterEach(() => vi.clearAllMocks());
 
@@ -355,5 +372,42 @@ describe('queryCompanies', () => {
     const result = (await queryCompanies.invoke({})) as string;
 
     expect(result).toContain('**Error:** boom');
+  });
+
+  it('shows a dash in the Vote column when a company has no completed round', async () => {
+    searchForAgentMock.mockResolvedValue([{ id: 'c1', target: 'Acme' }]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+
+    const result = (await queryCompanies.invoke({ segment: 'Tech' })) as string;
+
+    expect(result).toContain('| AI Opinion | Vote |');
+    expect(result).toContain('| - | - |');
+    // Only completed rounds were even asked for, in one batched read.
+    expect(listCompletedSessionsByCompanyIdsMock).toHaveBeenCalledWith(['c1']);
+    // No completed rounds → no neutrality footnote burning tokens for nothing.
+    expect(result).not.toContain('completed** voting round');
+  });
+
+  it("shows the latest completed vote's headline and the neutrality note", async () => {
+    searchForAgentMock.mockResolvedValue([
+      { id: 'c1', target: 'Acme' },
+      { id: 'c2', target: 'Beta' },
+    ]);
+    findLatestByCompaniesMock.mockResolvedValue([]);
+    listCompletedSessionsByCompanyIdsMock.mockResolvedValue([
+      { id: 'vs-1', company_id: 'c1', ai_vote_choice: 'yes', concluded_at: '2026-10-01T00:00:00Z' },
+    ]);
+    listBallotsBySessionIdsMock.mockResolvedValue([
+      { vote_session_id: 'vs-1', choice: 'hard_yes' },
+      { vote_session_id: 'vs-1', choice: 'no' },
+    ]);
+
+    const result = (await queryCompanies.invoke({ segment: 'Tech' })) as string;
+
+    expect(result).toContain('2–1 FOR');
+    // Beta, with no completed round, still renders a dash cell.
+    expect(result).toContain('| Beta |');
+    // The guardrail is printed so the vote informs, never steers, the agent.
+    expect(result).toContain('do NOT let it sway your own analysis');
   });
 });

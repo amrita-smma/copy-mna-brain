@@ -77,6 +77,41 @@ describe('CompanyVoteRepository', () => {
     await expect(repo.listSessionsByCompanyId('c-1')).resolves.toEqual(rows);
   });
 
+  it('listCompletedSessionsByCompanyIds returns [] without hitting the DB when the id list is empty', async () => {
+    await expect(repo.listCompletedSessionsByCompanyIds([])).resolves.toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('listCompletedSessionsByCompanyIds scopes to completed rounds in this workspace', async () => {
+    const rows = [{ id: 'vs-2', company_id: 'c-1', status: 'completed' }];
+    db.orderBy.mockResolvedValueOnce(rows);
+
+    await expect(
+      repo.listCompletedSessionsByCompanyIds(['c-1', 'c-2']),
+    ).resolves.toEqual(rows);
+    const { params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0] as SQL);
+    expect(params).toEqual(
+      expect.arrayContaining(['c-1', 'c-2', 'ws-1', 'completed']),
+    );
+    expect(params).not.toContain('active');
+    expect(params).not.toContain('cancelled');
+  });
+
+  it('listCompletedSessionsByCompanyIds orders by company then newest conclusion first, nulls last', async () => {
+    db.orderBy.mockResolvedValueOnce([]);
+
+    await repo.listCompletedSessionsByCompanyIds(['c-1']);
+    const rendered = (db.orderBy.mock.calls[0] as SQL[])
+      .map((arg) => new PgDialect().sqlToQuery(arg).sql)
+      .join(', ');
+    expect(rendered).toContain('"company_id" asc');
+    // NULLS LAST: a completed row missing its conclusion stamp must not
+    // shadow a newer, properly concluded round (Postgres sorts NULL first
+    // under plain DESC).
+    expect(rendered).toContain('"concluded_at" desc nulls last');
+    expect(rendered).toContain('"created_at" desc');
+  });
+
   it('findDueSessions returns open sessions past their deadline', async () => {
     const rows = [{ id: 'vs-1', deadline_at: '2026-01-01T00:00:00Z' }];
     db.orderBy.mockResolvedValueOnce(rows);

@@ -372,6 +372,50 @@ turn-one cache write plus 0.1x on every tool-loop iteration.
 
 ---
 
+## File naming in agent `tools/` encodes kind by case instead of by folder
+
+**Area:** `src/lib/agents/*/tools/` (worst in `analysis`, ~75 files), the
+code-map generator's `collectAgents()` (`scripts/build-code-map.ts`), and the
+Agent Design Pattern section of `.claude/CLAUDE.md`.
+
+**What it is:**
+Inside a `tools/` folder, what a file *is* is encoded in its casing:
+snake_case files (`query_companies.ts`, `get_company_details.ts`) are
+registered tools, one per file, named after the tool they register; camelCase
+files (`attachedHtml.ts`, `companyFilters.ts`, `emailArtifacts.ts`,
+`fuzzySearch.ts`, `stageLabels.ts`, `voteSummaries.ts`) are shared helpers
+that are not tools at all. Two problems:
+
+1. The repo now has two file-naming conventions, split by an implicit,
+   undocumented rule that every new file silently reinforces (each of the six
+   helpers was added by following the nearest precedent).
+2. The distinction is invisible to tooling. `collectAgents()` globs
+   `tools/*.ts` and counts every non-test file as a tool, so the code map
+   reports the analysis agent as having "75 tools" when six of those are
+   helpers.
+
+**Why we took it:**
+Helpers accreted next to their consumers one at a time; co-location was right,
+and the case split was the path of least resistance for distinguishing them
+without a folder move. Nobody decided it — it emerged.
+
+**Trigger to revisit:**
+The next time any `tools/` folder gains a shared helper, or the next time the
+code-map tool count is needed as an accurate number — whichever comes first.
+
+**Intended fix:**
+One naming convention for all files; express *kind* through the folder path,
+never through casing. Concretely: move shared helpers out of `tools/` into a
+dedicated folder (e.g. `src/lib/agents/<agent>/lib/`), so "a tool" is defined
+as "a file directly under `tools/`" and the helper/tool split is structural.
+Then update `collectAgents()` in `scripts/build-code-map.ts` (the glob stays
+`tools/*.ts` but now counts only tools), regenerate the map, and update the
+Agent Design Pattern folder diagram in `.claude/CLAUDE.md` to show the helper
+folder. Tool files stay snake_case only if that remains the single
+folder-wide convention (they mirror their registered tool names); otherwise
+rename them too — the point is one rule, stated in `CLAUDE.md`, not two
+implicit ones.
+
 ## Smaller items
 
 **36 endpoints are `fetch`ed inline from views/components**, bypassing the

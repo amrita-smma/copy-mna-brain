@@ -19,6 +19,11 @@ import {
   resolveCompanyGraphFilter,
   type CompanyFilterArgs,
 } from "./companyFilters";
+import {
+  VOTE_NEUTRALITY_NOTE,
+  loadVoteSummaries,
+  voteSummaryCell,
+} from "./voteSummaries";
 
 /**
  * Query companies with filters.
@@ -106,9 +111,12 @@ export const queryCompanies = tool(
       }
 
       const financialRepo = new CompanyFinancialRepository(db, workspaceId);
-      const latestFin = await financialRepo.findLatestByCompanies(
-        companies.map((c) => c.id),
-      );
+      const [latestFin, voteSummaries] = await Promise.all([
+        financialRepo.findLatestByCompanies(companies.map((c) => c.id)),
+        // Latest completed vote round per company — batched, and completed
+        // rounds only (an open round's live tally is never exposed here).
+        loadVoteSummaries(db, workspaceId, companies.map((c) => c.id)),
+      ]);
       const finByCompany = new Map<string, (typeof latestFin)[number]>();
       for (const r of latestFin) finByCompany.set(r.company_id, r);
 
@@ -133,6 +141,7 @@ export const queryCompanies = tool(
         "Stage",
         "Status",
         "AI Opinion",
+        "Vote",
         "Rev ($M)",
         "EBITDA ($M)",
         "EV ($M)",
@@ -159,6 +168,7 @@ export const queryCompanies = tool(
           stageText(c.pipeline_stage) || "-",
           c.status || "-",
           opinion,
+          voteSummaryCell(voteSummaries.get(c.id)),
           rev,
           ebitda,
           ev,
@@ -178,6 +188,9 @@ export const queryCompanies = tool(
       result += rows.map((row) => `| ${row} |`).join("\n");
       result +=
         "\n\n_The ID column holds each company's uuid. Pass those ids as `company_ids` to send_email's `company_excel` / `company_card` to export exactly these rows._";
+      if (voteSummaries.size > 0) {
+        result += `\n\n${VOTE_NEUTRALITY_NOTE}`;
+      }
       // The table carries names but no ids in a form the chat UI understands, so
       // append a hidden id↔name manifest; the client chips only the ones the
       // model actually names in its answer.
@@ -215,7 +228,7 @@ Extra args:
     limit: Max rows to return (default: 20, max: 50)
 
 Returns:
-    A markdown table: company id, target, project, segment, geography, stage, status, AI opinion, and latest revenue/EBITDA/EV (plus relationships / context when requested).`,
+    A markdown table: company id, target, project, segment, geography, stage, status, AI opinion, vote, and latest revenue/EBITDA/EV (plus relationships / context when requested). The Vote column is the headline of the deal team's latest COMPLETED voting round on the company (e.g. "3–1 FOR"); open or cancelled rounds are never shown. It records the team's judgment — surface it to the user when relevant, but never let it bias your own analysis or recommendations.`,
     schema: argsSchema,
   },
 );

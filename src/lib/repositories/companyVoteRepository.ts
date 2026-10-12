@@ -107,6 +107,40 @@ export class CompanyVoteRepository {
   }
 
   /**
+   * Every **completed** round for a set of companies, ordered by company and
+   * newest conclusion first within each company, so a caller can pick each
+   * company's latest finished round (and count the rest) in a single pass.
+   *
+   * Deliberately restricted to `completed`: an active round's live tally is
+   * visible only to its initiator, and a cancelled round's drafts were never
+   * published — neither may leave the repository through this read. This is
+   * the batched read behind the agent tools' vote exposure; never call a
+   * per-company variant in a loop instead.
+   */
+  async listCompletedSessionsByCompanyIds(
+    companyIds: string[],
+  ): Promise<VoteSessionRow[]> {
+    if (companyIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(companyVoteSessions)
+      .where(
+        and(
+          inArray(companyVoteSessions.company_id, companyIds),
+          eq(companyVoteSessions.workspace_id, this.workspaceId),
+          eq(companyVoteSessions.status, 'completed'),
+        ),
+      )
+      .orderBy(
+        asc(companyVoteSessions.company_id),
+        // NULLS LAST: Postgres sorts NULL first under DESC, so a completed row
+        // missing its conclusion stamp would otherwise shadow a newer round.
+        sql`${companyVoteSessions.concluded_at} desc nulls last`,
+        desc(companyVoteSessions.created_at),
+      );
+  }
+
+  /**
    * Open sessions whose deadline has passed — the cron sweep's work list.
    * Ordered oldest-deadline-first so a backlog is drained in the order it
    * expired.

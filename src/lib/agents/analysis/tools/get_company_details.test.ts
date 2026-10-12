@@ -6,6 +6,8 @@ const findByCompanyFinancialsMock = vi.fn();
 const findByCompanyScreeningMock = vi.fn();
 const findByDealIdMock = vi.fn();
 const countByDealIdMock = vi.fn();
+const listCompletedSessionsByCompanyIdsMock = vi.fn();
+const listBallotsBySessionIdsMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -27,6 +29,12 @@ vi.mock('@/lib/repositories', () => ({
   DealNoteRepository: function DealNoteRepository() {
     return { findByDealId: findByDealIdMock, countByDealId: countByDealIdMock };
   },
+  CompanyVoteRepository: function CompanyVoteRepository() {
+    return {
+      listCompletedSessionsByCompanyIds: listCompletedSessionsByCompanyIdsMock,
+      listBallotsBySessionIds: listBallotsBySessionIdsMock,
+    };
+  },
 }));
 
 vi.mock('./stageLabels', () => ({
@@ -45,6 +53,10 @@ beforeEach(() => {
   findByDealIdMock.mockResolvedValue([]);
   countByDealIdMock.mockReset();
   countByDealIdMock.mockResolvedValue(0);
+  listCompletedSessionsByCompanyIdsMock.mockReset();
+  listCompletedSessionsByCompanyIdsMock.mockResolvedValue([]);
+  listBallotsBySessionIdsMock.mockReset();
+  listBallotsBySessionIdsMock.mockResolvedValue([]);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -379,5 +391,43 @@ describe('getCompanyDetails', () => {
 
     expect(result).toContain('**Pipeline Stage:** L6 · Post-Close');
     expect(result).not.toContain('stg-post');
+  });
+
+  it('omits the Vote Results section when the company has no completed round', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c-1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).not.toContain('### Vote Results');
+    // Only completed rounds are ever requested — an open round's live tally
+    // and a cancelled round's drafts must stay out of the agent's view.
+    expect(listCompletedSessionsByCompanyIdsMock).toHaveBeenCalledWith(['c-1']);
+  });
+
+  it("prints the latest completed round's tally with the neutrality guardrail", async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c-1', target: 'Acme' });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    listCompletedSessionsByCompanyIdsMock.mockResolvedValue([
+      { id: 'vs-2', company_id: 'c-1', ai_vote_choice: 'yes', concluded_at: '2026-10-01T10:00:00Z' },
+      { id: 'vs-1', company_id: 'c-1', ai_vote_choice: 'no', concluded_at: '2026-08-01T10:00:00Z' },
+    ]);
+    listBallotsBySessionIdsMock.mockResolvedValue([
+      { vote_session_id: 'vs-2', choice: 'hard_yes' },
+      { vote_session_id: 'vs-2', choice: 'yes' },
+      { vote_session_id: 'vs-2', choice: 'no' },
+    ]);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('### Vote Results');
+    // 3 FOR (hard_yes + yes + AI's yes) vs 1 AGAINST.
+    expect(result).toContain('**Outcome:** 3–1 FOR — 3 Proceed');
+    expect(result).toContain('**Ballots cast:** 4 (HARD YES 1 · YES 2 · NO 1)');
+    expect(result).toContain('**Concluded:** 2026-10-01');
+    expect(result).toContain('_1 earlier completed round not shown._');
+    expect(result).toContain('do NOT let it sway your own analysis');
   });
 });
