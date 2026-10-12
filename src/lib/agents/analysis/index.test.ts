@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   postgresSaverCtor: vi.fn(),
   postgresSaverSetup: vi.fn().mockResolvedValue(undefined),
   serverTools: [
-    { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
-    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 30 },
+    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 30 },
   ],
 }));
 
@@ -1214,7 +1214,7 @@ describe('AgentGraph withheld tools', () => {
     { name: 'query_companies' },
     { name: 'propose_insight_create' },
     { name: 'propose_workforce_handoff' },
-    { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 30 },
   ] as unknown as ToolList;
   const names = (list: unknown) => (list as Array<{ name: string }>).map((t) => t.name);
 
