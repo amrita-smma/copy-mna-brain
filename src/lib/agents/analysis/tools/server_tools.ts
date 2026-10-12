@@ -1,13 +1,26 @@
 /**
  * Anthropic-hosted tools executed directly on Anthropic's infrastructure.
  *
- * Depend on local patch `patches/@langchain__anthropic@1.3.26.patch`.
- * Inbound (`dist/utils/message_outputs.js`) and outbound (`dist/utils/message_inputs.js`)
- * allowlists must agree to prevent orphaned tool uses from poisoning threads.
+ * Depend on local patch `patches/@langchain__anthropic@1.3.26.patch`, which
+ * fixes two separate defects in how `@langchain/anthropic` parses a server-tool
+ * stream. Both are asserted behaviourally in `server_tools.test.ts`; neither is
+ * fixed upstream as of 1.5.12, so an upgrade does not retire the patch.
  *
- * Do not drop the patch until upstream includes all four *_tool_result types in both lists:
- * `web_fetch_tool_result`, `code_execution_tool_result`, `bash_code_execution_tool_result`,
- * and `text_editor_code_execution_tool_result`.
+ * 1. Result-type allowlists. Inbound (`dist/utils/message_outputs.js`) and
+ *    outbound (`dist/utils/message_inputs.js`) must agree, or an orphaned tool
+ *    use poisons the thread. Do not drop the patch until upstream includes all
+ *    four *_tool_result types in both lists: `web_fetch_tool_result`,
+ *    `code_execution_tool_result`, `bash_code_execution_tool_result`, and
+ *    `text_editor_code_execution_tool_result`.
+ *
+ * 2. Prefilled tool input. Stock blanks `input` to "" on every
+ *    `server_tool_use` content_block_start, assuming `input_json_delta` events
+ *    refill it. True for `code_execution` (the model writes the code token by
+ *    token); false for the nested `web_search` call the sandbox makes, which
+ *    arrives COMPLETE in content_block_start with no deltas following. Blanked,
+ *    the query is gone, and every later turn replays the search as
+ *    `{"name":"web_search","input":{}}` — the agent reads its own history as a
+ *    malformed call and concludes web search is unavailable.
  *
  * Never declare `code_execution` explicitly (run internally by 2026 variants).
  *
