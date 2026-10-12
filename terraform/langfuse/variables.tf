@@ -135,8 +135,10 @@ locals {
       }
     }
     production = {
-      environment     = "production"
-      hostname        = "langfuse.sqe.co.id"
+      environment = "production"
+      # The Elastic IP, as on staging: no DNS record, a Let's Encrypt IP
+      # certificate. Swap in a DNS name here once one points at it.
+      hostname        = "15.232.114.39"
       instance_type   = "t3.large"
       data_volume_gb  = 200
       clickhouse_heap = "4000000000"
