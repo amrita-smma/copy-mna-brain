@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "2c9f6ae4ba380646fdb1e14910e49866dc8ed9c7",
+    "date": "2026-10-12",
+    "subject": "Redesigned research summary PDFs with updated layout, charts, and callouts",
+    "category": "improvement"
+  },
+  {
+    "hash": "5a7b10d8d94a87bc68ef67bd8bdc1460128ad7a4",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
