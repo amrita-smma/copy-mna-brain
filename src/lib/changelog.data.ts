@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "66fbc9c1a44226de24044e41b66644b081e18d4a",
+    "date": "2026-10-12",
+    "subject": "Copilot now defaults to M&A-focused research with search enabled",
+    "category": "improvement"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
@@ -19,6 +25,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "f7fac1ea0c08083f193e030cdea8115810614e0d",
+    "date": "2026-10-09",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "c5780f170a2d660be27b61e4db8fd11e047286a8",
     "date": "2026-10-09",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
