@@ -196,6 +196,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "a4121899376c1e4547b02c4c25c8fd328d2e0fd9",
+    "date": "2026-10-12",
+    "subject": "Completed vote results now appear when agents fetch company data",
+    "category": "improvement"
+  },
+  {
+    "hash": "69f0de40232a908a67026348899034576ecad17a",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
