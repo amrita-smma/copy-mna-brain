@@ -255,17 +255,40 @@ export async function restoreDeal(id: string, payload: {
   });
 }
 
-export async function addCompanyNote(id: string, content: string, stage?: string | null) {
+/**
+ * @param createdAt ISO timestamp of when the entry happened, when the timeline
+ * composer backdated it. Omitted means "now".
+ */
+export async function addCompanyNote(
+  id: string,
+  content: string,
+  stage?: string | null,
+  createdAt?: string | null,
+) {
   return apiRequest<any>(`/api/companies/${encodeURIComponent(id)}/notes`, {
     method: 'POST',
-    body: JSON.stringify({ content, stage }),
+    body: JSON.stringify({ content, stage, createdAt }),
   });
 }
 
-export async function addCompanyLink(id: string, url: string, title?: string, stage?: string | null) {
+export async function addCompanyLink(
+  id: string,
+  url: string,
+  title?: string,
+  stage?: string | null,
+  createdAt?: string | null,
+) {
   return apiRequest<any>(`/api/companies/${encodeURIComponent(id)}/links`, {
     method: 'POST',
-    body: JSON.stringify({ url, title, stage }),
+    body: JSON.stringify({ url, title, stage, createdAt }),
+  });
+}
+
+/** Rewrites a timeline note's body in place. */
+export async function updateDealNote(id: string, content: string) {
+  return apiRequest<any>(`/api/deal-notes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ content }),
   });
 }
 

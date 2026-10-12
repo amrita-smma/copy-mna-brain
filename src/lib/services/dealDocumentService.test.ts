@@ -243,3 +243,60 @@ describe('DealDocumentService.delete', () => {
     expect(callOrder).toEqual(['s3', 'db']);
   });
 });
+
+describe('DealDocumentService.register backdating', () => {
+  it('stamps created_at when the timeline composer backdated the upload', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.insert).mockResolvedValue(makeDocument());
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.register({
+      deal_id: 'company-1',
+      file_name: 'report.pdf',
+      file_path: 'uploads/deals/report.pdf',
+      stage: 'L1',
+      created_at: '2026-10-09T14:30:00Z',
+    });
+
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ created_at: '2026-10-09T14:30:00.000Z' }),
+    );
+  });
+
+  it('drops a null created_at so the column default stamps the row', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    vi.mocked(repo.insert).mockResolvedValue(makeDocument());
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await service.register({
+      deal_id: 'company-1',
+      file_name: 'report.pdf',
+      file_path: 'uploads/deals/report.pdf',
+      stage: 'L1',
+      created_at: null,
+    });
+
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.not.objectContaining({ created_at: expect.anything() }),
+    );
+  });
+
+  it('rejects an unparseable created_at rather than silently stamping now', async () => {
+    const repo = makeRepoStub();
+    const jobDispatcher = makeJobDispatcherStub();
+    const service = new DealDocumentService(repo, jobDispatcher, 'workspace-1');
+
+    await expect(
+      service.register({
+        deal_id: 'company-1',
+        file_name: 'report.pdf',
+        file_path: 'uploads/deals/report.pdf',
+        stage: 'L1',
+        created_at: 'last tuesday',
+      }),
+    ).rejects.toThrow();
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+});

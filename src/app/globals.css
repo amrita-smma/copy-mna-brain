@@ -204,6 +204,36 @@
   @apply bg-muted-foreground/50;
 }
 
+/* Scroll regions that must show nothing at all when there is nothing to
+   scroll. The rules above give every scroller a painted `bg-muted/50` track,
+   which reads as a permanent grey strip down the side of a panel whose content
+   already fits. This opts an element back out: the track is transparent, so
+   only the thumb — which the browser creates solely when the content
+   overflows — is ever visible. */
+.scrollbar-quiet::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/25 rounded-full;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
+}
+
+/* Firefox has no track/thumb pseudo-elements; `thin` plus a transparent track
+   is the equivalent, and it already hides the bar when nothing overflows. */
+.scrollbar-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+
 /* TipTap (ballot rationale editor) — the Placeholder extension marks the empty
    first block, which has no visible text of its own to hint with. */
 .tiptap p.is-editor-empty:first-child::before {

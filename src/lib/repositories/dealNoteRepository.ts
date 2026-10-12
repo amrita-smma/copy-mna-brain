@@ -40,6 +40,23 @@ export class DealNoteRepository {
     await this.db.insert(dealNotes).values(rows);
   }
 
+  /**
+   * Rewrites a note's body in place. Returns `null` when no row matched —
+   * either the id is unknown or it belongs to another workspace's company —
+   * so the caller can tell "not found" from "updated".
+   */
+  async update(
+    id: string,
+    data: Pick<TablesInsert<'deal_notes'>, 'content'>,
+  ): Promise<Tables<'deal_notes'> | null> {
+    const [row] = await this.db
+      .update(dealNotes)
+      .set({ ...data, updated_at: new Date().toISOString() })
+      .where(and(eq(dealNotes.id, id), inArray(dealNotes.deal_id, this.workspaceCompanyIds())))
+      .returning();
+    return row ?? null;
+  }
+
   async delete(id: string): Promise<void> {
     await this.db
       .delete(dealNotes)

@@ -1,6 +1,7 @@
 import { deleteFile } from '@/lib/s3';
 import { detectFileKind } from '@/lib/fileType';
 import type { DealDocumentRepository, TablesInsert } from '@/lib/repositories';
+import { normalizeOccurredAt } from '@/lib/timeline/occurredAt';
 import type { JobDispatcher } from './jobDispatcher';
 import {
   runDealDocumentProcessing,
@@ -23,7 +24,12 @@ export class DealDocumentService {
       await this.dealDocRepo.clearFeaturedByDealId(data.deal_id);
     }
 
-    const row = await this.dealDocRepo.insert(data);
+    // The timeline composer may backdate an upload to when the file was
+    // actually received; without one, the column default stamps "now".
+    const { created_at: rawCreatedAt, ...rest } = data;
+    const created_at = normalizeOccurredAt(rawCreatedAt);
+
+    const row = await this.dealDocRepo.insert(created_at ? { ...rest, created_at } : rest);
 
     await this.jobDispatcher.dispatch({
       type: 'deal_document_processing',

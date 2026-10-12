@@ -77,3 +77,35 @@ describe('DealLinkService.create', () => {
     );
   });
 });
+
+describe('DealLinkService.create backdating', () => {
+  it('leaves created_at off the insert when no date was supplied', async () => {
+    const repo = makeRepoStub();
+    const service = new DealLinkService(repo);
+
+    await service.create('company-1', 'https://example.com');
+
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.not.objectContaining({ created_at: expect.anything() }),
+    );
+  });
+
+  it('stamps created_at when the composer backdated the entry', async () => {
+    const repo = makeRepoStub();
+    const service = new DealLinkService(repo);
+
+    await service.create('company-1', 'https://example.com', null, 'L1', '2026-10-09T14:30:00Z');
+
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ created_at: '2026-10-09T14:30:00.000Z' }),
+    );
+  });
+
+  it('rejects an unparseable date rather than silently stamping now', async () => {
+    const repo = makeRepoStub();
+    const service = new DealLinkService(repo);
+
+    expect(() => service.create('company-1', 'https://example.com', null, 'L0', 'nope')).toThrow();
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+});

@@ -10,6 +10,8 @@ interface MockDb {
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
   returning: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
 }
 
@@ -23,6 +25,8 @@ function makeMockDb(): MockDb {
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     returning: vi.fn(),
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
   };
 }
@@ -105,6 +109,26 @@ describe('DealNoteRepository', () => {
   it('insertMany is a no-op for an empty array', async () => {
     await repo.insertMany([]);
     expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it('update rewrites the content, stamps updated_at, and returns the row', async () => {
+    const row = { id: 'n1', deal_id: 'deal-1', content: 'revised', stage: 'L0' };
+    mockDb.returning.mockResolvedValueOnce([row]);
+
+    const result = await repo.update('n1', { content: 'revised' });
+
+    expect(result).toEqual(row);
+    expect(mockDb.set).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'revised', updated_at: expect.any(String) }),
+    );
+    // One where() for the id match, one for the workspace-companies subquery.
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
+  it('update returns null when no row matched, so another workspace\'s note reads as not found', async () => {
+    mockDb.returning.mockResolvedValueOnce([]);
+
+    await expect(repo.update('n-other', { content: 'revised' })).resolves.toBeNull();
   });
 
   it('delete scopes the where clause to this workspace via the companies subquery', async () => {

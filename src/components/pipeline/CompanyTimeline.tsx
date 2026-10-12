@@ -3,26 +3,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
-  ChevronLeft,
-  ChevronRight,
   Download,
   ExternalLink,
   Eye,
   FileText,
   Flag,
+  History,
   Link as LinkIcon,
   Loader2,
+  Paperclip,
+  Pencil,
   Plus,
   StickyNote,
   Star,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   DocumentStatusBadge,
   DocumentTagsList,
@@ -94,18 +107,25 @@ interface CompanyTimelineProps<D extends TimelineDocumentItem, F extends Timelin
   /** Manual entry — note composer. */
   newNote: string;
   onNewNoteChange: (value: string) => void;
-  onAddNote: () => void;
+  /**
+   * `occurredAt` is the ISO instant the composer's override pill is set to, so
+   * an entry written today about last Friday lands on last Friday. `null` is
+   * the ordinary case — the entry is stamped with the moment it was added.
+   */
+  onAddNote: (occurredAt: string | null) => void;
   /** Manual entry — link composer. */
   newLinkUrl: string;
   newLinkTitle: string;
   onNewLinkUrlChange: (value: string) => void;
   onNewLinkTitleChange: (value: string) => void;
-  onAddLink: () => void;
+  onAddLink: (occurredAt: string | null) => void;
   /** Manual entry — file upload. */
-  onUploadFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onUploadFile: (e: React.ChangeEvent<HTMLInputElement>, occurredAt: string | null) => void;
   /** True while any composer action is in flight. */
   isSubmitting: boolean;
 
+  /** Rewrites a note's body in place. */
+  onEditNote: (id: string, content: string) => Promise<void> | void;
   onDeleteNote: (id: string) => void;
   onDeleteLink: (id: string) => void;
   onDownloadDocument: (doc: D) => void;
@@ -115,22 +135,57 @@ interface CompanyTimelineProps<D extends TimelineDocumentItem, F extends Timelin
   onPreviewMatchedFile: (file: F) => void;
   onOpenMatchedFile: (file: F) => void;
 
-  /** `dialog` tightens the rail for the pipeline company dialog. */
+  /** `dialog` tightens the panes for the pipeline company dialog. */
   variant?: 'page' | 'dialog';
 }
 
-/** Marker column width in px — must match `w-44` below; used to place the caret. */
-const ITEM_WIDTH = 176;
+/** How many entries the rail shows before "Load more…" extends it. */
+const PAGE_SIZE = 20;
 
 const KIND_META: Record<
   TimelineEvent<TimelineDocumentItem, TimelineFileItem>['kind'],
-  { label: string; icon: typeof FileText; dot: string; text: string }
+  { label: string; short: string; icon: typeof FileText; dot: string; ring: string; text: string }
 > = {
-  note: { label: 'Note', icon: StickyNote, dot: 'bg-blue-500', text: 'text-blue-600 dark:text-blue-400' },
-  document: { label: 'Upload', icon: Upload, dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-  link: { label: 'Link', icon: LinkIcon, dot: 'bg-violet-500', text: 'text-violet-600 dark:text-violet-400' },
-  file: { label: 'File reference', icon: FileText, dot: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' },
-  stage: { label: 'Stage change', icon: Flag, dot: 'bg-primary', text: 'text-primary' },
+  note: {
+    label: 'Note',
+    short: 'Note',
+    icon: StickyNote,
+    dot: 'bg-blue-500',
+    ring: 'ring-blue-500',
+    text: 'text-blue-600 dark:text-blue-400',
+  },
+  document: {
+    label: 'Upload',
+    short: 'Upload',
+    icon: Upload,
+    dot: 'bg-emerald-500',
+    ring: 'ring-emerald-500',
+    text: 'text-emerald-600 dark:text-emerald-400',
+  },
+  link: {
+    label: 'Link',
+    short: 'Link',
+    icon: LinkIcon,
+    dot: 'bg-violet-500',
+    ring: 'ring-violet-500',
+    text: 'text-violet-600 dark:text-violet-400',
+  },
+  file: {
+    label: 'File reference',
+    short: 'File',
+    icon: FileText,
+    dot: 'bg-amber-500',
+    ring: 'ring-amber-500',
+    text: 'text-amber-600 dark:text-amber-400',
+  },
+  stage: {
+    label: 'Stage change',
+    short: 'Stage',
+    icon: Flag,
+    dot: 'bg-primary',
+    ring: 'ring-primary',
+    text: 'text-primary',
+  },
 };
 
 const safeDate = (value: string | null | undefined): Date | null => {
@@ -149,14 +204,36 @@ const formatRelative = (value: string) => {
   return d ? formatDistanceToNow(d, { addSuffix: true }) : '';
 };
 
+/** `2026-10-12` in the browser's own zone — what a date input expects. */
+const toDateInput = (d: Date) => format(d, 'yyyy-MM-dd');
+/** `11:39` in the browser's own zone — what a time input expects. */
+const toTimeInput = (d: Date) => format(d, 'HH:mm');
+
 /**
- * A classic horizontal timeline of everything that happened on a deal — stage
- * changes, notes, uploaded documents, links, and Smart Files that mention the
- * company — ordered oldest to newest along a single rail. Clicking a marker
- * expands that event's detail into the panel beneath the rail.
+ * Combines the composer's two inputs into one instant, or `null` when they do
+ * not make one — a cleared date input, say. Both are read in the browser's own
+ * zone, so the entry lands on the wall-clock moment the author picked rather
+ * than a UTC-shifted one.
  *
- * It also owns manual entry: a note textbox, a link form, and a file upload,
- * so the Attachments tab it replaced has no surviving affordance of its own.
+ * Returning `null` rather than falling back to `now` is the point: an author
+ * who cleared the date is mid-edit, and silently stamping the entry with the
+ * present is the one outcome they cannot see happening.
+ */
+const composeOccurredAt = (date: string, time: string): string | null => {
+  if (!date) return null;
+  const parsed = new Date(`${date}T${time || '00:00'}`);
+  return isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+/**
+ * Every dated thing that happened on a deal — stage changes, notes, uploaded
+ * documents, links, and Smart Files that mention the company — as a vertical
+ * rail of entries, newest first, beside a reading pane for whichever entry is
+ * selected.
+ *
+ * It also owns manual entry: the composer above the rail writes a note, a link
+ * or an upload, each stamped with the date/time its pill is set to, so the
+ * Attachments tab it replaced has no surviving affordance of its own.
  *
  * Shared by `CompanyDetail` (full page) and `CompanyDetailDialog` (pipeline
  * dialog) so the two Timeline tabs cannot drift apart.
@@ -181,6 +258,7 @@ export function CompanyTimeline<
   onAddLink,
   onUploadFile,
   isSubmitting,
+  onEditNote,
   onDeleteNote,
   onDeleteLink,
   onDownloadDocument,
@@ -196,11 +274,39 @@ export function CompanyTimeline<
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
-  const railRef = useRef<HTMLDivElement>(null);
-  const [scrollLeft, setScrollLeft] = useState(0);
-  // Only auto-scroll to the newest event once per mount, so a refetch after
-  // adding an entry cannot yank the rail away from where the user scrolled.
-  const didAutoScrollRef = useRef(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // An entry is stamped with the moment it was added unless the author opts
+  // into overriding it. The pill behind that toggle is re-seeded to "now" each
+  // time it opens, then left alone, so an author stamping several entries to
+  // the same past moment does not have to re-pick it between each one.
+  const [overrideTime, setOverrideTime] = useState(false);
+  const [entryDate, setEntryDate] = useState(() => toDateInput(new Date()));
+  const [entryTime, setEntryTime] = useState(() => toTimeInput(new Date()));
+
+  // null carries two different meanings, and only the composer can tell them
+  // apart: with the override off it means "stamp it now", which is a perfectly
+  // good thing to submit; with the override on it means the author cleared the
+  // date, which is not.
+  const occurredAt = overrideTime ? composeOccurredAt(entryDate, entryTime) : null;
+  const overrideIncomplete = overrideTime && occurredAt === null;
+  const canSubmit = !isSubmitting && !overrideIncomplete;
+
+  const toggleOverrideTime = (next: boolean) => {
+    if (next) {
+      const now = new Date();
+      setEntryDate(toDateInput(now));
+      setEntryTime(toTimeInput(now));
+    }
+    setOverrideTime(next);
+  };
+
+  // Note editing lives here rather than in the parents: the body being edited
+  // is per-selection state, and resets whenever the selection moves.
+  const [isEditing, setIsEditing] = useState(false);
+  const [editBody, setEditBody] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<TimelineEvent<D, F> | null>(null);
 
   const events = useMemo<TimelineEvent<D, F>[]>(() => {
     const all: TimelineEvent<D, F>[] = [];
@@ -251,15 +357,16 @@ export function CompanyTimeline<
       });
     }
 
-    // Oldest first, left to right. Undated rows sort to the end rather than to
-    // 1970, so a missing timestamp never fakes an ancient event.
+    // Newest first, top to bottom, so the rail opens on what just happened and
+    // "Load more…" reaches back in time. Undated rows sort to the end rather
+    // than to 1970, so a missing timestamp never fakes an ancient event.
     return all.sort((a, b) => {
       const ta = safeDate(a.at)?.getTime();
       const tb = safeDate(b.at)?.getTime();
       if (ta == null && tb == null) return 0;
       if (ta == null) return 1;
       if (tb == null) return -1;
-      return ta - tb;
+      return tb - ta;
     });
   }, [notes, documents, links, matchedFiles, stageHistory, getStageLabel]);
 
@@ -275,28 +382,95 @@ export function CompanyTimeline<
   useEffect(() => {
     setInsightsOpen(false);
     setTagsExpanded(false);
+    setIsEditing(false);
   }, [selectedKey]);
 
+  // A selected entry further down the rail must stay reachable after a refetch
+  // reorders it; extend the window rather than hiding what the user is reading.
   useEffect(() => {
-    if (didAutoScrollRef.current || events.length === 0) return;
-    const rail = railRef.current;
-    if (!rail) return;
-    rail.scrollLeft = rail.scrollWidth;
-    setScrollLeft(rail.scrollLeft);
-    didAutoScrollRef.current = true;
-  }, [events.length]);
+    if (selectedIndex >= visibleCount) setVisibleCount(selectedIndex + 1);
+  }, [selectedIndex, visibleCount]);
 
-  const scrollRail = (direction: -1 | 1) => {
-    const rail = railRef.current;
-    if (!rail) return;
-    rail.scrollBy({ left: direction * ITEM_WIDTH * 3, behavior: 'smooth' });
+  // Reveal whatever the composer just added. A backdated entry sorts to its own
+  // date, which on a long deal is well outside the first window — without this
+  // the author gets a success toast and an unchanged rail. The new row is found
+  // by diffing against the previous render's keys rather than from a returned
+  // id, so one path covers notes, links and uploads alike.
+  //
+  // It only fires for a submit this component made: the parents also refetch in
+  // the background (document processing polls), and a Smart File match landing
+  // on its own must not move a selection the reader did not ask to move.
+  const seenKeysRef = useRef<Set<string>>(new Set());
+  const awaitingComposerAddRef = useRef(false);
+  useEffect(() => {
+    const previous = seenKeysRef.current;
+    seenKeysRef.current = new Set(events.map((e) => e.key));
+    if (!awaitingComposerAddRef.current) return;
+
+    const addedIndex = events.findIndex((e) => !previous.has(e.key));
+    if (addedIndex === -1) return;
+
+    awaitingComposerAddRef.current = false;
+    setVisibleCount((prev) => Math.max(prev, addedIndex + 1));
+    setSelectedKey(events[addedIndex].key);
+  }, [events]);
+
+  const visibleEvents = events.slice(0, visibleCount);
+  const hasMore = events.length > visibleEvents.length;
+
+  const addNote = () => {
+    if (overrideIncomplete) return;
+    awaitingComposerAddRef.current = true;
+    onAddNote(occurredAt);
   };
 
-  const caretLeft =
-    selectedIndex >= 0 ? selectedIndex * ITEM_WIDTH + ITEM_WIDTH / 2 - scrollLeft : null;
+  const addLink = () => {
+    if (overrideIncomplete) return;
+    awaitingComposerAddRef.current = true;
+    onAddLink(occurredAt);
+  };
+
+  const uploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (overrideIncomplete) return;
+    awaitingComposerAddRef.current = true;
+    onUploadFile(e, occurredAt);
+  };
+
+  const startEdit = () => {
+    if (selected?.kind !== 'note') return;
+    setEditBody(selected.item.content);
+    setIsEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (selected?.kind !== 'note' || !editBody.trim()) return;
+    setIsSavingEdit(true);
+    try {
+      await onEditNote(selected.item.id, editBody);
+      setIsEditing(false);
+    } catch {
+      // The parent has already surfaced the failure; stay in edit mode so the
+      // unsaved body is not thrown away.
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    const event = pendingDelete;
+    setPendingDelete(null);
+    if (!event) return;
+    if (event.kind === 'note') onDeleteNote(event.item.id);
+    else if (event.kind === 'link') onDeleteLink(event.item.id);
+    else if (event.kind === 'document') onDeleteDocument(event.item);
+  };
 
   return (
-    <div className="space-y-4">
+    // The reading pane is stretched to a fixed minimum height, so the two cards
+    // reach much further down the page than their content does and would
+    // otherwise end flush against the bottom of the scroll area — the page
+    // background reads as cut off rather than as space around the cards.
+    <div className="space-y-5 pb-6">
       {/* Manual entry — a note, a link, or a file, all landing on the rail. */}
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <p className="text-sm font-semibold">Add to timeline</p>
@@ -305,41 +479,8 @@ export function CompanyTimeline<
           value={newNote}
           onChange={(e) => onNewNoteChange(e.target.value)}
           rows={isDialog ? 2 : 3}
-          className={isDialog ? 'min-h-[60px]' : undefined}
+          className={isDialog ? 'min-h-[60px]' : 'min-h-[90px]'}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={onAddNote} disabled={isSubmitting || !newNote.trim()} size="sm">
-            {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <Plus className="h-4 w-4 mr-2" />
-            )}
-            Add entry
-          </Button>
-          <Label htmlFor="timeline-file-upload" className="cursor-pointer">
-            <Button variant="outline" size="sm" disabled={isSubmitting} asChild>
-              <span>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload file
-              </span>
-            </Button>
-          </Label>
-          <Input
-            id="timeline-file-upload"
-            type="file"
-            className="hidden"
-            onChange={onUploadFile}
-            disabled={isSubmitting}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowLinkForm((prev) => !prev)}
-          >
-            <LinkIcon className="h-4 w-4 mr-2" />
-            {showLinkForm ? 'Cancel link' : 'Add link'}
-          </Button>
-        </div>
         {showLinkForm && (
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
@@ -355,8 +496,8 @@ export function CompanyTimeline<
               className="sm:flex-1"
             />
             <Button
-              onClick={onAddLink}
-              disabled={isSubmitting || !newLinkUrl.trim()}
+              onClick={addLink}
+              disabled={!canSubmit || !newLinkUrl.trim()}
               size="sm"
               className="shrink-0"
             >
@@ -369,151 +510,251 @@ export function CompanyTimeline<
             </Button>
           </div>
         )}
+        {/* Stamping an entry with anything other than the moment it was added
+            is the exception, so the pickers stay behind this toggle rather than
+            asking every author to confirm "now". They sit on their own row:
+            revealed inside the action row, the pill wrapped "Add entry" onto a
+            line of its own at dialog width. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="timeline-override-time"
+              checked={overrideTime}
+              onCheckedChange={(checked) => toggleOverrideTime(checked === true)}
+            />
+            <Label
+              htmlFor="timeline-override-time"
+              className="cursor-pointer text-sm font-normal text-muted-foreground"
+            >
+              Override note time
+            </Label>
+          </div>
+          {overrideTime && (
+            <div className="flex h-9 items-center overflow-hidden rounded-md border border-primary bg-card text-primary">
+              <input
+                type="date"
+                aria-label="Entry date"
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
+                className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+              />
+              <span className="h-full w-px bg-primary/30" />
+              <input
+                type="time"
+                aria-label="Entry time"
+                value={entryTime}
+                onChange={(e) => setEntryTime(e.target.value)}
+                className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+              />
+            </div>
+          )}
+          {overrideIncomplete && (
+            <p className="text-xs text-destructive">
+              Pick a date, or switch the override off to stamp it with now.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Label htmlFor="timeline-file-upload" className="cursor-pointer">
+            <Button variant="ghost" size="sm" disabled={!canSubmit} asChild>
+              <span>
+                <Upload className="h-4 w-4 mr-2" />
+                Upload file
+              </span>
+            </Button>
+          </Label>
+          <Input
+            id="timeline-file-upload"
+            type="file"
+            className="hidden"
+            onChange={uploadFile}
+            disabled={!canSubmit}
+          />
+          <Button variant="ghost" size="sm" onClick={() => setShowLinkForm((prev) => !prev)}>
+            <LinkIcon className="h-4 w-4 mr-2" />
+            {showLinkForm ? 'Cancel link' : 'Add link'}
+          </Button>
+          <Button onClick={addNote} disabled={!canSubmit || !newNote.trim()} size="sm">
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Plus className="h-4 w-4 mr-2" />
+            )}
+            Add entry
+          </Button>
+        </div>
       </div>
 
-      {/* The rail */}
-      <div className="rounded-lg border bg-card">
-        <div className="flex items-center justify-between gap-2 px-4 py-2 border-b">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* The rail beside its reading pane. */}
+      <div
+        className={cn(
+          'flex flex-col gap-5 lg:flex-row lg:items-stretch',
+          isDialog ? 'lg:min-h-[420px]' : 'lg:min-h-[560px]',
+        )}
+      >
+        <aside className="flex flex-col rounded-lg border bg-card p-4 lg:w-[260px] lg:shrink-0">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {events.length} event{events.length === 1 ? '' : 's'}
           </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => scrollRail(-1)}
-              title="Scroll back"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => scrollRail(1)}
-              title="Scroll forward"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
 
-        {events.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Nothing on the timeline yet — add a note, a link, or upload a file above.
-          </p>
-        ) : (
-          <>
-            <div
-              ref={railRef}
-              onScroll={(e) => setScrollLeft(e.currentTarget.scrollLeft)}
-              className="overflow-x-auto overflow-y-hidden px-4 py-5"
-            >
-              <div className="flex min-w-full">
-                {events.map((event, index) => {
-                  const meta = KIND_META[event.kind];
-                  const Icon = meta.icon;
-                  const isSelected = event.key === selectedKey;
-                  return (
-                    <button
-                      key={event.key}
-                      type="button"
-                      onClick={() =>
-                        setSelectedKey((prev) => (prev === event.key ? null : event.key))
-                      }
-                      className="flex w-44 shrink-0 flex-col items-center gap-1 text-center"
-                      title={event.title}
-                    >
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        {formatAt(event.at)}
-                      </span>
-                      <span className={cn('text-[10px] uppercase tracking-wide', meta.text)}>
-                        {meta.label}
-                      </span>
-                      {/* Dot on the rail. The line is drawn as two segments
-                          either side of it, so it always meets the dot's
-                          centre without hard-coded offsets. */}
-                      <span className="flex w-full items-center">
+          {events.length === 0 ? (
+            <p className="py-6 text-sm text-muted-foreground">
+              Nothing here yet — add a note, a link, or upload a file above.
+            </p>
+          ) : (
+            <>
+              <div
+                className={cn(
+                  'scrollbar-quiet relative flex-1 overflow-y-auto pl-1',
+                  isDialog ? 'max-h-[360px]' : 'lg:max-h-[520px]',
+                )}
+              >
+                {/* The rail itself, drawn on the list rather than the scroll
+                    box so it spans every entry instead of only the visible
+                    window. `left-[5px]` is the dot's centre: 10px wide, and
+                    the list starts at the box's 4px left padding. */}
+                <ul className="relative flex flex-col gap-2 before:absolute before:bottom-1.5 before:left-[5px] before:top-1.5 before:w-px before:bg-border">
+                  {visibleEvents.map((event) => {
+                    const meta = KIND_META[event.kind];
+                    const isSelected = event.key === selectedKey;
+                    const hasFile = event.kind === 'document' || event.kind === 'file';
+                    const hasLink = event.kind === 'link';
+                    return (
+                      <li key={event.key} className="flex items-start gap-2.5">
                         <span
                           className={cn(
-                            'h-px flex-1',
-                            index === 0 ? 'bg-transparent' : 'bg-border',
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            'h-4 w-4 shrink-0 rounded-full transition-transform',
+                            'z-10 mt-2.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 border-card ring-2',
                             meta.dot,
-                            isSelected && 'scale-125',
+                            isSelected ? meta.ring : 'ring-transparent',
                           )}
                         />
-                        <span
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedKey((prev) =>
+                              prev === event.key ? null : event.key,
+                            )
+                          }
+                          title={event.title}
                           className={cn(
-                            'h-px flex-1',
-                            index === events.length - 1 ? 'bg-transparent' : 'bg-border',
+                            'flex min-w-0 flex-1 flex-col gap-1 rounded-md border px-2.5 py-2 text-left transition-colors',
+                            isSelected
+                              ? 'border-primary bg-muted ring-1 ring-primary'
+                              : 'border-transparent bg-card hover:bg-muted',
                           )}
-                        />
-                      </span>
-                      <span
-                        className={cn(
-                          'mt-2 mx-2 flex items-center gap-1.5 self-stretch rounded-md border bg-muted px-2 py-1.5 text-left transition-colors',
-                          isSelected
-                            ? 'border-primary ring-1 ring-primary'
-                            : 'hover:border-primary',
-                        )}
-                      >
-                        <Icon className={cn('h-3.5 w-3.5 shrink-0', meta.text)} />
-                        <span className="min-w-0 truncate text-xs">{event.title}</span>
-                      </span>
-                    </button>
-                  );
-                })}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className={cn(
+                                'text-[11px] font-semibold tracking-wide',
+                                isSelected ? 'text-primary' : meta.text,
+                              )}
+                            >
+                              {meta.short}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {formatAt(event.at, 'd MMM yy')}
+                            </span>
+                            {hasFile && (
+                              <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            )}
+                            {hasLink && (
+                              <LinkIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            )}
+                          </span>
+                          <span
+                            className={cn(
+                              'line-clamp-2 text-xs',
+                              isSelected ? 'font-medium text-primary' : 'text-foreground',
+                            )}
+                          >
+                            {event.title}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              {hasMore && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3 w-full"
+                  onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                >
+                  Load more…
+                </Button>
+              )}
+            </>
+          )}
+        </aside>
+
+        <section className="scrollbar-quiet min-w-0 flex-1 overflow-y-auto rounded-lg border bg-card p-5">
+          {selected ? (
+            <EventDetail
+              event={selected}
+              getStageLabel={getStageLabel}
+              insightsOpen={insightsOpen}
+              onToggleInsights={() => setInsightsOpen((prev) => !prev)}
+              tagsExpanded={tagsExpanded}
+              onToggleTags={() => setTagsExpanded((prev) => !prev)}
+              onClose={() => setSelectedKey(null)}
+              isEditing={isEditing}
+              editBody={editBody}
+              isSavingEdit={isSavingEdit}
+              onStartEdit={startEdit}
+              onEditBodyChange={setEditBody}
+              onCancelEdit={() => setIsEditing(false)}
+              onSaveEdit={saveEdit}
+              onRequestDelete={() => setPendingDelete(selected)}
+              onDownloadDocument={onDownloadDocument}
+              onPreviewDocument={onPreviewDocument}
+              onDownloadMatchedFile={onDownloadMatchedFile}
+              onPreviewMatchedFile={onPreviewMatchedFile}
+              onOpenMatchedFile={onOpenMatchedFile}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center py-10">
+              <div className="max-w-xs text-center">
+                <History className="mx-auto h-7 w-7 text-muted-foreground" />
+                <p className="mt-3.5 text-base font-semibold">No entry selected</p>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Add a new entry above, or select an existing one from the timeline on the
+                  left to view its details.
+                </p>
               </div>
             </div>
-
-            {/* Caret pointing at the selected marker; clipped at the rail edges
-                so it never escapes the card when the rail is scrolled away. */}
-            {selected && (
-              <div className="relative h-2 overflow-hidden">
-                {caretLeft !== null && (
-                  <span
-                    className="absolute top-0 -ml-2 h-0 w-0 border-x-8 border-b-8 border-x-transparent border-b-muted"
-                    style={{ left: caretLeft + 16 }}
-                  />
-                )}
-              </div>
-            )}
-
-            {selected && (
-              <div className="border-t bg-muted px-4 py-4">
-                <EventDetail
-                  event={selected}
-                  getStageLabel={getStageLabel}
-                  insightsOpen={insightsOpen}
-                  onToggleInsights={() => setInsightsOpen((prev) => !prev)}
-                  tagsExpanded={tagsExpanded}
-                  onToggleTags={() => setTagsExpanded((prev) => !prev)}
-                  onClose={() => setSelectedKey(null)}
-                  onDeleteNote={onDeleteNote}
-                  onDeleteLink={onDeleteLink}
-                  onDownloadDocument={onDownloadDocument}
-                  onPreviewDocument={onPreviewDocument}
-                  onDeleteDocument={onDeleteDocument}
-                  onDownloadMatchedFile={onDownloadMatchedFile}
-                  onPreviewMatchedFile={onPreviewMatchedFile}
-                  onOpenMatchedFile={onOpenMatchedFile}
-                />
-              </div>
-            )}
-          </>
-        )}
+          )}
+        </section>
       </div>
 
-      {events.length > 0 && !selected && (
-        <p className="text-xs text-muted-foreground">
-          Select an event on the rail to read it here.
-        </p>
+      {pendingDelete && (
+        <AlertDialog
+          key={pendingDelete.key}
+          open={!!pendingDelete}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes it from the deal timeline permanently. This can&apos;t be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );
@@ -527,17 +768,22 @@ interface EventDetailProps<D extends TimelineDocumentItem, F extends TimelineFil
   tagsExpanded: boolean;
   onToggleTags: () => void;
   onClose: () => void;
-  onDeleteNote: (id: string) => void;
-  onDeleteLink: (id: string) => void;
+  isEditing: boolean;
+  editBody: string;
+  isSavingEdit: boolean;
+  onStartEdit: () => void;
+  onEditBodyChange: (value: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  onRequestDelete: () => void;
   onDownloadDocument: (doc: D) => void;
   onPreviewDocument: (doc: D) => void;
-  onDeleteDocument: (doc: D) => void;
   onDownloadMatchedFile: (file: F) => void;
   onPreviewMatchedFile: (file: F) => void;
   onOpenMatchedFile: (file: F) => void;
 }
 
-/** The expanded panel for whichever marker is selected. */
+/** The reading pane for whichever entry is selected. */
 function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>({
   event,
   getStageLabel,
@@ -546,34 +792,73 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
   tagsExpanded,
   onToggleTags,
   onClose,
-  onDeleteNote,
-  onDeleteLink,
+  isEditing,
+  editBody,
+  isSavingEdit,
+  onStartEdit,
+  onEditBodyChange,
+  onCancelEdit,
+  onSaveEdit,
+  onRequestDelete,
   onDownloadDocument,
   onPreviewDocument,
-  onDeleteDocument,
   onDownloadMatchedFile,
   onPreviewMatchedFile,
   onOpenMatchedFile,
 }: EventDetailProps<D, F>) {
   const meta = KIND_META[event.kind];
-  const Icon = meta.icon;
+  const canEdit = event.kind === 'note';
+  const canDelete = event.kind === 'note' || event.kind === 'link' || event.kind === 'document';
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2 min-w-0">
-          <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', meta.text)} />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">{event.title}</p>
-            <p className="text-xs text-muted-foreground">
-              {meta.label} · {formatAt(event.at, 'MMM d, yyyy HH:mm')}
-              {formatRelative(event.at) && ` · ${formatRelative(event.at)}`}
-            </p>
-          </div>
+        <div className="min-w-0">
+          <p className="text-base font-semibold">{event.title}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {meta.label} · {formatAt(event.at, 'MMM d, yyyy HH:mm')}
+            {formatRelative(event.at) && ` · ${formatRelative(event.at)}`}
+          </p>
+          {event.kind === 'link' && (
+            <a
+              href={event.item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex max-w-[320px] items-center gap-1.5 rounded-full border bg-muted px-2.5 py-1 text-xs text-primary hover:underline"
+            >
+              <LinkIcon className="h-3 w-3 shrink-0" />
+              <span className="truncate">{event.item.url}</span>
+            </a>
+          )}
         </div>
-        <Button variant="ghost" size="sm" className="shrink-0" onClick={onClose}>
-          Close
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {canEdit && !isEditing && (
+            <Button variant="ghost" size="sm" onClick={onStartEdit}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              title="Delete"
+              onClick={onRequestDelete}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="Close"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {event.kind === 'stage' && (
@@ -585,27 +870,35 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
         </div>
       )}
 
-      {event.kind === 'note' && (
-        <div className="space-y-2">
-          <p className="text-sm whitespace-pre-wrap">{event.item.content}</p>
-          <div className="flex items-center justify-between gap-2">
+      {event.kind === 'note' &&
+        (isEditing ? (
+          <div className="space-y-3">
+            <Textarea
+              value={editBody}
+              onChange={(e) => onEditBodyChange(e.target.value)}
+              className="min-h-[220px] leading-relaxed"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={onCancelEdit} disabled={isSavingEdit}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={onSaveEdit} disabled={isSavingEdit || !editBody.trim()}>
+                {isSavingEdit && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">{event.item.content}</p>
             <Badge variant="outline" className="text-xs">
               {getStageLabel(event.item.stage)}
             </Badge>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDeleteNote(event.item.id)}
-            >
-              <Trash2 className="h-4 w-4 mr-2 text-destructive" />
-              Delete
-            </Button>
           </div>
-        </div>
-      )}
+        ))}
 
       {event.kind === 'document' && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <DocumentStatusBadge status={event.item.processing_status} />
             {event.item.is_featured && (
@@ -638,10 +931,6 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
                 {insightsOpen ? 'Hide insights' : 'Show insights'}
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => onDeleteDocument(event.item)}>
-              <Trash2 className="h-4 w-4 mr-2 text-destructive" />
-              Delete
-            </Button>
           </div>
           {insightsOpen && (
             <DocumentInsightsPanel
@@ -653,30 +942,13 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
       )}
 
       {event.kind === 'link' && (
-        <div className="space-y-2">
-          <a
-            href={event.item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline break-all"
-          >
-            <ExternalLink className="h-4 w-4 shrink-0" />
-            {event.item.url}
-          </a>
-          <div className="flex items-center justify-between gap-2">
-            <Badge variant="outline" className="text-xs">
-              {getStageLabel(event.item.stage)}
-            </Badge>
-            <Button variant="ghost" size="sm" onClick={() => onDeleteLink(event.item.id)}>
-              <Trash2 className="h-4 w-4 mr-2 text-destructive" />
-              Delete
-            </Button>
-          </div>
-        </div>
+        <Badge variant="outline" className="text-xs">
+          {getStageLabel(event.item.stage)}
+        </Badge>
       )}
 
       {event.kind === 'file' && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             Referenced from Smart Files — this file mentions the company.
           </p>

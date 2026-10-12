@@ -86,6 +86,7 @@ import {
   addCompanyNote,
   deleteDealLink,
   deleteDealNote,
+  updateDealNote,
   getCompanies,
   getCompanyDetails,
   getBankerNames,
@@ -1043,11 +1044,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const addNote = async () => {
+  const addNote = async (occurredAt?: string | null) => {
     if (!newNote.trim()) return;
     setIsSubmitting(true);
     try {
-      await addCompanyNote(company.id, newNote, company.pipeline_stage || "L0");
+      await addCompanyNote(
+        company.id,
+        newNote,
+        company.pipeline_stage || "L0",
+        occurredAt,
+      );
       setNewNote("");
       fetchDetails();
       toast.success("Note added");
@@ -1058,7 +1064,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const addLink = async () => {
+  const addLink = async (occurredAt?: string | null) => {
     if (!newLinkUrl.trim()) return;
     setIsSubmitting(true);
     try {
@@ -1067,6 +1073,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         newLinkUrl,
         newLinkTitle || undefined,
         company.pipeline_stage || "L0",
+        occurredAt,
       );
       setNewLinkUrl("");
       setNewLinkTitle("");
@@ -1079,7 +1086,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    occurredAt?: string | null,
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1124,6 +1134,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             fileSize: file.size,
             mimeType: file.type || null,
             stage: company.pipeline_stage || "L0",
+            createdAt: occurredAt ?? null,
           }),
         });
       } catch (apiErr: any) {
@@ -1276,6 +1287,20 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     params.set("key", featuredDocument.file_path);
     params.set("name", featuredDocument.file_name);
     router.push(`${presentationHref}?${params.toString()}`);
+  };
+
+  const editNote = async (noteId: string, content: string) => {
+    try {
+      await updateDealNote(noteId, content);
+      // Awaited, unlike the other handlers here: the reading pane drops out of
+      // edit mode as soon as this resolves, and would paint the pre-edit body
+      // if the refetch were still in flight.
+      await fetchDetails({ silent: true });
+      toast.success("Note updated");
+    } catch (error: unknown) {
+      toast.error((error as Error)?.message || "Failed to update note");
+      throw error;
+    }
   };
 
   const deleteNote = async (noteId: string) => {
@@ -1888,6 +1913,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 onAddLink={addLink}
                 onUploadFile={handleFileUpload}
                 isSubmitting={isSubmitting}
+                onEditNote={editNote}
                 onDeleteNote={deleteNote}
                 onDeleteLink={deleteLink}
                 onDownloadDocument={downloadDocument}

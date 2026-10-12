@@ -179,7 +179,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/deal-documents/feature` | POST, DELETE | `dealDocumentService` |
 | `/api/deal-documents/upload-url` | GET | — |
 | `/api/deal-links/[id]` | DELETE | `dealLinkService` |
-| `/api/deal-notes/[id]` | DELETE | `dealNoteService` |
+| `/api/deal-notes/[id]` | PATCH, DELETE | `dealNoteService` |
 | `/api/feedback` | POST | `feedbackService` |
 | `/api/fund-ledger/ai-opinion` | POST, DELETE | `fundAiOpinionService` |
 | `/api/fund-ledger/assets` | GET, POST | `flMasterDataService` |
@@ -322,7 +322,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `dataNavigatorService.ts` | `RssItemNotFoundError`, `DataNavigatorService` | ✅ |
 | `dealDocumentService.ts` | `DealDocumentService` | ✅ |
 | `dealLinkService.ts` | `DealLinkService` | ✅ |
-| `dealNoteService.ts` | `DealNoteService` | ✅ |
+| `dealNoteService.ts` | `EmptyNoteError`, `NoteNotFoundError`, `DealNoteService` | ✅ |
 | `dealResurfaceService.ts` | `DealResurfaceService` | ✅ |
 | `emailNotificationService.ts` | `EmailNotificationService` | ✅ |
 | `emailService.ts` | `EmailService` | ✅ |
