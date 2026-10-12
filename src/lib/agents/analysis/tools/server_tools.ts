@@ -40,10 +40,9 @@
  * ## `max_uses` must not bind during ordinary research
  *
  * `max_uses` caps the searches performed within ONE Messages API request, and
- * that single request is the whole server-side loop — on `_20260209` web search
- * runs from inside code execution (`allowed_callers` defaults to
- * `["code_execution_20260120"]`), so one filtering pass can fire several
- * searches before the request ever returns. Anthropic's own sizing: simple
+ * that single request is the whole server-side loop — direct calls and
+ * code-execution filtering passes alike, so one request can fire several
+ * searches before it ever returns. Anthropic's own sizing: simple
  * factual queries use 1-3 searches, "comparative or multientity research can
  * use 10 or more".
  *
