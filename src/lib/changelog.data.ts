@@ -248,6 +248,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "5c3b90964a3bc2d3cd5f2272bfbff44a16f4e62f",
+    "date": "2026-10-12",
+    "subject": "Chat answers now show external research in a separate, clearly labeled section",
+    "category": "improvement"
+  },
+  {
+    "hash": "f1055768f673dab9e35c5d069033f5863066880e",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
