@@ -1,6 +1,10 @@
 # Rendered by terraform/langfuse. Do not edit on the instance.
 {
 	email ${acme_email}
+	# Clients send no SNI when the URL host is an IP address (RFC 6066), and
+	# Node's fetch is one of them. Without a default, Caddy finds no certificate
+	# for an SNI-less handshake and aborts it with an internal_error alert.
+	default_sni ${hostname}
 }
 
 ${hostname} {

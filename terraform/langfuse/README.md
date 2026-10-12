@@ -92,8 +92,14 @@ IP=$(terraform state show -no-color aws_eip.langfuse | awk '$1 == "public_ip" {p
 terraform apply -var "hostname=$IP"
 ```
 
-Every later apply must pass the same `-var`, or it replaces the instance back
-onto the default hostname. Moving to a DNS name later is one apply without it.
+Then write that IP into the workspace's `hostname` in `workspace_config`
+(`variables.tf`), so later applies need no `-var` — without it they would
+replace the instance back onto the default hostname. Staging is configured this
+way. Moving to a DNS name later is a one-line change to that entry.
+
+The Caddyfile sets `default_sni` to the hostname. Clients send no SNI for an IP
+URL — Node's `fetch` included — and Caddy would otherwise abort those
+handshakes for lack of a matching certificate.
 
 Then put the credentials in the app's environment (Vercel, per environment):
 

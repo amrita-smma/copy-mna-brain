@@ -104,13 +104,14 @@ locals {
 
   # Per-environment sizing and hostname. Langfuse runs five containers plus
   # ClickHouse, which is the memory floor here — ClickHouse alone wants ~2 GiB
-  # before it starts spilling, so t3.small is the smallest workable staging box
-  # and production gets headroom for retention-window queries.
+  # before it starts spilling, and langfuse-web takes ~900 MB on its own. A
+  # t3.small (2 GiB) OOM-killed langfuse-web on first boot, so t3.medium is the
+  # smallest staging box; production gets headroom for retention-window queries.
   workspace_config = {
     dev = {
       environment     = "dev"
       hostname        = "langfuse-dev.sqe.co.id"
-      instance_type   = "t3.small"
+      instance_type   = "t3.medium"
       data_volume_gb  = 50
       clickhouse_heap = "1500000000"
       tags = {
@@ -120,9 +121,11 @@ locals {
       }
     }
     staging = {
-      environment     = "staging"
-      hostname        = "langfuse-stg.sqe.co.id"
-      instance_type   = "t3.small"
+      environment = "staging"
+      # The Elastic IP: staging runs without a DNS record, on a Let's Encrypt
+      # IP certificate. Swap in a DNS name here once one points at it.
+      hostname        = "15.232.210.57"
+      instance_type   = "t3.medium"
       data_volume_gb  = 50
       clickhouse_heap = "1500000000"
       tags = {
