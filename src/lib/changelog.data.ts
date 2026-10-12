@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "3bed8088ad4c945e73e708e6b5ba7bf1ac557240",
+    "date": "2026-10-12",
+    "subject": "Copilot completes longer web research without hitting the search limit",
+    "category": "improvement"
+  },
+  {
+    "hash": "875fcd53895880fcc3a0c52184b2dcc85bc040ec",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
