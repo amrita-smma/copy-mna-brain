@@ -336,6 +336,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "34b183058f37047ca3588519d8c88926f21d1b6f",
+    "date": "2026-10-12",
+    "subject": "trigger prod",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e0f1d0f58f7c5bc4a08a305517b69ae6ff0b8ad2",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
