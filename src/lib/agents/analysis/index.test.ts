@@ -873,9 +873,13 @@ describe('external evidence grounding (chat flavors)', () => {
     const prompt = await promptFor(flavor);
 
     expect(prompt).toContain('## Grounding: Internal Records and the Outside World');
-    // External research is a default step, not a last resort.
-    expect(prompt).toMatch(/External research is a default step, not a fallback/);
-    expect(prompt).toMatch(/including when the internal record looks complete/);
+    // Research is the default mode; the internal record is a guideline.
+    expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
+    expect(prompt).toMatch(/the internal record is a \*\*guideline\*\*/);
+    // A detected company means an external search in that same turn.
+    expect(prompt).toMatch(/The moment a company is detected in a request/);
+    expect(prompt).toMatch(/run at least one external search in that same turn/);
+    expect(prompt).toMatch(/when the internal record looks complete/);
     // Fire it alongside the internal read rather than after discovering a gap.
     expect(prompt).toMatch(/Search while you pull internal data, not after it/);
   });
@@ -922,7 +926,7 @@ describe('external evidence grounding (chat flavors)', () => {
 
       expect(prompt).not.toMatch(/search_news/);
       // The rest of the grounding block still applies.
-      expect(prompt).toMatch(/External research is a default step, not a fallback/);
+      expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
       expect(prompt).toMatch(/valyu_search/);
     },
   );
@@ -1012,7 +1016,7 @@ describe('external evidence grounding (chat flavors)', () => {
   it('stops framing the per-company read as a gap-fill in the M&A flavor', async () => {
     const prompt = await promptFor('mna');
 
-    expect(prompt).toMatch(/both in the same turn, not one as a backstop for the other/);
+    expect(prompt).toMatch(/Fire both in the same turn, and lead with the current external picture/);
     // "Governs every read in this list" contradicted the block's own carve-out
     // for pure-bookkeeping questions.
     expect(prompt).not.toMatch(/governs every read in this list/);

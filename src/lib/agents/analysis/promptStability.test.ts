@@ -89,37 +89,38 @@ function lastSystemPrompt(): string {
   return (calls[calls.length - 1]?.[0] as { systemPrompt: string }).systemPrompt;
 }
 
-// Every chat prompt changed on purpose: the AlphaSense subscription is
-// retired, so `alphasense_search` is gone from the tool catalogue each flavor
-// lists and from the external-research routing guidance (which now points at
-// `valyu_search` for filings, transcripts and research).
+// Every chat prompt changed on purpose: the flavors are now research-biased.
+// The shared grounding guide (buildExternalEvidenceGuide) frames the internal
+// record as a guideline and research as the default mode — a detected company
+// means an external search in that same turn — which moves every chat flavor
+// at once. The mna prompt additionally changed identity: an M&A Specialist
+// with a "Default Posture: Research First" section, not a data-analysis
+// assistant.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '9518a17280ea09cd97842ca7bbca5ced764db52074f76cfa13d6a360fec67052',
-  investment: 'a663c5e174bc5a7fbb5624d1fa6a45023c556167c4b763f4702afb3f4f0d1330',
-  combined: 'cf282feea15ffdc2c8aa332b1c14e55d8c1887b8d9eadaf33d68ed9c0ab902d5',
-  vc: '740ff447b50e3b39b00be9519a57ac58210011562d40b906fd77920019b1670e',
+  mna: '6545645a89695ce365f481662abafbac1df20ce810fc50692af90b1ecd4b96e0',
+  investment: 'a7bff6803334bd968e5cb5d94859057d8eacb043a3c93c0034251bd548299458',
+  combined: '74782a7f1afcd6c6afdb07aa3647f66c537246d45a4794bb8db2cba451581be9',
+  vc: '4736949d6ac25e2ede95b9cf03847fed2617f4c1a3656c0cb8081145ff29e038',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
-  // chat tool set. Changed on purpose: it now also carries
-  // `financial_equity_analysis`, and the prompt lists it, routes company
-  // evaluation through it, and names the seven-step order it computes.
-  minority: '16db26e6ce117a75531d226a9b5155ce69d8007052619b58f3bc03aa3df6b364',
-  // New flavour: the Crowdfunding Agent — the M&A chat tool set plus the
-  // returns calculator, regulatory/sector context, company profile and Valyu
+  // chat tool set plus `financial_equity_analysis`.
+  minority: '44b972ab0a87c6cf2ff2eaca3137c23290fc72d27fb6a06f31f8b12fc04668b0',
+  // The Crowdfunding Agent — the M&A chat tool set plus the returns
+  // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '5dbd385cd536f24eef2e4d29449820197fdbd70150951a9194d95d3442acbb16',
-  // New flavour: the Investment Banking Advisory Agent — the M&A chat tool set
-  // plus the returns calculator, all five topic-research tools and Valyu
-  // extraction, under an advisory prompt that compares exit routes (control
-  // sale, IPO, bond issuance, recap, partnership, carve-out, do-nothing)
-  // rather than underwriting one position.
-  investment_banking: '5488c0085baefdb4913daa3904f8f824c07d11c0bebfd9721e99e1e895dd89db',
-  // New flavour: the Capital Markets Agent — the same tool set under a DCM/ECM
-  // prompt: instrument choice, capacity, structure, evidence-based pricing,
-  // investor base, regime and window.
-  capital_markets: 'd776e959c3703d176e6cacfc2c3b0f89457cacf04047e9183123b9c57edc1226',
+  crowdfunding: '0924e03eeb32d4a1c469a6034a3ec13cd65a3298a729b145d144ce40835a76d2',
+  // The Investment Banking Advisory Agent — the M&A chat tool set plus the
+  // returns calculator, all five topic-research tools and Valyu extraction,
+  // under an advisory prompt that compares exit routes (control sale, IPO,
+  // bond issuance, recap, partnership, carve-out, do-nothing) rather than
+  // underwriting one position.
+  investment_banking: 'f6cf192fcad08fc6612e9020e6bf7fc0e2c27fb52acd94c5eb6a2f619d5b5b45',
+  // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
+  // instrument choice, capacity, structure, evidence-based pricing, investor
+  // base, regime and window.
+  capital_markets: '57b7123d5a20d2c1caf663989a46aef843ae533ed070d83a25018f401a6939bb',
 };
 // The Workforce prompt changed on purpose: the mandate-fit step of "Forming an
 // AI Opinion" now says what to do when the workspace has no active mandate —
