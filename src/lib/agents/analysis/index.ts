@@ -34,6 +34,7 @@ export { COPILOT_FLAVORS, DEFAULT_COPILOT_AGENT, getCopilotFlavor } from "./flav
 // --- Shared chat prompt fragments -------------------------------------------
 export {
   CONSOLE_NAVIGATION_GUIDE,
+  EXTERNAL_RESEARCH_SECTION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
   buildExternalEvidenceGuide,

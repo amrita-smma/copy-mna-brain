@@ -75,6 +75,7 @@ import {
   WORKFORCE_SOURCES_WRITE_ORDER,
 } from '@/lib/agents/sector/evidenceMarkers';
 import {
+  EXTERNAL_RESEARCH_SECTION_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
   getAgentGraph,
   getWorkforceAgentGraphForEffort,
@@ -111,32 +112,37 @@ function lastSystemPrompt(): string {
 // chat flavor at once: the tools now carry allowed_callers including "direct",
 // so the guide tells the model to call web_search directly as an ordinary tool
 // call, reserving code execution for filtering many results — not as the only
-// route to a search.
+// route to a search. Every chat flavor then changed on purpose
+// once more, through that same shared guide: it now ends with
+// EXTERNAL_RESEARCH_SECTION_GUIDE, which makes the research visible by closing
+// every answer with a "## External Research" section — one bullet per external
+// call, or the single "None — answered from internal records only." line when
+// the turn took the firm's-own-bookkeeping exemption.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: 'b3442b4dd59f356b13480ac9b079224076849b33f34d7bc9d41b4538b5bce519',
-  investment: 'b673a8eb63f3ac503d6a190842f9873030bc28122fe47651bf24f170a414ea42',
-  combined: 'd17fad3b5acb6227de8690a92e4220aeb190f7064b02af2ffeb5ceed514c450c',
-  vc: '09b5eae0ca4eae0a2cfda41893c749d6fea98c8c4bf297a9158f05d52c06b080',
+  mna: '1d37ecf18e077892e1fe4331d493eb31f9c9d053f60b51a484ac60aa5ab54ce0',
+  investment: '0902f16185c938629147f00c2fd8938e0e9fd72e6de76b500d42e370d140f7ec',
+  combined: '85fb77f9943d4ac888b865b70d4ad573cc49a9bce82e9654f835f6479237a747',
+  vc: '1437a35297738e137c15f84dfb79c5542d1b833b08a183eaafea7a3a8421a8ae',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: 'bd3672e3d739e5fe3cf664672286547326c430e40b05d5ad183b7f7d4d39dc3b',
+  minority: '8f24eba608330d1db2f5846780e61c1b0fc44c5ece9d718edd855f658408fbdf',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '3a7cc8a25dc41e27e02922759085e92e5ded4b6930d545903e8ffe8d972a9fe1',
+  crowdfunding: 'c0b4b2cc8ed0b18e59b01357d8e779188f7510b376d79e9b9af1cdec94d2e74c',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: '3074b0abcf142f27a38dd7c99ad76b87606f2b8fc3ea80e3a9c36d14ee8a08cb',
+  investment_banking: '6a0685c45114f9adbf5482ac6a2fa54bdb9a21121545897b04d1e98b6373c893',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: '4954deac3abab80bcee6649f5e57bd4d5dd584bf287ab7106067ad2a681776af',
+  capital_markets: '2dcb98fc483e44d3f31e70d358be7eb6d4d8804c77ae47637a117eb672a5df29',
 };
 // The Workforce prompt changed on purpose: search_news is removed — web_search
 // (run aggressively, several calls per turn) is the one news tool — "Evidence
@@ -202,6 +208,22 @@ describe('existing CoPilot prompts', () => {
     expect(workforce).toContain(
       'Never soften, delay or withhold a verdict because no mandate exists.',
     );
+  });
+
+  it('closes every chat answer with an External Research section, and the workforce with none', async () => {
+    for (const flavor of Object.keys(EXPECTED_CHAT_HASHES) as CopilotAgentType[]) {
+      await getAgentGraph(flavor, 'medium');
+      expect(lastSystemPrompt(), flavor).toContain(EXTERNAL_RESEARCH_SECTION_GUIDE);
+    }
+    // The heading and the no-research line are literals the reader sees, so pin
+    // the wording itself, not just that the fragment reached the prompt.
+    expect(EXTERNAL_RESEARCH_SECTION_GUIDE).toContain('## External Research');
+    expect(EXTERNAL_RESEARCH_SECTION_GUIDE).toContain(
+      'None — answered from internal records only.',
+    );
+    // The Workforce reports through the fixed `✓ Done` block instead.
+    await getWorkforceAgentGraphForEffort('medium');
+    expect(lastSystemPrompt()).not.toContain(EXTERNAL_RESEARCH_SECTION_GUIDE);
   });
 
   it('routes a template too large for chat to the Workforce, which reads it in parts', async () => {

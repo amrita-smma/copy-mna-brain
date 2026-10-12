@@ -83,6 +83,36 @@ A template is not an insight. It is a reusable starting point in the workspace's
 - **Creating a template:** you cannot create or save templates. When the user asks for one, tell them to use **Upload Template** in the template library, or **Save as template** on an open insight. Never call \`propose_insight_create\` or \`create_insight\` for a template request.`;
 
 /**
+ * The "## External Research" section every chat answer closes with.
+ *
+ * The grounding guide above makes external search the default; this block is
+ * what makes that research VISIBLE. Without it the agent searches and then
+ * folds what it found into the prose, so the reader cannot tell an outside
+ * fact from a re-narrated internal row, nor a turn that researched from one
+ * that did not. A fixed heading in a fixed place is the cheapest way to make
+ * that difference legible — and the "None — answered from internal records
+ * only." line doubles as the agent's own check that the turn really did
+ * qualify for the bookkeeping exemption.
+ *
+ * Chat only. Insight documents record their evidence in an HTML `Sources`
+ * section (`INSIGHT_SOURCES_GUIDE`), and the Workforce reports through the
+ * fixed `✓ Done` block (`WORKFORCE_REPORTING_FORMAT`) — neither gets this.
+ */
+export const EXTERNAL_RESEARCH_SECTION_GUIDE = `### Denote the research: close every answer with an \`## External Research\` section
+
+Your answer ends with a section headed exactly \`## External Research\`. It is the user's record of what you checked outside the firm's own data, so it is never renamed, never dissolved into the prose, and never dropped because the research felt routine.
+
+- **Last, not first.** Lead with the answer; this section sits underneath it.
+- **One bullet per external call you actually made**, in the order you made them — the tool, the query you ran, and what it gave you that mattered, carrying the link for an open-web result or the source and its date otherwise:
+  - \`web_search\` — "Acme Chemicals latest news funding acquisition" → $40M Series C announced 12 Mar 2026 (reuters.com/…)
+  - \`valyu_search\` — "Acme Chemicals FY2025 revenue" → FY2025 revenue $118M (FY2025 annual report, filed 28 Feb 2026)
+- **A call that turned up nothing still gets its bullet**, saying so. A search you ran and did not list is indistinguishable from one you skipped.
+- **It does not excuse inline attribution.** Every external fact in the body still carries its source and date where you state it; this section consolidates those, it does not replace them.
+- **Ran no external call this turn?** Write the section anyway, with one line — \`None — answered from internal records only.\` — and name the records you used. That line is the user's warning that nothing here was checked against the outside world, and it is your own check that the turn really was the firm's-own-bookkeeping exemption above rather than a search you skipped.
+- **Only a turn that is not an answer may omit it:** a clarifying question, a bare navigation confirmation, or a turn whose entire output is an approval card.
+- **This is the chat reply, not an insight.** An insight document records its evidence in its own HTML \`Sources\` section instead — the \`## External Research\` heading belongs in the message you write back in the conversation.`;
+
+/**
  * Shared grounding guidance for the chat flavors. Each chat prompt used to
  * carry its own pair of search sections — one framing external research as a
  * last resort for when the database came up empty, the other as mandatory for
@@ -129,4 +159,6 @@ Internal records tell you what the firm has recorded and decided. They do not te
 
 **Never report "not found" or "no data" on the strength of internal tools alone.** A name missing from the workspace is a name to research, not a dead end.
 
-**Choosing among the external tools.** ${topicTools ? "The five focused topic tools (\`get_company_profile\`, \`get_sector_context\`, \`get_competitor_landscape\`, \`get_regulatory_context\`, \`get_market_signals\`) are the first stop for the standard diligence dimensions, per the routing guidance above. " : ""}\`valyu_search\` when the answer should rest on filings, research or proprietary datasets — financial and market diligence, richer cited context. \`web_search\` for everything else — current facts, recent news, deals and funding, market context, corroboration. News lives on the open web: for any question touching recent events, run \`web_search\` aggressively — several calls from different angles (the company, the counterparty, the sector, the deal) beat one broad query, and each costs seconds.`;
+**Choosing among the external tools.** ${topicTools ? "The five focused topic tools (\`get_company_profile\`, \`get_sector_context\`, \`get_competitor_landscape\`, \`get_regulatory_context\`, \`get_market_signals\`) are the first stop for the standard diligence dimensions, per the routing guidance above. " : ""}\`valyu_search\` when the answer should rest on filings, research or proprietary datasets — financial and market diligence, richer cited context. \`web_search\` for everything else — current facts, recent news, deals and funding, market context, corroboration. News lives on the open web: for any question touching recent events, run \`web_search\` aggressively — several calls from different angles (the company, the counterparty, the sector, the deal) beat one broad query, and each costs seconds.
+
+${EXTERNAL_RESEARCH_SECTION_GUIDE}`;
