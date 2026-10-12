@@ -1,5 +1,6 @@
 import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 import type { FundUpdateStructuredResult } from '@/lib/fund_updates';
+import { flushLangfuse } from '@/lib/langfuse';
 import { logger } from '../logger';
 import { extractFundUpdateProposal } from './llmExtractor';
 import { orchestrateWorkbookFallback } from './orchestrateFallback';
@@ -95,6 +96,18 @@ export function buildLlmFundUpdateResult(
  * Other formats fall through to the dedicated LLM fund update extractor.
  */
 export async function processFundUpdateContent(
+  ...args: Parameters<typeof processFundUpdateContentInner>
+): Promise<FundUpdateStructuredResult> {
+  // Reached synchronously from FileService for PDF/text fund updates, outside
+  // runJob's drain. See processFileContent for the same reasoning.
+  try {
+    return await processFundUpdateContentInner(...args);
+  } finally {
+    await flushLangfuse();
+  }
+}
+
+async function processFundUpdateContentInner(
   rawText: string,
   buffer: Buffer,
   contentType: string,

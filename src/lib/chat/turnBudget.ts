@@ -1,5 +1,6 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { BETWEEN_TOOLS_THINKING } from '@/lib/ai/thinking';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 import { BaseMessage } from '@langchain/core/messages';
 import type { UIMessageChunk } from 'ai';
 import { parseInsightTemplateBlock } from '@/lib/insights/templateAttachment';
@@ -239,7 +240,10 @@ const defaultCompletion =
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      { timeout: WRAP_UP_TIMEOUT_MS },
+      withLangfuseCallbacks({
+        timeout: WRAP_UP_TIMEOUT_MS,
+        runName: 'chat.wrap_up_abandoned_turn',
+      }),
     );
     return messageText(res.content, '');
   };

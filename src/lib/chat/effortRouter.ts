@@ -1,4 +1,5 @@
 import { ChatAnthropic } from '@langchain/anthropic';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 import { asEffortChoice, maxEffort, type EffortChoice } from './effortTiers';
 import { messageText } from './turnBudget';
 
@@ -180,7 +181,10 @@ export async function routeEffort(
         { role: 'system', content: EFFORT_ROUTER_SYSTEM_PROMPT },
         { role: 'user', content: buildRouterPrompt(input) },
       ],
-      { timeout: ROUTER_TIMEOUT_MS },
+      withLangfuseCallbacks({
+        timeout: ROUTER_TIMEOUT_MS,
+        runName: 'chat.effort_router',
+      }),
     );
 
     return parseRoutedEffort(messageText(res.content, ' '));

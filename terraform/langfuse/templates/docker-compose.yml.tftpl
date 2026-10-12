@@ -1,0 +1,157 @@
+# Rendered by terraform/langfuse. Do not edit on the instance — the next apply
+# replaces it. Values come from /srv/langfuse/.env, which the boot script
+# materialises from SSM Parameter Store.
+#
+# Mirrors the local docker-compose.yml Langfuse stack so a trace looks the same
+# in dev and here, with three deployment differences: Postgres is dedicated to
+# Langfuse (the app's RDS is not involved) and every stateful volume lands on
+# the attached EBS data volume under /srv/langfuse/data; blob storage is a real
+# S3 bucket rather than MinIO (see s3.tf); and Caddy terminates TLS in front of
+# langfuse-web instead of the port being published directly.
+
+name: langfuse
+
+services:
+  postgres:
+    image: ${postgres_image}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: $${POSTGRES_PASSWORD}
+      POSTGRES_DB: langfuse
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    image: ${redis_image}
+    restart: unless-stopped
+    command: >
+      --requirepass $${REDIS_AUTH}
+      --maxmemory-policy noeviction
+    # Also exported into the container: the healthcheck below runs inside it and
+    # reads REDIS_AUTH from the container's own environment, not from compose's.
+    environment:
+      REDIS_AUTH: $${REDIS_AUTH}
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_AUTH\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  clickhouse:
+    image: ${clickhouse_image}
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: $${CLICKHOUSE_PASSWORD}
+      # ClickHouse defaults to ~80% of host RAM, which on a shared box gets it
+      # OOM-killed alongside the five other containers. Cap it to the
+      # per-environment figure instead.
+      CLICKHOUSE_MAX_SERVER_MEMORY_USAGE: "${clickhouse_heap}"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./data/clickhouse/data:/var/lib/clickhouse
+      - ./data/clickhouse/logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:${langfuse_image_tag}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    environment: &langfuse-env
+      NODE_ENV: production
+      NEXTAUTH_URL: $${LANGFUSE_PUBLIC_URL}
+      NEXTAUTH_SECRET: $${NEXTAUTH_SECRET}
+      SALT: $${SALT}
+      ENCRYPTION_KEY: $${ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+
+      DATABASE_URL: postgresql://langfuse:$${POSTGRES_PASSWORD}@postgres:5432/langfuse
+
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: $${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: $${REDIS_AUTH}
+
+      # No ACCESS_KEY_ID / SECRET_ACCESS_KEY on purpose: Langfuse's
+      # StorageService passes `credentials: undefined` when both are unset, so
+      # the AWS SDK falls through to the instance profile. Setting them to empty
+      # strings would NOT do that — it would send empty credentials and 403.
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${blob_bucket}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${aws_region}
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${blob_bucket}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${aws_region}
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+      # Seeded only when the Postgres volume is empty; on every later boot
+      # Langfuse sees the org/project already exist and leaves them alone. This
+      # is what makes the API keys Terraform generated the ones the app uses.
+      LANGFUSE_INIT_ORG_ID: mna-org
+      LANGFUSE_INIT_ORG_NAME: MnA
+      LANGFUSE_INIT_PROJECT_ID: mna-$${LANGFUSE_ENVIRONMENT}
+      LANGFUSE_INIT_PROJECT_NAME: MnA $${LANGFUSE_ENVIRONMENT}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: $${PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: $${SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: $${INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: $${INIT_USER_NAME}
+      LANGFUSE_INIT_USER_PASSWORD: $${INIT_USER_PASSWORD}
+
+  langfuse-web:
+    image: langfuse/langfuse:${langfuse_image_tag}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    environment:
+      <<: *langfuse-env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  caddy:
+    image: ${caddy_image}
+    restart: unless-stopped
+    depends_on:
+      - langfuse-web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Issued certificates live on the data volume: losing them on an instance
+      # replacement would re-request from Let's Encrypt and can hit the
+      # five-per-week duplicate-certificate rate limit.
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config

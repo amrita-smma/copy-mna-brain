@@ -15,7 +15,7 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
 import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
 import { buildOrphanedToolRepairMessages } from "./repairOrphanedToolCalls";
-import { getLangfuseCallbacks } from "@/lib/langfuse";
+import { withLangfuseCallbacks } from "@/lib/langfuse";
 import { logger } from "../logger";
 // The `mna` flavor module directly, not the `./flavors` barrel: the runtime
 // needs one flavor's defaults, not all six evaluated.
@@ -329,11 +329,10 @@ export class AgentGraph {
         logger.debug("📎 Additional system context provided");
       }
       
-      const mergedConfig = {
+      const mergedConfig = withLangfuseCallbacks({
         ...config,
         metadata: { ...((config as any)?.metadata ?? {}), ...this.traceMetadata() },
-        callbacks: [...((config as any)?.callbacks || []), ...getLangfuseCallbacks()]
-      };
+      });
       const result = await agent.invoke({ messages: inputs.messages }, mergedConfig);
       return this.shapeInvokeResult(result);
     } catch (error) {
@@ -364,14 +363,7 @@ export class AgentGraph {
       const agent = this.defaultAgent;
       // Lazy import to avoid pulling Command type at module load.
       const { Command } = await import("@langchain/langgraph");
-      const incomingCallbacks = (config as { callbacks?: unknown } | undefined)
-        ?.callbacks;
-      const configCallbacks = Array.isArray(incomingCallbacks)
-        ? incomingCallbacks
-        : incomingCallbacks
-          ? [incomingCallbacks]
-          : [];
-      const mergedConfig = {
+      const mergedConfig = withLangfuseCallbacks({
         ...config,
         configurable: {
           thread_id: threadId,
@@ -381,8 +373,7 @@ export class AgentGraph {
           ...((config as { metadata?: Record<string, unknown> } | undefined)?.metadata ?? {}),
           ...this.traceMetadata(),
         },
-        callbacks: [...configCallbacks, ...getLangfuseCallbacks()],
-      } as never;
+      }) as never;
       const result = await agent.invoke(
         new Command({ resume: resumePayload }) as never,
         mergedConfig,
@@ -444,11 +435,10 @@ export class AgentGraph {
     config?: any,
   ): Promise<AsyncGenerator<unknown, void, unknown>> {
     const agent = this.getAgent(inputs.additionalSystemContext, inputs.withheldTools);
-    const mergedConfig = {
+    const mergedConfig = withLangfuseCallbacks({
       ...config,
       metadata: { ...(config?.metadata ?? {}), ...this.traceMetadata() },
-      callbacks: [...(config?.callbacks || []), ...getLangfuseCallbacks()],
-    };
+    });
     const stream = await agent.streamEvents({ messages: inputs.messages }, mergedConfig);
     return this.wrapEventStream(stream);
   }

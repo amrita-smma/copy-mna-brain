@@ -1,5 +1,6 @@
 import { JobRepository } from '@/lib/repositories';
 import type { Tables } from '@/lib/repositories';
+import { flushLangfuse } from '@/lib/langfuse';
 
 export class JobTimeoutError extends Error {
   constructor(public readonly timeoutMs: number) {
@@ -47,5 +48,12 @@ export async function runJob<T>(
     }
   } finally {
     if (timer) clearTimeout(timer);
+    // Every agent-running handler funnels through here, and Langfuse's
+    // LangChain callbacks are fire-and-forget. Without this drain the serverless
+    // function can be frozen with the turn's events still queued, so background
+    // work (company analysis, AI screening, file processing) would be the one
+    // thing missing from the traces. Awaited, not `after()`: a job handler is
+    // not always running inside a request whose lifetime `after` extends.
+    await flushLangfuse();
   }
 }

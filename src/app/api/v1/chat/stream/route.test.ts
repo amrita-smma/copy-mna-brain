@@ -9,6 +9,14 @@ const { createContainerMock, prepareConversationRunMock, resolveChatAgentGraphMo
     streamEventsMock: vi.fn(),
   }));
 
+// `after()` throws outside a request scope, so stub it the way the Copilot
+// chat route test does. The route uses it to drain Langfuse once the SSE body
+// has finished streaming.
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: vi.fn(),
+}));
+
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: vi.fn(async () => 'ws-1') }));
 vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));

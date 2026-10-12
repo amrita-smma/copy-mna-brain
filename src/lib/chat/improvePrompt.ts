@@ -1,6 +1,7 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { messageText } from './turnBudget';
 import { DISABLED_THINKING } from '@/lib/ai/thinking';
+import { flushLangfuse, withLangfuseCallbacks } from '@/lib/langfuse';
 
 const IMPROVE_MODEL = 'claude-haiku-5-5';
 // Thinking is off (see below); the bump over the previous 500 is headroom for
@@ -67,10 +68,21 @@ export async function improvePrompt(prompt: string): Promise<string> {
     outputConfig: { effort: 'low' },
   });
 
-  const res = await llm.invoke([
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: trimmed },
-  ]);
+  // Drained here rather than in the route: this is one self-contained LLM call
+  // and its only caller returns immediately afterwards, so nothing downstream
+  // would flush the queue before the function is frozen.
+  let res;
+  try {
+    res = await llm.invoke(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: trimmed },
+      ],
+      withLangfuseCallbacks({ runName: 'chat.improve_prompt' }),
+    );
+  } finally {
+    await flushLangfuse();
+  }
 
   // Not String(res.content): content is a block array whenever the model
   // returns anything but a lone string.

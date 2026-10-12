@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { createPptxTrace } from '@/lib/pptx/pptxLangfuse';
 
 const anthropic = new Anthropic();
 
@@ -62,6 +63,10 @@ export async function runSlideGeneration(
 
   let prompt = '';
 
+  // An edit (existing slide HTML supplied) and a fresh generation are different
+  // enough to be worth separating in the trace.
+  const isEdit = Boolean(currentHtml);
+
   if (currentHtml) {
     prompt = `Here is the current HTML content of a slide titled "${slideTitle || 'Untitled'}":
 
@@ -85,21 +90,57 @@ ${companyContext ? `\n## Company Context\n${companyContext}\n` : ''}
 IMPORTANT: Include a citation footer at the bottom of the slide with real source URLs from the context above. Generate the HTML content for this slide. Output ONLY the HTML, nothing else.`;
   }
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-5-5',
-    max_tokens: 8192,
-    system: SLIDE_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
+  // Raw SDK call, so there are no LangChain callbacks to hang a trace off —
+  // build the span by hand, the same way the pptx skill does. runJob drains the
+  // queue, but a trace only exists if something records it.
+  const model = 'claude-sonnet-5-5';
+  const trace = createPptxTrace('slide_generation', {
+    mode: 'agent_slide',
+    title: slideTitle || instruction,
+  });
+  const generation = trace.startGeneration({
+    name: isEdit ? 'slide.edit' : 'slide.create',
+    model,
+    input: prompt,
+    metadata: { isEdit, hasCompanyContext: Boolean(companyContext) },
   });
 
-  if (message.stop_reason === 'max_tokens') {
-    throw new Error('Slide generation response was truncated (exceeded max output length)');
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model,
+      max_tokens: 8192,
+      system: SLIDE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    generation.end({
+      level: 'ERROR',
+      statusMessage: err instanceof Error ? err.message : String(err),
+    });
+    trace.end({ level: 'ERROR' });
+    await trace.flush();
+    throw err;
   }
 
   // Select by type, not position: Sonnet 5.5 thinks by default, so the first
   // block is a thinking block rather than the HTML.
   const content = message.content.find((b) => b.type === 'text');
-  let html = content?.type === 'text' ? content.text : '';
+  const rawText = content?.type === 'text' ? content.text : '';
+  generation.end({
+    output: rawText,
+    metadata: { stopReason: message.stop_reason, usage: message.usage },
+  });
+
+  // Recorded before the truncation check so a max_tokens failure is visible in
+  // the trace rather than only in the job's error message.
+  if (message.stop_reason === 'max_tokens') {
+    trace.end({ level: 'ERROR', statusMessage: 'truncated: max_tokens' });
+    await trace.flush();
+    throw new Error('Slide generation response was truncated (exceeded max output length)');
+  }
+
+  let html = rawText;
 
   const htmlMatch = html.match(/```html\s*([\s\S]*?)```/);
   if (htmlMatch) {
@@ -107,6 +148,9 @@ IMPORTANT: Include a citation footer at the bottom of the slide with real source
   } else {
     html = html.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
   }
+
+  trace.end({ output: html });
+  await trace.flush();
 
   return { html };
 }

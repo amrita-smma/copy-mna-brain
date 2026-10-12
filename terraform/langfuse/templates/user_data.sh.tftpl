@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Rendered by terraform/langfuse. Runs on first boot of a given instance
+# (user_data_replace_on_change = true means any edit here replaces the box).
+#
+# Everything below is idempotent, because the same script runs again whenever
+# the instance is re-created against the existing data volume.
+set -euxo pipefail
+
+exec > >(tee /var/log/langfuse-bootstrap.log | logger -t langfuse-bootstrap -s 2>/dev/console) 2>&1
+
+APP_DIR=/srv/langfuse
+DATA_DIR="$APP_DIR/data"
+DATA_DEVICE="${data_device}"
+SSM_PREFIX="${ssm_prefix}"
+REGION="${aws_region}"
+
+install -d "$APP_DIR"
+
+# ---------------------------------------------------------------- packages ---
+dnf -y install docker jq
+
+# AL2023 ships the Docker engine but not the Compose v2 CLI plugin, so install
+# it into the plugin directory by hand. Pinned by checksum, not just by tag: a
+# GitHub release asset is mutable and this binary runs as root on every boot.
+# Update both values together (the release publishes a .sha256 alongside).
+COMPOSE_VERSION=v2.32.4
+COMPOSE_SHA256=ed1917fb54db184192ea9d0717bcd59e3662ea79db48bff36d3475516c480a6b
+install -d /usr/libexec/docker/cli-plugins
+curl -fsSL \
+  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-x86_64" \
+  -o /tmp/docker-compose
+echo "$COMPOSE_SHA256  /tmp/docker-compose" | sha256sum -c -
+install -m 0755 /tmp/docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+rm -f /tmp/docker-compose
+
+systemctl enable --now docker
+
+# ------------------------------------------------------------- data volume ---
+# The attachment is asynchronous: Terraform can finish creating the instance
+# before the volume shows up, so wait for the by-id symlink rather than assuming
+# a device name (Nitro renames /dev/sdf to /dev/nvme*n1 in attach order).
+for _ in $(seq 1 60); do
+  [ -e "$DATA_DEVICE" ] && break
+  sleep 5
+done
+if [ ! -e "$DATA_DEVICE" ]; then
+  echo "data volume $DATA_DEVICE never appeared" >&2
+  exit 1
+fi
+
+# Format only when the volume is blank. On an instance replacement the volume
+# already carries a filesystem full of traces and must be left alone.
+if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
+  mkfs -t xfs "$DATA_DEVICE"
+fi
+
+install -d "$DATA_DIR"
+DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
+if ! grep -q "$DATA_UUID" /etc/fstab; then
+  echo "UUID=$DATA_UUID $DATA_DIR xfs defaults,nofail 0 2" >> /etc/fstab
+fi
+mountpoint -q "$DATA_DIR" || mount "$DATA_DIR"
+
+# Postgres and ClickHouse each chown their own subdirectory on start, but the
+# directory has to exist on the mounted volume first.
+install -d \
+  "$DATA_DIR/postgres" \
+  "$DATA_DIR/redis" \
+  "$DATA_DIR/clickhouse/data" \
+  "$DATA_DIR/clickhouse/logs" \
+  "$DATA_DIR/caddy/data" \
+  "$DATA_DIR/caddy/config"
+
+# ------------------------------------------------------------------ config ---
+cat > "$APP_DIR/docker-compose.yml" <<'COMPOSE_EOF'
+${compose_file}
+COMPOSE_EOF
+
+cat > "$APP_DIR/Caddyfile" <<'CADDY_EOF'
+${caddyfile}
+CADDY_EOF
+
+# Secrets are pulled from SSM at boot rather than baked into user_data, which
+# any process on the instance can read back from the metadata endpoint.
+cat > /usr/local/bin/langfuse-refresh-env <<REFRESH_EOF
+#!/usr/bin/env bash
+# Rewrites /srv/langfuse/.env from SSM Parameter Store. After rotating a
+# parameter, run this and then \`systemctl restart langfuse\`.
+set -euo pipefail
+
+TMP=\$(mktemp)
+chmod 600 "\$TMP"
+
+{
+  echo "LANGFUSE_PUBLIC_URL=https://${hostname}"
+  echo "LANGFUSE_ENVIRONMENT=${environment}"
+  echo "INIT_USER_EMAIL=${init_user_email}"
+  echo "INIT_USER_NAME=${init_user_name}"
+} >> "\$TMP"
+
+aws ssm get-parameters-by-path \
+  --region "$REGION" \
+  --path "$SSM_PREFIX" \
+  --with-decryption \
+  --query 'Parameters[].[Name,Value]' \
+  --output text \
+  | while IFS=\$'\t' read -r name value; do
+      printf '%s=%s\n' "\$${name##*/}" "\$value" >> "\$TMP"
+    done
+
+install -m 600 -o root -g root "\$TMP" /srv/langfuse/.env
+rm -f "\$TMP"
+REFRESH_EOF
+chmod 700 /usr/local/bin/langfuse-refresh-env
+/usr/local/bin/langfuse-refresh-env
+
+# ----------------------------------------------------------------- service ---
+cat > /etc/systemd/system/langfuse.service <<'UNIT_EOF'
+[Unit]
+Description=Langfuse (web, worker, postgres, clickhouse, redis, caddy)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/langfuse
+# Re-read secrets on every start so an SSM rotation takes effect with a plain
+# `systemctl restart langfuse`.
+ExecStartPre=/usr/local/bin/langfuse-refresh-env
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+# Pulling six images on a cold box takes well over the default 90s.
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable --now langfuse.service
+
+echo "langfuse bootstrap complete — https://${hostname}"

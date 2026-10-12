@@ -1,0 +1,34 @@
+# Rendered by terraform/langfuse. Do not edit on the instance.
+{
+	email ${acme_email}
+}
+
+${hostname} {
+	# Let's Encrypt issues IP-address certificates only under the short-lived
+	# (6-day) profile, and Caddy would otherwise serve an IP site address from
+	# its internal CA, which the app would reject. Caddy renews well inside the
+	# 6-day window on its own. Harmless for a DNS hostname too.
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+
+	encode zstd gzip
+
+	# Trace payloads carry whole prompts and completions; the Langfuse ingestion
+	# endpoint accepts batches well past Caddy's default. Raise the ceiling so a
+	# long agent turn is not rejected at the proxy.
+	request_body {
+		max_size 100MB
+	}
+
+	reverse_proxy langfuse-web:3000 {
+		# Streaming responses in the UI (and long ingestion batches) must not be
+		# cut off by the default round-trip timeout.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+}

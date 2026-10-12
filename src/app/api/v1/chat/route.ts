@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { flushLangfuse } from '@/lib/langfuse';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
@@ -49,13 +50,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await agent.invoke(
-      { messages },
-      {
-        recursionLimit: 50,
-        configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
-      },
-    );
+    let result;
+    try {
+      result = await agent.invoke(
+        { messages },
+        {
+          recursionLimit: 50,
+          configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
+        },
+      );
+    } finally {
+      // The external chat API runs the same agent as Copilot and so emits the
+      // same traces; without this drain they are the only agent turns lost.
+      await flushLangfuse();
+    }
 
     const lastAi = [...result.messages]
       .reverse()

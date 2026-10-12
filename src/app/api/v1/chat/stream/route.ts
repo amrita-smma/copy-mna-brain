@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { flushLangfuse } from '@/lib/langfuse';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
@@ -57,6 +58,11 @@ export async function POST(req: NextRequest) {
     );
 
     const sse = eventStreamToSse(eventStream, conversationId);
+
+    // Not a `finally`: streamEvents returns the iterator immediately and the
+    // trace events are emitted while the SSE body drains, so the drain has to
+    // outlive the handler. Same shape as the Copilot chat route.
+    after(() => flushLangfuse());
 
     return new Response(sse, {
       status: 200,

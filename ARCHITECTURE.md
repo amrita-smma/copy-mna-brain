@@ -152,6 +152,15 @@ and see-through in dark.
 **`geography` is a free-text country name, not a code.** Resolve to ISO alpha-2
 with `country-to-iso` before deriving a flag emoji.
 
+**Langfuse traces are lost unless the queue is drained.** Its callbacks are
+fire-and-forget, and a serverless function can be frozen with a turn's events
+still queued. `runJob`, `runAgent`, the chat route and the daily pulse each
+`await flushLangfuse()` in a `finally`; a new agent entrypoint that bypasses all
+four must do the same. Merge the handler with `withLangfuseCallbacks(config)`,
+never by spreading `callbacks` by hand — LangChain allows a bare handler there
+and the hand-rolled spread throws on it. See
+`docs/features/langfuse-tracing.md`.
+
 ## Commands
 
 ```bash

@@ -1,15 +1,21 @@
 import { Langfuse } from 'langfuse';
+import { isLangfuseEnabled, langfuseEnvironment } from '@/lib/langfuse';
 
 /**
- * Best-effort Langfuse tracing for raw Anthropic SDK pptx skill jobs.
+ * Best-effort Langfuse tracing for the raw Anthropic SDK presentation jobs —
+ * the pptx skill and single-slide generation. Those call the SDK directly, so
+ * they cannot use LangChain callbacks and build spans by hand instead.
  * Failures must never break presentation generation.
  *
- * Gated like getLangfuseCallbacks(): development + LANGFUSE_SECRET_KEY.
+ * Shares the gate with getLangfuseCallbacks() (see @/lib/langfuse) so the raw
+ * Anthropic SDK path is traced in exactly the environments the LangChain paths
+ * are — it used to be development-only, which left every staging and production
+ * presentation generation invisible.
  */
 
 export type PptxTraceMeta = {
   workspaceId?: string;
-  mode: 'agent_presentation';
+  mode: 'agent_presentation' | 'agent_slide';
   title?: string;
 };
 
@@ -46,9 +52,7 @@ const NOOP_TRACE: PptxTrace = {
 };
 
 function shouldTrace(): boolean {
-  return (
-    process.env.NODE_ENV === 'development' && !!process.env.LANGFUSE_SECRET_KEY
-  );
+  return isLangfuseEnabled();
 }
 
 export function createPptxTrace(name: string, meta: PptxTraceMeta): PptxTrace {
@@ -59,12 +63,14 @@ export function createPptxTrace(name: string, meta: PptxTraceMeta): PptxTrace {
       secretKey: process.env.LANGFUSE_SECRET_KEY,
       publicKey: process.env.LANGFUSE_PUBLIC_KEY,
       baseUrl: process.env.LANGFUSE_BASE_URL || 'http://langfuse-web:3000',
+      environment: langfuseEnvironment(),
+      release: process.env.VERCEL_GIT_COMMIT_SHA,
     });
 
     const trace = langfuse.trace({
       name,
       metadata: { ...meta },
-      tags: ['pptx', meta.mode],
+      tags: ['presentation', meta.mode],
     });
 
     return {

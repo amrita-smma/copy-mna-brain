@@ -58,3 +58,4 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 
 - [Runtime feature toggles](runtime-feature-toggles.md) — 2KB
 - [Product telemetry (PostHog)](product-telemetry.md) — 8KB
+- [Langfuse agent tracing](langfuse-tracing.md) — 6KB

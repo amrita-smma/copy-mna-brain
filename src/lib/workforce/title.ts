@@ -1,6 +1,7 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { messageText } from '@/lib/chat/turnBudget';
 import { DISABLED_THINKING } from '@/lib/ai/thinking';
+import { flushLangfuse, withLangfuseCallbacks } from '@/lib/langfuse';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { withBackgroundDb } from '@/lib/server/db';
@@ -66,10 +67,16 @@ export async function generateWorkforceTitle(
       outputConfig: { effort: 'low' },
     });
 
-    const res = await llm.invoke([
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: prompt },
-    ]);
+    const res = await llm.invoke(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+      withLangfuseCallbacks({ runName: 'workforce.title' }),
+    );
+
+    // Runs inside enqueue's `after()`, which no other drain covers.
+    await flushLangfuse();
 
     // Not String(res.content): content is a block array whenever the model
     // returns anything but a lone string.

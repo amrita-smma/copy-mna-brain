@@ -1,4 +1,5 @@
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
+import { flushLangfuse } from '@/lib/langfuse';
 
 /** Generates the "Today's Recap" markdown by asking the Analyst agent. Injectable
  * so the service can be tested without spinning up a real agent. */
@@ -122,12 +123,20 @@ export const generateDailyPulse: DailyPulseGenerator = async (now, workspaceId) 
     throw new Error('Analyst agent is unavailable');
   }
 
-  const result = await runWithWorkforceWorkspaceId(workspaceId, () =>
-    graph.invoke({
-      messages: [new HumanMessage(buildDailyPulsePrompt(now))],
-      additionalSystemContext: PULSE_SYSTEM_CONTEXT,
-    }),
-  );
+  // The pulse reaches here from an API route and from a session-less cron,
+  // neither of which drains the Langfuse queue, so flush around the invoke
+  // rather than leaving it to the caller.
+  let result;
+  try {
+    result = await runWithWorkforceWorkspaceId(workspaceId, () =>
+      graph.invoke({
+        messages: [new HumanMessage(buildDailyPulsePrompt(now))],
+        additionalSystemContext: PULSE_SYSTEM_CONTEXT,
+      }),
+    );
+  } finally {
+    await flushLangfuse();
+  }
 
   const { assistantText } = extractFirstTurn(result.messages || []);
   const text = stripThinking(assistantText);

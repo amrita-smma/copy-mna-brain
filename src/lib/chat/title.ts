@@ -1,6 +1,7 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { messageText } from './turnBudget';
 import { DISABLED_THINKING } from '@/lib/ai/thinking';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 
 const TITLE_MODEL = 'claude-haiku-5-5';
 // Thinking is off (see below), so this only has to cover the title itself —
@@ -96,10 +97,13 @@ export async function generateChatTitle(
     thinking: DISABLED_THINKING,
     outputConfig: { effort: 'low' },
   });
-  const res = await llm.invoke([
-    { role: 'system', content: CHAT_TITLE_SYSTEM_PROMPT },
-    { role: 'user', content: firstUserMessage },
-  ]);
+  const res = await llm.invoke(
+    [
+      { role: 'system', content: CHAT_TITLE_SYSTEM_PROMPT },
+      { role: 'user', content: firstUserMessage },
+    ],
+    withLangfuseCallbacks({ runName: 'chat.title' }),
+  );
   // Not String(res.content): content is a block array whenever the model
   // returns anything but a lone string, and String() would stringify it as
   // "[object Object]".

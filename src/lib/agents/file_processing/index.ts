@@ -14,7 +14,7 @@ import { BETWEEN_TOOLS_THINKING } from "@/lib/ai/thinking";
 import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { createAgent } from "langchain";
 import { logger } from "../logger";
-import { getLangfuseCallbacks } from "@/lib/langfuse";
+import { flushLangfuse, getLangfuseCallbacks } from "@/lib/langfuse";
 
 /**
  * Beta flag required for the Files API. Both the upload/delete calls and any
@@ -411,6 +411,19 @@ async function streamAgentMessages(
  * `companies` array, skipping duplicates).
  */
 export async function processFileContent(
+  ...args: Parameters<typeof processFileContentInner>
+): Promise<Awaited<ReturnType<typeof processFileContentInner>>> {
+  // FileService calls this inline from the upload request for PDFs and text
+  // files, not via runJob, so nothing else drains the Langfuse queue on that
+  // path. Wrapping the entrypoint means a new caller cannot forget.
+  try {
+    return await processFileContentInner(...args);
+  } finally {
+    await flushLangfuse();
+  }
+}
+
+async function processFileContentInner(
   rawText: string,
   buffer: Buffer,
   contentType: string,

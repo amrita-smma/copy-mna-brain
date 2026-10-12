@@ -29,6 +29,7 @@ import { NotificationService } from '@/lib/services/notificationService';
 import { InterventionRecipientService } from '@/lib/services/interventionRecipientService';
 import type { NotificationKind } from '@/lib/notifications/types';
 import { createDb } from '@/lib/server/db';
+import { flushLangfuse } from '@/lib/langfuse';
 import { asWorkforceEffort } from '@/lib/chat/effortTiers';
 import { ChatAttachmentService, type ChatAttachmentRef } from '@/lib/services/chatAttachmentService';
 import { resolveInsightAgentStamp } from '@/lib/insights/agentStamp';
@@ -893,5 +894,12 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
     }
     // Re-throw so the workflow itself is marked failed in WDK's run record.
     throw err;
+  } finally {
+    // Workforce runs are WDK workflows, not jobs, so they never pass through
+    // runJob's drain. Without this the longest agent traces in the product are
+    // the ones most likely to be lost, because the queued events outlive the
+    // function. In a finally so a HITL pause, a failure and a re-thrown error
+    // all flush what the run produced before stopping.
+    await flushLangfuse();
   }
 }
