@@ -126,6 +126,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "6026c56ced7abe6f45cf42b6bdd1ca4efe7a5685",
+    "date": "2026-10-12",
+    "subject": "Disable self-service sign-up on Langfuse",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "ad4be6b28e8d03b4af7468be3bd55bae2129ca4c",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
