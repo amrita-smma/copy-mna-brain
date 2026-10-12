@@ -88,6 +88,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "074c566ab33cb6db3622fda498ad57d856ab31ad",
+    "date": "2026-10-12",
+    "subject": "Company details now show the notes timeline",
+    "category": "improvement"
+  },
+  {
+    "hash": "32febc4c08e42e098b1664ecb9aa52c17db379bb",
+    "date": "2026-10-12",
+    "subject": "Add kensen.huang to production mna-devops",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1635b3aab375028fe271ba06f1d4c2abdeccf74d",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
