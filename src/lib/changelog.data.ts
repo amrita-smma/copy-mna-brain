@@ -162,6 +162,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "df51e1bafa54c8d2057adeab315865cad7fda6f8",
+    "date": "2026-10-12",
+    "subject": "Added AI Copilot memory that remembers your preferences, plus a new Profile tab to review it",
+    "category": "improvement"
+  },
+  {
+    "hash": "b94daf54f9527d861cb801f571f8943ae7e9cc93",
+    "date": "2026-10-12",
+    "subject": "Deal Timeline now uses a vertical rail with a side-by-side reading pane",
+    "category": "improvement"
+  },
+  {
+    "hash": "e7e0183731ac1d1222b7ab5ef71bff3a772772a0",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c191098e32f6560a49867e816a73a022a29e5397",
     "date": "2026-10-09",
     "subject": "AI features now use the Claude Opus, Sonnet, and Haiku 5.5 models",
