@@ -34,15 +34,19 @@
  * factual queries use 1-3 searches, "comparative or multientity research can
  * use 10 or more".
  *
- * Research here is always the multientity kind. `guides.ts` tells the agent to
- * "reach for `web_search` freely, and more than once in a turn when you need
- * several angles (the company, its market, its comparables)", and
- * `workforce.ts` makes one call the floor rather than the ceiling. A cap of 5
- * was set when external search was an occasional step; against those prompts a
- * single request blows through it. Every further search then returns a
- * `max_uses_exceeded` error — a 200, not an exception — and the agent quietly
- * degrades to `valyu_search`, whose results carry no citation payload, so the
- * answer loses its `cite` tags too.
+ * Research here is always the multientity kind, and the prompts make the spend
+ * scale with the number of companies in play rather than with the question.
+ * `guides.ts` owes a freshness search to EVERY company that surfaces in a turn
+ * — typed by the user, carried by an attachment, returned by an internal tool,
+ * or about to be written into the answer — and several further angles on the
+ * ones the answer turns on; `workforce.ts` owes the same per company it
+ * touches. A turn discussing eight companies therefore starts at eight
+ * searches before any angle is added. A cap of 5 was set when external search
+ * was an occasional step, and 30 was set before the per-company rule; against
+ * these prompts a single request walks through either. Every further search
+ * then returns a `max_uses_exceeded` error — a 200, not an exception — and the
+ * agent quietly degrades to `valyu_search`, whose results carry no citation
+ * payload, so the answer loses its `cite` tags too.
  *
  * Keep this ceiling clear of what one research request actually spends. The
  * real guardrail against a runaway turn is `turnBudgetMs` in `../effort.ts`,
@@ -60,7 +64,13 @@ export interface AnthropicServerTool {
  */
 export const MIN_SERVER_TOOL_MAX_USES = 25;
 
+/**
+ * The same line for `web_search` specifically, which the per-company freshness
+ * rule above spends several times faster than any other server tool.
+ */
+export const MIN_WEB_SEARCH_MAX_USES = 60;
+
 export const SERVER_TOOLS: AnthropicServerTool[] = [
-  { type: "web_search_20260209", name: "web_search", max_uses: 30 },
+  { type: "web_search_20260209", name: "web_search", max_uses: 80 },
   { type: "web_fetch_20260209", name: "web_fetch", max_uses: 30 },
 ];

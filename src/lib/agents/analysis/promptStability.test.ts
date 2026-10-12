@@ -99,41 +99,49 @@ function lastSystemPrompt(): string {
 // thread's history are a recording artifact, never a pattern to imitate. The
 // search_news tool is gone — recent-news questions go to web_search, run
 // aggressively from several angles — so every flavor's tool list and the
-// grounding guide's news guidance changed with it. The
+// grounding guide's news guidance changed with it. That guide now also carries
+// the per-company freshness mandate: every company that surfaces in a turn —
+// typed by the user, carried by an attachment, returned by an internal tool, or
+// about to be written into the answer — owes a web_search for its latest news
+// in that same turn, with further angles on the ones the answer turns on and a
+// bound so a fifty-row table does not owe fifty searches. The
 // mna prompt additionally changed identity: an M&A Specialist with a "Default
 // Posture: Research First" section, not a data-analysis assistant.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '239d9c04217d8f0b3b71a677abc6c05886d59bb77f01141c920731cd9de70373',
-  investment: '36a3f495b366f46c0d63ba82da9897412d1f714f3883be60cb12297cb3e21ad8',
-  combined: '25f5c1ec40133727cca935c6bdce0172844f55fe54ebbff3de1474d22895d23d',
-  vc: '2dec2fa92549580acc0be95dfa5684c29ee4d0841d263fa7ed85ba75e1d61174',
+  mna: '00a7bf38b2e13fa77296f349794e1c0030d3aa3620e2053ef833287b1f35c2c6',
+  investment: 'b706968864d1fcd00f2d4df5ce9ffca7a8a7dc3c6e492f2f2748fb99edd93479',
+  combined: '0fffbdf81fc9e5f89e5b8310314c4d7b992ec8a6fc7d0de99f534b85865cb51d',
+  vc: 'a0e3ea2aea61939bd1e1bc47f29bf5d6fcc44b9fd2a9b7dcd52dac6bba3d3527',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: 'ee11343390b5127c46c571a090be2aae02a01176a2a36fb6e5a2f3d44bf7db6a',
+  minority: '2222b04850be667b0e3af5391050310cde9aabca05730718928c6fe2d026d515',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '7a85347bcaaab13ae6376546e97e2ba267e97c1d66e3c28acbc97333fd80555d',
+  crowdfunding: 'ca6631b03bb3c6916c23c04095f8ab196d942106d9651b3d589bb321813ba67c',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: 'f6d9de4faa734ecb047af80e16aee0892b27386ae917f5bedff0dae4a361833e',
+  investment_banking: '79d05748a73edd8b81c6ada6829b01b381ffdce640a59fa9d25012aa46ed3d8e',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: '8e5fb620dbdbc1b3f677e34bb6980491a70af19d5985baf56c4a584e79b00fe0',
+  capital_markets: 'c2e83c61a73125365d3cf7d8c9197420b61d034a315b551f668c142dcd774484',
 };
 // The Workforce prompt changed on purpose: search_news is removed — web_search
-// (run aggressively, several calls per turn) is the one news tool — and the
+// (run aggressively, several calls per turn) is the one news tool — "Evidence
+// and freshness" now owes a latest-news search on EVERY company the run touches
+// (instruction, record read, file queried, or report about to be written), and
+// the
 // mandate-fit step of "Forming an AI Opinion" says what to do when the
 // workspace has no active mandate: drop the dimension, don't flag its absence,
 // and judge the company on the data that does exist.
-const EXPECTED_WORKFORCE_HASH = 'aac1e0948f1985ea700fb6134c30bafa27d91f6268e5fe51400c8697adbcf35b';
+const EXPECTED_WORKFORCE_HASH = '1be0db9d1c503fb348ec58813bb3f9a44ffd11aa97d0bb672af6d3e4ce5d691f';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   postgresSaverCtor: vi.fn(),
   postgresSaverSetup: vi.fn().mockResolvedValue(undefined),
   serverTools: [
-    { type: 'web_search_20260209', name: 'web_search', max_uses: 30 },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 80 },
     { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 30 },
   ],
 }));
@@ -883,6 +883,11 @@ describe('external evidence grounding (chat flavors)', () => {
     expect(prompt).toMatch(/when the internal record looks complete/);
     // Fire it alongside the internal read rather than after discovering a gap.
     expect(prompt).toMatch(/Search while you pull internal data, not after it/);
+    // The bookkeeping carve-out stops where a company name starts, so a stage
+    // breakdown that names companies is not an exemption from the rule below.
+    expect(prompt).toMatch(
+      /that exemption lapses the moment such an answer names a company/,
+    );
   });
 
   it.each(FLAVORS)('tells the %s flavor not to re-narrate records it already read', async (flavor) => {
@@ -918,6 +923,34 @@ describe('external evidence grounding (chat flavors)', () => {
 
     expect(prompt).toMatch(/News lives on the open web/);
     expect(prompt).toMatch(/run \`web_search\` aggressively/);
+  });
+
+  // Every company that surfaces in a turn owes a latest-news search in that
+  // same turn, whatever the question was — the rule this branch exists for.
+  it.each(FLAVORS)('owes the %s flavor a freshness search per company mentioned', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    expect(prompt).toMatch(/Every company mentioned gets a freshness search — no exceptions/);
+    expect(prompt).toMatch(/the user typed it, an attached document or screenshot carries it/);
+    expect(prompt).toMatch(/run in the SAME turn and BEFORE you write a sentence about it/);
+    // Not conditional on the question being a research question, and a full
+    // row is the reason to search rather than a reason to skip.
+    expect(prompt).toMatch(/still owes three freshness searches/);
+    expect(prompt).toMatch(/a complete-looking row raises the obligation rather than retiring it/);
+    expect(prompt).toMatch(
+      /If you have not searched a company this turn, you do not know its current state/,
+    );
+  });
+
+  it.each(FLAVORS)('keeps the %s flavor from stopping at one search, or searching fifty rows', async (flavor) => {
+    const prompt = await promptFor(flavor);
+
+    expect(prompt).toMatch(/One angle is the floor, not the job/);
+    expect(prompt).toMatch(/as several \`web_search\` calls in the same turn/);
+    // The bound that keeps a long list from spending the whole max_uses budget.
+    expect(prompt).toMatch(/a fifty-row table owes searches on the companies you discuss by name/);
+    // A pull from earlier in the conversation is not a freshness check.
+    expect(prompt).toMatch(/search it again rather than leaning on a stale pull/);
   });
 
   it.each(FLAVORS)('drops the old fallback-only framing from the %s flavor', async (flavor) => {
@@ -1074,6 +1107,23 @@ describe('workforce prompt evidence rules', () => {
     expect(prompt).not.toMatch(/search_news/);
     expect(prompt).toMatch(/Use it aggressively — several calls per turn, from different angles/);
   });
+
+  it('owes the workforce a freshness search on every company it touches', async () => {
+    const prompt = await workforcePrompt();
+
+    expect(prompt).toMatch(
+      /\*\*Every company you touch gets its own freshness search\*\*, not only the one the task is named after/,
+    );
+    expect(prompt).toMatch(/in the report you are about to write/);
+    expect(prompt).toMatch(
+      /A company you have not searched in this run is a company whose current state you do not know/,
+    );
+    expect(prompt).toMatch(/its counterparties, its sector and its comparables as separate calls/);
+    expect(prompt).toMatch(/On a bulk task spanning many companies that is one freshness search each/);
+    expect(prompt).toMatch(
+      /drop the extra angles before you drop any company's freshness search/,
+    );
+  });
 });
 
 describe('getAgentGraph source-of-funds gating', () => {
@@ -1203,7 +1253,7 @@ describe('AgentGraph withheld tools', () => {
     { name: 'query_companies' },
     { name: 'propose_insight_create' },
     { name: 'propose_workforce_handoff' },
-    { type: 'web_search_20260209', name: 'web_search', max_uses: 30 },
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 80 },
   ] as unknown as ToolList;
   const names = (list: unknown) => (list as Array<{ name: string }>).map((t) => t.name);
 

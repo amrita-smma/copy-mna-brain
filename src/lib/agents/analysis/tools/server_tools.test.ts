@@ -5,7 +5,11 @@ import { pathToFileURL } from 'node:url';
 import { AIMessage } from '@langchain/core/messages';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { MIN_SERVER_TOOL_MAX_USES, SERVER_TOOLS } from './server_tools';
+import {
+  MIN_SERVER_TOOL_MAX_USES,
+  MIN_WEB_SEARCH_MAX_USES,
+  SERVER_TOOLS,
+} from './server_tools';
 
 const SERVER_TOOL_RESULT_TYPES = [
   'web_search_tool_result',
@@ -33,6 +37,15 @@ describe('SERVER_TOOLS', () => {
     // prompts made external search the default, after which every further
     // search returned max_uses_exceeded and the agent fell back to valyu_search.
     expect(byName('web_search')?.max_uses).toBeGreaterThanOrEqual(MIN_SERVER_TOOL_MAX_USES);
+  });
+
+  it('leaves web_search headroom for a search per company mentioned', () => {
+    // guides.ts owes a freshness search to every company that surfaces in a
+    // turn, plus further angles on the ones the answer turns on, so the spend
+    // scales with the companies in play: a turn over eight of them starts at
+    // eight searches. 30 was sized before that rule existed.
+    expect(byName('web_search')?.max_uses).toBeGreaterThanOrEqual(MIN_WEB_SEARCH_MAX_USES);
+    expect(MIN_WEB_SEARCH_MAX_USES).toBeGreaterThan(MIN_SERVER_TOOL_MAX_USES);
   });
 
   it('gives every server tool an explicit max_uses above the floor', () => {

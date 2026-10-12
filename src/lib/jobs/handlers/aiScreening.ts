@@ -83,6 +83,8 @@ const SCREENING_PROMPT_TEMPLATE = `You are an M&A screening analyst. Your task i
 You have access to these tools - USE THEM to gather more information:
 {toolDescriptions}
 
+**Search the web for this company before you decide — every time, not only when data is missing.** The company information below is what someone recorded at some point; it does not tell you what is true today. Run at least one web_search on the company itself for its latest news (results, funding, acquisitions, ownership or management changes, closures, legal or regulatory events) before evaluating the criterion, including when the provided data looks complete. If what you find contradicts the recorded data, judge on what you found and say so in the remarks.
+
 **Before returning "inconclusive" due to missing data, ALWAYS try these steps:**
 1. If financial data is missing, use web_search to find it (e.g., "Company Name revenue EBITDA financials 2024")
 2. If industry context is needed, use web_search for benchmarks (e.g., "Industry average EBITDA margin")
@@ -96,9 +98,10 @@ You have access to these tools - USE THEM to gather more information:
 
 ## Your Task
 1. First, review the company information provided above
-2. If ANY information needed for the criterion is missing, use the appropriate tool to find it
-3. Evaluate whether the company passes or fails the criterion
-4. Return your decision as JSON
+2. Run web_search on the company for its latest information — this step is not optional
+3. If ANY information needed for the criterion is still missing, use the appropriate tool to find it
+4. Evaluate whether the company passes or fails the criterion
+5. Return your decision as JSON
 
 ## Response Format
 Respond ONLY with a JSON object containing:

@@ -318,13 +318,25 @@ describe('FundAiOpinionService', () => {
     expect(instruction).not.toContain('Market Value 600,000 USD');
   });
 
-  it('instructs the agent to check internal notes before web_search', async () => {
+  it('sends the agent to internal notes and the web in the same pass', async () => {
     const service = makeService(makeAssetRepo());
     await service.dispatch('asset-1');
 
     const instruction = instructionFromEnqueue();
-    expect(instruction).toContain('Before web_search, check internal notes');
+    // The old wording sequenced internal-first, which let a complete-looking
+    // record stand in for a freshness check on the holding.
+    expect(instruction).not.toContain('Before web_search');
+    expect(instruction).toContain('search the web in the same pass, not after it');
     expect(instruction).toContain('query_files');
+  });
+
+  it('makes a latest-news web_search on the holding unconditional', async () => {
+    const service = makeService(makeAssetRepo());
+    await service.dispatch('asset-1');
+
+    const instruction = instructionFromEnqueue();
+    expect(instruction).toContain('Run web_search on the holding itself for its latest news');
+    expect(instruction).toContain('on every run, including when the recorded data looks complete');
   });
 
   it('instructs the agent not to use hold as an escape hatch', async () => {

@@ -180,6 +180,40 @@ The eight flavors:
   prompts' hashes. Persisted via `workspaces.copilot_agent =
   'investment_banking'` / `'capital_markets'` — no migration needed.
 
+## Search policy: a freshness search per company
+
+Every chat flavor and the sector chat agents append
+`buildExternalEvidenceGuide()` (`src/lib/agents/analysis/guides.ts`); the
+Workforce and the sector workforce agents append `WORKFORCE_EVIDENCE_GUIDE`
+(`src/lib/agents/analysis/workforce.ts`). Both state the same floor:
+
+- **A company mentioned is a company searched.** The moment a company surfaces
+  in a turn — typed by the user, carried by an attachment, returned by an
+  internal tool, or about to be written into the answer — it owes at least one
+  `web_search` for its latest news, in that same turn, before the agent writes
+  a sentence about it. It applies whatever the question was (a stage count that
+  names three companies owes three searches) and a complete-looking internal row
+  raises the obligation rather than retiring it.
+- **One angle is the floor.** For a company the answer turns on, further
+  `web_search` calls follow from other angles — counterparties, sector,
+  comparables — in the same turn.
+- **Bounded by what the answer is about, not by row count.** A fifty-row table
+  owes searches on the companies the agent discusses by name (typically three to
+  ten), not on all fifty. A pull from an earlier turn is not a freshness check
+  for this one.
+
+Background prompts carry the same rule where they touch one company:
+`aiScreening` searches before evaluating a criterion rather than only when a
+field is missing, `companyAnalysis` always includes a latest-news angle, and the
+Fund AI Opinion instruction (`fundAiOpinionService`) searches the holding on
+every run, in the same pass as the internal lookups rather than after them.
+
+Because the spend now scales with the number of companies in play, `web_search`
+carries a `max_uses` of 80 (`tools/server_tools.ts`); exceeding the cap returns
+`max_uses_exceeded` as a 200 and the agent silently degrades to `valyu_search`,
+losing citations. Wall-clock, not the cap, is the runaway guard (`turnBudgetMs`
+in `src/lib/agents/analysis/effort.ts`).
+
 ## AlphaSense research (`alphasense_search`)
 
 **Retired — not registered with any agent.** The AlphaSense subscription is no

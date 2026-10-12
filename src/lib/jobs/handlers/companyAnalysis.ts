@@ -97,7 +97,7 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 **Research steps you MUST follow:**
 1. Use \`get_company_details\` to retrieve internal database information about "{companyName}"
 2. Use \`inven_paid_data_source_search\` to find the company on Inven, then \`inven_paid_data_source_enrichment\` for detailed data
-3. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors")
+3. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors"). Run it several times, from different angles, and always include one search for what has happened to the company lately (e.g., "{companyName} latest news funding acquisition results") — a card built without that search describes the company as it was, not as it is
 4. Use \`query_files\` to check if there are any internal files about this company beyond the ones already inlined under "Existing Card & Source Freshness" below
 
 **If an "Existing Card & Source Freshness" section appears below, read it FIRST.** It carries the date the previous card was generated, the company's own documents with their dates, and the rule for resolving contradictions between them — the later-dated source always wins.

@@ -197,10 +197,14 @@ export class FundAiOpinionService {
         `Here is the holding's recorded data: ${metrics} ` +
         sparseNote +
         `Weigh the direction of the valuation trend (rising, flat, or falling marks) in ` +
-        `your buy/hold/sell call. Before web_search, check internal notes and records for ` +
-        `this holding by name (query_files / get_company_details / query_companies). ` +
-        `Use web_search for external market context (industry trends, comparable valuations, ` +
-        `sector outlook) as needed, then take a FIRM, decisive investment stance and call the ` +
+        `your buy/hold/sell call. Check internal notes and records for this holding by name ` +
+        `(query_files / get_company_details / query_companies) and search the web in the same ` +
+        `pass, not after it. Run web_search on the holding itself for its latest news — ` +
+        `results, raises, deals, management changes, regulatory or legal events — on every ` +
+        `run, including when the recorded data looks complete, and run it again for external ` +
+        `market context (industry trends, comparable valuations, sector outlook). The marks ` +
+        `tell you what the position is carried at, not how the business is doing. ` +
+        `Then take a FIRM, decisive investment stance and call the ` +
         `save_fund_ai_opinion tool with asset_id "${id}", a verdict of exactly one of ` +
         `buy / hold / sell, a confidence of exactly one of high / medium / low (not above ` +
         `"${sufficiency.maxConfidence}"), and a summary of AT MOST 50 words justifying it. ` +
