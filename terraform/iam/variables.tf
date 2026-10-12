@@ -69,6 +69,7 @@ locals {
       mna_devops_users = [
         "nico.alimin",
         "asep.taufik",
+        "kensen.huang",
       ]
       mna_developer_users = [
         "kensen.huang",
