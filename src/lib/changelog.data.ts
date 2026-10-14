@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b9d37f61f23470c5299a51a02274ca60a4ee86d5",
+    "date": "2026-10-14",
+    "subject": "Contacts are now enriched with up-to-date details from treg.to in your CRM",
+    "category": "improvement"
+  },
+  {
     "hash": "66fbc9c1a44226de24044e41b66644b081e18d4a",
     "date": "2026-10-12",
     "subject": "Copilot now defaults to M&A-focused research with search enabled",
@@ -345,6 +351,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "e0f1d0f58f7c5bc4a08a305517b69ae6ff0b8ad2",
+    "date": "2026-10-12",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "25468285fab5f2321d6dc119945212e034963b68",
     "date": "2026-10-12",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
