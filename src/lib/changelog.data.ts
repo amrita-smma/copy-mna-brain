@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "1c6ffdc06eda59a98416db456bc7b497629735ef",
+    "date": "2026-10-14",
+    "subject": "Coverage region is no longer auto-filled from a contact's location",
+    "category": "improvement"
+  },
+  {
+    "hash": "6aedb1ce91e75f2e661c119fe192327b6b7c7f11",
+    "date": "2026-10-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "66fbc9c1a44226de24044e41b66644b081e18d4a",
     "date": "2026-10-12",
     "subject": "Copilot now defaults to M&A-focused research with search enabled",
