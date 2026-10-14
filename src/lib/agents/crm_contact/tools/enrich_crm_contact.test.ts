@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   findCorrespondentById: vi.fn(),
   findEmployerById: vi.fn(),
   enrichPerson: vi.fn(),
+  findPhone: vi.fn(),
   getTregApiKey: vi.fn(),
 }));
 
@@ -21,6 +22,7 @@ vi.mock('@/lib/repositories', () => ({
 }));
 vi.mock('@/lib/treg', () => ({
   enrichPerson: mocks.enrichPerson,
+  findPhone: mocks.findPhone,
   getTregApiKey: mocks.getTregApiKey,
 }));
 
@@ -32,7 +34,10 @@ const CONTACT = {
   name: 'Jane Doe',
   email: 'jane@evercore.com',
   linkedin_url: null,
+  phone: null,
 };
+
+const PHONE_MISS = { phone: null, verdict: null, servedBy: null, callId: 'p', costMicro: 0 };
 
 const HIT = {
   person: {
@@ -50,6 +55,7 @@ beforeEach(() => {
   mocks.findCorrespondentById.mockReset().mockResolvedValue(CONTACT);
   mocks.findEmployerById.mockReset().mockResolvedValue({ name: 'Evercore' });
   mocks.enrichPerson.mockReset();
+  mocks.findPhone.mockReset().mockResolvedValue(PHONE_MISS);
   mocks.getTregApiKey.mockReset().mockReturnValue('tk_test');
 });
 
@@ -143,6 +149,90 @@ describe('enrichCrmContact', () => {
 
     expect(result).toContain('contact enrichment failed');
     expect(result).toContain('503');
+  });
+});
+
+describe('enrichCrmContact — full name', () => {
+  it('flags a fuller vendor name and points the agent at update_crm_contact name', async () => {
+    mocks.findCorrespondentById.mockResolvedValue({ ...CONTACT, name: 'Jane' });
+    mocks.enrichPerson.mockResolvedValue(HIT);
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(result).toContain('**Full name differs** from the CRM\'s "Jane"');
+    expect(result).toContain('pass it as `name` to update_crm_contact');
+  });
+
+  it('adds no name note when the vendor name matches the record', async () => {
+    mocks.enrichPerson.mockResolvedValue(HIT);
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(result).not.toContain('Full name differs');
+  });
+});
+
+describe('enrichCrmContact — phone', () => {
+  it("looks the phone up with the profile's LinkedIn URL when the record has none", async () => {
+    mocks.enrichPerson.mockResolvedValue(HIT);
+    mocks.findPhone.mockResolvedValue({
+      phone: '+6281100000',
+      verdict: 'live',
+      servedBy: 'aiark.people.phone.find',
+      callId: 'call-p',
+      costMicro: 26335,
+    });
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(mocks.findPhone).toHaveBeenCalledWith({
+      email: 'jane@evercore.com',
+      full_name: 'Jane Doe',
+      linkedin_url: 'https://linkedin.com/in/janedoe',
+      domain: 'evercore.com',
+    });
+    expect(result).toContain('**Phone:** +6281100000');
+    expect(result).toContain('**Line check:** live');
+    expect(result).toContain('treg.to people.phone.find via aiark.people.phone.find (call call-p)');
+  });
+
+  it('skips the phone lookup when the record already holds a phone', async () => {
+    mocks.findCorrespondentById.mockResolvedValue({ ...CONTACT, phone: '+1 212 000 0000' });
+    mocks.enrichPerson.mockResolvedValue(HIT);
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(mocks.findPhone).not.toHaveBeenCalled();
+    expect(result).not.toContain('### Phone');
+  });
+
+  it('tells the agent not to write a dead line', async () => {
+    mocks.enrichPerson.mockResolvedValue(HIT);
+    mocks.findPhone.mockResolvedValue({ ...PHONE_MISS, phone: '+6281100000', verdict: 'dead' });
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(result).toContain('Do not write this number.');
+  });
+
+  it('still looks the phone up on a profile miss and appends it', async () => {
+    mocks.enrichPerson.mockResolvedValue({ person: null, servedBy: null, callId: 'c', costMicro: 0 });
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(mocks.findPhone).toHaveBeenCalled();
+    expect(result).toContain('No enrichment record found');
+    expect(result).toContain('No phone number found');
+  });
+
+  it('keeps the profile when the phone lookup fails', async () => {
+    mocks.enrichPerson.mockResolvedValue(HIT);
+    mocks.findPhone.mockRejectedValue(new Error('treg.people.phone.find returned 503: busy'));
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(result).toContain('**Title:** Managing Director');
+    expect(result).toContain('Phone lookup failed');
   });
 });
 

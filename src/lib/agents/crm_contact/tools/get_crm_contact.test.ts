@@ -52,13 +52,13 @@ describe('getCrmContact', () => {
     expect(result).not.toContain('Title (`title`)');
   });
 
-  it('marks name and email as off limits', async () => {
+  it('marks the email as off limits and the name as same-person corrections only', async () => {
     findCorrespondentById.mockResolvedValue(CONTACT);
     findEmployerById.mockResolvedValue({ name: 'Evercore' });
 
     const result = (await getCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
 
-    expect(result).toContain('**Name:** Jane Doe  _(you may not change this)_');
+    expect(result).toContain('**Name:** Jane Doe  _(complete or correct it for the same person only — never rename to someone else)_');
     expect(result).toContain('**Email:** jane@evercore.com  _(you may not change this)_');
   });
 

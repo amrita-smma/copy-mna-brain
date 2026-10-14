@@ -36,8 +36,45 @@ const FIELD_SCHEMA = {
     .describe('Two or three sentences: career line, notable mandates, education. No marketing copy.'),
 } as const;
 
+/** Lower-cased name words of two letters or more — initials and punctuation drop out. */
+function nameTokens(name: string): Set<string> {
+  return new Set(
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .split(/[^a-z]+/)
+      .filter((t) => t.length >= 2),
+  );
+}
+
+/**
+ * Is `proposed` a correction of `current` rather than a different person?
+ *
+ * The ingest often only has what the mail header gave it — "Jane", "J. Doe",
+ * "jdoe" or the bare address — and a full name is a legitimate fill. What must
+ * never pass is a rename to someone else, because then the wrong match stops
+ * being visible. So: the new name has to share a word with the old one, unless
+ * the old one is just the email (or its local part) and carries no name at all.
+ */
+export function isNameCorrection(
+  current: string,
+  proposed: string,
+  email: string | null | undefined,
+): boolean {
+  const cur = current.trim().toLowerCase();
+  const localPart = email?.split('@')[0]?.trim().toLowerCase();
+  if (!cur || cur.includes('@') || (localPart && cur === localPart)) return true;
+  const next = nameTokens(proposed);
+  return [...nameTokens(current)].some((t) => next.has(t));
+}
+
 export const updateCrmContactSchema = z.object({
   correspondent_id: z.string().describe('The contact id you were given.'),
+  name: z.string().trim().min(2).max(200).optional()
+    .describe(
+      'The person\'s full name, only to complete or correct the one on file for the SAME person (e.g. "Jane" → "Jane Doe", "J. Doe" → "Jane Doe"). Must share a word with the current name. Never a different person.',
+    ),
   ...FIELD_SCHEMA,
   sources: z
     .array(z.string().trim().min(1).max(500))
@@ -85,7 +122,7 @@ export type UpdateCrmContactInput = z.infer<typeof updateCrmContactSchema>;
  */
 export const updateCrmContact = tool(
   async (input: UpdateCrmContactInput, runtime?: RunnableConfig) => {
-    const { correspondent_id, sources, overwrite, ...fields } = input;
+    const { correspondent_id, sources, overwrite, name, ...fields } = input;
     logger.debug(
       `🔧 TOOL CALLED: update_crm_contact(${correspondent_id}, ${Object.keys(fields).join(', ') || 'no fields'})`,
     );
@@ -93,7 +130,7 @@ export const updateCrmContact = tool(
     const proposed = CRM_CONTACT_WRITABLE_FIELDS.filter(
       (f) => typeof fields[f] === 'string',
     );
-    if (proposed.length === 0) {
+    if (proposed.length === 0 && !name) {
       return '**Nothing to write.** You called update_crm_contact without a single profile field. If you found nothing you can evidence, skip the write and say so in your report.';
     }
 
@@ -111,10 +148,21 @@ export const updateCrmContact = tool(
       const empty = new Set(missingProfileFields(contact));
       const forced = new Set(overwrite ?? []);
 
-      const patch: Partial<Record<CrmContactWritableField, string>> = {};
+      const patch: Partial<Record<CrmContactWritableField | 'name', string>> = {};
       const written: string[] = [];
       const overwritten: string[] = [];
       const skipped: string[] = [];
+
+      if (name && name !== contact.name.trim()) {
+        if (isNameCorrection(contact.name, name, contact.email)) {
+          patch.name = name;
+          overwritten.push(`name: "${contact.name}" → "${name}"`);
+        } else {
+          skipped.push(
+            `name — "${name}" shares no word with "${contact.name}", so it reads as a different person. Not written; report the conflict instead`,
+          );
+        }
+      }
 
       for (const field of proposed) {
         const value = fields[field] as string;
@@ -132,7 +180,7 @@ export const updateCrmContact = tool(
       }
 
       if (Object.keys(patch).length === 0) {
-        return `**Nothing written.** Every field you proposed already has a value:
+        return `**Nothing written.** None of the fields you proposed could be written:
 ${skipped.map((s) => `- ${s}`).join('\n')}
 
 Report what you found and why you did not overwrite it.`;
@@ -179,7 +227,9 @@ Report what you found and why you did not overwrite it.`;
     name: 'update_crm_contact',
     description: `Record what you found about a CRM contact. Call this ONCE, with every field you can evidence.
 
-Writes to the CRM's override layer, so a later mailbox re-ingest cannot overwrite it. You can set: title, phone, type, department, specialization, seniority, coverage_region, linkedin_url, bio. You CANNOT set their name or email — if what you found contradicts either, write nothing and report it.
+Writes to the CRM's override layer, so a later mailbox re-ingest cannot overwrite it. You can set: name, title, phone, type, department, specialization, seniority, coverage_region, linkedin_url, bio.
+
+\`name\` completes or corrects the full name of the SAME person ("Jane" → "Jane Doe"); it is refused when it shares no word with the name on file. You CANNOT set their email. If what you found points to a different person than the name or email on file, write nothing and report it.
 
 Only empty fields are filled. A field that already holds a value is skipped and reported back to you, unless you name it in \`overwrite\` — do that only when your source is the firm's own current page and the stored value is demonstrably stale.
 

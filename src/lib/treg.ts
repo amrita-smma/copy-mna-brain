@@ -1,8 +1,8 @@
 /**
- * treg.to client — person enrichment only.
+ * treg.to client — person enrichment and phone lookup.
  *
  * treg (https://treg.to/llms.txt) fronts a catalog of data vendors behind one
- * token. We use exactly one endpoint of it: the routed `treg.people.enrich`,
+ * token. We use two of its routed endpoints. `treg.people.enrich`
  * which takes whatever identifiers we hold for a person (work email, LinkedIn
  * URL, or name + company domain), runs the cheapest provider that accepts
  * them, falls through to the next on a miss, and answers in one normalised
@@ -14,12 +14,20 @@
  *
  * A miss is a 200 with `output.full_name == null`, not an error.
  *
+ * `people.enrich` returns no phone number — that is a separate capability,
+ * `treg.people.phone.find`, which takes the same identifiers and answers
+ * `{ output: { phone, ... } }` (a miss is `output.phone == null`). We send
+ * `X-Treg-Route-Verify: true` on it so treg checks a hit with an HLR network
+ * lookup in the same call: `_treg.verification.verdict` is `live`, `dead` or
+ * `unknown`. A live line is still not proof the number is this person's.
+ *
  * Spend is capped per call with `X-Treg-Route-Max-Cost` — the waterfall bills
  * every provider it tries that charges for a miss, and without the header
  * treg's default ceiling is $1 a call.
  */
 
 export const TREG_PEOPLE_ENRICH_URL = 'https://treg.to/call/treg.people.enrich';
+export const TREG_PEOPLE_PHONE_FIND_URL = 'https://treg.to/call/treg.people.phone.find';
 
 /** Per-call ceiling across the whole provider waterfall, in USD. */
 export const TREG_MAX_COST_USD = '0.10';
@@ -87,10 +95,31 @@ export interface TregPersonResult {
   costMicro: number;
 }
 
-interface TregEnrichBody {
-  output?: TregPerson | null;
+/** HLR verdict on a found number; `null` when treg ran no check. */
+export type TregPhoneVerdict = 'live' | 'dead' | 'unknown';
+
+export interface TregPhoneResult {
+  /** `null` on a miss — no provider found a number. */
+  phone: string | null;
+  /** HLR line check; `null` when no check ran (e.g. the number was not international). */
+  verdict: TregPhoneVerdict | null;
+  servedBy: string | null;
+  callId: string | null;
+  costMicro: number;
+}
+
+interface TregRoutedBody<T> {
+  output?: T | null;
   detail?: unknown;
-  _treg?: { served_by?: string | null };
+  _treg?: {
+    served_by?: string | null;
+    verification?: { verdict?: string | null; checked?: boolean } | null;
+  };
+}
+
+interface TregPhoneOutput {
+  phone?: string | null;
+  [key: string]: unknown;
 }
 
 export function getTregApiKey(): string | undefined {
@@ -106,17 +135,25 @@ function compactQuery(query: TregPersonQuery): TregPersonQuery {
   ) as TregPersonQuery;
 }
 
+interface RoutedCall<T> {
+  json: TregRoutedBody<T>;
+  servedBy: string | null;
+  callId: string | null;
+  costMicro: number;
+}
+
 /**
- * Enrich one person via `treg.people.enrich`.
- *
- * Throws `TregError` on a missing key, a non-2xx (treg's own JSON `detail` is
- * folded into the message) or a network failure; returns `person: null` on a
- * clean miss.
+ * POST a routed `treg.*` endpoint with the per-call spend cap. Throws
+ * `TregError` on a missing key, empty identifiers, a non-2xx (treg's JSON
+ * `detail` folded into the message) or a network failure.
  */
-export async function enrichPerson(
+async function callRouted<T>(
+  url: string,
+  label: string,
   query: TregPersonQuery,
-  fetchImpl: typeof fetch = fetch,
-): Promise<TregPersonResult> {
+  fetchImpl: typeof fetch,
+  extraHeaders: Record<string, string> = {},
+): Promise<RoutedCall<T>> {
   const apiKey = getTregApiKey();
   if (!apiKey) throw new TregError('TREG_API_KEY is not set');
 
@@ -125,21 +162,22 @@ export async function enrichPerson(
     throw new TregError('No identifiers to enrich on');
   }
 
-  const res = await fetchImpl(TREG_PEOPLE_ENRICH_URL, {
+  const res = await fetchImpl(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Treg-Token': apiKey,
       'X-Treg-Route-Max-Cost': TREG_MAX_COST_USD,
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TREG_TIMEOUT_MS),
   });
 
   const text = await res.text();
-  let json: TregEnrichBody = {};
+  let json: TregRoutedBody<T> = {};
   try {
-    json = text ? (JSON.parse(text) as TregEnrichBody) : {};
+    json = text ? (JSON.parse(text) as TregRoutedBody<T>) : {};
   } catch {
     // Non-JSON body — only possible on an upstream/edge error; handled below.
   }
@@ -151,14 +189,62 @@ export async function enrichPerson(
         : typeof json.detail === 'string'
           ? json.detail
           : JSON.stringify(json.detail).slice(0, 300);
-    throw new TregError(`treg.people.enrich returned ${res.status}: ${detail}`, res.status);
+    throw new TregError(`${label} returned ${res.status}: ${detail}`, res.status);
   }
 
-  const person = json.output?.full_name ? json.output : null;
   return {
-    person,
+    json,
     servedBy: res.headers.get('x-treg-served-by') ?? json._treg?.served_by ?? null,
     callId: res.headers.get('x-treg-call-id'),
     costMicro: Number(res.headers.get('x-treg-cost-micro') ?? 0) || 0,
+  };
+}
+
+/**
+ * Enrich one person via `treg.people.enrich`.
+ *
+ * Throws `TregError` (see `callRouted`); returns `person: null` on a clean miss.
+ */
+export async function enrichPerson(
+  query: TregPersonQuery,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TregPersonResult> {
+  const { json, ...meta } = await callRouted<TregPerson>(
+    TREG_PEOPLE_ENRICH_URL,
+    'treg.people.enrich',
+    query,
+    fetchImpl,
+  );
+  const person = json.output?.full_name ? json.output : null;
+  return { person, ...meta };
+}
+
+const PHONE_VERDICTS = new Set<string>(['live', 'dead', 'unknown']);
+
+/**
+ * Find one person's phone number via `treg.people.phone.find`, with treg's
+ * HLR line check on a hit.
+ *
+ * Throws `TregError` (see `callRouted`); returns `phone: null` on a clean miss.
+ */
+export async function findPhone(
+  query: TregPersonQuery,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TregPhoneResult> {
+  const { json, ...meta } = await callRouted<TregPhoneOutput>(
+    TREG_PEOPLE_PHONE_FIND_URL,
+    'treg.people.phone.find',
+    query,
+    fetchImpl,
+    { 'X-Treg-Route-Verify': 'true' },
+  );
+  const raw = json.output?.phone;
+  const phone = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  const verdict = json._treg?.verification?.verdict;
+  return {
+    phone,
+    verdict:
+      phone && verdict && PHONE_VERDICTS.has(verdict) ? (verdict as TregPhoneVerdict) : null,
+    ...meta,
   };
 }

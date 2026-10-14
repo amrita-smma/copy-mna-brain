@@ -34,9 +34,10 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
     }
   });
 
-  it('forbids editing the name and the email', () => {
-    expect(CRM_CONTACT_SYSTEM_PROMPT).toMatch(/may NOT change their \*\*name\*\*/);
-    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('email address');
+  it('allows completing the name for the same person but never renaming or changing the email', () => {
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('complete or correct their full name');
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('may NOT rename them to someone else');
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toMatch(/may NOT change their \*\*email address\*\*/);
   });
 
   it('states the identity gate before any write', () => {

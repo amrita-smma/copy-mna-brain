@@ -629,9 +629,19 @@ function ContactsTab({
                     </a>
                   )}
                   {c.bio && (
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      {c.bio}
-                    </p>
+                    <>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                        {c.bio}
+                      </p>
+                      {enrichRuns[c.id]?.status === "succeeded" && (
+                        <p
+                          className="mt-0.5 text-[10px] italic text-muted-foreground"
+                          data-testid="crm-contact-bio-disclaimer"
+                        >
+                          AI-generated from public sources — may be inaccurate.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
                 <Button

@@ -16,7 +16,7 @@ vi.mock('@/lib/repositories', () => ({
   },
 }));
 
-import { updateCrmContact, updateCrmContactSchema } from './update_crm_contact';
+import { isNameCorrection, updateCrmContact, updateCrmContactSchema } from './update_crm_contact';
 
 const EMPTY_CONTACT = {
   id: 'corr-1',
@@ -181,6 +181,84 @@ describe('updateCrmContact', () => {
   });
 });
 
+describe('updateCrmContact — name', () => {
+  it('completes a partial name for the same person, routed to the overlay', async () => {
+    findCorrespondentById.mockResolvedValue({ ...EMPTY_CONTACT, name: 'Jane' });
+    updateContact.mockResolvedValue({});
+
+    const result = (await updateCrmContact.invoke({
+      correspondent_id: 'corr-1',
+      name: 'Jane Doe',
+      sources: SOURCES,
+    })) as string;
+
+    expect(updateContact).toHaveBeenCalledWith('corr-1', { name: 'Jane Doe' });
+    expect(result).toContain('name: "Jane" → "Jane Doe"');
+  });
+
+  it('writes the name alongside profile fields in one call', async () => {
+    findCorrespondentById.mockResolvedValue({ ...EMPTY_CONTACT, name: 'J. Doe' });
+    updateContact.mockResolvedValue({});
+
+    await updateCrmContact.invoke({
+      correspondent_id: 'corr-1',
+      name: 'Jane Doe',
+      phone: '+62 811 000 000',
+      sources: SOURCES,
+    });
+
+    expect(updateContact).toHaveBeenCalledWith('corr-1', {
+      name: 'Jane Doe',
+      phone: '+62 811 000 000',
+    });
+  });
+
+  it('refuses a rename to a different person and writes nothing', async () => {
+    findCorrespondentById.mockResolvedValue(EMPTY_CONTACT);
+
+    const result = (await updateCrmContact.invoke({
+      correspondent_id: 'corr-1',
+      name: 'John Smith',
+      sources: SOURCES,
+    })) as string;
+
+    expect(updateContact).not.toHaveBeenCalled();
+    expect(result).toContain('**Nothing written.**');
+    expect(result).toContain('reads as a different person');
+  });
+
+  it('treats an unchanged name as nothing to write', async () => {
+    findCorrespondentById.mockResolvedValue(EMPTY_CONTACT);
+
+    const result = (await updateCrmContact.invoke({
+      correspondent_id: 'corr-1',
+      name: 'Jane Doe',
+      sources: SOURCES,
+    })) as string;
+
+    expect(updateContact).not.toHaveBeenCalled();
+    expect(result).toContain('**Nothing written.**');
+  });
+});
+
+describe('isNameCorrection', () => {
+  it('accepts a fuller or re-spelled form that shares a word', () => {
+    expect(isNameCorrection('Jane', 'Jane Doe', null)).toBe(true);
+    expect(isNameCorrection('J. Doe', 'Jane Doe', null)).toBe(true);
+    expect(isNameCorrection('José Ramírez', 'Jose Ramirez Garcia', null)).toBe(true);
+  });
+
+  it('accepts any name when the stored one is only the email or its local part', () => {
+    expect(isNameCorrection('jdoe', 'Jane Doe', 'jdoe@evercore.com')).toBe(true);
+    expect(isNameCorrection('jdoe@evercore.com', 'Jane Doe', 'jdoe@evercore.com')).toBe(true);
+  });
+
+  it('rejects a name that shares no word with the one on file', () => {
+    expect(isNameCorrection('Jane Doe', 'John Smith', 'jane@evercore.com')).toBe(false);
+    expect(isNameCorrection('J. D.', 'Jane Doe', null)).toBe(false);
+  });
+});
+
 describe('updateCrmContactSchema', () => {
   it('requires at least one source — a value with no provenance cannot be written', () => {
     expect(
@@ -192,16 +270,14 @@ describe('updateCrmContactSchema', () => {
     ).toBe(false);
   });
 
-  it('rejects name and email outright, so a stray key cannot reach the DB', () => {
+  it('strips email outright, so a stray key cannot reach the DB', () => {
     const parsed = updateCrmContactSchema.parse({
       correspondent_id: 'corr-1',
       title: 'MD',
-      name: 'Someone Else',
       email: 'someone@else.com',
       sources: SOURCES,
     }) as Record<string, unknown>;
 
-    expect(parsed).not.toHaveProperty('name');
     expect(parsed).not.toHaveProperty('email');
   });
 

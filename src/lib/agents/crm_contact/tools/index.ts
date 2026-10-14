@@ -12,9 +12,10 @@
  *     server-tool config and its `allowed_callers` / `max_uses` tuning.
  *   - enrich_crm_contact — one structured people-data lookup through treg.to
  *     (`treg.people.enrich`), keyed on the contact's email / name + domain /
- *     LinkedIn URL. Cheap, and it usually hands back a title and a LinkedIn
- *     URL for the web searches to anchor on. A vendor record, so the prompt
- *     treats it like an aggregator, not proof.
+ *     LinkedIn URL. Cheap, and it usually hands back a full name, title and
+ *     LinkedIn URL for the web searches to anchor on. When the record has no
+ *     phone it also runs `treg.people.phone.find` (HLR-checked). A vendor
+ *     record, so the prompt treats it like an aggregator, not proof.
  *   - valyu_search — filings and research, for firms whose people never appear
  *     on an ordinary team page.
  *   - narrate_step — the workforce trace contract, so the run renders in the

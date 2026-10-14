@@ -3,7 +3,14 @@ import { z } from 'zod';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { CorrespondentRepository, EmployerRepository } from '@/lib/repositories';
-import { enrichPerson, getTregApiKey, type TregPerson } from '@/lib/treg';
+import {
+  enrichPerson,
+  findPhone,
+  getTregApiKey,
+  type TregPerson,
+  type TregPersonQuery,
+  type TregPhoneResult,
+} from '@/lib/treg';
 import { logger } from '../../logger';
 
 /**
@@ -54,6 +61,60 @@ function renderPerson(person: TregPerson): string {
     .join('\n');
 }
 
+function sourceString(endpoint: string, servedBy: string | null, callId: string | null): string {
+  return `treg.to ${endpoint} via ${servedBy ?? 'unknown provider'}${callId ? ` (call ${callId})` : ''}`;
+}
+
+const VERDICT_NOTES: Record<string, string> = {
+  live: 'the line is live on its network — that proves it rings, not that it is theirs',
+  dead: 'the line is DEAD — do not write it',
+  unknown: 'the network check was inconclusive',
+};
+
+/**
+ * Look the phone up only when the record has none — a number already on file
+ * outranks a vendor guess, and every hit bills. Never throws: a phone failure
+ * must not cost the agent the profile it already got.
+ */
+async function lookUpPhone(
+  query: TregPersonQuery,
+): Promise<{ result: TregPhoneResult } | { error: string }> {
+  try {
+    return { result: await findPhone(query) };
+  } catch (error) {
+    logger.warn(`enrich_crm_contact phone lookup failed: ${(error as Error).message}`);
+    return { error: (error as Error).message };
+  }
+}
+
+function renderPhone(
+  lookup: { result: TregPhoneResult } | { error: string },
+  contactName: string,
+): string {
+  if ('error' in lookup) {
+    return `### Phone
+Phone lookup failed (${lookup.error}). Leave phone empty unless the firm publishes one for ${contactName}.`;
+  }
+  const { phone, verdict, servedBy, callId } = lookup.result;
+  if (!phone) {
+    return `### Phone
+No phone number found by treg.to people.phone.find. Leave phone empty unless the firm publishes one for ${contactName}.`;
+  }
+  const check = verdict
+    ? VERDICT_NOTES[verdict]
+    : 'no network check ran (the number is not in international format)';
+  const writable = verdict !== 'dead';
+  return `### Phone
+- **Phone:** ${phone}
+- **Line check:** ${verdict ?? 'not checked'} — ${check}.
+
+${
+  writable
+    ? `You may write this as \`phone\` only if the profile above matched ${contactName} at the firm on file — the number was looked up with the same identifiers, so a namesake profile means a namesake's phone. Cite \`${sourceString('people.phone.find', servedBy, callId)}\`.`
+    : 'Do not write this number.'
+}`;
+}
+
 export const enrichCrmContactSchema = z.object({
   correspondent_id: z.string().describe('The CRM contact id named in your instruction.'),
   linkedin_url: z
@@ -99,7 +160,7 @@ export const enrichCrmContact = tool(
       const employer = await new EmployerRepository(db).findById(contact.employer_id);
       const firmName = employer?.name ?? 'an unknown firm';
 
-      const query = {
+      const query: TregPersonQuery = {
         email: contact.email || undefined,
         full_name: contact.name,
         linkedin_url: linkedin_url ?? contact.linkedin_url ?? undefined,
@@ -111,26 +172,48 @@ export const enrichCrmContact = tool(
         .map(([k]) => k)
         .join(', ');
 
+      // A LinkedIn URL is the phone finders' strongest key; borrow the one the
+      // profile just gave us when the record had none.
+      const phoneSection = contact.phone?.trim()
+        ? null
+        : renderPhone(
+            await lookUpPhone({
+              ...query,
+              linkedin_url:
+                query.linkedin_url ?? absoluteUrl(result.person?.linkedin_url) ?? undefined,
+            }),
+            contact.name,
+          );
+      const withPhone = (text: string) => (phoneSection ? `${text}\n\n${phoneSection}` : text);
+
       if (!result.person) {
         logger.debug(`✓ enrich_crm_contact: miss for ${contact.name}`);
-        return `No enrichment record found for ${contact.name} @ ${firmName} (matched on: ${sentWith}). Continue with web_search — a miss here says nothing about whether they have a public footprint.`;
+        return withPhone(
+          `No enrichment record found for ${contact.name} @ ${firmName} (matched on: ${sentWith}). Continue with web_search — a miss here says nothing about whether they have a public footprint.`,
+        );
       }
 
-      const source = `treg.to people.enrich via ${result.servedBy ?? 'unknown provider'}${result.callId ? ` (call ${result.callId})` : ''}`;
+      const source = sourceString('people.enrich', result.servedBy, result.callId);
       logger.debug(
         `✓ enrich_crm_contact: hit for ${contact.name} via ${result.servedBy} ($${(result.costMicro / 1e6).toFixed(4)})`,
       );
 
-      return `## Enrichment record — ${result.person.full_name}
+      const vendorName = result.person.full_name?.trim();
+      const nameNote =
+        vendorName && vendorName.toLowerCase() !== contact.name.trim().toLowerCase()
+          ? `\n- **Full name differs** from the CRM's "${contact.name}". If this is the same person and "${vendorName}" is simply their fuller or correctly-spelled name, pass it as \`name\` to update_crm_contact. A different person is not a rename — write nothing.`
+          : '';
+
+      return withPhone(`## Enrichment record — ${result.person.full_name}
 
 Matched on: ${sentWith}. Served by: ${result.servedBy ?? 'unknown'}.
 
 ${renderPerson(result.person)}
 
 ### Before you use this
-- This is a **data-vendor record**, not the firm's own page. Check it is the same person: the name must match "${contact.name}" and the company must be ${firmName}. A different employer means the record is stale or a namesake — do not write from it.
-- Treat it like an aggregator: good for a title, seniority, LinkedIn URL and a lead to follow; corroborate anything that matters on the firm's site or the LinkedIn profile before writing it.
-- When you write a value taken from this record, list this as a source in update_crm_contact: \`${source}\`${result.person.linkedin_url ? `, alongside ${absoluteUrl(result.person.linkedin_url)}` : ''}.`;
+- This is a **data-vendor record**, not the firm's own page. Check it is the same person: the name must match "${contact.name}" and the company must be ${firmName}. A different employer means the record is stale or a namesake — do not write from it.${nameNote}
+- Treat it like an aggregator: good for a full name, title, seniority, LinkedIn URL and a lead to follow; corroborate anything that matters on the firm's site or the LinkedIn profile before writing it.
+- When you write a value taken from this record, list this as a source in update_crm_contact: \`${source}\`${result.person.linkedin_url ? `, alongside ${absoluteUrl(result.person.linkedin_url)}` : ''}.`);
     } catch (error) {
       logger.error(`enrich_crm_contact error: ${(error as Error).message}`);
       return `**Error:** contact enrichment failed (${(error as Error).message}). Continue with web_search.`;
@@ -138,7 +221,7 @@ ${renderPerson(result.person)}
   },
   {
     name: 'enrich_crm_contact',
-    description: `Look the CRM contact up in a people-data provider (treg.to) and get back a structured profile: job title, seniority, employer, LinkedIn URL, location.
+    description: `Look the CRM contact up in a people-data provider (treg.to) and get back a structured profile: full name, job title, seniority, employer, LinkedIn URL, location — plus a phone number (with a live-line check) when the record has none.
 
 Call this once right after get_crm_contact, before web_search — it is one cheap call that often answers title, seniority and LinkedIn URL outright, and gives your web searches a LinkedIn URL to anchor on.
 
@@ -150,7 +233,7 @@ Args:
     company_domain: Optional — the firm's domain, when the work email does not give it.
 
 Returns:
-    Markdown — the profile found (or a miss), and the source string to cite.`,
+    Markdown — the profile found (or a miss), any phone number found, and the source strings to cite.`,
     schema: enrichCrmContactSchema,
   },
 );

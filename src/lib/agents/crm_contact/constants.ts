@@ -27,8 +27,11 @@ export function isCrmContactAgent(agentName: string | null | undefined): boolean
  *     upsert, and the one editable field that lives on the BASE table. A
  *     guessed address written there would re-key the row and split the
  *     person's email history in two.
- *   - `name` — renaming is how a confident-but-wrong match becomes
- *     invisible. The agent confirms the name it was given; it never edits it.
+ *   - `name` — not a "profile field": it is never empty, so it never shows
+ *     up as a gap. `update_crm_contact` takes it as a separate argument and
+ *     only accepts a completion/correction of the same person's name
+ *     (`isNameCorrection`), because renaming to someone else is how a
+ *     confident-but-wrong match becomes invisible.
  */
 export const CRM_CONTACT_WRITABLE_FIELDS = [
   'title',

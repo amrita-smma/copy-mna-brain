@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   TREG_MAX_COST_USD,
   TREG_PEOPLE_ENRICH_URL,
+  TREG_PEOPLE_PHONE_FIND_URL,
   TregError,
   enrichPerson,
+  findPhone,
 } from './treg';
 
 function response(
@@ -97,5 +99,81 @@ describe('enrichPerson', () => {
       'No identifiers',
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('findPhone', () => {
+  it('posts to people.phone.find with the cost ceiling and the HLR verify header', async () => {
+    fetchMock.mockResolvedValue(response({ output: { phone: null } }));
+
+    await findPhone(
+      { linkedin_url: 'https://linkedin.com/in/janedoe', full_name: 'Jane Doe', email: '' },
+      fetchMock,
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(TREG_PEOPLE_PHONE_FIND_URL);
+    expect(init.headers).toMatchObject({
+      'X-Treg-Token': 'tk_test',
+      'X-Treg-Route-Max-Cost': TREG_MAX_COST_USD,
+      'X-Treg-Route-Verify': 'true',
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      linkedin_url: 'https://linkedin.com/in/janedoe',
+      full_name: 'Jane Doe',
+    });
+  });
+
+  it('returns the number, its line verdict, provider, call id and cost on a hit', async () => {
+    fetchMock.mockResolvedValue(
+      response(
+        {
+          output: { phone: ' +6281100000 ' },
+          _treg: { served_by: 'aiark.people.phone.find', verification: { verdict: 'live', checked: true } },
+        },
+        { headers: { 'x-treg-call-id': 'call-2', 'x-treg-cost-micro': '26335' } },
+      ),
+    );
+
+    const result = await findPhone({ email: 'jane@evercore.com' }, fetchMock);
+
+    expect(result).toEqual({
+      phone: '+6281100000',
+      verdict: 'live',
+      servedBy: 'aiark.people.phone.find',
+      callId: 'call-2',
+      costMicro: 26335,
+    });
+  });
+
+  it('treats a 200 with no phone as a miss with no verdict', async () => {
+    fetchMock.mockResolvedValue(
+      response({ output: { phone: null }, _treg: { verification: { checked: false } } }),
+    );
+
+    const result = await findPhone({ email: 'jane@evercore.com' }, fetchMock);
+
+    expect(result.phone).toBeNull();
+    expect(result.verdict).toBeNull();
+  });
+
+  it('reports no verdict when treg skipped the line check', async () => {
+    fetchMock.mockResolvedValue(
+      response({ output: { phone: '8110000000' }, _treg: { verification: { checked: false } } }),
+    );
+
+    const result = await findPhone({ email: 'jane@evercore.com' }, fetchMock);
+
+    expect(result).toMatchObject({ phone: '8110000000', verdict: null });
+  });
+
+  it('names the phone endpoint in a TregError on a non-2xx', async () => {
+    fetchMock.mockResolvedValue(response({ detail: 'busy' }, { status: 503 }));
+
+    await expect(findPhone({ email: 'a@b.com' }, fetchMock)).rejects.toMatchObject({
+      name: 'TregError',
+      status: 503,
+      message: expect.stringContaining('treg.people.phone.find returned 503'),
+    });
   });
 });

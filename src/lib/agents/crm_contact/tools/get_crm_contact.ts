@@ -52,7 +52,7 @@ export const getCrmContact = tool(
       );
 
       const knownLines = [
-        `- **Name:** ${contact.name}  _(you may not change this)_`,
+        `- **Name:** ${contact.name}  _(complete or correct it for the same person only — never rename to someone else)_`,
         `- **Firm:** ${firmName}${employer?.industry ? ` — ${employer.industry}` : ''}`,
         `- **Email:** ${contact.email || '_(none on file)_'}  _(you may not change this)_`,
         ...filled.map((f) => `- **${FIELD_LABELS[f]}:** ${contact[f]}`),
