@@ -4,13 +4,17 @@
  * The agent does one thing: look a known person up on the public web and
  * record what it can prove. So it gets exactly what that needs —
  *
- *   - get_crm_contact / update_crm_contact — its own read and write, the only
- *     two tools in this folder. The write reaches `correspondent_curation`
+ *   - get_crm_contact / update_crm_contact — its own read and write. The write reaches `correspondent_curation`
  *     (the override table) through `CRMService.updateContact`; nothing here
  *     can touch the ingest-owned base row.
  *   - SERVER_TOOLS (Anthropic-hosted web_search / web_fetch) — the public
  *     record. Reused from the analysis agent so there is one definition of the
  *     server-tool config and its `allowed_callers` / `max_uses` tuning.
+ *   - enrich_crm_contact — one structured people-data lookup through treg.to
+ *     (`treg.people.enrich`), keyed on the contact's email / name + domain /
+ *     LinkedIn URL. Cheap, and it usually hands back a title and a LinkedIn
+ *     URL for the web searches to anchor on. A vendor record, so the prompt
+ *     treats it like an aggregator, not proof.
  *   - valyu_search — filings and research, for firms whose people never appear
  *     on an ordinary team page.
  *   - narrate_step — the workforce trace contract, so the run renders in the
@@ -24,9 +28,12 @@
  * has no list to iterate, so offering it only invites a stale one.
  */
 import { SERVER_TOOLS, narrateStep, valyuSearch } from '@/lib/agents/analysis/tools';
+import { enrichCrmContact } from './enrich_crm_contact';
 import { getCrmContact } from './get_crm_contact';
 import { updateCrmContact } from './update_crm_contact';
 
+export { enrichCrmContact, enrichCrmContactSchema } from './enrich_crm_contact';
+export type { EnrichCrmContactInput } from './enrich_crm_contact';
 export { getCrmContact } from './get_crm_contact';
 export { updateCrmContact, updateCrmContactSchema } from './update_crm_contact';
 export type { UpdateCrmContactInput } from './update_crm_contact';
@@ -34,6 +41,7 @@ export type { UpdateCrmContactInput } from './update_crm_contact';
 export const CRM_CONTACT_TOOLS = [
   ...SERVER_TOOLS,
   getCrmContact,
+  enrichCrmContact,
   updateCrmContact,
   valyuSearch,
   narrateStep,

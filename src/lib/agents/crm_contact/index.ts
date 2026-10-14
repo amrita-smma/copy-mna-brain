@@ -8,7 +8,7 @@
  * system prompt is an M&A pipeline operator's — a hundred lines about intake
  * stages, promotions and insight authoring that a name-and-firm lookup has to
  * read past, alongside a tool catalogue it must be told to ignore. Here the
- * tool list is five entries and the prompt is about identity evidence.
+ * tool list is six entries and the prompt is about identity evidence.
  *
  * It still runs *on* the AI Workforce: the button enqueues an
  * `ai_workforce_queue` row with `agent_name = 'crm_contact'`

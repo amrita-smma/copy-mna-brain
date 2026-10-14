@@ -11,6 +11,7 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
   it('names every tool the agent actually has', () => {
     for (const toolName of [
       'get_crm_contact',
+      'enrich_crm_contact',
       'update_crm_contact',
       'web_search',
       'valyu_search',
@@ -72,6 +73,7 @@ describe('buildContactEnrichmentPrompt', () => {
     const prompt = buildContactEnrichmentPrompt(base);
     expect(prompt).toContain('correspondent_id: corr-1');
     expect(prompt).toContain('get_crm_contact with correspondent_id "corr-1"');
+    expect(prompt).toContain('enrich_crm_contact once');
   });
 
   it('states the gaps the run exists to fill', () => {

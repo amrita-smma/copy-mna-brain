@@ -476,7 +476,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 |---|---|---|---|
 | `analysis` | 74 | 67/74 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
-| `crm_contact` | 2 | 2/2 | ✅ |
+| `crm_contact` | 3 | 3/3 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
 | `file_processing` | 2 | 2/2 | ✅ |
 | `fund_update_processing` | 0 | 0/0 | ✅ |
