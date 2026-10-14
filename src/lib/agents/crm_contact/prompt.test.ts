@@ -45,6 +45,14 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
     expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('A near-miss is a miss');
   });
 
+  it('defines coverage region as the geography covered, not where the person is based', () => {
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain(
+      'Coverage region is what they cover, not where they sit',
+    );
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Never fill coverage_region from a location alone');
+    expect(PROFILE_FIELD_SENTENCE).toContain('not where they are based');
+  });
+
   it('prefers an empty field to a guessed one', () => {
     expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Leave it empty rather than guess');
   });

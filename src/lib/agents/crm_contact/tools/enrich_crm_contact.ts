@@ -50,7 +50,7 @@ function renderPerson(person: TregPerson): string {
     line('Seniority', person.seniority),
     line('Department', person.department),
     line('Headline', person.headline),
-    line('Location', person.location ?? person.country),
+    line('Based in', person.location ?? person.country),
     line('LinkedIn URL', absoluteUrl(person.linkedin_url)),
     line('Company', company.name),
     line('Company website', company.website_url ?? person.company_domain),
@@ -212,6 +212,7 @@ ${renderPerson(result.person)}
 
 ### Before you use this
 - This is a **data-vendor record**, not the firm's own page. Check it is the same person: the name must match "${contact.name}" and the company must be ${firmName}. A different employer means the record is stale or a namesake — do not write from it.${nameNote}
+- \`Based in\` is where the person sits, NOT their coverage region — do not write it to coverage_region. Coverage region is the geography they cover, and needs a source describing their remit.
 - Treat it like an aggregator: good for a full name, title, seniority, LinkedIn URL and a lead to follow; corroborate anything that matters on the firm's site or the LinkedIn profile before writing it.
 - When you write a value taken from this record, list this as a source in update_crm_contact: \`${source}\`${result.person.linkedin_url ? `, alongside ${absoluteUrl(result.person.linkedin_url)}` : ''}.`);
     } catch (error) {

@@ -114,6 +114,19 @@ describe('enrichCrmContact', () => {
     expect(result).toContain('treg.to people.enrich via moltsets.people.enrich.name (call call-1)');
   });
 
+  it('labels the vendor location as where they are based, never as coverage region', async () => {
+    mocks.enrichPerson.mockResolvedValue({
+      ...HIT,
+      person: { ...HIT.person, location: 'Singapore' },
+    });
+
+    const result = (await enrichCrmContact.invoke({ correspondent_id: 'corr-1' })) as string;
+
+    expect(result).toContain('**Based in:** Singapore');
+    expect(result).not.toContain('**Location:**');
+    expect(result).toContain('NOT their coverage region — do not write it to coverage_region');
+  });
+
   it('reports a miss and points the agent back to web search', async () => {
     mocks.enrichPerson.mockResolvedValue({ person: null, servedBy: null, callId: 'c', costMicro: 0 });
 

@@ -29,7 +29,7 @@ const FIELD_SCHEMA = {
   seniority: z.string().trim().min(1).max(60).optional()
     .describe('Seniority band, e.g. "Managing Director", "Vice President", "Analyst".'),
   coverage_region: z.string().trim().min(1).max(120).optional()
-    .describe('The geography they cover, e.g. "Southeast Asia", "North America".'),
+    .describe('The geography of their mandate — the markets they cover, e.g. "Southeast Asia", "North America" — as stated in a bio, team page or deal release. NOT where they are based: never fill this from an office city or a profile location.'),
   linkedin_url: z.string().trim().url().max(300).optional()
     .describe('Full https:// URL of their LinkedIn profile.'),
   bio: z.string().trim().min(1).max(MAX_BIO_CHARS).optional()
