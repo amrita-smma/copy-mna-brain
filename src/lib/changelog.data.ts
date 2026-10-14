@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "32731881707b1944b153aa15a13ecc0e0cff7710",
+    "date": "2026-10-14",
+    "subject": "Contacts now auto-fill full name and phone number from TREG records",
+    "category": "improvement"
+  },
+  {
+    "hash": "62ed4075176346bcc3b3c934ffeb3014f60ec344",
+    "date": "2026-10-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "66fbc9c1a44226de24044e41b66644b081e18d4a",
     "date": "2026-10-12",
     "subject": "Copilot now defaults to M&A-focused research with search enabled",
