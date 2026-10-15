@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "490315e3e5819e5db362c0f6c773feded61eefff",
+    "date": "2026-10-15",
+    "subject": "Personal tasks with reminders now appear in Needs your attention",
+    "category": "feature"
+  },
+  {
+    "hash": "500e4910bbfcdbc7d54a7ada2c6fba8803aaa977",
+    "date": "2026-10-15",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b9d37f61f23470c5299a51a02274ca60a4ee86d5",
     "date": "2026-10-14",
     "subject": "Contacts are now enriched with up-to-date details from treg.to in your CRM",
