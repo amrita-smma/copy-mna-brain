@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "182b4f51093d2042771ea0ede8ccb639a8ddef8c",
+    "date": "2026-10-15",
+    "subject": "Deals automatically move between Pending Confirmation and active status, with a manual Scan now option",
+    "category": "improvement"
+  },
+  {
+    "hash": "823de2dc8325e54f03ad51c734e9d8734972249d",
+    "date": "2026-10-15",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b9d37f61f23470c5299a51a02274ca60a4ee86d5",
     "date": "2026-10-14",
     "subject": "Contacts are now enriched with up-to-date details from treg.to in your CRM",
