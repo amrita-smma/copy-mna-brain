@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "5b1d3f039875bc3394192c1215d899d727678795",
+    "date": "2026-10-15",
+    "subject": "Refreshed CRM page layout to match the updated design",
+    "category": "improvement"
+  },
+  {
     "hash": "b9d37f61f23470c5299a51a02274ca60a4ee86d5",
     "date": "2026-10-14",
     "subject": "Contacts are now enriched with up-to-date details from treg.to in your CRM",
@@ -33,6 +39,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "6aedb1ce91e75f2e661c119fe192327b6b7c7f11",
+    "date": "2026-10-14",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "1d1bf65b8ad3410d302bcd4bfd280dcdbe07bda2",
     "date": "2026-10-14",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
