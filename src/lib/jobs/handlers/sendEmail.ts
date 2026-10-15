@@ -127,6 +127,12 @@ export type SendEmailPayload =
       companyUrl?: string;
     }
   | {
+      kind: 'task_reminder';
+      to: string;
+      taskTitle: string;
+      tasksUrl?: string;
+    }
+  | {
       kind: 'insight_refreshed';
       to: string;
       insightName: string;
@@ -310,6 +316,17 @@ export async function runSendEmail(
         companyUrl: payload.companyUrl,
       });
       return { kind: 'deal_resurfaced', to: payload.to, messageId };
+    }
+    case 'task_reminder': {
+      if (!payload.taskTitle) {
+        throw new Error('send_email[task_reminder]: `taskTitle` is required');
+      }
+      const { messageId } = await emailService.sendTaskReminderEmail({
+        email: payload.to,
+        taskTitle: payload.taskTitle,
+        tasksUrl: payload.tasksUrl,
+      });
+      return { kind: 'task_reminder', to: payload.to, messageId };
     }
     case 'insight_refreshed': {
       const { messageId } = await emailService.sendInsightRefreshedEmail({

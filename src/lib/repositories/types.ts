@@ -77,6 +77,8 @@ type TableMap = {
   fl_corporate_actions: typeof schema.flCorporateActions;
   fl_ownership_changes: typeof schema.flOwnershipChanges;
   fl_source_records: typeof schema.flSourceRecords;
+
+  user_tasks: typeof schema.userTasks;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

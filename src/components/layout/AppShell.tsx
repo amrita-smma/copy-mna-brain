@@ -50,6 +50,8 @@ import { PageContextProvider } from './PageContextProvider';
 import { SidebarPagesNav } from './SidebarPagesNav';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { ChangelogWidget } from './ChangelogWidget';
+import { TasksWidget } from '@/components/tasks/TasksWidget';
+import { TaskReminderAlerts } from '@/components/tasks/TaskReminderAlerts';
 import { FeedbackDialog } from './FeedbackDialog';
 import { useFeatureFlags } from './FeatureFlagsContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -223,6 +225,8 @@ export function AppShell({
     return (
       <ProtectedRoute initialUser={initialUser}>
         <PageContextProvider>
+          {/* Fires the in-app alert when a personal task's reminder passes. */}
+          <TaskReminderAlerts />
           {/* Mobile has no docked pane to uncover — the destination route just
               replaces the chat screen — but navigate_page must still work here,
               so the handler is mounted on both shells. */}
@@ -248,6 +252,7 @@ export function AppShell({
   return (
     <ProtectedRoute initialUser={initialUser}>
       <PageContextProvider>
+        <TaskReminderAlerts />
         <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
           <NavigationActionHandler onNavigate={handleAgentNavigate} />
           {/* Wraps the WHOLE shell, not just the panes: the console's pages
@@ -453,7 +458,7 @@ function CollapsedNewChatButton() {
 
 /**
  * The sidebar's bottom row, consolidated: the signed-in user's name, the
- * "what's new" bell, and a `…` overflow menu. Everything that used to be its
+ * tasks button, the "what's new" bell, and a `…` overflow menu. Everything that used to be its
  * own stacked row down here — the email line, the theme toggle, "Send
  * Feedback", "Sign Out" — now lives inside that menu, so the footer is one line
  * tall. At icon width the name drops out and the bell + `…` stack vertically.
@@ -476,6 +481,8 @@ function SidebarUserFooter() {
             {user.name}
           </p>
         )}
+        {/* Personal to-dos — the same list as Profile → Needs your attention. */}
+        <TasksWidget />
         {/* "What's new" changelog — recent releases grouped by day. */}
         <ChangelogWidget />
         <DropdownMenu>

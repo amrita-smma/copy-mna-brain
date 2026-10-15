@@ -518,6 +518,35 @@ describe('runSendEmail', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ ballots: [] }));
   });
 
+  it('delegates task_reminder to EmailService.sendTaskReminderEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm-reminder' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendTaskReminderEmail');
+    const payload: SendEmailPayload = {
+      kind: 'task_reminder',
+      to: 'owner@example.com',
+      taskTitle: 'Send NDA',
+      tasksUrl: 'https://app.example.com/w/togan/profile?tab=items',
+    };
+
+    const result = await runSendEmail(payload, { emailService });
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'owner@example.com',
+      taskTitle: 'Send NDA',
+      tasksUrl: 'https://app.example.com/w/togan/profile?tab=items',
+    });
+    expect(result).toEqual({ kind: 'task_reminder', to: 'owner@example.com', messageId: 'm-reminder' });
+  });
+
+  it('rejects task_reminder without a taskTitle', async () => {
+    const emailService = new EmailService(vi.fn());
+    await expect(
+      runSendEmail({ kind: 'task_reminder', to: 'a@b.com', taskTitle: '' }, { emailService }),
+    ).rejects.toThrow(/taskTitle/);
+  });
+
   it('delegates insight_refreshed to EmailService.sendInsightRefreshedEmail', async () => {
     const emailService = new EmailService(
       vi.fn().mockResolvedValue({ messageId: 'm-insight' }),

@@ -4578,3 +4578,49 @@ export const userMemories = pgTable(
     };
   },
 );
+
+/**
+ * Personal to-dos behind Profile → "Needs your attention" and the sidebar
+ * tasks button. Private to `user_id` within `workspace_id`.
+ *
+ * `remind_at` is optional; once it passes, the `/api/cron/task-reminders`
+ * sweep emails the owner and stamps `reminder_sent_at` so it fires only once.
+ * Rescheduling clears the stamp.
+ */
+export const userTasks = pgTable(
+  "user_tasks",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text().notNull(),
+    remind_at: timestamp({ withTimezone: true, mode: "string" }),
+    reminder_sent_at: timestamp({ withTimezone: true, mode: "string" }),
+    completed_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxUserTasksOwner: index("idx_user_tasks_owner").on(
+        table.workspace_id,
+        table.user_id,
+        table.completed_at,
+        table.created_at,
+      ),
+      idxUserTasksDueReminders: index("idx_user_tasks_due_reminders")
+        .on(table.workspace_id, table.remind_at)
+        .where(
+          sql`completed_at IS NULL AND reminder_sent_at IS NULL AND remind_at IS NOT NULL`,
+        ),
+    };
+  },
+);

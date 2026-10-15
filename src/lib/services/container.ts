@@ -22,6 +22,7 @@ import {
   ResetPasswordTokenRepository,
   UserRepository,
   RecentFileRepository,
+  UserTaskRepository,
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
@@ -93,6 +94,7 @@ import { PipelineStageService } from './pipelineStageService';
 import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
 import { RecentFileService } from './recentFileService';
+import { UserTaskService } from './userTaskService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
@@ -155,6 +157,7 @@ export interface Container {
   marketScanningRoutineService: MarketScanningRoutineService;
   dealDocumentService: DealDocumentService;
   recentFileService: RecentFileService;
+  userTaskService: UserTaskService;
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
   companyAnalysisService: CompanyAnalysisService;
@@ -326,6 +329,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
   const dealDocumentService = new DealDocumentService(dealDocRepo, jobDispatcher, workspaceId);
   const recentFileService = new RecentFileService(recentFileRepo);
+  const userTaskService = new UserTaskService(
+    new UserTaskRepository(db, workspaceId),
+    userRepo,
+    workspaceRepo,
+    workspaceId,
+  );
   const fileService = new FileService(
     db,
     workspaceId,
@@ -633,6 +642,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     marketScanningRoutineService,
     dealDocumentService,
     recentFileService,
+    userTaskService,
     dealNoteService,
     dealLinkService,
     companyAnalysisService,

@@ -53,6 +53,8 @@ import { usePipelineStages } from '@/hooks/usePipelineStages';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import MemoryTab from '@/components/profile/MemoryTab';
 import ProfileDetailsTab from '@/components/profile/ProfileDetailsTab';
+import { TaskList } from '@/components/tasks/TaskList';
+import { useUserTasks } from '@/hooks/useUserTasks';
 
 /** Cards per section. The page is a jumping-off point, not a full list view. */
 const SECTION_LIMIT = 8;
@@ -152,6 +154,8 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const { user, loading: authLoading, signOut } = useAuth();
+  const { tasks } = useUserTasks();
+  const openTaskCount = tasks.filter((t) => !t.completedAt).length;
   const [data, setData] = useState<ProfileItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -262,8 +266,10 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
             title="Needs your attention"
             icon={ShieldCheck}
             count={data?.actionItems.total ?? 0}
+            badgeCount={(data?.actionItems.total ?? 0) + openTaskCount}
             shown={data?.actionItems.items.length ?? 0}
             emptyLabel="Nothing is waiting on you right now."
+            lead={<TaskList />}
           >
             {(data?.actionItems.items ?? []).map((item) => (
               <ActionItemCard
@@ -471,6 +477,8 @@ function SectionGroup({
   count,
   shown,
   emptyLabel,
+  lead,
+  badgeCount,
   children,
 }: {
   title: string;
@@ -479,25 +487,37 @@ function SectionGroup({
   /** How many cards are rendered; drives the "+N more" tail. Defaults to `count`. */
   shown?: number;
   emptyLabel: string;
+  /**
+   * Content above the cards that is always present — the to-do list under
+   * "Needs your attention". It stands in for the empty state, and is not
+   * counted in `shown`.
+   */
+  lead?: React.ReactNode;
+  /** The header badge, when it counts more than the cards (e.g. open tasks). Defaults to `count`. */
+  badgeCount?: number;
   children: React.ReactNode;
 }) {
   const rendered = shown ?? count;
   const remaining = Math.max(count - rendered, 0);
+  const badge = badgeCount ?? count;
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2">
         <Icon className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {count > 0 && (
+        {badge > 0 && (
           <Badge variant="secondary" className="h-5 px-1.5 text-[11px]">
-            {count}
+            {badge}
           </Badge>
         )}
       </div>
+      {lead}
       {rendered === 0 ? (
-        <div className="rounded-xl border bg-muted p-5 text-center">
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-        </div>
+        lead ? null : (
+          <div className="rounded-xl border bg-muted p-5 text-center">
+            <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+          </div>
+        )
       ) : (
         <>
           <div className="flex flex-col gap-3">{children}</div>

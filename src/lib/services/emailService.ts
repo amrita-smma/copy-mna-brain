@@ -712,6 +712,39 @@ export function renderInsightRefreshedEmail(input: {
   return { subject, html, text };
 }
 
+export interface TaskReminderEmailInput {
+  email: string;
+  /** The to-do the user wrote for themselves. */
+  taskTitle: string;
+  /** Deep link to the user's task list; defaults to the app root. */
+  tasksUrl?: string;
+}
+
+/** A personal to-do's reminder time has passed and the task is still open. */
+export function renderTaskReminderEmail(
+  input: Omit<TaskReminderEmailInput, 'email'>,
+): { subject: string; html: string; text: string } {
+  // The title is user-written; keep it from breaking out of the Subject header.
+  const subject = `Reminder: ${sanitizeEmailHeaderFragment(input.taskTitle)}`;
+  const ctaUrl = input.tasksUrl || APP_URL;
+  const body = 'The reminder you set for this task is due and it is still open.';
+
+  const html = renderNotificationShell({
+    bannerTitle: 'Task Reminder',
+    accent: '#2563eb',
+    accentDark: '#1d4ed8',
+    bodyHtml: `<h1 style="margin:0 0 8px; font-size:22px; line-height:1.25;">${escapeHtml(input.taskTitle)}</h1>
+      <p style="margin:0 0 16px; line-height:1.6; color:#374151; font-size:15px;">${body}</p>`,
+    ctaUrl,
+    ctaLabel: 'Open your tasks',
+    footer: 'You are receiving this because you set a reminder on this task.',
+  });
+
+  const text = [input.taskTitle, '', body, '', `Open your tasks: ${ctaUrl}`].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface CompanyAssignedEmailInput {
   email: string;
   /** Display name of the assignee (the email recipient / custodian). */
@@ -1599,6 +1632,14 @@ export class EmailService {
       throw new Error('sendInsightRefreshedEmail: insightName is required');
     }
     const { subject, html, text } = renderInsightRefreshedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** A personal to-do's reminder came due. */
+  async sendTaskReminderEmail(input: TaskReminderEmailInput): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendTaskReminderEmail: email is required');
+    if (!input.taskTitle) throw new Error('sendTaskReminderEmail: taskTitle is required');
+    const { subject, html, text } = renderTaskReminderEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

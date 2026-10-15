@@ -19,6 +19,7 @@ import {
   renderVoteSubmittedEmail,
   renderVoteRecapEmail,
   renderInsightRefreshedEmail,
+  renderTaskReminderEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
 
@@ -721,6 +722,46 @@ describe('renderInsightRefreshedEmail', () => {
     });
     expect(out.html).not.toContain('Open insight');
     expect(out.text).not.toContain('Open insight:');
+  });
+});
+
+describe('renderTaskReminderEmail', () => {
+  it('escapes the task title and links to the task list', () => {
+    const out = renderTaskReminderEmail({
+      taskTitle: '<b>Call</b> the banker',
+      tasksUrl: 'https://app.example.com/w/slug/profile?tab=items',
+    });
+    expect(out.subject).toBe('Reminder: <b>Call</b> the banker');
+    expect(out.html).not.toContain('<b>Call</b>');
+    expect(out.html).toContain('&lt;b&gt;Call&lt;/b&gt; the banker');
+    expect(out.html).toContain('href="https://app.example.com/w/slug/profile?tab=items"');
+    expect(out.text).toContain('Open your tasks: https://app.example.com/w/slug/profile?tab=items');
+  });
+
+  it('strips newlines from the title in the subject header', () => {
+    const out = renderTaskReminderEmail({ taskTitle: 'Send NDA\r\nBcc: evil@x.com' });
+    expect(out.subject).toBe('Reminder: Send NDA Bcc: evil@x.com');
+  });
+
+  it('sendTaskReminderEmail throws without email or taskTitle', async () => {
+    const svc = new EmailService(vi.fn() as EmailSender);
+    await expect(svc.sendTaskReminderEmail({ email: '', taskTitle: 'x' })).rejects.toThrow(
+      /email is required/,
+    );
+    await expect(svc.sendTaskReminderEmail({ email: 'u@e.com', taskTitle: '' })).rejects.toThrow(
+      /taskTitle is required/,
+    );
+  });
+
+  it('sendTaskReminderEmail delegates to the sender with the rendered email', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm-reminder' });
+    const svc = new EmailService(sender as EmailSender);
+    const result = await svc.sendTaskReminderEmail({ email: 'u@e.com', taskTitle: 'Send NDA' });
+    expect(result).toEqual({ messageId: 'm-reminder' });
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'u@e.com',
+      subject: 'Reminder: Send NDA',
+    });
   });
 });
 

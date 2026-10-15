@@ -1079,6 +1079,13 @@
       "when": 1791504000000,
       "tag": "20261009000000_user_profile_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "20261015000000_user_tasks",
+      "breakpoints": true
     }
   ]
 }

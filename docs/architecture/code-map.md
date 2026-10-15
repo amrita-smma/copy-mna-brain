@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 198 | `src/app/api/**/route.ts` |
-| Services | 79 | `src/lib/services/` |
-| Repositories | 74 | `src/lib/repositories/` |
+| API routes | 201 | `src/app/api/**/route.ts` |
+| Services | 80 | `src/lib/services/` |
+| Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 154 | `drizzle/migrations/` |
+| Migrations (app) | 155 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -164,6 +164,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
 | `/api/cron/resurface-deals` | GET | `dealResurfaceService` |
+| `/api/cron/task-reminders` | GET | `userTaskService`, `workspaceService` |
 | `/api/dashboard/activity` | GET | `dashboardActivityService` |
 | `/api/dashboard/company-timeline` | GET | `dashboardActivityService` |
 | `/api/dashboard/company-timeline/[companyId]` | GET | `dashboardActivityService` |
@@ -271,6 +272,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/smart-files/counts` | GET | `fileService` |
 | `/api/smart-files/upload-url` | GET | — |
 | `/api/table-layouts` | GET, PUT, DELETE | `tableLayoutService` |
+| `/api/tasks` | GET, POST | `userTaskService` |
+| `/api/tasks/[id]` | PATCH, DELETE | `userTaskService` |
 | `/api/track-variables` | GET, POST | `trackVariableService` |
 | `/api/track-variables/[id]` | PATCH, DELETE | `trackVariableService` |
 | `/api/users` | GET, POST | `authService`, `userService`, `workspaceService` |
@@ -297,7 +300,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 65 keys. Wire new services in
+`Container` exposes 66 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -380,6 +383,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `userMemoryService.ts` | `MemoryUnavailableError`, `MemoryImportTooLargeError`, `UserMemoryService` | ✅ |
 | `userProfileService.ts` | `UserProfileNotFoundError`, `UserProfileInvalidError`, `UserProfileService` | ✅ |
 | `userService.ts` | `UserNotFoundError`, `CannotDeactivateSelfError`, `UserService` | ✅ |
+| `userTaskService.ts` | `UserTaskValidationError`, `UserTaskService` | ✅ |
 | `workspaceService.ts` | `RoleNotFoundError`, `NotSuperadminError`, `WorkspaceNotFoundError`, `WorkspaceService` | ✅ |
 
 **Services with no `.test.ts`:** `aiScreeningService.ts`, `htmlToPptxElements.ts`, `jobDispatcher.ts`, `marketScreeningService.ts`, `slideService.ts`, `trackVariableService.ts`
@@ -460,6 +464,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `userConsentRepository.ts` | `UserConsentRepository` | ✅ |
 | `userMemoryRepository.ts` | `UserMemoryRepository` | ✅ |
 | `userRepository.ts` | `UserRepository` | ✅ |
+| `userTaskRepository.ts` | `UserTaskRepository` | ✅ |
 | `userWorkspaceRepository.ts` | `UserWorkspaceRepository` | ✅ |
 | `workspaceCorrespondentRepository.ts` | `WorkspaceCorrespondentRepository` | ✅ |
 | `workspaceRepository.ts` | `WorkspaceRepository` | ✅ |
