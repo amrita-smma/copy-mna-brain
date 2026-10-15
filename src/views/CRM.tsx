@@ -1,8 +1,9 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, Loader2, Search, Users, X } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Search, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -266,10 +267,6 @@ export default function CRM() {
       <div className="flex flex-col h-full">
         <CrmHeader
           insights={insights}
-          onOpenAddContact={() => {
-            setAddContactEmployerId(null);
-            setAddContactOpen(true);
-          }}
           onShowStale={() => {
             setLastContact("stale_30");
             setPage(1);
@@ -297,7 +294,7 @@ export default function CRM() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-screen-2xl px-7 py-3">
-            <Card className="border bg-gradient-to-br from-muted/40 to-muted/10">
+            <Card className="border bg-card">
               <CardContent className="pt-6">
                 {/* Toolbar */}
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -342,6 +339,18 @@ export default function CRM() {
                       setPage(1);
                     }}
                   />
+
+                  <Button
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => {
+                      setAddContactEmployerId(null);
+                      setAddContactOpen(true);
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Contact
+                  </Button>
                 </div>
 
                 {/* Active filter chips */}
@@ -389,7 +398,7 @@ export default function CRM() {
                     <p>No employers match these filters.</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="divide-y overflow-hidden rounded-lg border">
                     {employers.map((emp) => (
                       <EmployerCard
                         key={emp.id}

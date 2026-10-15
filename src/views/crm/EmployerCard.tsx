@@ -14,7 +14,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
-import { ChevronDown, Linkedin, Loader2, Mail, Pencil, Plus, X } from "lucide-react";
+import {
+  ChevronDown,
+  Copy,
+  Linkedin,
+  Loader2,
+  Mail,
+  Pencil,
+  Plus,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EditContactDialog } from "./EditContactDialog";
@@ -79,10 +88,8 @@ export function EmployerCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-card transition-all",
-        expanded
-          ? "border-blue-500 shadow-md shadow-blue-500/10"
-          : "hover:border-foreground/20",
+        "bg-card transition-colors",
+        expanded ? "bg-muted" : "hover:bg-muted",
       )}
     >
       <button
@@ -526,50 +533,125 @@ function ContactsTab({
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        <span>Contacts ({correspondents.length})</span>
+      <div className="mb-2 flex items-center justify-end">
         <button
-          className="text-xs font-bold normal-case text-blue-600 hover:underline"
+          className="text-sm font-bold text-blue-600 hover:underline dark:text-blue-400"
           onClick={onAddContact}
         >
           + Add contact
         </button>
       </div>
-      <div className="divide-y">
-        {correspondents.length === 0 ? (
-          <div className="py-6 text-sm text-muted-foreground">
-            No contacts on file.
-          </div>
-        ) : (
-          correspondents.map((c) => {
-            // Profile fields are free text, so the stored URL is only safe to
-            // put in an href once its scheme has been checked.
-            const linkedinHref = safeProfileUrl(c.linkedin_url);
-            return (
-              <div
-                key={c.id}
-                className="group flex items-start gap-3 py-3"
-                data-testid="crm-contact-row"
-              >
+      {correspondents.length === 0 ? (
+        <div className="py-6 text-sm text-muted-foreground">
+          No contacts on file.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border bg-card">
+          <div className="min-w-[1000px] text-xs">
+            <div
+              className={cn(
+                CONTACT_GRID,
+                "border-b bg-muted text-[10px] font-bold uppercase tracking-wider text-foreground",
+              )}
+            >
+              <div className="px-2.5 py-1.5">Name</div>
+              <div className="px-2.5 py-1.5">Email / Phone</div>
+              <div className="px-2.5 py-1.5">Past Deals Summary</div>
+              <div className="px-2.5 py-1.5">Area Focus</div>
+              <div className="px-2.5 py-1.5">Industry Focus</div>
+              <div className="px-2.5 py-1.5 text-center">Action</div>
+            </div>
+            {correspondents.map((c) => {
+              // Profile fields are free text, so the stored URL is only safe to
+              // put in an href once its scheme has been checked.
+              const linkedinHref = safeProfileUrl(c.linkedin_url);
+              const subtitle = [c.title || c.seniority, c.department]
+                .filter(Boolean)
+                .join(" · ");
+              return (
                 <div
+                  key={c.id}
                   className={cn(
-                    "grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white",
-                    colorForId(c.id),
+                    CONTACT_GRID,
+                    "min-h-12 items-center border-b last:border-b-0",
                   )}
+                  data-testid="crm-contact-row"
                 >
-                  {initialsOf(c.name)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1 text-sm font-bold">
-                    <span className="truncate">{c.name}</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-1.5">
+                    <span className="whitespace-nowrap">{c.name}</span>
                     {c.is_primary && (
                       <Badge
                         variant="outline"
-                        className="h-4 bg-emerald-50 px-1.5 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        className="h-auto border-transparent bg-emerald-50 px-1.5 py-0.5 text-[11px] font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
                       >
                         Primary
                       </Badge>
                     )}
+                    {subtitle && (
+                      <span
+                        className="w-full truncate text-[11px] text-muted-foreground"
+                        title={subtitle}
+                      >
+                        {subtitle}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-1.5">
+                    {c.email && (
+                      <CopyLine value={c.email} label="email">
+                        <a
+                          href={`mailto:${c.email}`}
+                          className="truncate font-mono text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {c.email}
+                        </a>
+                      </CopyLine>
+                    )}
+                    {c.phone && (
+                      <CopyLine value={c.phone} label="phone">
+                        <span className="truncate font-mono text-[11px] text-muted-foreground">
+                          {c.phone}
+                        </span>
+                      </CopyLine>
+                    )}
+                    {!c.email && !c.phone && (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 px-2.5 py-1.5">
+                    <PastDealsCell
+                      text={c.bio}
+                      aiGenerated={enrichRuns[c.id]?.status === "succeeded"}
+                    />
+                  </div>
+                  <div
+                    className="line-clamp-2 min-w-0 px-2.5 py-1.5 leading-snug"
+                    title={c.coverage_region ?? undefined}
+                  >
+                    {c.coverage_region || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div
+                    className="min-w-0 truncate px-2.5 py-1.5"
+                    title={c.specialization ?? undefined}
+                  >
+                    {c.specialization || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-0.5 px-2.5 py-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => setEditing(c)}
+                      aria-label={`Edit ${c.name}`}
+                      title="Edit contact"
+                      data-testid="crm-contact-edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <FillContactButton
                       correspondentId={c.id}
                       contactName={c.name}
@@ -582,84 +664,25 @@ function ContactsTab({
                         void loadEnrichRuns();
                       }}
                     />
+                    {linkedinHref && (
+                      <a
+                        href={linkedinHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={`${c.name} on LinkedIn`}
+                        title="LinkedIn"
+                      >
+                        <Linkedin className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                   </div>
-                  {(c.title || c.seniority) && (
-                    <div className="text-xs text-muted-foreground">
-                      {c.title || c.seniority}
-                    </div>
-                  )}
-                  {(c.department ||
-                    c.specialization ||
-                    c.coverage_region ||
-                    (c.seniority && c.title)) && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {c.department && (
-                        <ContactTag label="Dept" value={c.department} />
-                      )}
-                      {c.seniority && c.title && (
-                        <ContactTag label="Level" value={c.seniority} />
-                      )}
-                      {c.specialization && (
-                        <ContactTag label="Focus" value={c.specialization} />
-                      )}
-                      {c.coverage_region && (
-                        <ContactTag label="Covers" value={c.coverage_region} />
-                      )}
-                    </div>
-                  )}
-                  {c.email && (
-                    <div className="mt-0.5 break-all font-mono text-[11px] text-blue-600 dark:text-blue-400">
-                      {c.email}
-                    </div>
-                  )}
-                  {c.phone && (
-                    <div className="text-[11px] text-muted-foreground">
-                      {c.phone}
-                    </div>
-                  )}
-                  {linkedinHref && (
-                    <a
-                      href={linkedinHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      <Linkedin className="h-3 w-3" />
-                      LinkedIn
-                    </a>
-                  )}
-                  {c.bio && (
-                    <>
-                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                        {c.bio}
-                      </p>
-                      {enrichRuns[c.id]?.status === "succeeded" && (
-                        <p
-                          className="mt-0.5 text-[10px] italic text-muted-foreground"
-                          data-testid="crm-contact-bio-disclaimer"
-                        >
-                          AI-generated from public sources — may be inaccurate.
-                        </p>
-                      )}
-                    </>
-                  )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={() => setEditing(c)}
-                  aria-label={`Edit ${c.name}`}
-                  data-testid="crm-contact-edit"
-                >
-                  <Pencil className="mr-1 h-3 w-3" />
-                  Edit
-                </Button>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {editing && (
         <EditContactDialog
@@ -679,12 +702,81 @@ function ContactsTab({
   );
 }
 
-function ContactTag({ label, value }: { label: string; value: string }) {
+const CONTACT_GRID =
+  "grid grid-cols-[2.4fr_2.2fr_2.2fr_1fr_1.7fr_1.2fr]";
+
+/** A line with a copy-to-clipboard button revealed on hover. */
+function CopyLine({
+  value,
+  label,
+  children,
+}: {
+  value: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`Copied ${label}`);
+    } catch {
+      toast.error(`Could not copy ${label}`);
+    }
+  };
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-      <span className="font-semibold uppercase tracking-wide">{label}</span>
-      <span className="text-foreground">{value}</span>
-    </span>
+    <div className="group/copy flex min-w-0 items-center gap-1" title={value}>
+      {children}
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-blue-600 focus-visible:opacity-100 group-hover/copy:opacity-100"
+        aria-label={`Copy ${label}`}
+        title={`Copy ${label}`}
+      >
+        <Copy className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+/** Rough length past which a two-line clamp is likely to cut the text. */
+const PAST_DEALS_CLAMP_CHARS = 90;
+
+function PastDealsCell({
+  text,
+  aiGenerated,
+}: {
+  text: string | null;
+  aiGenerated: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return <span className="text-muted-foreground">—</span>;
+  return (
+    <>
+      <span
+        className={cn("whitespace-normal", !expanded && "line-clamp-2")}
+        title={text}
+      >
+        {text}
+      </span>
+      {text.length > PAST_DEALS_CLAMP_CHARS && (
+        <button
+          type="button"
+          className="mt-0.5 text-xs font-semibold text-blue-600 dark:text-blue-400"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+      {aiGenerated && (
+        <p
+          className="mt-0.5 text-[10px] italic text-muted-foreground"
+          data-testid="crm-contact-bio-disclaimer"
+        >
+          AI-generated from public sources — may be inaccurate.
+        </p>
+      )}
+    </>
   );
 }
 

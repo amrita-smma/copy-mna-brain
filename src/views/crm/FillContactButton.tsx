@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -196,7 +196,7 @@ export function FillContactButton({
     <Button
       variant="ghost"
       size="sm"
-      className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+      className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
       onClick={() => void start()}
       disabled={running}
       aria-label={`Fill ${contactName}'s details from the web`}
@@ -206,7 +206,7 @@ export function FillContactButton({
       {running ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
-        <Sparkles className="h-3.5 w-3.5" />
+        <Search className="h-3.5 w-3.5" />
       )}
     </Button>
   );
