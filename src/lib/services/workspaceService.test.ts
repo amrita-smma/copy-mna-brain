@@ -820,3 +820,61 @@ describe('WorkspaceService.getAccessibleWorkspacesForUser (soft-deleted workspac
     expect(result.map((m) => m.workspaceId)).toEqual(['w2']);
   });
 });
+
+describe('WorkspaceService.getPendingAutomation', () => {
+  it('reads both toggles off the workspace row', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pending_auto_scan: true,
+      pending_auto_drop_promote: true,
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(service.getPendingAutomation('w1')).resolves.toEqual({
+      autoScan: true,
+      autoDropPromote: true,
+    });
+  });
+
+  it('defaults both off for an unknown workspace', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(service.getPendingAutomation('w1')).resolves.toEqual({
+      autoScan: false,
+      autoDropPromote: false,
+    });
+  });
+});
+
+describe('WorkspaceService.updatePendingAutomation', () => {
+  it('never stores auto drop/promote on without auto-scan', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pending_auto_scan: false,
+      pending_auto_drop_promote: false,
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(
+      service.updatePendingAutomation('w1', { autoScan: false, autoDropPromote: true }),
+    ).resolves.toEqual({ autoScan: false, autoDropPromote: false });
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
+      pending_auto_scan: false,
+      pending_auto_drop_promote: false,
+    });
+  });
+
+  it('throws WorkspaceNotFoundError when no row was updated', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(
+      service.updatePendingAutomation('w1', { autoScan: true, autoDropPromote: true }),
+    ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+});

@@ -62,6 +62,7 @@ import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
 import PipelineHeadingDialog from "@/components/pipeline/PipelineHeadingDialog";
+import PendingAutomationToggles from "@/components/pipeline/PendingAutomationToggles";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { usePipelineHeading } from "@/components/layout/PipelineHeadingContext";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
@@ -322,11 +323,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // L1 status filter
   const [l1StatusFilter, setL1StatusFilter] = useState<"all" | L1Status>("all");
 
-  // Pipeline Status filter. Pipeline opens on All (live and dropped deals
-  // together); Sourcing has no status filter and only lists live deals.
-  const [viewMode, setViewMode] = useState<PipelineViewMode>(
-    isSourcing ? "active" : "all",
-  );
+  // Pipeline Status filter. Both pages open on Active (live deals only);
+  // Sourcing has no status filter. A search ignores it and looks through
+  // active and dropped deals alike (see `effectiveViewMode`).
+  const [viewMode, setViewMode] = useState<PipelineViewMode>("active");
 
   // Sector filter
   const [sectorFilter, setSectorFilter] = useState<string>("all");
@@ -601,11 +601,16 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     });
   };
 
+  const isSearching = searchQuery.trim() !== "";
+  // A search finds a deal whether it is live or dropped, so it overrides the
+  // Pipeline Status filter (which keeps its selection for when it's cleared).
+  const effectiveViewMode: PipelineViewMode = isSearching ? "all" : viewMode;
+
   const isDropped = (c: PipelineCompany) => c.status === "dropped";
   const isActive = (c: PipelineCompany) => !isDropped(c);
   const matchesViewMode = (c: PipelineCompany) =>
-    viewMode === "all" ||
-    (viewMode === "dropped" ? isDropped(c) : isActive(c));
+    effectiveViewMode === "all" ||
+    (effectiveViewMode === "dropped" ? isDropped(c) : isActive(c));
 
   // Workflow status options: per-source defaults ∪ distinct values already
   // saved on the single `workflow_status` column.
@@ -662,7 +667,6 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
 
   const EMPTY_FILTER_VALUE = "__empty__";
 
-  const isSearching = searchQuery.trim() !== "";
   // Pipeline's search ignores the stage filter; Sourcing searches its own
   // Pending Confirmation list.
   const searchesAllStages = !isSourcing && isSearching;
@@ -796,7 +800,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     // - Dropped view: newest dropped date first
     // - Active view: newest created date first
     if (!sortField) {
-      if (viewMode === "dropped") {
+      if (effectiveViewMode === "dropped") {
         const aDropped = a.dropped_at ? new Date(a.dropped_at).getTime() : 0;
         const bDropped = b.dropped_at ? new Date(b.dropped_at).getTime() : 0;
         return bDropped - aDropped;
@@ -932,7 +936,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // page.
   const showsEveryRow =
     !searchesAllStages &&
-    viewMode !== "dropped" &&
+    effectiveViewMode !== "dropped" &&
     (stageView === "pending" ||
       (stageView === "L0" && sourceFilter === "inbound"));
   // Pending Confirmation is reviewed in the inbound table layout whatever the
@@ -943,7 +947,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // "Sort by" preset: Newest is the default order (created date, or dropped
   // date in the Dropped view); Oldest is that same date ascending. Any other
   // column sort shows as a custom sort.
-  const dateSortField = viewMode === "dropped" ? "dropped_on" : "created";
+  const dateSortField = effectiveViewMode === "dropped" ? "dropped_on" : "created";
   const sortPreset: "newest" | "oldest" | "" = !sortField
     ? "newest"
     : sortField === dateSortField
@@ -989,9 +993,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       const filters = [
         stageScope,
         sourceFilter === 'all' ? 'inbound and outbound deals' : sourceFilter,
-        viewMode === 'all'
+        effectiveViewMode === 'all'
           ? 'active and dropped deals'
-          : viewMode === 'dropped'
+          : effectiveViewMode === 'dropped'
             ? 'dropped deals'
             : 'active deals',
         sectorFilter !== 'all' ? `sector ${sectorFilter}` : null,
@@ -1015,7 +1019,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       screeningStage,
       isSearching,
       sourceFilter,
-      viewMode,
+      effectiveViewMode,
       sectorFilter,
       l1StatusFilter,
       trackFilter.length,
@@ -1267,7 +1271,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   const tableProps = {
     tracks,
     stage: tableStage,
-    viewMode,
+    viewMode: effectiveViewMode,
     updatingCompanyIds,
     onRunScreening: runScreeningForCompany,
     runningScreeningCompanyIds,
@@ -1454,16 +1458,24 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             {sourcingTab === "pending" ? (
               <Card className="shadow-md">
                 <CardHeader className="pb-4">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
-                    Pending Confirmation
-                    <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                      {pendingCount}
-                    </span>
-                  </CardTitle>
-                  <CardDescription>
-                    Companies awaiting initial screening decision
-                  </CardDescription>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                        Pending Confirmation
+                        <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-semibold leading-none text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                          {pendingCount}
+                        </span>
+                      </CardTitle>
+                      <CardDescription>
+                        Companies awaiting initial screening decision
+                      </CardDescription>
+                    </div>
+                    <PendingAutomationToggles
+                      pendingCount={pendingCount}
+                      onQueued={() => fetchCompanies({ silent: true })}
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1706,8 +1718,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                         data-testid="pipeline-search-scope-hint"
                         className="text-xs text-muted-foreground"
                       >
-                        Searching every stage, including Pending Confirmation.
-                        Clear the search to filter by stage.
+                        Searching every stage, including Pending Confirmation,
+                        and both active and dropped deals. Clear the search to
+                        filter by stage and status.
                       </p>
                     )}
                     {otherSourceMatchCount > 0 && (
@@ -1769,14 +1782,20 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                       </SelectContent>
                     </Select>
                     <Select
-                      value={viewMode}
+                      value={effectiveViewMode}
                       onValueChange={(value) =>
                         setViewMode(value as PipelineViewMode)
                       }
+                      disabled={isSearching}
                     >
                       <SelectTrigger
                         data-testid="pipeline-status-select"
                         className="w-44 h-9"
+                        title={
+                          isSearching
+                            ? "A search looks through active and dropped deals"
+                            : undefined
+                        }
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -1837,6 +1856,24 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                       className="shrink-0 flex items-center"
                     />
                   </div>
+
+                  {/* The Pending Confirmation bucket carries the same
+                      automation controls as Sourcing's Pending tab. */}
+                  {reviewsPending && (
+                    <div
+                      data-testid="pipeline-pending-automation"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted px-4 py-2"
+                    >
+                      <span className="text-sm text-muted-foreground">
+                        Pending Confirmation automation
+                      </span>
+                      <PendingAutomationToggles
+                        pendingCount={pendingCount}
+                        onQueued={() => fetchCompanies({ silent: true })}
+                        testIdPrefix="pipeline"
+                      />
+                    </div>
+                  )}
 
                   {companiesTable}
                 </CardContent>

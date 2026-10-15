@@ -1086,6 +1086,13 @@
       "when": 1792022400000,
       "tag": "20261015000000_user_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1792022401000,
+      "tag": "20261015000001_pending_auto_scan_settings",
+      "breakpoints": true
     }
   ]
 }

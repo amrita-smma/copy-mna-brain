@@ -786,14 +786,21 @@ export default function InboundCompaniesTable({
                   }
                   moveItems={
                     !rowDropped && isUnreviewed
-                      ? // Unreviewed rows mirror the AI-Discovered
-                        // menu: Add to L0 · Delete (Delete is a soft drop).
+                      ? // Unreviewed rows: Add to L0 · Drop Deal, then the
+                        // AI-Discovered menu's Delete (also a soft drop).
                         ([
                           {
                             key: "add",
                             label: "Add to L0",
                             icon: ArrowRight,
                             onSelect: () => onPromote(company),
+                          },
+                          {
+                            key: "drop",
+                            label: "Drop Deal",
+                            icon: XCircle,
+                            onSelect: () => onDrop(company),
+                            destructive: true,
                           },
                           {
                             key: "delete",

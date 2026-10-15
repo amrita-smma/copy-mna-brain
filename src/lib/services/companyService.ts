@@ -26,7 +26,7 @@ import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { UserRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
 import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
-import { stageMoveDirection } from '@/lib/constants';
+import { stageMoveDirection, UNREVIEWED_STAGE } from '@/lib/constants';
 import {
   BUILTIN_PIPELINE_STAGE_KEYS,
   CAPTAIN_FROM_STAGE_KEY,
@@ -149,6 +149,8 @@ function ratio(
 }
 
 export class CompanyService {
+  private pendingArrivalHandler?: (companyId: string) => Promise<unknown>;
+
   constructor(
     // First rather than alongside the other scalars at the end: the trailing
     // dependencies are optional, and a required parameter can't follow one.
@@ -301,6 +303,24 @@ export class CompanyService {
 
   findById(id: string) {
     return this.companyRepo.findById(id);
+  }
+
+  /**
+   * Called when a company is created into Pending Confirmation. Wired by the
+   * container to `PendingAutoScanService.onCompanyEnteredPending` (a setter,
+   * not a constructor argument: that service depends on this one).
+   */
+  setPendingArrivalHandler(handler: (companyId: string) => Promise<unknown>) {
+    this.pendingArrivalHandler = handler;
+  }
+
+  private async notifyPendingArrival(companyId: string): Promise<void> {
+    if (!this.pendingArrivalHandler) return;
+    try {
+      await this.pendingArrivalHandler(companyId);
+    } catch (err) {
+      console.error('[CompanyService] pending auto-scan request failed:', err);
+    }
   }
 
   /**
@@ -525,7 +545,15 @@ export class CompanyService {
    * Accepts a flat FE payload and writes to companies + child tables. Returns
    * the composed DTO so the FE can round-trip without a refetch.
    */
-  async createFromDTO(input: CompanyDTOInput, logAction?: string): Promise<CompanyDTO> {
+  async createFromDTO(
+    input: CompanyDTOInput,
+    logAction?: string,
+    opts?: {
+      /** The caller fires the Pending Confirmation arrival hook itself, once
+       *  the rest of the company (financials, files) is written. */
+      deferPendingArrival?: boolean;
+    },
+  ): Promise<CompanyDTO> {
     this.assertHasCompanyIdentity(input);
     const split = splitCompanyDTO(input);
     await this.assertStageWritable(split.company);
@@ -538,6 +566,9 @@ export class CompanyService {
     }
     if (inserted.pipeline_stage === L0_STAGE) {
       await this.dispatchTrackMatching(inserted.id);
+    }
+    if (inserted.pipeline_stage === UNREVIEWED_STAGE && !opts?.deferPendingArrival) {
+      await this.notifyPendingArrival(inserted.id);
     }
     return this.findByIdDTO(inserted.id);
   }

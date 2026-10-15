@@ -107,6 +107,36 @@ export class ScreeningRepository {
     return mapped;
   }
 
+  /**
+   * Every screening row for these companies, ordered by company then track so
+   * callers can group in one pass. Batched counterpart of
+   * `findAllWithRelations({ companyId })` without the joins.
+   */
+  async findByCompanyIds(
+    companyIds: string[],
+  ): Promise<
+    Pick<Tables<'screenings'>, 'id' | 'company_id' | 'criteria_id' | 'track_id' | 'state' | 'result'>[]
+  > {
+    if (companyIds.length === 0) return [];
+    return this.db
+      .select({
+        id: screenings.id,
+        company_id: screenings.company_id,
+        criteria_id: screenings.criteria_id,
+        track_id: screenings.track_id,
+        state: screenings.state,
+        result: screenings.result,
+      })
+      .from(screenings)
+      .where(
+        and(
+          inArray(screenings.company_id, companyIds),
+          inArray(screenings.company_id, this.workspaceCompanyIds()),
+        ),
+      )
+      .orderBy(screenings.company_id, screenings.track_id);
+  }
+
   async insert(data: TablesInsert<'screenings'>): Promise<Tables<'screenings'>> {
     const [row] = await this.db.insert(screenings).values(data).returning();
     return row;

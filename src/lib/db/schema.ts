@@ -77,6 +77,7 @@ export const jobType = pgEnum("job_type", [
   "fund_update_extraction",
   "deal_document_processing",
   "company_vote",
+  "pending_auto_scan",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const screeningState = pgEnum("screening_state", [
@@ -353,6 +354,13 @@ export const workspaces = pgTable(
     // Read into the client via PipelineHeadingProvider in the /w/[slug] layout.
     pipeline_title: text(),
     pipeline_subtitle: text(),
+    // Sourcing → Pending Confirmation automation, toggled by any member.
+    // `pending_auto_scan`: a company entering Pending Confirmation is matched
+    // to tracks and AI-screened against their criteria. `pending_auto_drop_promote`:
+    // after that scan, an overall pass promotes it to L0 and a fail drops it.
+    // Only meaningful while auto-scan is on (the service forces it off otherwise).
+    pending_auto_scan: boolean().default(false).notNull(),
+    pending_auto_drop_promote: boolean().default(false).notNull(),
     // Soft delete. Non-null = the workspace is archived: it disappears from
     // the workspace picker/switcher, from every membership listing, and from
     // background sweeps (cron, graph sync), and `/w/<slug>/...` bounces back
@@ -491,12 +499,22 @@ export const companies = pgTable(
     ai_opinion_summary: text(),
     ai_opinion_status: text(),
     ai_opinion_updated_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Pending Confirmation auto-scan queue. Non-null = a match → screen →
+    // (optional) drop/promote pass is waiting for the per-minute
+    // `/api/cron/pending-auto-scan` drain, which clears it when it claims the
+    // row. `auto_scan_force` re-screens criteria that already have a result
+    // (the Scan now button); otherwise completed screenings are kept.
+    auto_scan_requested_at: timestamp({ withTimezone: true, mode: "string" }),
+    auto_scan_force: boolean().default(false).notNull(),
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
+      idxCompaniesAutoScanRequestedAt: index("idx_companies_auto_scan_requested_at")
+        .using("btree", table.auto_scan_requested_at.asc().nullsLast())
+        .where(sql`auto_scan_requested_at IS NOT NULL`),
       idxCompaniesWorkspaceId: index("idx_companies_workspace_id").using(
         "btree",
         table.workspace_id.asc().nullsLast().op("uuid_ops"),

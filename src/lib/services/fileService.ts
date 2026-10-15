@@ -65,6 +65,7 @@ import type {
   SubmittedRowOutcome,
 } from './fundUpdateApplyService';
 import type { JobDispatcher } from './jobDispatcher';
+import type { PendingAutoScanService } from './pendingAutoScanService';
 import type { FundCatalogCheckService } from './fundCatalogCheckService';
 import {
   runFundUpdateExtraction,
@@ -494,6 +495,7 @@ const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
 
 export class FileService {
   private crmService?: CRMService;
+  private pendingAutoScanService?: PendingAutoScanService;
   private fundUpdateApplyService?: FundUpdateApplyService;
   private fundCatalogCheckService?: FundCatalogCheckService;
   private workspaceRepo?: WorkspaceRepository;
@@ -542,6 +544,10 @@ export class FileService {
 
   setJobDispatcher(dispatcher: JobDispatcher) {
     this.jobDispatcher = dispatcher;
+  }
+
+  setPendingAutoScanService(service: PendingAutoScanService) {
+    this.pendingAutoScanService = service;
   }
 
   async findAll(fileType?: string) {
@@ -930,10 +936,15 @@ export class FileService {
       // Kick off analysis + screening for every company minted or auto-
       // enriched from this file (mirrors the post-approve dispatch;
       // untouched existing companies are not re-analyzed).
+      const createdIds = new Set(createdCompanies.map((c) => c.id));
       for (const company of [...createdCompanies, ...enrichedCompanies]) {
         await Promise.resolve(
           this.companyAnalysisService.dispatch({ companyId: company.id, source: effectiveFileType }),
         ).catch((err) => console.error('Error dispatching company analysis:', err));
+        // A newly minted Pending Confirmation company goes to the workspace's
+        // auto-scan (match + screen + drop/promote) when it is on; otherwise
+        // it is screened against its suggested tracks as before.
+        if (createdIds.has(company.id) && (await this.queuePendingAutoScan(company.id))) continue;
         void this.dispatchScreeningJobs(company.id, company);
       }
     } catch (processError) {
@@ -3308,6 +3319,21 @@ function isEntityDecisionRemapped(
     return reviews.some((a) => a.status === 'new' || a.status === 'add_missing');
   }
 
+  /**
+   * Hand a company this file just created into Pending Confirmation to the
+   * workspace's auto-scan. Returns whether it was queued (auto-scan on), in
+   * which case the caller skips its own screening.
+   */
+  private async queuePendingAutoScan(companyId: string): Promise<boolean> {
+    if (!this.pendingAutoScanService) return false;
+    try {
+      return await this.pendingAutoScanService.onCompanyEnteredPending(companyId);
+    } catch (err) {
+      console.error('[fileService] pending auto-scan request failed:', err);
+      return false;
+    }
+  }
+
   private async dispatchScreeningJobs(companyId: string, company: Tables<'companies'>) {
     try {
       // AI screening runs ONLY against the tracks a company is matched to —
@@ -3564,7 +3590,7 @@ function isEntityDecisionRemapped(
             opts.companySource,
             opts.bankerSource,
           ),
-        }, `auto_created_from_file:${opts.fileId}`);
+        }, `auto_created_from_file:${opts.fileId}`, { deferPendingArrival: true });
         return { company: created, created: true };
       });
 
@@ -3980,6 +4006,7 @@ function isEntityDecisionRemapped(
           ...(hasIdentity ? {} : { target: identityName }),
         },
         `created_from_file:${fileId}`,
+        { deferPendingArrival: true },
       );
       return { companyId: company.id, created: true };
     });
@@ -4021,7 +4048,9 @@ function isEntityDecisionRemapped(
     await this.companyAnalysisService
       .dispatch({ companyId, source: file.file_type ?? 'other' })
       .catch((err) => console.error('Error dispatching company analysis:', err));
-    void this.dispatchScreeningJobs(companyId, company);
+    if (!(await this.queuePendingAutoScan(companyId))) {
+      void this.dispatchScreeningJobs(companyId, company);
+    }
 
     return { file: updatedFile, company, created: true };
   }

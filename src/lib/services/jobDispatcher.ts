@@ -1,4 +1,4 @@
-import { dispatchJob } from '@/lib/jobs/dispatch';
+import { dispatchJob, runJobInline } from '@/lib/jobs/dispatch';
 import type { DbClient, Tables } from '@/lib/repositories';
 import type { JobType } from '@/lib/jobs/dispatch';
 
@@ -29,5 +29,18 @@ export class JobDispatcher {
       workspaceId: this.workspaceId,
       ...opts,
     });
+  }
+
+  /**
+   * Run a job to completion in the current process (see `runJobInline`). Use
+   * only from code that is itself already running in the background.
+   */
+  runInline<T>(opts: {
+    type: JobType;
+    payload: Record<string, unknown>;
+    timeoutSeconds: number;
+    work: (ctx: { job: Tables<'jobs'>; db: DbClient }) => Promise<T>;
+  }): Promise<{ jobId: string }> {
+    return runJobInline({ db: this.db, workspaceId: this.workspaceId, ...opts });
   }
 }

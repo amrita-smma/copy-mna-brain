@@ -17,6 +17,7 @@ export * from './investmentThesisRepository';
 export * from './trackVariableRepository';
 export * from './pipelineStageRepository';
 export * from './jobRepository';
+export * from './autoScanQueueRepository';
 export * from './userRepository';
 export * from './resetPasswordTokenRepository';
 export * from './recentFileRepository';

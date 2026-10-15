@@ -275,6 +275,67 @@ describe("CompanyService.createFromDTO", () => {
   });
 });
 
+describe("CompanyService.createFromDTO — Pending Confirmation arrival", () => {
+  it("hands a company created into Pending Confirmation to the arrival handler", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-pending", pipeline_stage: "unreviewed" }),
+    );
+    const service = buildService(repos);
+    const handler = vi.fn().mockResolvedValue(true);
+    service.setPendingArrivalHandler(handler);
+
+    await service.createFromDTO({ target: "Acme", pipeline_stage: "unreviewed" } as any);
+
+    expect(handler).toHaveBeenCalledWith("c-pending");
+  });
+
+  it("leaves the arrival to the caller when it defers it", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-pending", pipeline_stage: "unreviewed" }),
+    );
+    const service = buildService(repos);
+    const handler = vi.fn();
+    service.setPendingArrivalHandler(handler);
+
+    await service.createFromDTO({ target: "Acme" } as any, undefined, {
+      deferPendingArrival: true,
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does not call the handler for a company created outside Pending Confirmation", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-l0", pipeline_stage: "L0" }),
+    );
+    const service = buildService(repos, makeTrackMatchingService());
+    const handler = vi.fn();
+    service.setPendingArrivalHandler(handler);
+
+    await service.createFromDTO({ target: "Acme" } as any);
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("still creates the company when the arrival handler fails", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.insert).mockResolvedValue(
+      makeCompany({ id: "c-pending", pipeline_stage: "unreviewed" }),
+    );
+    const service = buildService(repos);
+    service.setPendingArrivalHandler(vi.fn().mockRejectedValue(new Error("db down")));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      service.createFromDTO({ target: "Acme" } as any),
+    ).resolves.toBeDefined();
+    errorSpy.mockRestore();
+  });
+});
+
 describe("CompanyService.delete", () => {
   it("removes the DB record without deleting the underlying files", async () => {
     const repos = makeRepos();

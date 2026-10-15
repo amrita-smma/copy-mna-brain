@@ -9,6 +9,11 @@ import type {
 } from '@/lib/repositories';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 import {
+  DEFAULT_PENDING_AUTOMATION,
+  normalizePendingAutomation,
+  type PendingAutomation,
+} from '@/lib/sourcing/pendingAutomation';
+import {
   COPILOT_AGENT_KEYS,
   DEFAULT_COPILOT_AGENT,
   isCopilotAgentType,
@@ -290,6 +295,32 @@ export class WorkspaceService {
     });
     if (!row) throw new WorkspaceNotFoundError(id);
     return resolvePipelineHeading(row.pipeline_title, row.pipeline_subtitle);
+  }
+
+  /** Sourcing → Pending Confirmation auto-scan / auto drop-promote toggles. */
+  async getPendingAutomation(id: string): Promise<PendingAutomation> {
+    const ws = await this.workspaceRepo.findById(id);
+    if (!ws) return DEFAULT_PENDING_AUTOMATION;
+    return normalizePendingAutomation({
+      autoScan: ws.pending_auto_scan,
+      autoDropPromote: ws.pending_auto_drop_promote,
+    });
+  }
+
+  async updatePendingAutomation(
+    id: string,
+    input: PendingAutomation,
+  ): Promise<PendingAutomation> {
+    const next = normalizePendingAutomation(input);
+    const row = await this.workspaceRepo.update(id, {
+      pending_auto_scan: next.autoScan,
+      pending_auto_drop_promote: next.autoDropPromote,
+    });
+    if (!row) throw new WorkspaceNotFoundError(id);
+    return normalizePendingAutomation({
+      autoScan: row.pending_auto_scan,
+      autoDropPromote: row.pending_auto_drop_promote,
+    });
   }
 
   listRoles(): Promise<Tables<'roles'>[]> {

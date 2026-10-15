@@ -1322,6 +1322,7 @@ describe('FileService.processUpload', () => {
         entered_by: null,
       }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
   });
 
@@ -1365,11 +1366,13 @@ describe('FileService.processUpload', () => {
         entered_by: 'uploader-uuid',
       }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(companyService.createFromDTO).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ target: 'Beta Ltd', segment: 'Healthcare' }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
       'file-1',
@@ -1417,6 +1420,7 @@ describe('FileService.processUpload', () => {
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
       expect.objectContaining({ target: 'Beta Ltd' }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(companyService.updateFromDTO).not.toHaveBeenCalled();
     expect(fileRepo.updatePartial).toHaveBeenCalledWith(
@@ -1460,6 +1464,62 @@ describe('FileService.processUpload', () => {
     expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ companyId: 'company-b', source: 'prospectus' }),
     );
+    await vi.waitFor(() => {
+      expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ companyId: 'company-b' }),
+      );
+    });
+  });
+
+  it('hands a newly created company to the workspace auto-scan instead of screening it', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: { company_name: 'Beta Ltd' },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-b',
+      target: 'Beta Ltd',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-b', target: 'Beta Ltd', matched_track_ids: ['track-1'] } as never),
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+    const onCompanyEnteredPending = vi.fn().mockResolvedValue(true);
+    service.setPendingAutoScanService({ onCompanyEnteredPending } as never);
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
+    expect(onCompanyEnteredPending).toHaveBeenCalledWith('company-b');
+    // Screening is fire-and-forget; let it run before asserting it didn't.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screeningRepo.insert).not.toHaveBeenCalled();
+    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('falls back to its own screening when auto-scan is off', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({
+      file_type: 'prospectus',
+      prospectus_summary: { company_name: 'Beta Ltd' },
+    } as never);
+    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({
+      id: 'company-b',
+      target: 'Beta Ltd',
+    } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ id: 'company-b', target: 'Beta Ltd', matched_track_ids: ['track-1'] } as never),
+    );
+    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
+    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
+    vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+    service.setPendingAutoScanService({
+      onCompanyEnteredPending: vi.fn().mockResolvedValue(false),
+    } as never);
+
+    await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
+
     await vi.waitFor(() => {
       expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({ companyId: 'company-b' }),
@@ -4418,6 +4478,7 @@ describe('FileService.processUpload — company_assigned emails', () => {
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
       expect.objectContaining({ entered_by: 'user-jane' }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(enqueueEmail).toHaveBeenCalledTimes(1);
     expect(enqueueEmail).toHaveBeenCalledWith({
@@ -4438,6 +4499,7 @@ describe('FileService.processUpload — company_assigned emails', () => {
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
       expect.objectContaining({ entered_by: null }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(enqueueEmail).not.toHaveBeenCalled();
   });
@@ -4458,6 +4520,7 @@ describe('FileService.processUpload — company_assigned emails', () => {
     expect(companyService.createFromDTO).toHaveBeenCalledWith(
       expect.objectContaining({ entered_by: 'uploader-uuid' }),
       'auto_created_from_file:file-1',
+      { deferPendingArrival: true },
     );
     expect(enqueueEmail).not.toHaveBeenCalled();
   });

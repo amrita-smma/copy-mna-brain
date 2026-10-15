@@ -103,6 +103,7 @@ import { FundAiOpinionService } from './fundAiOpinionService';
 import { AIScreeningService } from './aiScreeningService';
 import { MarketScreeningService } from './marketScreeningService';
 import { TrackMatchingService } from './trackMatchingService';
+import { PendingAutoScanService } from './pendingAutoScanService';
 import { SlideService } from './slideService';
 import { CompanyCardSlideService } from './companyCardSlideService';
 import { CompanyVoteService } from './companyVoteService';
@@ -165,6 +166,7 @@ export interface Container {
   aiScreeningService: AIScreeningService;
   marketScreeningService: MarketScreeningService;
   trackMatchingService: TrackMatchingService;
+  pendingAutoScanService: PendingAutoScanService;
   slideService: SlideService;
   companyCardSlideService: CompanyCardSlideService;
   companyVoteService: CompanyVoteService;
@@ -351,6 +353,26 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     userRepo,
   );
   fileService.setWorkspaceRepo(workspaceRepo);
+
+  const pendingAutoScanService = new PendingAutoScanService(
+    workspaceId,
+    companyRepo,
+    screeningRepo,
+    criteriaRepo,
+    thesisRepo,
+    jobRepo,
+    workspaceService,
+    companyService,
+    screeningService,
+    aiScreeningService,
+    trackMatchingService,
+    jobDispatcher,
+  );
+  // Setters, not constructor args: PendingAutoScanService depends on both.
+  companyService.setPendingArrivalHandler((companyId) =>
+    pendingAutoScanService.onCompanyEnteredPending(companyId),
+  );
+  fileService.setPendingAutoScanService(pendingAutoScanService);
 
   const employerRepo = new EmployerRepository(db);
   const correspondentRepo = new CorrespondentRepository(db);
@@ -650,6 +672,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     aiScreeningService,
     marketScreeningService,
     trackMatchingService,
+    pendingAutoScanService,
     slideService,
     companyCardSlideService,
     companyVoteService,

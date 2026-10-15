@@ -20,6 +20,7 @@ import { usePipelineStages } from '@/hooks/usePipelineStages';
 import { FIRST_STAGE_KEY, screeningTargetKey } from '@/lib/pipeline/stages';
 import { DealStage } from '@/lib/types';
 import { getScreenings } from '@/lib/api/pipeline';
+import { screeningVerdict, type ScreeningVerdict } from '@/lib/screening/verdict';
 
 interface Screening {
   id: string;
@@ -159,30 +160,20 @@ export default function ScreeningProgressPanel({
       }
     });
 
-    // Calculate all_passed after all screenings are processed
-    // Pass: min 3 pass AND max 1 fail
-    // Failed: at least 1 fail (and doesn't qualify as Pass)
-    // Inconclusive: at least 3 inconclusive (or default fallback)
     grouped.forEach((summary) => {
-      summary.all_passed =
-        summary.passed_criteria >= 3 && summary.failed_criteria <= 1;
+      summary.all_passed = getOverallStatus(summary) === 'pass';
     });
 
     return Array.from(grouped.values());
   };
 
-  const getOverallStatus = (summary: CompanyScreeningSummary): 'pass' | 'fail' | 'inconclusive' => {
-    // Pass: minimum 3 pass AND maximum 1 fail
-    if (summary.passed_criteria >= 3 && summary.failed_criteria <= 1) {
-      return 'pass';
-    }
-    // Failed: at least 1 fail (but didn't qualify as pass)
-    if (summary.failed_criteria >= 1) {
-      return 'fail';
-    }
-    // Inconclusive: everything else (e.g. 3+ inconclusive, or not enough passes)
-    return 'inconclusive';
-  };
+  // The verdict rule is shared with the server's Pending Confirmation
+  // auto drop/promote pass (src/lib/screening/verdict.ts).
+  const getOverallStatus = (summary: CompanyScreeningSummary): ScreeningVerdict =>
+    screeningVerdict({
+      passed: summary.passed_criteria,
+      failed: summary.failed_criteria,
+    });
 
   const handlePromoteClick = (companyId: string, companyName: string) => {
     setPromotingCompany({ id: companyId, name: companyName, stage: 'L0' });

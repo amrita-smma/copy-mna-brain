@@ -161,7 +161,7 @@ export interface PipelineMoveItem {
 }
 
 /**
- * Move-menu items for a live or dropped pipeline row: Dropped · Move Next ·
+ * Move-menu items for a live or dropped pipeline row: Drop Deal · Move Next ·
  * Move Back, then Run AI Screening; a dropped row only offers Restore. Moves
  * with no target stage (first / last stage) are omitted.
  */
@@ -196,7 +196,7 @@ export function pipelineMoveItems({
   const items: PipelineMoveItem[] = [
     {
       key: "drop",
-      label: "Dropped",
+      label: "Drop Deal",
       icon: XCircle,
       onSelect: onDrop,
       destructive: true,

@@ -46,3 +46,13 @@ describe('ScreeningRepository.markFailedIfPending', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('ScreeningRepository.findByCompanyIds', () => {
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    vi.clearAllMocks();
+    const repo = new ScreeningRepository(mockDb as never, 'workspace-1');
+
+    await expect(repo.findByCompanyIds([])).resolves.toEqual([]);
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+});

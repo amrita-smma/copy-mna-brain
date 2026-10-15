@@ -1143,6 +1143,39 @@ export class CompanyRepository {
       );
   }
 
+  /**
+   * Queue the Pending Confirmation auto-scan for these companies (drained by
+   * `/api/cron/pending-auto-scan`). Only active `unreviewed` rows are marked.
+   * A `force` request is never downgraded by a later non-force one.
+   */
+  async requestAutoScan(ids: string[], force: boolean): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.markAutoScan(inArray(companies.id, ids), force);
+  }
+
+  /** Queue the auto-scan for every active company in Pending Confirmation. */
+  async requestAutoScanForPending(force: boolean): Promise<number> {
+    return this.markAutoScan(undefined, force);
+  }
+
+  private async markAutoScan(scope: SQL | undefined, force: boolean): Promise<number> {
+    const conditions = [
+      eq(companies.workspace_id, this.workspaceId),
+      eq(companies.pipeline_stage, 'unreviewed'),
+      eq(companies.status, 'active'),
+    ];
+    if (scope) conditions.push(scope);
+    const rows = await this.db
+      .update(companies)
+      .set({
+        auto_scan_requested_at: new Date().toISOString(),
+        auto_scan_force: force ? true : sql`${companies.auto_scan_force}`,
+      } as TablesUpdate<'companies'>)
+      .where(and(...conditions))
+      .returning({ id: companies.id });
+    return rows.length;
+  }
+
   async countUnreviewed(source?: string): Promise<number> {
     const conditions = [
       eq(companies.pipeline_stage, 'unreviewed'),

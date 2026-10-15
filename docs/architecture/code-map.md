@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 201 | `src/app/api/**/route.ts` |
-| Services | 80 | `src/lib/services/` |
-| Repositories | 75 | `src/lib/repositories/` |
+| API routes | 204 | `src/app/api/**/route.ts` |
+| Services | 81 | `src/lib/services/` |
+| Repositories | 76 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
-| Job handlers | 10 | `src/lib/jobs/handlers/` |
+| Job handlers | 11 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 155 | `drizzle/migrations/` |
+| Migrations (app) | 156 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -163,6 +163,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
+| `/api/cron/pending-auto-scan` | GET | — |
 | `/api/cron/resurface-deals` | GET | `dealResurfaceService` |
 | `/api/cron/task-reminders` | GET | `userTaskService`, `workspaceService` |
 | `/api/dashboard/activity` | GET | `dashboardActivityService` |
@@ -237,6 +238,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/investment-thesis/active` | POST | `investmentThesisService` |
 | `/api/jobs/[id]` | GET | `jobService` |
 | `/api/market-screening` | GET, POST | — |
+| `/api/pending-automation` | GET, PUT | `workspaceService` |
+| `/api/pending-automation/scan` | POST | `pendingAutoScanService` |
 | `/api/pipeline-heading` | GET, PUT | `workspaceService` |
 | `/api/pipeline-stages` | GET, POST, PATCH | `pipelineStageService` |
 | `/api/pipeline-stages/[key]` | PATCH, DELETE | `pipelineStageService` |
@@ -300,7 +303,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 66 keys. Wire new services in
+`Container` exposes 67 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -368,6 +371,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `marketScreeningService.ts` | `MarketScreeningService` | ❌ |
 | `notificationService.ts` | `NotificationService` | ✅ |
 | `password.ts` | — | ✅ |
+| `pendingAutoScanService.ts` | `PendingAutoScanService` | ✅ |
 | `pipelineStageService.ts` | `PipelineStageValidationError`, `PipelineStageNotFoundError`, `PipelineStageLockedError`, `PipelineStageService` | ✅ |
 | `profileService.ts` | `ProfileService` | ✅ |
 | `recentFileService.ts` | `RecentFileService` | ✅ |
@@ -400,6 +404,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `apiChatConversationRepository.ts` | `ApiChatConversationRepository` | ✅ |
 | `apiKeyRepository.ts` | `ApiKeyRepository` | ✅ |
 | `appSettingsRepository.ts` | `AppSettingsRepository` | ✅ |
+| `autoScanQueueRepository.ts` | `AutoScanQueueRepository` | ✅ |
 | `companyAnalysisRepository.ts` | `CompanyAnalysisRepository` | ✅ |
 | `companyFinancialRepository.ts` | `CompanyFinancialRepository` | ✅ |
 | `companyFxAdjustmentRepository.ts` | `CompanyFxAdjustmentRepository` | ✅ |
@@ -493,6 +498,6 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 Queue work through `JobDispatcher`; never block a request on slow I/O.
 
-**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`
+**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`
 
-**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`
+**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `pendingAutoScan`, `sendEmail`, `slideGeneration`, `trackMatching`
