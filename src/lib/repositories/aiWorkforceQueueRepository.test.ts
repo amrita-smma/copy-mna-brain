@@ -360,6 +360,36 @@ describe('AiWorkforceQueueRepository.retryById', () => {
     expect(values).not.toHaveProperty('trigger_meta');
   });
 
+  it('carries trigger_meta for ai_screening retries so in-flight checks and cleanup keep working', async () => {
+    const { db, selectChain, insertChain } = makeMockDb();
+    selectChain.limit.mockResolvedValueOnce([
+      {
+        id: 'orig',
+        agent_name: 'ai_screening',
+        trigger_source: 'api',
+        input: { company_id: 'c1', title: 'AI Screening: Acme' },
+        trigger_meta: { company_id: 'c1', mode: 'tracks', force: true },
+        priority: 0,
+        parent_run_id: null,
+        origin_routine_id: null,
+        triggered_by_user_id: 'u1',
+        title: 'AI Screening: Acme',
+        status: 'failed',
+        workspace_id: 'workspace-1',
+      },
+    ]);
+    insertChain.returning.mockResolvedValueOnce([{ id: 'new' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await repo.retryById('orig');
+
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger_meta: { company_id: 'c1', mode: 'tracks', force: true },
+      }),
+    );
+  });
+
   it('falls back to the original triggered_by_user_id when no userId is supplied', async () => {
     const { db, selectChain, insertChain } = makeMockDb();
     selectChain.limit.mockResolvedValueOnce([
@@ -1116,6 +1146,17 @@ describe('AiWorkforceQueueRepository.findActiveCompanyIds', () => {
 
     expect(result).toEqual(new Set(['c-2']));
   });
+
+  it('for ai_screening, matches company_id on input when trigger_meta is empty (retried row)', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.where.mockResolvedValueOnce([{ company_id: 'c-2' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findActiveCompanyIds('ai_screening', ['c-1', 'c-2']);
+
+    expect(result).toEqual(new Set(['c-2']));
+    expect(db.select).toHaveBeenCalledOnce();
+  });
 });
 
 describe('isTerminalWorkforceStatus', () => {
@@ -1239,5 +1280,46 @@ describe('AiWorkforceQueueRepository.listAwaitingDecisionByUser', () => {
 
     await repo.listAwaitingDecisionByUser('user-1', 3);
     expect(chain.limit).toHaveBeenLastCalledWith(3);
+  });
+});
+
+describe('AiWorkforceQueueRepository.findLatestPerCompanyAtStages', () => {
+  function makeJoinDistinctDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn(),
+    };
+    const db = { selectDistinctOn: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('returns [] without hitting the DB when no stage is given', async () => {
+    const { db } = makeJoinDistinctDb();
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    expect(await repo.findLatestPerCompanyAtStages('ai_screening', [])).toEqual([]);
+    expect(db.selectDistinctOn).not.toHaveBeenCalled();
+  });
+
+  it('answers every company in one query, scoped to the workspace’s active companies at the stages', async () => {
+    const { db, chain } = makeJoinDistinctDb();
+    const row = { run: { id: 'run-1', status: 'running' }, company: { id: 'c1' } };
+    chain.orderBy.mockResolvedValueOnce([row]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    const rows = await repo.findLatestPerCompanyAtStages('ai_screening', ['unreviewed', 'L0']);
+
+    expect(rows).toEqual([row]);
+    expect(db.selectDistinctOn).toHaveBeenCalledTimes(1);
+    const clause = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(clause.params).toEqual(
+      expect.arrayContaining(['ai_screening', 'workspace-1', 'active', 'unreviewed', 'L0']),
+    );
+    // The distinct-on key leads the sort, then newest first.
+    const [first, second] = chain.orderBy.mock.calls[0] as SQL[];
+    expect(new PgDialect().sqlToQuery(first).sql).toMatch(/COALESCE[\s\S]*company_id[\s\S]*asc/i);
+    expect(new PgDialect().sqlToQuery(second).sql).toMatch(/created_at.*desc/i);
   });
 });

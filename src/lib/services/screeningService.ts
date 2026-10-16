@@ -11,7 +11,7 @@ export class ScreeningService {
     private readonly workspaceId: string,
   ) {}
 
-  findAll(opts: { companyId?: string; onlyL0?: boolean }) {
+  findAll(opts: { companyId?: string; inScreening?: boolean }) {
     return this.screeningRepo.findAllWithRelations(opts);
   }
 

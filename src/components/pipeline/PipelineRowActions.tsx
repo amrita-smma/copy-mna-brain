@@ -160,10 +160,45 @@ export interface PipelineMoveItem {
   separatorBefore?: boolean;
 }
 
+/** A row's Run AI Screening state — offered on Pending Confirmation rows only. */
+export interface RowScreening {
+  running: boolean;
+  onRun: () => void;
+}
+
+/**
+ * The Run AI Screening menu item for a Pending Confirmation row. The run
+ * matches the company to tracks when it has none, so it is never disabled for
+ * want of matched tracks.
+ */
+export function screeningMoveItem(screening: RowScreening): PipelineMoveItem {
+  return screening.running
+    ? {
+        key: "screening",
+        label: "AI Screening Running",
+        icon: Loader2,
+        iconClassName: "animate-spin text-blue-600",
+        onSelect: () => {},
+        disabled: true,
+        separatorBefore: true,
+      }
+    : {
+        key: "screening",
+        label: "Run AI Screening",
+        icon: Sparkles,
+        iconClassName: "text-blue-600",
+        onSelect: screening.onRun,
+        title:
+          "Same as Scan now for this company: match tracks, AI-screen, then auto drop or promote to L0 when your workspace has that enabled",
+        separatorBefore: true,
+      };
+}
+
 /**
  * Move-menu items for a live or dropped pipeline row: Drop Deal · Move Next ·
- * Move Back, then Run AI Screening; a dropped row only offers Restore. Moves
- * with no target stage (first / last stage) are omitted.
+ * Move Back, then Run AI Screening when given (Pending Confirmation rows); a
+ * dropped row only offers Restore. Moves with no target stage (first / last
+ * stage) are omitted.
  */
 export function pipelineMoveItems({
   isDropped,
@@ -185,8 +220,8 @@ export function pipelineMoveItems({
   onRestore: () => void;
   /** Maps a stage key to the code users see (`usePipelineStages().code`). */
   code: (key: string) => string;
-  /** Omitted when the table does not offer AI screening. */
-  screening?: { running: boolean; hasMatchedTracks: boolean; onRun: () => void };
+  /** Pending Confirmation rows only; omitted elsewhere. */
+  screening?: RowScreening;
 }): PipelineMoveItem[] {
   if (isDropped) {
     return [
@@ -218,32 +253,7 @@ export function pipelineMoveItems({
       onSelect: onDemote,
     });
   }
-  if (screening) {
-    items.push(
-      screening.running
-        ? {
-            key: "screening",
-            label: "AI Screening Running",
-            icon: Loader2,
-            iconClassName: "animate-spin text-blue-600",
-            onSelect: () => {},
-            disabled: true,
-            separatorBefore: true,
-          }
-        : {
-            key: "screening",
-            label: "Run AI Screening",
-            icon: Sparkles,
-            iconClassName: "text-blue-600",
-            onSelect: screening.onRun,
-            disabled: !screening.hasMatchedTracks,
-            title: screening.hasMatchedTracks
-              ? undefined
-              : "No matched tracks to screen against",
-            separatorBefore: true,
-          },
-    );
-  }
+  if (screening) items.push(screeningMoveItem(screening));
   return items;
 }
 

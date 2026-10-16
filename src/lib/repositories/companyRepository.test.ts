@@ -1049,43 +1049,24 @@ describe('CompanyRepository.count', () => {
   });
 });
 
-describe('CompanyRepository.requestAutoScan', () => {
-  /** Build a db whose `update(...).set(...).where(...).returning(...)` resolves to `rows`. */
-  function makeUpdateDb(rows: Array<{ id: string }>) {
-    const returning = vi.fn().mockResolvedValue(rows);
-    const where = vi.fn().mockReturnValue({ returning });
-    const set = vi.fn().mockReturnValue({ where });
-    const update = vi.fn().mockReturnValue({ set });
-    return { db: { update } as never, update, set, where };
-  }
+describe('CompanyRepository.findByIds', () => {
+  it('returns [] without hitting the DB when the id list is empty', async () => {
+    const select = vi.fn();
+    const repo = new CompanyRepository({ select } as never, 'workspace-1');
 
-  it('returns 0 without hitting the DB when the id list is empty', async () => {
-    const { db, update } = makeUpdateDb([]);
-    const repo = new CompanyRepository(db, 'workspace-1');
-
-    await expect(repo.requestAutoScan([], true)).resolves.toBe(0);
-    expect(update).not.toHaveBeenCalled();
+    await expect(repo.findByIds([])).resolves.toEqual([]);
+    expect(select).not.toHaveBeenCalled();
   });
 
-  it('marks only active Pending Confirmation rows in the workspace', async () => {
-    const { db, set, where } = makeUpdateDb([{ id: 'c1' }]);
-    const repo = new CompanyRepository(db, 'workspace-1');
+  it('reads the companies in one workspace-scoped query', async () => {
+    const orderBy = vi.fn().mockResolvedValue([{ id: 'c1' }]);
+    const where = vi.fn().mockReturnValue({ orderBy });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const repo = new CompanyRepository({ select } as never, 'workspace-1');
 
-    await expect(repo.requestAutoScan(['c1', 'c2'], true)).resolves.toBe(1);
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({ auto_scan_force: true, auto_scan_requested_at: expect.any(String) }),
-    );
+    await expect(repo.findByIds(['c1', 'c2'])).resolves.toEqual([{ id: 'c1' }]);
     const clause = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
-    expect(clause.params).toEqual(
-      expect.arrayContaining(['workspace-1', 'unreviewed', 'active', 'c1', 'c2']),
-    );
-  });
-
-  it('queues the whole bucket in one set-based update', async () => {
-    const { db, update } = makeUpdateDb([{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }]);
-    const repo = new CompanyRepository(db, 'workspace-1');
-
-    await expect(repo.requestAutoScanForPending(false)).resolves.toBe(3);
-    expect(update).toHaveBeenCalledTimes(1);
+    expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'workspace-1']));
   });
 });

@@ -57,7 +57,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import PromoteDialog from "@/components/pipeline/PromoteDialog";
 import { DealStage, L1Status } from "@/lib/types";
-import CompanyDetailDialog from "@/components/pipeline/CompanyDetailDialog";
+import CompanyDetailDialog, {
+  type CompanyDialogTab,
+} from "@/components/pipeline/CompanyDetailDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
 import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
@@ -111,6 +113,8 @@ import {
   type SourceType,
 } from "@/lib/pipeline/sourceType";
 import { screeningTargetKey } from "@/lib/pipeline/stages";
+import { mergeRunningScreeningCompanyIds } from "@/lib/screening/runningIndicator";
+import type { ScreeningTaskStatus } from "@/lib/services/aiScreeningService";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import { isDealLive } from "@/lib/dealStatus";
 import posthog from "posthog-js";
@@ -121,12 +125,9 @@ import {
   updateCompany,
   getTracks,
   analyzeAiOpinion,
+  startAIScreening,
   type Track,
 } from "@/lib/api/pipeline";
-import {
-  runAIScreeningForCompanyTracks,
-  toAIScreeningCompany,
-} from "@/lib/aiScreeningClient";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDealType } from "@/lib/companies/dealTypes";
@@ -302,6 +303,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // When true, the company detail dialog opens directly into the Details tab
   // with the Company Information card in inline edit mode (the "Update" action).
   const [openDetailInEdit, setOpenDetailInEdit] = useState(false);
+  // Tab the detail dialog opens on; the AI Screening panel opens it on the
+  // company's Pre-pipeline Filters. Reset with the selection on close.
+  const [detailInitialTab, setDetailInitialTab] = useState<CompanyDialogTab | null>(null);
   const [marketScreeningRefresh, setMarketScreeningRefresh] = useState(0);
   const [screeningProgressRefresh, setScreeningProgressRefresh] = useState(0);
   const [pendingScreeningCompanyIds, setPendingScreeningCompanyIds] = useState<
@@ -309,6 +313,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   >(new Set());
   const [startingScreeningCompanyIds, setStartingScreeningCompanyIds] =
     useState<Set<string>>(new Set());
+  const [screeningTasks, setScreeningTasks] = useState<ScreeningTaskStatus[]>(
+    [],
+  );
   // Optimistic "AI Opinion is being analyzed" ids — set on click before the
   // companies refetch reflects ai_opinion_status='processing'.
   const [analyzingAiOpinionIds, setAnalyzingAiOpinionIds] = useState<
@@ -966,7 +973,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   useSetPageDetail(
     useMemo(() => {
       if (!isSourcing && pipelineTab === 'screening') {
-        return 'The Deal Pipeline page, AI Screening tab: the progress and results of AI screening runs on L0 deals against their matched tracks.';
+        return 'The Deal Pipeline page, AI Screening tab: the progress and results of AI screening runs on Pending Confirmation and L0 deals against their matched tracks.';
       }
       if (isSourcing) {
         if (sourcingTab === 'scanning') {
@@ -1059,11 +1066,19 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     setCurrentPage(1);
   }, [stageView, searchQuery, sectorFilter, l1StatusFilter]);
 
-  // Live onlyL0 pending-screening set over SSE (replaces a 5s poll). One
-  // connection pushes the L0 screenings list whenever any state changes; we
+  // Active AI Workforce screening tasks — a pending_scan run can be queued or
+  // matching tracks before any screening row exists, so row spinners also need
+  // this stream (see mergeRunningScreeningCompanyIds).
+  useEventStream<ScreeningTaskStatus[]>(
+    "/api/ai-screening/tasks/stream",
+    setScreeningTasks,
+  );
+
+  // Live pending-screening set over SSE (replaces a 5s poll). One
+  // connection pushes the Pending Confirmation + L0 screenings list whenever any state changes; we
   // derive the pending company ids and reconcile the optimistic "starting" set.
   useEventStream<Array<{ state: string; company_id: string }>>(
-    "/api/screenings/stream?onlyL0=true",
+    "/api/screenings/stream?inScreening=true",
     (data) => {
       const pendingIds = new Set(
         data
@@ -1083,10 +1098,11 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     },
   );
 
-  const runningScreeningCompanyIds = new Set([
-    ...pendingScreeningCompanyIds,
-    ...startingScreeningCompanyIds,
-  ]);
+  const runningScreeningCompanyIds = mergeRunningScreeningCompanyIds(
+    pendingScreeningCompanyIds,
+    startingScreeningCompanyIds,
+    screeningTasks,
+  );
 
   // While any company has an in-flight AI Opinion run, subscribe over SSE
   // (replaces a 5s poll). The stream fires when the set of processing companies
@@ -1107,18 +1123,19 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     setStartingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
 
     try {
-      const { trackCount } = await runAIScreeningForCompanyTracks(
-        toAIScreeningCompany(company),
-        tracks,
-      );
+      const { alreadyQueued, trackCount } = await startAIScreening(company.id);
       setStartingScreeningCompanyIds((prev) => {
         const next = new Set(prev);
         next.delete(company.id);
         return next;
       });
-      setPendingScreeningCompanyIds((prev) => new Set(prev).add(company.id));
+      const name = companyDisplayName(company, "this company");
       toast.success(
-        `Started AI screening for ${companyDisplayName(company, "this company")} across ${trackCount} ${trackCount === 1 ? "track" : "tracks"}`,
+        alreadyQueued
+          ? `AI screening for ${name} is already queued in AI Workforce`
+          : trackCount > 0
+            ? `Queued AI screening for ${name} across ${trackCount} ${trackCount === 1 ? "track" : "tracks"} — follow it in AI Workforce`
+            : `Queued AI screening for ${name} — it will match tracks first; follow it in AI Workforce`,
       );
       setScreeningProgressRefresh((prev) => prev + 1);
       fetchCompanies({ silent: true });
@@ -1264,6 +1281,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       pipeline_stage: company.pipeline_stage,
     });
     setOpenDetailInEdit(false);
+    setDetailInitialTab(null);
     setSelectedCompany(company);
   };
 
@@ -1288,6 +1306,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     onStatusChange: handleStatusChange,
     onUpdate: (company: PipelineCompany) => {
       setOpenDetailInEdit(true);
+      setDetailInitialTab(null);
       setSelectedCompany(company);
     },
     onPromote: (company: PipelineCompany) => {
@@ -1578,17 +1597,21 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             </Tabs>
 
             {pipelineTab === "screening" ? (
-              // AI screening runs on L0 deals; the panel lists them whatever
-              // stage the Pipeline tab is filtered to.
+              // The panel lists Pending Confirmation and L0 screenings; row
+              // Run AI Screening is Pending Confirmation only (Scan now path).
               <ScreeningProgressPanel
                 refreshTrigger={screeningProgressRefresh}
+                tasks={screeningTasks}
                 onScreeningComplete={() => {
                   fetchCompanies();
                 }}
                 onCompanyClick={(companyId) => {
+                  // `companies` holds every non-market-screening deal, so a
+                  // Pending Confirmation or L0 row is always here.
                   const company = companies.find((c) => c.id === companyId);
                   if (company) {
                     setOpenDetailInEdit(false);
+                    setDetailInitialTab("filters");
                     setSelectedCompany(company);
                   }
                 }}
@@ -1915,10 +1938,11 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
               if (!open) {
                 setSelectedCompany(null);
                 setOpenDetailInEdit(false);
+                setDetailInitialTab(null);
               }
             }}
             onUpdate={() => refetchAfterCompanyUpdate(selectedCompany.id)}
-            initialTab={openDetailInEdit ? "details" : "overview"}
+            initialTab={openDetailInEdit ? "details" : (detailInitialTab ?? "overview")}
             initialEditing={openDetailInEdit}
           />
         )}
@@ -1978,6 +2002,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
             if (company) {
               setShowTriageModal(false);
               setOpenDetailInEdit(true);
+              setDetailInitialTab(null);
               setSelectedCompany(company);
             }
           }}

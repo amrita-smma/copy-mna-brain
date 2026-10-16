@@ -541,11 +541,6 @@ export default function OutboundCompaniesTable({
           // Per row, not per view: the "All" status view mixes live and
           // dropped deals.
           const rowDropped = company.status === "dropped";
-          // AI screening runs only against a company's explicitly matched
-          // tracks; with none matched there is nothing to screen, so the action
-          // is disabled.
-          const hasMatchedTracks =
-            persistedTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           return (
             <TableRow
@@ -580,11 +575,13 @@ export default function OutboundCompaniesTable({
                     onDrop: () => onDrop(company),
                     onRestore: () => onRestore(company),
                     code: pipelineStages.code,
-                    screening: onRunScreening && {
-                      running: !!runningScreeningCompanyIds?.has(company.id),
-                      hasMatchedTracks,
-                      onRun: () => onRunScreening(company),
-                    },
+                    screening:
+                      onRunScreening && company.pipeline_stage === "unreviewed"
+                        ? {
+                            running: !!runningScreeningCompanyIds?.has(company.id),
+                            onRun: () => onRunScreening(company),
+                          }
+                        : undefined,
                   })}
                 />
               </TableCell>

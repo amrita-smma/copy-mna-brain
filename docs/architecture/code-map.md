@@ -14,12 +14,12 @@ pieces fit together and where new code goes. This file is the lookup table.
 |---|---|---|
 | API routes | 204 | `src/app/api/**/route.ts` |
 | Services | 81 | `src/lib/services/` |
-| Repositories | 76 | `src/lib/repositories/` |
+| Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
-| Job handlers | 11 | `src/lib/jobs/handlers/` |
+| Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 156 | `drizzle/migrations/` |
+| Migrations (app) | 157 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -99,6 +99,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/agents` | GET | — |
 | `/api/ai-opinion` | POST | `aiOpinionService` |
 | `/api/ai-screening` | GET, POST | `aiScreeningService` |
+| `/api/ai-screening/tasks/stream` | GET | `aiScreeningService` |
 | `/api/auth/[...nextauth]` | — | — |
 | `/api/auth/api-keys` | GET, POST | `apiKeyService` |
 | `/api/auth/api-keys/[id]` | GET, PATCH, DELETE | `apiKeyService` |
@@ -163,7 +164,6 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
-| `/api/cron/pending-auto-scan` | GET | — |
 | `/api/cron/resurface-deals` | GET | `dealResurfaceService` |
 | `/api/cron/task-reminders` | GET | `userTaskService`, `workspaceService` |
 | `/api/dashboard/activity` | GET | `dashboardActivityService` |
@@ -309,7 +309,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | File | Exported classes | Tests |
 |---|---|---|
 | `aiOpinionService.ts` | `AiOpinionService` | ✅ |
-| `aiScreeningService.ts` | `AIScreeningService` | ❌ |
+| `aiScreeningService.ts` | `NotPendingConfirmationError`, `AIScreeningService` | ✅ |
 | `aiWorkforceService.ts` | `TaskNotFoundError`, `TaskOwnershipError`, `TaskBusyError`, `AiWorkforceService` | ✅ |
 | `alphasenseToolCallService.ts` | `AlphasenseToolCallService` | ✅ |
 | `apiChatConversationService.ts` | `ApiChatConversationNotFoundError`, `ApiChatConversationService` | ✅ |
@@ -390,7 +390,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `userTaskService.ts` | `UserTaskValidationError`, `UserTaskService` | ✅ |
 | `workspaceService.ts` | `RoleNotFoundError`, `NotSuperadminError`, `WorkspaceNotFoundError`, `WorkspaceService` | ✅ |
 
-**Services with no `.test.ts`:** `aiScreeningService.ts`, `htmlToPptxElements.ts`, `jobDispatcher.ts`, `marketScreeningService.ts`, `slideService.ts`, `trackVariableService.ts`
+**Services with no `.test.ts`:** `htmlToPptxElements.ts`, `jobDispatcher.ts`, `marketScreeningService.ts`, `slideService.ts`, `trackVariableService.ts`
 
 ## Repositories
 
@@ -404,7 +404,6 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `apiChatConversationRepository.ts` | `ApiChatConversationRepository` | ✅ |
 | `apiKeyRepository.ts` | `ApiKeyRepository` | ✅ |
 | `appSettingsRepository.ts` | `AppSettingsRepository` | ✅ |
-| `autoScanQueueRepository.ts` | `AutoScanQueueRepository` | ✅ |
 | `companyAnalysisRepository.ts` | `CompanyAnalysisRepository` | ✅ |
 | `companyFinancialRepository.ts` | `CompanyFinancialRepository` | ✅ |
 | `companyFxAdjustmentRepository.ts` | `CompanyFxAdjustmentRepository` | ✅ |
@@ -484,7 +483,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 74 | 67/74 | ✅ |
+| `analysis` | 75 | 68/75 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 3 | 3/3 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
@@ -500,4 +499,4 @@ Queue work through `JobDispatcher`; never block a request on slow I/O.
 
 **`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`
 
-**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `pendingAutoScan`, `sendEmail`, `slideGeneration`, `trackMatching`
+**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`

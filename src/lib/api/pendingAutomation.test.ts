@@ -25,8 +25,8 @@ describe('pending automation client', () => {
   });
 
   it('starts a scan of every pending company with a POST', async () => {
-    apiRequestMock.mockResolvedValueOnce({ queued: 4 });
-    await expect(scanPendingNow()).resolves.toEqual({ queued: 4 });
+    apiRequestMock.mockResolvedValueOnce({ queued: 4, alreadyQueued: 0 });
+    await expect(scanPendingNow()).resolves.toEqual({ queued: 4, alreadyQueued: 0 });
     expect(apiRequestMock).toHaveBeenCalledWith('/api/pending-automation/scan', {
       method: 'POST',
     });

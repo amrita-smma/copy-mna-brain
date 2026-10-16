@@ -182,7 +182,7 @@ function buildCompanyContext(
 async function writeScreeningResult(
   screeningRepo: ScreeningRepository,
   screeningId: string,
-  jobId: string,
+  jobId: string | null,
   result: ScreeningResult,
 ): Promise<void> {
   const newState = result.result === 'error' ? 'failed' : 'completed';
@@ -194,12 +194,19 @@ async function writeScreeningResult(
   } as Tables<'screenings'>);
 }
 
+/**
+ * Screen one criterion and write the result to its screening row. Runs inside
+ * an `ai_screening` AI Workforce task (the `run_ai_screening` tool), which has
+ * no jobs row — `job` is only set by legacy `ai_screening` jobs.
+ */
 export async function runAIScreening(
   payload: AIScreeningPayload,
-  deps: { db: DbClient; job: Tables<'jobs'> },
+  deps: { db: DbClient; job?: Tables<'jobs'>; workspaceId?: string },
 ): Promise<AIScreeningJobResult> {
   const { companyId, criteriaId, criteriaPrompt, company, screeningId } = payload;
-  const workspaceId = deps.job.workspace_id ?? (await getActiveWorkspaceId());
+  const jobId = deps.job?.id ?? null;
+  const workspaceId =
+    deps.workspaceId ?? deps.job?.workspace_id ?? (await getActiveWorkspaceId());
   const screeningRepo = new ScreeningRepository(deps.db, workspaceId);
   let resultWritten = false;
 
@@ -255,7 +262,7 @@ export async function runAIScreening(
         ? 'Rate limit exceeded. Request will be retried automatically.'
         : `Agent error: ${errorMsg}`;
       const screeningResult: ScreeningResult = { result: 'error', remarks };
-      await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
+      await writeScreeningResult(screeningRepo, screeningId, jobId, screeningResult);
       resultWritten = true;
       throw new Error(remarks);
     }
@@ -274,7 +281,7 @@ export async function runAIScreening(
           screeningResult = ScreeningResultSchema.parse(JSON.parse(jsonMatch[0]));
         } catch {
           console.error('[aiScreening] failed to parse agent output', {
-            jobId: deps.job.id,
+            jobId,
             screeningId,
             contentIsArray: Array.isArray(msg?.content),
             contentPreview: content.slice(0, 500),
@@ -289,7 +296,7 @@ export async function runAIScreening(
       }
     }
 
-    await writeScreeningResult(screeningRepo, screeningId, deps.job.id, screeningResult);
+    await writeScreeningResult(screeningRepo, screeningId, jobId, screeningResult);
     resultWritten = true;
 
     captureWorkspaceEvent({
@@ -313,7 +320,7 @@ export async function runAIScreening(
       try {
         await screeningRepo.markFailedIfPending(
           screeningId,
-          `AI screening did not produce a result for job ${deps.job.id}`,
+          `AI screening did not produce a result${jobId ? ` for job ${jobId}` : ''}`,
         );
       } catch (mirrorErr) {
         console.error(

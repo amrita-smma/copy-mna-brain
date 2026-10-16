@@ -21,10 +21,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/pending-auto-scan",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/resurface-deals",
       "schedule": "0 * * * *"
     },

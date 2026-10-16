@@ -9,8 +9,8 @@ export async function GET(req: NextRequest) {
     const { screeningService } = createContainer(db, await getActiveWorkspaceId());
     const params = req.nextUrl.searchParams;
     const companyId = params.get('companyId') ?? undefined;
-    const onlyL0 = params.get('onlyL0') === 'true';
-    const data = await screeningService.findAll({ companyId, onlyL0 });
+    const inScreening = params.get('inScreening') === 'true';
+    const data = await screeningService.findAll({ companyId, inScreening });
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch screenings';

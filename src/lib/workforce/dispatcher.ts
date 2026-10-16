@@ -2,6 +2,7 @@ import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { NO_ACTIVE_WORKSPACE_ID } from '@/lib/constants';
 import type { DbClient } from '@/lib/repositories';
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
+import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { triggerWorkflowForRun } from './workflowTrigger';
 
 export type DispatchResult =
@@ -103,6 +104,13 @@ export async function reapStuckRuns(
         row.workspace_id,
         row.trigger_meta,
         row.agent_name,
+      );
+      await failScreeningsIfStillPending(
+        db,
+        row.workspace_id,
+        row.trigger_meta,
+        row.agent_name,
+        row.input,
       );
       reaped.push(row.id);
     } catch (err) {

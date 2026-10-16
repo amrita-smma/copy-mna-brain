@@ -2819,6 +2819,16 @@ export const aiWorkforceQueue = pgTable(
       )
         .on(table.workspace_id, sql`(${table.input}->>'insight_id')`)
         .where(sql`origin_routine_id IS NOT NULL`),
+      // Newest ai_screening task per company (the Pipeline AI Screening panel).
+      idxAiWorkforceQueueAiScreeningCompany: index(
+        "idx_ai_workforce_queue_ai_screening_company",
+      )
+        .on(
+          table.workspace_id,
+          sql`(${table.trigger_meta}->>'company_id')`,
+          table.created_at.desc(),
+        )
+        .where(sql`agent_name = 'ai_screening'`),
       idxAiWorkforceQueueTerminal: index(
         "idx_ai_workforce_queue_terminal",
       ).using("btree", table.ended_at.desc().nullsLast().op("timestamptz_ops")),

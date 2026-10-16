@@ -5,12 +5,13 @@ import { createContainer } from '@/lib/services';
 import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/workspace';
 
 /**
- * Sourcing → Pending Confirmation "Scan now": queue every active company in
- * Pending Confirmation for a fresh match + screen (re-running criteria that
- * already have a result), whatever the auto-scan toggle says. Auto
- * drop/promote still applies afterwards when it is on.
+ * Sourcing → Pending Confirmation "Scan now": queue an AI screening task on
+ * the AI Workforce for every active company in Pending Confirmation — a fresh
+ * match + screen, re-running criteria that already have a result — whatever
+ * the auto-scan toggle says. Auto drop/promote still applies afterwards when
+ * it is on. Companies already queued or scanning are skipped.
  *
- * POST → 202 `{ data: { queued } }`; the per-minute drain starts the scans.
+ * POST → 202 `{ data: { queued, alreadyQueued } }`.
  */
 export async function POST() {
   try {
@@ -21,8 +22,8 @@ export async function POST() {
     const db = createDb();
     const workspaceId = await getActiveWorkspaceIdOrThrow();
     const { pendingAutoScanService } = createContainer(db, workspaceId);
-    const queued = await pendingAutoScanService.scanNow();
-    return NextResponse.json({ data: { queued } }, { status: 202 });
+    const data = await pendingAutoScanService.scanNow(session.user.id);
+    return NextResponse.json({ data }, { status: 202 });
   } catch (error: unknown) {
     if (error instanceof NoActiveWorkspaceError) {
       return NextResponse.json({ error: error.message }, { status: 403 });

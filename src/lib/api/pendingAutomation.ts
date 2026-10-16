@@ -17,7 +17,12 @@ export function savePendingAutomation(input: PendingAutomation): Promise<Pending
   });
 }
 
-/** Scan now: queue every active Pending Confirmation company for a fresh scan. */
-export function scanPendingNow(): Promise<{ queued: number }> {
-  return apiRequest<{ queued: number }>('/api/pending-automation/scan', { method: 'POST' });
+/**
+ * Scan now: queue an AI Workforce screening task for every active Pending
+ * Confirmation company. `alreadyQueued` counts ones skipped as already in flight.
+ */
+export function scanPendingNow(): Promise<{ queued: number; alreadyQueued: number }> {
+  return apiRequest<{ queued: number; alreadyQueued: number }>('/api/pending-automation/scan', {
+    method: 'POST',
+  });
 }

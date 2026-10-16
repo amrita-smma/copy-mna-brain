@@ -6,6 +6,30 @@ trigger to revisit, and the intended fix.
 
 ---
 
+## Unused auto-scan queue columns and screening job types
+
+**Area:** `companies.auto_scan_requested_at` / `companies.auto_scan_force`,
+`job_type` values `pending_auto_scan` and `ai_screening`
+(`src/lib/db/schema.ts`).
+
+**What it is:** AI screening moved from the `jobs` table (a per-minute cron
+draining `auto_scan_requested_at` marks into `pending_auto_scan` jobs, each
+screening criterion as an `ai_screening` job) onto the AI Workforce queue. The
+columns and enum values are no longer written but are still in the schema.
+`JobService.mirrorTerminalJobToSideRecord` still handles legacy `ai_screening`
+rows.
+
+**Why we took it:** dropping columns needs a two-phase migration
+(`.claude/rules/drizzle-migrations.md`), and Postgres enum values cannot be
+removed in place.
+
+**Trigger to revisit:** once no environment has an `ai_screening` or
+`pending_auto_scan` job row younger than the stuck-job buffer.
+
+**Fix:** drop the two columns and their partial index; leave the enum values.
+
+---
+
 ## In-memory Levenshtein for ingest company dedup
 
 **Area:** `src/lib/fuzzySearch.ts`, `CompanyService.findBestFuzzyMatch`

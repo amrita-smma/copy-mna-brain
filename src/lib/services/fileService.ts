@@ -945,7 +945,7 @@ export class FileService {
         // auto-scan (match + screen + drop/promote) when it is on; otherwise
         // it is screened against its suggested tracks as before.
         if (createdIds.has(company.id) && (await this.queuePendingAutoScan(company.id))) continue;
-        void this.dispatchScreeningJobs(company.id, company);
+        void this.dispatchScreeningJobs(company.id);
       }
     } catch (processError) {
       console.error('Error during file processing:', processError);
@@ -1816,7 +1816,7 @@ export class FileService {
         .dispatch({ companyId, source: input.file_type })
         .catch((err) => console.error('Error dispatching company analysis:', err));
 
-      void this.dispatchScreeningJobs(companyId, companyRecord);
+      void this.dispatchScreeningJobs(companyId);
     }
 
     const updated = await this.fileRepo.findById(fileId);
@@ -3334,66 +3334,17 @@ function isEntityDecisionRemapped(
     }
   }
 
-  private async dispatchScreeningJobs(companyId: string, company: Tables<'companies'>) {
+  /**
+   * Screen a company this file created or enriched against its matched
+   * tracks' criteria, as an `ai_screening` AI Workforce task. A company with
+   * no matched tracks (or no criteria on them) screens nothing. Never throws:
+   * a failed enqueue must not fail the file.
+   */
+  private async dispatchScreeningJobs(companyId: string) {
     try {
-      // AI screening runs ONLY against the tracks a company is matched to —
-      // each matched track's own criteria (`criterias.investment_thesis_id`),
-      // never the full criteria set. Mirrors the manual pipeline flow
-      // (`buildTrackScreeningGroups`). A company with no matched tracks (or no
-      // criteria on those tracks) screens nothing.
-      const matchedTrackIds = new Set(company.matched_track_ids ?? []);
-      if (matchedTrackIds.size === 0) return;
-
-      const allCriteria = await this.criteriaRepo.findAll();
-      const criteriaList = allCriteria.filter(
-        (c) => c.investment_thesis_id !== null && matchedTrackIds.has(c.investment_thesis_id),
-      );
-      if (criteriaList.length === 0) return;
-
-      const financials = await this.companyFinancialRepo.findByCompany(companyId);
-      const byYear = new Map(financials.map((r) => [r.fiscal_year, r]));
-      const companyData = {
-        id: companyId,
-        name: company.target || company.target,
-        segment: company.segment,
-        geography: company.geography,
-        company_focus: company.company_focus,
-        ownership: company.ownership,
-        website: company.website,
-        revenue_2022_usd_mn: byYear.get(2022)?.revenue_usd_mn ?? null,
-        revenue_2023_usd_mn: byYear.get(2023)?.revenue_usd_mn ?? null,
-        revenue_2024_usd_mn: byYear.get(2024)?.revenue_usd_mn ?? null,
-        ebitda_2022_usd_mn: byYear.get(2022)?.ebitda_usd_mn ?? null,
-        ebitda_2023_usd_mn: byYear.get(2023)?.ebitda_usd_mn ?? null,
-        ebitda_2024_usd_mn: byYear.get(2024)?.ebitda_usd_mn ?? null,
-        ev_2024: byYear.get(2024)?.ev_usd_mn ?? null,
-      };
-
-      for (const criterion of criteriaList) {
-        const screeningEntry = await this.screeningRepo.insert({
-          company_id: companyId,
-          criteria_id: criterion.id,
-          track_id: criterion.investment_thesis_id,
-          state: 'pending',
-        });
-
-        await this.aiScreeningService.dispatch({
-          companyId,
-          criteriaId: criterion.id,
-          criteriaPrompt: criterion.prompt,
-          screeningId: screeningEntry.id,
-          company: companyData,
-        }).catch(async (err) => {
-          console.error(`Error dispatching ai-screening for criterion ${criterion.id}:`, err);
-          await this.screeningRepo.update(screeningEntry.id, {
-            state: 'failed',
-            result: 'error',
-            remarks: 'Job dispatch failed',
-          });
-        });
-      }
+      await this.aiScreeningService.enqueue([companyId], { mode: 'tracks', force: true });
     } catch (err) {
-      console.error('Error in ai-screening flow:', err);
+      console.error('Error queuing AI screening:', err);
     }
   }
 
@@ -4049,7 +4000,7 @@ function isEntityDecisionRemapped(
       .dispatch({ companyId, source: file.file_type ?? 'other' })
       .catch((err) => console.error('Error dispatching company analysis:', err));
     if (!(await this.queuePendingAutoScan(companyId))) {
-      void this.dispatchScreeningJobs(companyId, company);
+      void this.dispatchScreeningJobs(companyId);
     }
 
     return { file: updatedFile, company, created: true };

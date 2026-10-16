@@ -11,6 +11,7 @@ import {
 import { EmailNotificationService } from '@/lib/services/emailNotificationService';
 import { dispatcherTick } from '@/lib/workforce';
 import { failAiOpinionIfStillProcessing } from '@/lib/workforce/clearAiOpinionOnFailure';
+import { failScreeningsIfStillPending } from '@/lib/workforce/failScreeningsOnFailure';
 
 interface CancelBody {
   reason?: unknown;
@@ -93,6 +94,13 @@ export async function POST(
       entityWorkspaceId,
       item.trigger_meta,
       item.agent_name,
+    );
+    await failScreeningsIfStillPending(
+      db,
+      entityWorkspaceId,
+      item.trigger_meta,
+      item.agent_name,
+      item.input,
     );
 
     after(async () => {

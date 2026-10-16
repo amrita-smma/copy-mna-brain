@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,11 +14,16 @@ import {
   Sparkles,
   ArrowRight,
   HelpCircle,
+  Bot,
 } from 'lucide-react';
+import { WorkspaceLink } from '@/components/WorkspaceLink';
+import type { ScreeningTaskStatus } from '@/lib/services/aiScreeningService';
+import { isActiveAiScreeningTask } from '@/lib/screening/runningIndicator';
 import PromoteDialog from '@/components/pipeline/PromoteDialog';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
-import { FIRST_STAGE_KEY, screeningTargetKey } from '@/lib/pipeline/stages';
+import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
 import { DealStage } from '@/lib/types';
+import { UNREVIEWED_STAGE, promoteTargetForStage } from '@/lib/constants';
 import { getScreenings } from '@/lib/api/pipeline';
 import { screeningVerdict, type ScreeningVerdict } from '@/lib/screening/verdict';
 
@@ -51,6 +56,8 @@ interface CompanyScreeningSummary {
   key: string;
   company_id: string;
   company_name: string;
+  /** `unreviewed` (Pending Confirmation) or `L0`. */
+  pipeline_stage: string;
   track_name: string | null;
   total_criteria: number;
   completed_criteria: number;
@@ -62,35 +69,134 @@ interface CompanyScreeningSummary {
   screenings: Screening[];
 }
 
+type TaskStatus = ScreeningTaskStatus['status'];
+
+const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  pending: 'Queued',
+  resume_ready: 'Queued',
+  running: 'Running',
+  waiting_for_human_input: 'Needs input',
+  waiting_for_subagent: 'Running',
+  succeeded: 'Done',
+  failed: 'Failed',
+  rejected: 'Rejected',
+  timed_out: 'Timed out',
+};
+
+const TASK_TONE: Partial<Record<TaskStatus, string>> = {
+  running: 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300',
+  waiting_for_subagent: 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300',
+  waiting_for_human_input: 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300',
+  failed: 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300',
+  rejected: 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300',
+  timed_out: 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300',
+};
+
+/**
+ * The company's AI Workforce screening task: its status and a link to the
+ * task. Stops the click so opening the task doesn't also open the company.
+ */
+function TaskLink({ task }: { task: ScreeningTaskStatus | undefined }) {
+  if (!task) return null;
+  return (
+    <WorkspaceLink
+      href={`/ai-workforce/tasks/${task.runId}`}
+      data-testid={`screening-task-link-${task.companyId}`}
+      onClick={(e) => e.stopPropagation()}
+      title="Open this screening's task in AI Workforce"
+      className={`inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-xs font-medium hover:underline ${
+        TASK_TONE[task.status] ?? 'text-muted-foreground'
+      }`}
+    >
+      {task.status === 'running' ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <Bot className="h-3 w-3" />
+      )}
+      {TASK_STATUS_LABEL[task.status]} · View task
+    </WorkspaceLink>
+  );
+}
+
+/** Opens the company dialog; kept separate from links/buttons in the row (no nested interactives). */
+function OpenCompanyHitTarget({
+  onOpen,
+  className,
+  children,
+}: {
+  onOpen: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={className}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface ScreeningProgressPanelProps {
   refreshTrigger?: number;
   onScreeningComplete?: () => void;
   onCompanyClick?: (companyId: string) => void;
+  /**
+   * Each company's newest AI Workforce screening task, live from the parent's
+   * `/api/ai-screening/tasks/stream` subscription (Pipeline already holds one
+   * for its row spinners, so the panel doesn't open a second).
+   */
+  tasks?: ScreeningTaskStatus[];
 }
 
 export default function ScreeningProgressPanel({
   refreshTrigger = 0,
   onScreeningComplete,
   onCompanyClick,
+  tasks = [],
 }: ScreeningProgressPanelProps) {
   const [screenings, setScreenings] = useState<Screening[]>([]);
+  const taskByCompany = new Map(tasks.map((t) => [t.companyId, t]));
   const [loading, setLoading] = useState(true);
   const [completedPage, setCompletedPage] = useState(0);
   const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
-  const [promotingCompany, setPromotingCompany] = useState<{ id: string; name: string; stage?: string } | null>(null);
-  // Screening promotes passed L0 deals into whichever stage follows L0 (L1 by
-  // default). A workspace with nothing after L0 gets no promote button here
-  // rather than a failing one. Nothing is offered until the stages load: the
-  // built-in fallback would name L1 even where another stage follows L0.
+  const [promotingCompany, setPromotingCompany] = useState<{
+    id: string;
+    name: string;
+    stage: DealStage;
+    nextStage: DealStage;
+  } | null>(null);
+  // A Pending Confirmation company promotes to L0. A passed L0 deal promotes
+  // into whichever stage follows L0 (L1 by default); a workspace with nothing
+  // after L0 gets no promote button for L0 rows rather than a failing one.
+  // Nothing is offered for L0 until the stages load: the built-in fallback
+  // would name L1 even where another stage follows L0.
   const { liveKeys, code: stageCode, loading: stagesLoading } = usePipelineStages();
-  const screeningTarget = stagesLoading ? null : screeningTargetKey(liveKeys);
-  const canPromote = screeningTarget !== null;
-  const targetLabel = screeningTarget ? stageCode(screeningTarget) : '';
+  const promoteTargetFor = (stage: string): DealStage | null => {
+    if (stage === UNREVIEWED_STAGE) {
+      return stagesLoading
+        ? FIRST_STAGE_KEY
+        : promoteTargetForStage(UNREVIEWED_STAGE, liveKeys);
+    }
+    if (stagesLoading) return null;
+    return promoteTargetForStage(stage, liveKeys);
+  };
+  const stageLabel = (stage: string) =>
+    stage === UNREVIEWED_STAGE ? 'Pending Confirmation' : stageCode(stage);
   const ITEMS_PER_PAGE = 5;
 
   const fetchScreenings = async () => {
     try {
-      const data = await getScreenings({ onlyL0: true });
+      const data = await getScreenings({ inScreening: true });
       setScreenings(data);
     } catch (error) {
       console.error('Error fetching screenings:', error);
@@ -127,6 +233,7 @@ export default function ScreeningProgressPanel({
           key,
           company_id: companyId,
           company_name: companyName,
+          pipeline_stage: s.company?.pipeline_stage ?? FIRST_STAGE_KEY,
           track_name: s.track?.title?.trim() || null,
           total_criteria: 0,
           completed_criteria: 0,
@@ -175,12 +282,25 @@ export default function ScreeningProgressPanel({
       failed: summary.failed_criteria,
     });
 
-  const handlePromoteClick = (companyId: string, companyName: string) => {
-    setPromotingCompany({ id: companyId, name: companyName, stage: 'L0' });
+  const handlePromoteClick = (summary: CompanyScreeningSummary) => {
+    const nextStage = promoteTargetFor(summary.pipeline_stage);
+    if (!nextStage) return;
+    setPromotingCompany({
+      id: summary.company_id,
+      name: summary.company_name,
+      stage: summary.pipeline_stage as DealStage,
+      nextStage,
+    });
     setPromoteDialogOpen(true);
   };
 
   const companySummaries = groupByCompany(screenings);
+  // Queued or running tasks for companies with no screening rows yet (an
+  // Auto-scan arrival: its rows appear once the task starts screening).
+  const screenedCompanyIds = new Set(companySummaries.map((cs) => cs.company_id));
+  const queuedOnly = tasks.filter(
+    (t) => isActiveAiScreeningTask(t.status) && !screenedCompanyIds.has(t.companyId),
+  );
 
   // Separate in-progress and completed
   const inProgress = companySummaries.filter(
@@ -197,15 +317,19 @@ export default function ScreeningProgressPanel({
     (completedPage + 1) * ITEMS_PER_PAGE
   );
 
-  // Count how many passed (min 3 pass AND max 1 fail)
-  const passedCount = completed.filter((c) => c.passed_criteria >= 3 && c.failed_criteria <= 1).length;
+  // Passed (min 3 pass AND max 1 fail) and promotable from their stage.
+  const passedCount = completed.filter(
+    (c) =>
+      getOverallStatus(c) === 'pass' && promoteTargetFor(c.pipeline_stage) !== null,
+  ).length;
 
   const handlePromoteSuccess = async () => {
     if (!promotingCompany) return;
 
-    // We no longer delete screening data, just refresh the list.
-    // The list filters out non-L0 companies, so this company will disappear.
-    toast.success(`${promotingCompany.name} promoted to ${targetLabel}`);
+    // We no longer delete screening data, just refresh the list. A company
+    // promoted out of L0 leaves the list; one promoted from Pending
+    // Confirmation stays, now as L0.
+    toast.success(`${promotingCompany.name} promoted to ${stageCode(promotingCompany.nextStage)}`);
 
     setPromotingCompany(null);
     onScreeningComplete?.();
@@ -225,9 +349,9 @@ export default function ScreeningProgressPanel({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {passedCount > 0 && canPromote && (
+          {passedCount > 0 && (
             <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-              {passedCount} ready for {targetLabel}
+              {passedCount} ready to promote
             </Badge>
           )}
         </div>
@@ -237,7 +361,7 @@ export default function ScreeningProgressPanel({
 
   // The panel is the whole of the Pipeline page's AI Screening tab, so it
   // shows its loading and empty states rather than rendering nothing.
-  if (screenings.length === 0) {
+  if (screenings.length === 0 && queuedOnly.length === 0) {
     return (
       <Card className="shadow-md" data-testid="screening-progress-panel">
         {header}
@@ -251,8 +375,9 @@ export default function ScreeningProgressPanel({
               data-testid="screening-progress-empty"
               className="py-12 text-center text-sm text-muted-foreground"
             >
-              No AI screenings for L0 deals yet. Run AI Screening from a deal&apos;s
-              actions on the Pipeline tab.
+              No AI screenings for Pending Confirmation or L0 deals yet. Use Scan now
+              on Pending Confirmation, or Run AI Screening from a pending company&apos;s
+              actions.
             </p>
           )}
         </CardContent>
@@ -264,6 +389,41 @@ export default function ScreeningProgressPanel({
     <Card className="shadow-md" data-testid="screening-progress-panel">
       {header}
       <CardContent className="space-y-4">
+        {/* Queued in AI Workforce, nothing screened yet */}
+        {queuedOnly.length > 0 && (
+          <div className="space-y-2" data-testid="screening-queued-section">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <Bot className="h-4 w-4 text-muted-foreground" />
+              Queued in AI Workforce ({queuedOnly.length})
+            </h4>
+            <div className="grid gap-2">
+              {queuedOnly.map((task) => (
+                <div
+                  key={task.runId}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-muted hover:border-primary/40"
+                >
+                  <OpenCompanyHitTarget
+                    onOpen={() => onCompanyClick?.(task.companyId)}
+                    className="min-w-0 flex-1 cursor-pointer"
+                  >
+                    <span className="font-medium">{task.companyName}</span>
+                    <Badge
+                      variant="outline"
+                      className="ml-2 font-normal text-[10px] px-1.5 py-0 align-middle"
+                    >
+                      {stageLabel(task.pipelineStage ?? FIRST_STAGE_KEY)}
+                    </Badge>
+                    <div className="text-xs text-muted-foreground">
+                      Waiting for its AI Workforce task to start screening
+                    </div>
+                  </OpenCompanyHitTarget>
+                  <TaskLink task={task} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* In Progress Section */}
         {inProgress.length > 0 && (
           <div className="space-y-2">
@@ -275,17 +435,24 @@ export default function ScreeningProgressPanel({
               {inProgress.map((summary) => (
                 <div
                   key={summary.key}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-yellow-50 border-yellow-200 dark:bg-yellow-950/20 dark:border-yellow-900/50"
+                  className="flex items-center justify-between p-3 rounded-lg border bg-yellow-50 border-yellow-200 hover:border-yellow-400 dark:bg-yellow-950/20 dark:border-yellow-900/50"
                 >
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-yellow-600" />
+                  <OpenCompanyHitTarget
+                    onOpen={() => onCompanyClick?.(summary.company_id)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                  >
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-yellow-600" />
                     <div>
-                      <button
-                        onClick={() => onCompanyClick?.(summary.company_id)}
-                        className="font-medium hover:text-primary hover:underline transition-colors text-left"
-                      >
+                      <span className="font-medium hover:text-primary transition-colors">
                         {summary.company_name}
-                      </button>
+                      </span>
+                      <Badge
+                        variant="outline"
+                        data-testid="screening-stage-badge"
+                        className="ml-2 font-normal text-[10px] px-1.5 py-0 align-middle"
+                      >
+                        {stageLabel(summary.pipeline_stage)}
+                      </Badge>
                       {summary.track_name && (
                         <Badge
                           variant="secondary"
@@ -298,8 +465,9 @@ export default function ScreeningProgressPanel({
                         {summary.completed_criteria} / {summary.total_criteria} criteria evaluated
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  </OpenCompanyHitTarget>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <TaskLink task={taskByCompany.get(summary.company_id)} />
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <span className="text-green-600 dark:text-green-400">{summary.passed_criteria}✓</span>
                       <span className="text-red-600 dark:text-red-400">{summary.failed_criteria}✗</span>
@@ -312,15 +480,18 @@ export default function ScreeningProgressPanel({
                     <Badge variant="secondary">
                       In Progress
                     </Badge>
-                    {canPromote && (
+                    {promoteTargetFor(summary.pipeline_stage) && (
                       <Button
                         size="sm"
                         variant="outline"
                         className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
-                        onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePromoteClick(summary);
+                        }}
                       >
                         <ArrowRight className="h-3 w-3 mr-1" />
-                        Promote to {targetLabel}
+                        Promote to {stageCode(promoteTargetFor(summary.pipeline_stage)!)}
                       </Button>
                     )}
                   </div>
@@ -343,28 +514,35 @@ export default function ScreeningProgressPanel({
                 return (
                 <div
                   key={summary.key}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${status === 'pass'
+                  className={`flex items-center justify-between p-3 rounded-lg border hover:shadow-sm ${status === 'pass'
                     ? 'bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900/50'
                     : status === 'fail'
                       ? 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900/50'
                       : 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50'
                     }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <OpenCompanyHitTarget
+                    onOpen={() => onCompanyClick?.(summary.company_id)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                  >
                     {status === 'pass' ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
                     ) : status === 'fail' ? (
-                      <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <XCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
                     ) : (
-                      <HelpCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <HelpCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                     )}
                     <div>
-                      <button
-                        onClick={() => onCompanyClick?.(summary.company_id)}
-                        className="font-medium hover:text-primary hover:underline transition-colors text-left"
-                      >
+                      <span className="font-medium hover:text-primary transition-colors">
                         {summary.company_name}
-                      </button>
+                      </span>
+                      <Badge
+                        variant="outline"
+                        data-testid="screening-stage-badge"
+                        className="ml-2 font-normal text-[10px] px-1.5 py-0 align-middle"
+                      >
+                        {stageLabel(summary.pipeline_stage)}
+                      </Badge>
                       {summary.track_name && (
                         <Badge
                           variant="secondary"
@@ -377,8 +555,9 @@ export default function ScreeningProgressPanel({
                         {summary.total_criteria} criteria evaluated
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  </OpenCompanyHitTarget>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <TaskLink task={taskByCompany.get(summary.company_id)} />
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <span className="text-green-600 dark:text-green-400">{summary.passed_criteria}✓</span>
                       <span className="text-red-600 dark:text-red-400">{summary.failed_criteria}✗</span>
@@ -401,15 +580,18 @@ export default function ScreeningProgressPanel({
                         Inconclusive
                       </Badge>
                     )}
-                    {canPromote && (
+                    {status === 'pass' && promoteTargetFor(summary.pipeline_stage) && (
                       <Button
                         size="sm"
                         variant="outline"
                         className="text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
-                        onClick={() => handlePromoteClick(summary.company_id, summary.company_name)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePromoteClick(summary);
+                        }}
                       >
                         <ArrowRight className="h-3 w-3 mr-1" />
-                        Promote to {targetLabel}
+                        Promote to {stageCode(promoteTargetFor(summary.pipeline_stage)!)}
                       </Button>
                     )}
                   </div>
@@ -446,14 +628,14 @@ export default function ScreeningProgressPanel({
         )}
       </CardContent>
 
-      {promotingCompany && screeningTarget && (
+      {promotingCompany && (
         <PromoteDialog
           open={promoteDialogOpen}
           onOpenChange={setPromoteDialogOpen}
           dealId={promotingCompany.id}
           companyName={promotingCompany.name}
-          currentStage={FIRST_STAGE_KEY}
-          nextStage={screeningTarget}
+          currentStage={promotingCompany.stage}
+          nextStage={promotingCompany.nextStage}
           onSuccess={handlePromoteSuccess}
         />
       )}

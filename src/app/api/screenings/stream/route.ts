@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 /**
  * Screenings live-updates via Server-Sent Events. Replaces the client-side
- * `setInterval` pollers on the Pipeline (onlyL0 pending set) and the Company
+ * `setInterval` pollers on the Pipeline (Pending Confirmation + L0 pending set) and the Company
  * Detail views: one long-lived connection pushes the full screenings list
  * whenever any row's state/result changes, instead of each client re-requesting
  * every few seconds.
@@ -18,7 +18,7 @@ export const maxDuration = 300;
  * NextAuth session cookie automatically (EventSource cannot set the
  * `X-Api-Secret` header, so this relies on the cookie, same as the GET route).
  *
- *   GET /api/screenings/stream?companyId=...   (or ?onlyL0=true)
+ *   GET /api/screenings/stream?companyId=...   (or ?inScreening=true)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -26,10 +26,10 @@ export async function GET(req: NextRequest) {
     const { screeningService } = createContainer(db, await getActiveWorkspaceId());
     const params = req.nextUrl.searchParams;
     const companyId = params.get('companyId') ?? undefined;
-    const onlyL0 = params.get('onlyL0') === 'true';
+    const inScreening = params.get('inScreening') === 'true';
 
     const stream = changeStream({
-      snapshot: () => screeningService.findAll({ companyId, onlyL0 }),
+      snapshot: () => screeningService.findAll({ companyId, inScreening }),
       signature: (rows) =>
         rows
           .map((r) => `${r.id}:${r.state}:${r.result ?? ''}:${r.updated_at ?? ''}`)

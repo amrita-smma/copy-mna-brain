@@ -53,6 +53,7 @@ import {
   SourceTypeCell,
   formatCreatedAt,
   pipelineMoveItems,
+  screeningMoveItem,
   stickyActionsCellClass,
   stickyActionsHeadClass,
   stickyCompanyCellClass,
@@ -707,11 +708,6 @@ export default function InboundCompaniesTable({
           const rev = latestFin(company.financials_raw, "revenue_usd_mn");
           const ebitda = latestFin(company.financials_raw, "ebitda_usd_mn");
           const isUnreviewed = company.pipeline_stage === "unreviewed";
-          // AI screening runs only against a company's explicitly matched
-          // tracks; with none matched there is nothing to screen, so the action
-          // is disabled.
-          const hasMatchedTracks =
-            persistedTrackIds(company, tracks).length > 0;
           const displayName = companyDisplayName(company, "this company");
           const hasFinancials =
             rev.value != null ||
@@ -787,7 +783,8 @@ export default function InboundCompaniesTable({
                   moveItems={
                     !rowDropped && isUnreviewed
                       ? // Unreviewed rows: Add to L0 · Drop Deal, then the
-                        // AI-Discovered menu's Delete (also a soft drop).
+                        // AI-Discovered menu's Delete (also a soft drop), then
+                        // Run AI Screening.
                         ([
                           {
                             key: "add",
@@ -810,6 +807,14 @@ export default function InboundCompaniesTable({
                             destructive: true,
                             separatorBefore: true,
                           },
+                          ...(onRunScreening
+                            ? [
+                                screeningMoveItem({
+                                  running: !!runningScreeningCompanyIds?.has(company.id),
+                                  onRun: () => onRunScreening(company),
+                                }),
+                              ]
+                            : []),
                         ] satisfies PipelineMoveItem[])
                       : pipelineMoveItems({
                           isDropped: rowDropped,
@@ -820,13 +825,6 @@ export default function InboundCompaniesTable({
                           onDrop: () => onDrop(company),
                           onRestore: () => onRestore(company),
                           code: pipelineStages.code,
-                          screening: onRunScreening && {
-                            running: !!runningScreeningCompanyIds?.has(
-                              company.id,
-                            ),
-                            hasMatchedTracks,
-                            onRun: () => onRunScreening(company),
-                          },
                         })
                   }
                 />

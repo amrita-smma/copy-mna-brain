@@ -1,14 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  runPendingAutoScan: vi.fn(),
-}));
-
-vi.mock('@/lib/jobs/handlers/pendingAutoScan', () => ({
-  PENDING_AUTO_SCAN_TIMEOUT_SECONDS: 570,
-  runPendingAutoScan: mocks.runPendingAutoScan,
-}));
-
 import { PendingAutoScanService } from './pendingAutoScanService';
 import { CompanyL0RequirementsError } from './companyService';
 
@@ -26,11 +17,7 @@ const pendingCompany = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const TRACKS = [{ id: 't1', title: 'Healthcare' }];
-const CRITERIA = [
-  { id: 'k1', prompt: 'p1', investment_thesis_id: 't1' },
-  { id: 'k2', prompt: 'p2', investment_thesis_id: 't1' },
-  { id: 'k3', prompt: 'p3', investment_thesis_id: 't1' },
-];
+const GROUPS = [{ trackId: 't1', criteriaIds: ['k1', 'k2', 'k3'] }];
 
 const screening = (criteriaId: string, result: string | null) => ({
   id: `s-${criteriaId}`,
@@ -45,44 +32,25 @@ function build() {
   const companyRepo = {
     findByIdOrNull: vi.fn(),
     findById: vi.fn(),
-    requestAutoScan: vi.fn(),
-    requestAutoScanForPending: vi.fn(),
+    findActiveIdsByStage: vi.fn(),
   };
   const screeningRepo = { findByCompanyIds: vi.fn() };
-  const criteriaRepo = { findAll: vi.fn().mockResolvedValue(CRITERIA) };
-  const thesisRepo = { findAll: vi.fn().mockResolvedValue(TRACKS) };
-  const jobRepo = { appendLog: vi.fn().mockResolvedValue(undefined) };
   const workspaceService = { getPendingAutomation: vi.fn() };
   const companyService = { promote: vi.fn(), dropDeal: vi.fn() };
-  const screeningService = {
-    prepare: vi.fn(async (groups: Array<{ companyId: string; trackId: string; criteriaIds: string[] }>) =>
-      groups.flatMap((g) =>
-        g.criteriaIds.map((c) => ({
-          id: `s-${c}`,
-          company_id: g.companyId,
-          criteria_id: c,
-          track_id: g.trackId,
-        })),
-      ),
-    ),
+  const aiScreeningService = {
+    enqueue: vi.fn(),
+    screenMatchedTracks: vi.fn().mockResolvedValue({ groups: GROUPS, screened: 3, tracks: TRACKS }),
   };
-  const aiScreeningService = { runInline: vi.fn().mockResolvedValue({ jobId: 'j' }) };
   const trackMatchingService = { runSync: vi.fn() };
-  const jobDispatcher = { dispatch: vi.fn().mockResolvedValue({ jobId: 'job-1' }) };
 
   const service = new PendingAutoScanService(
     WS,
     companyRepo as never,
     screeningRepo as never,
-    criteriaRepo as never,
-    thesisRepo as never,
-    jobRepo as never,
     workspaceService as never,
     companyService as never,
-    screeningService as never,
     aiScreeningService as never,
     trackMatchingService as never,
-    jobDispatcher as never,
   );
   return {
     service,
@@ -90,18 +58,14 @@ function build() {
     screeningRepo,
     workspaceService,
     companyService,
-    screeningService,
     aiScreeningService,
     trackMatchingService,
-    jobDispatcher,
-    jobRepo,
   };
 }
 
 let t: ReturnType<typeof build>;
 
 beforeEach(() => {
-  mocks.runPendingAutoScan.mockReset();
   t = build();
   t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany());
   t.companyRepo.findById.mockResolvedValue(pendingCompany());
@@ -119,42 +83,37 @@ describe('PendingAutoScanService.onCompanyEnteredPending', () => {
     });
 
     await expect(t.service.onCompanyEnteredPending(COMPANY_ID)).resolves.toBe(false);
-    expect(t.companyRepo.requestAutoScan).not.toHaveBeenCalled();
+    expect(t.aiScreeningService.enqueue).not.toHaveBeenCalled();
   });
 
-  it('queues a non-force scan when auto-scan is on', async () => {
-    t.companyRepo.requestAutoScan.mockResolvedValue(1);
+  it('queues a non-forced pending scan task when auto-scan is on', async () => {
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: [COMPANY_ID], alreadyQueued: [] });
 
     await expect(t.service.onCompanyEnteredPending(COMPANY_ID)).resolves.toBe(true);
-    expect(t.companyRepo.requestAutoScan).toHaveBeenCalledWith([COMPANY_ID], false);
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith([COMPANY_ID], {
+      mode: 'pending_scan',
+      force: false,
+    });
   });
 });
 
 describe('PendingAutoScanService.scanNow', () => {
-  it('scan now forces a re-screen and ignores the auto-scan toggle', async () => {
+  it('queues a forced scan task per active pending company, ignoring the auto-scan toggle', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({
       autoScan: false,
       autoDropPromote: false,
     });
-    t.companyRepo.requestAutoScanForPending.mockResolvedValue(3);
+    t.companyRepo.findActiveIdsByStage.mockResolvedValue(['c1', 'c2', 'c3']);
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['c1', 'c3'], alreadyQueued: ['c2'] });
 
-    await expect(t.service.scanNow()).resolves.toBe(3);
-    expect(t.companyRepo.requestAutoScanForPending).toHaveBeenCalledWith(true);
+    await expect(t.service.scanNow('user-1')).resolves.toEqual({ queued: 2, alreadyQueued: 1 });
+    expect(t.companyRepo.findActiveIdsByStage).toHaveBeenCalledWith('unreviewed');
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['c1', 'c2', 'c3'], {
+      mode: 'pending_scan',
+      force: true,
+      triggeredByUserId: 'user-1',
+    });
     expect(t.workspaceService.getPendingAutomation).not.toHaveBeenCalled();
-  });
-});
-
-describe('PendingAutoScanService.dispatchScan', () => {
-  it('dispatches one pending_auto_scan job carrying the workspace and force flag', async () => {
-    await t.service.dispatchScan(COMPANY_ID, true);
-
-    expect(t.jobDispatcher.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'pending_auto_scan',
-        payload: { companyId: COMPANY_ID, force: true, workspaceId: WS },
-        timeoutSeconds: 570,
-      }),
-    );
   });
 });
 
@@ -165,7 +124,7 @@ describe('PendingAutoScanService.processCompany', () => {
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
     expect(result.outcome).toBe('skipped');
-    expect(t.screeningService.prepare).not.toHaveBeenCalled();
+    expect(t.aiScreeningService.screenMatchedTracks).not.toHaveBeenCalled();
   });
 
   it('runs track matching only when the company has no matched tracks', async () => {
@@ -184,7 +143,7 @@ describe('PendingAutoScanService.processCompany', () => {
   });
 
   it('leaves the company pending when no matched track has criteria', async () => {
-    t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany({ matched_track_ids: ['t9'] }));
+    t.aiScreeningService.screenMatchedTracks.mockResolvedValue({ groups: [], screened: 0, tracks: TRACKS });
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
@@ -193,23 +152,18 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(t.companyService.dropDeal).not.toHaveBeenCalled();
   });
 
-  it('screens every criterion of the matched track and promotes on a pass', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([]) // before: nothing screened yet
-      .mockResolvedValueOnce([screening('k1', 'pass'), screening('k2', 'pass'), screening('k3', 'pass')]);
-    t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany());
+  it('passes force through to the screening and promotes on a pass', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+    ]);
 
-    const result = await t.service.processCompany(COMPANY_ID, { force: false, jobId: 'job-1' });
+    const result = await t.service.processCompany(COMPANY_ID, { force: true });
 
-    expect(t.aiScreeningService.runInline).toHaveBeenCalledTimes(3);
-    expect(t.aiScreeningService.runInline).toHaveBeenCalledWith(
-      expect.objectContaining({
-        companyId: COMPANY_ID,
-        criteriaId: 'k1',
-        criteriaPrompt: 'p1',
-        screeningId: 's-k1',
-        company: { id: COMPANY_ID, name: 'Acme' },
-      }),
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ id: COMPANY_ID }),
+      { force: true },
     );
     expect(t.companyService.promote).toHaveBeenCalledWith(
       COMPANY_ID,
@@ -222,13 +176,15 @@ describe('PendingAutoScanService.processCompany', () => {
       'Auto-promoted: passed AI screening (Healthcare)',
     );
     expect(result).toMatchObject({ outcome: 'promoted', verdict: 'pass', screened: 3 });
-    expect(t.jobRepo.appendLog).toHaveBeenCalledWith('job-1', expect.objectContaining({ message: 'Promoted to L0' }));
+    expect(result.steps).toContain('Promoted to L0');
   });
 
   it('drops the company from Pending Confirmation on a fail', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([screening('k1', 'fail'), screening('k2', 'pass'), screening('k3', 'fail')]);
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'fail'),
+      screening('k2', 'pass'),
+      screening('k3', 'fail'),
+    ]);
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
@@ -241,13 +197,11 @@ describe('PendingAutoScanService.processCompany', () => {
   });
 
   it('leaves an inconclusive company pending', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        screening('k1', 'inconclusive'),
-        screening('k2', 'pass'),
-        screening('k3', 'inconclusive'),
-      ]);
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'inconclusive'),
+      screening('k2', 'pass'),
+      screening('k3', 'inconclusive'),
+    ]);
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
@@ -261,9 +215,11 @@ describe('PendingAutoScanService.processCompany', () => {
       autoScan: true,
       autoDropPromote: false,
     });
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([screening('k1', 'fail'), screening('k2', 'fail'), screening('k3', 'fail')]);
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'fail'),
+      screening('k2', 'fail'),
+      screening('k3', 'fail'),
+    ]);
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
@@ -271,70 +227,47 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(t.companyService.dropDeal).not.toHaveBeenCalled();
   });
 
-  it('keeps already-completed criteria unless forced', async () => {
-    const done = [screening('k1', 'pass'), screening('k2', 'pass')];
-    t.screeningRepo.findByCompanyIds.mockResolvedValue(done);
-
-    await t.service.processCompany(COMPANY_ID, { force: false });
-
-    expect(t.screeningService.prepare).toHaveBeenCalledWith([
-      { companyId: COMPANY_ID, trackId: 't1', criteriaIds: ['k3'] },
+  it('judges only the current matched tracks’ criteria', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+      // A criterion no longer on the track must not count.
+      { ...screening('old', 'fail'), track_id: 't1' },
     ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.verdict).toBe('pass');
   });
 
-  it('re-screens every criterion when forced', async () => {
+  it('leaves a passing company pending when L0 requirements are missing', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+    ]);
+    t.companyService.promote.mockRejectedValue(new CompanyL0RequirementsError(['segment']));
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.outcome).toBe('promote_blocked');
+    expect(t.companyService.dropDeal).not.toHaveBeenCalled();
+  });
+
+  it('skips drop/promote when a human moved the company while it was screening', async () => {
+    t.companyRepo.findByIdOrNull
+      .mockResolvedValueOnce(pendingCompany())
+      .mockResolvedValueOnce(pendingCompany({ pipeline_stage: 'L0' }));
     t.screeningRepo.findByCompanyIds.mockResolvedValue([
       screening('k1', 'pass'),
       screening('k2', 'pass'),
       screening('k3', 'pass'),
     ]);
 
-    await t.service.processCompany(COMPANY_ID, { force: true });
-
-    expect(t.screeningService.prepare).toHaveBeenCalledWith([
-      { companyId: COMPANY_ID, trackId: 't1', criteriaIds: ['k1', 'k2', 'k3'] },
-    ]);
-    // Only the post-scan verdict read; no pre-scan "what's done" read.
-    expect(t.screeningRepo.findByCompanyIds).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not drop or promote a company a human moved while it was screening', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([screening('k1', 'fail'), screening('k2', 'fail'), screening('k3', 'fail')]);
-    t.companyRepo.findByIdOrNull
-      .mockResolvedValueOnce(pendingCompany())
-      .mockResolvedValueOnce(pendingCompany({ pipeline_stage: 'L0' }));
-
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
-    expect(result.outcome).toBe('skipped');
-    expect(t.companyService.dropDeal).not.toHaveBeenCalled();
-  });
-
-  it('leaves a passing company pending when L0 requirements are missing', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([screening('k1', 'pass'), screening('k2', 'pass'), screening('k3', 'pass')]);
-    t.companyService.promote.mockRejectedValue(new CompanyL0RequirementsError(['source']));
-
-    const result = await t.service.processCompany(COMPANY_ID, { force: false });
-
-    expect(result.outcome).toBe('promote_blocked');
-  });
-
-  it('ignores screenings for tracks the company is no longer matched to', async () => {
-    t.screeningRepo.findByCompanyIds
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        screening('k1', 'pass'),
-        screening('k2', 'pass'),
-        screening('k3', 'pass'),
-        { ...screening('k1', 'fail'), id: 'old', track_id: 'retired-track' },
-      ]);
-
-    const result = await t.service.processCompany(COMPANY_ID, { force: false });
-
-    expect(result.verdict).toBe('pass');
+    expect(result).toMatchObject({ outcome: 'skipped', verdict: 'pass' });
+    expect(t.companyService.promote).not.toHaveBeenCalled();
   });
 });

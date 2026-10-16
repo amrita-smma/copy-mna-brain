@@ -1632,7 +1632,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             <TabsTrigger value="additional-context">Additional Context</TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="company-card">Details</TabsTrigger>
-            <TabsTrigger value="filters">L1 Screening</TabsTrigger>
+            <TabsTrigger value="filters">Pre-pipeline Filters</TabsTrigger>
             <TabsTrigger value="voting">Voting</TabsTrigger>
           </TabsList>
 
@@ -2359,7 +2359,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           <TabsContent value="filters" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">L1 Screening Results</CardTitle>
+                <CardTitle className="text-lg">Pre-pipeline Filter Results</CardTitle>
               </CardHeader>
               <CardContent>
                 {screenings.length > 0 ? (

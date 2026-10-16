@@ -9,36 +9,76 @@ above the table on Pipeline while its Pending Confirmation chip is active:
 |---|---|
 | **Auto-scan** | A company entering Pending Confirmation is matched to tracks (investment theses) and AI-screened against each matched track's criteria. Only companies that arrive after it is switched on — the ones already waiting are left alone (use Scan now for those). |
 | **Auto drop / promote** | After a scan: an overall **pass** promotes the company to L0, a **fail** drops it. **Inconclusive** (or no matched track with criteria) leaves it pending for a human. Requires Auto-scan. |
-| **Scan now** | Queues every active pending company for a fresh match + screen, re-running criteria that already have a result, whatever Auto-scan says. Auto drop/promote still applies afterwards when it is on. |
+| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto drop/promote still applies afterwards when it is on. |
 
 Settings live on `workspaces.pending_auto_scan` / `pending_auto_drop_promote`
 (`GET/PUT /api/pending-automation`). Scan now is `POST /api/pending-automation/scan`.
 
-## How a scan runs
+## AI screening runs on the AI Workforce
 
-1. **Queue.** Requests only mark rows: `companies.auto_scan_requested_at`
-   (+ `auto_scan_force` for Scan now) via `CompanyRepository.requestAutoScan*`.
-   Arrival points: `CompanyService.createFromDTO` for a company created at
-   `unreviewed`, and Smart Files' two auto-create paths (which, when Auto-scan
-   is on, skip their own suggested-track screening so nothing is screened twice).
-2. **Drain.** `/api/cron/pending-auto-scan` (every minute, `vercel.json`) claims
-   up to `PENDING_AUTO_SCAN_BATCH_SIZE` rows across workspaces
-   (`AutoScanQueueRepository.claim`, `FOR UPDATE SKIP LOCKED`) and starts one
-   `pending_auto_scan` job per company. Queuing marks rather than job rows keeps
-   a large backlog from tripping the stuck-job sweep while it waits, and keeps
-   each job inside one function's time limit.
-3. **Process** (`PendingAutoScanService.processCompany`, logged to `job_logs`):
-   - skip unless still active in Pending Confirmation;
-   - run track matching inline when nothing is matched yet;
-   - build per-track groups (`buildTrackScreeningGroups`), drop criteria already
-     completed unless forced, `ScreeningService.prepare`, then screen every
-     criterion in parallel — each as its own `ai_screening` job row run inline
-     (`AIScreeningService.runInline`);
-   - compute the verdict over the current matched tracks' current criteria
-     (`companyScreeningVerdict`), re-read the toggle, re-check the company is
-     still pending, then `promote(…, 'unreviewed', 'L0', …)` or
-     `dropDeal(…, 'unreviewed', …)`. A promote blocked by missing L0 fields
-     leaves the company pending.
+Every AI screening — Scan now, Auto-scan, **Run AI Screening** on a Pending
+Confirmation row (`POST /api/ai-screening`, the same forced scan as Scan now for
+one company; refused with 409 for any other stage), and Smart Files' fallback
+screening — is an
+`ai_screening` AI Workforce task, **one per company**
+(`AIScreeningService.enqueue`). It appears in AI Workforce titled
+"AI Screening: <company>", where it can be followed, retried or cancelled.
+Results still land on `screenings` rows, which the Pipeline page's AI Screening
+tab reads.
+
+1. **Enqueue.** `AIScreeningService.enqueue` skips companies that already have
+   a non-terminal `ai_screening` task (`findActiveCompanyIds`), then calls
+   `enqueueAgentRun` per company (`triggerSource: 'api'`, `trigger_meta`
+   `{ company_id, mode, force }`). A forced run (Scan now, Run AI Screening,
+   Smart Files) resets the company's screening rows to `pending` first, so the
+   Pipeline tab shows it in progress while the task waits its turn. Arrival
+   points for Auto-scan: `CompanyService.createFromDTO` for a company created
+   at `unreviewed`, and Smart Files' two auto-create paths (which, when
+   Auto-scan is on, skip their own screening so nothing is screened twice).
+2. **Run.** The Workforce queue runs one task at a time across all workspaces,
+   so a large Scan now works through companies one by one, interleaved with
+   other Workforce tasks. The task's instruction tells the agent to call the
+   `run_ai_screening` tool once with `mode`:
+   - `pending_scan` → `PendingAutoScanService.processCompany`: skip unless
+     still active in Pending Confirmation; match tracks inline when nothing is
+     matched; screen; compute the verdict over the current matched tracks'
+     current criteria (`companyScreeningVerdict`); re-read the toggle and
+     re-check the company is still pending; then `promote(…, 'unreviewed',
+     'L0', …)` or `dropDeal(…, 'unreviewed', …)`. A promote blocked by missing
+     L0 fields leaves the company pending.
+   - `tracks` → `AIScreeningService.screenCompanyTracks`: screen the matched
+     tracks only and report each track's verdict; never moves the deal (Smart
+     Files' fallback for a company outside Pending Confirmation).
+
+   Both screen through `AIScreeningService.screenMatchedTracks`: every
+   criterion at once via `runAIScreening`, without a `jobs` row. Without
+   `force`, criteria that already have a completed result are skipped.
+3. **Clean up.** When an `ai_screening` task fails, is cancelled or reaped, or
+   finishes without running the tool, `failScreeningsIfStillPending` fails the
+   company's screenings still at `pending` (wired next to
+   `failAiOpinionIfStillProcessing` in `runAgent`, the reaper and the cancel
+   route).
+
+## Pipeline → AI Screening panel
+
+`ScreeningProgressPanel` on the Pipeline page lists screenings for active
+companies in **Pending Confirmation and L0** (`GET /api/screenings?inScreening=true`,
+stage list in `src/lib/screening/scope.ts`), each tagged with its stage. Its
+promote button moves a Pending Confirmation company to L0, and an L0 deal to the
+stage after L0.
+
+Each company also shows its newest `ai_screening` task — Queued, Running, Done,
+Failed… — as a **View task** link to `/ai-workforce/tasks/<runId>`. A company
+whose task is queued but hasn't written screening rows yet (an Auto-scan
+arrival) sits under "Queued in AI Workforce". The task status comes from its own
+live stream, `GET /api/ai-screening/tasks/stream`
+(`AIScreeningService.listCompanyTasks` → one `DISTINCT ON` query,
+`idx_ai_workforce_queue_ai_screening_company`), because a task queuing or
+starting doesn't touch its screening rows. Pipeline holds the one subscription
+and feeds both the panel and the row "AI Screening Running" spinners from it.
+
+Clicking a card opens the company dialog on its **Pre-pipeline Filters** tab —
+the screening results per track (formerly "L1 Filters").
 
 ## Verdict rule
 
@@ -49,5 +89,5 @@ track passes, fail if every track fails, otherwise inconclusive.
 
 ## Local development
 
-Vercel crons don't run under `vercel dev`; hit
-`GET /api/cron/pending-auto-scan` to drain the queue by hand.
+Tasks start as soon as they are queued (`enqueueAgentRun` ticks the
+dispatcher), so screening works under `vercel dev` without a cron.

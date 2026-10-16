@@ -31,6 +31,7 @@ import { updateCompanyRelationship } from "./update_company_relationship";
 import { generateRelationshipGraph } from "./generate_relationship_graph";
 import { readRelationshipGraph } from "./read_relationship_graph";
 import { generateCompanyCard } from "./generate_company_card";
+import { runAiScreening } from "./run_ai_screening";
 import { updateCompanyCardSection } from "./update_company_card_section";
 import { updateCompanyDetails } from "./update_company_details";
 import { saveAiOpinion } from "./save_ai_opinion";
@@ -221,6 +222,7 @@ export const workforceOnlyTools = [
   updateCompanyRelationship,
   generateRelationshipGraph,
   generateCompanyCard,
+  runAiScreening,
   saveAiOpinion,
   saveFundAiOpinion,
   runMarketScreeningTool,

@@ -43,6 +43,7 @@ import { resolveInsightAgentStamp } from '@/lib/insights/agentStamp';
 import { isCrmContactAgent } from '@/lib/agents/crm_contact/constants';
 import { readRefreshInsightId, readRunAgentKey } from '@/lib/routines/refreshAgent';
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
+import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
 
 function isRateLimitError(err: unknown): boolean {
@@ -121,6 +122,8 @@ interface LoadResult {
   agentName: string;
   /** Queue row trigger_meta — entity ids for AI Opinion spinner clearing. */
   triggerMeta: unknown;
+  /** Queue row input — ai_screening retries may only carry company_id here. */
+  queueInput: Record<string, unknown>;
   triggered_by_user_id: string | null;
   attachments?: ChatAttachmentRef[];
   originRoutineId: string | null;
@@ -220,6 +223,7 @@ async function loadAndHeartbeat(runId: string): Promise<LoadResult> {
     userEmail,
     agentName: row.agent_name,
     triggerMeta: row.trigger_meta,
+    queueInput: input,
     triggered_by_user_id,
     attachments,
     originRoutineId,
@@ -622,6 +626,7 @@ async function finalize(
   workspaceId: string,
   agentName: string,
   triggerMeta: unknown,
+  queueInput: Record<string, unknown>,
   refreshInsightId: string | null = null,
   agentKey: SectorAgentKey | null = null,
 ): Promise<{ kind: 'ok' } | { kind: 'publish_refused'; reason: string }> {
@@ -666,6 +671,7 @@ async function finalize(
   // otherwise leave the entity spinner stuck on 'processing' forever.
   // agentName/triggerMeta come from loadAndHeartbeat — no extra findById.
   await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
+  await failScreeningsIfStillPending(db, workspaceId, triggerMeta, agentName, queueInput);
   await kickDispatcher(db);
   // Best-effort completion notification (MB-90). Skips cron runs internally —
   // those roll up into the routine digest instead.
@@ -742,6 +748,7 @@ async function markFailedStep(
   workspaceId: string,
   agentName: string,
   triggerMeta: unknown,
+  queueInput: Record<string, unknown>,
 ): Promise<void> {
   'use step';
   const db = createDb();
@@ -749,6 +756,7 @@ async function markFailedStep(
   await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
   await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
+  await failScreeningsIfStillPending(db, workspaceId, triggerMeta, agentName, queueInput);
   await kickDispatcher(db);
   const reason =
     typeof errorPayload.message === 'string' ? errorPayload.message : undefined;
@@ -839,7 +847,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
     throw err;   // re-throw so WDK still records the workflow run as failed
   }
   const { prompt, resumePayloadJson, threadId, pendingMessages, workspaceId,
-          effort, userEmail, agentName, triggerMeta, triggered_by_user_id,
+          effort, userEmail, agentName, triggerMeta, queueInput, triggered_by_user_id,
           attachments, originRoutineId, refreshInsightId, agentKey } = loaded;
 
   // Mid-invoke heartbeats run inside invokeAgent (60s ticker) so long tool
@@ -884,6 +892,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
         workspaceId,
         agentName,
         triggerMeta,
+        queueInput,
       );
       return;
     }
@@ -893,6 +902,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       workspaceId,
       agentName,
       triggerMeta,
+      queueInput,
       refreshInsightId,
       agentKey,
     );
@@ -906,6 +916,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
         workspaceId,
         agentName,
         triggerMeta,
+        queueInput,
       );
       return;
     }
@@ -921,6 +932,7 @@ export async function runAgent({ runId }: { runId: string }): Promise<void> {
       workspaceId,
       agentName,
       triggerMeta,
+      queueInput,
     );
     // Surface a critical notification so TaskCanvas shows actionable copy
     // alongside the failure pill. addNotification merges into error.notifications,

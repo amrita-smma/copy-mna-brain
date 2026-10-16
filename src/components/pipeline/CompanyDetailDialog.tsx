@@ -802,6 +802,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   const [activeTab, setActiveTab] = useState<CompanyDialogTab>(initialTab);
 
+  // Parent may change `initialTab` without remounting (same company, different open path).
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [company.id, initialTab]);
+
   // Re-fetch the authoritative company record whenever the dialog opens. The
   // `company` prop can be stale on reopen: some parents keep the dialog mounted
   // and hand back the same (pre-edit) object for an unchanged id, and some save
@@ -1684,7 +1689,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   value="filters"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-accent data-[state=active]:text-accent data-[state=active]:bg-transparent py-3 text-sm font-medium"
                 >
-                  L1 Filters
+                  Pre-pipeline Filters
                 </TabsTrigger>
                 <TabsTrigger
                   value="voting"
@@ -2725,7 +2730,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   <Card key={group.key}>
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        L1 Screening Results
+                        Pre-pipeline Filter Results
                         <Badge
                           variant="secondary"
                           className="font-normal align-middle"
@@ -2793,13 +2798,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg">
-                      L1 Screening Results
+                      Pre-pipeline Filter Results
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-muted-foreground text-sm">
-                      No screenings have been run yet. Click &quot;Screen&quot;
-                      from the L0 stage to run filters.
+                      No screenings have been run yet. Use Scan now, or Run AI
+                      Screening on the company in Pending Confirmation.
                     </p>
                   </CardContent>
                 </Card>

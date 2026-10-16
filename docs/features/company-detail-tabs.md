@@ -10,7 +10,7 @@ A company is read in two places: the full page `CompanyDetail.tsx`
 | Additional Context | Context and Featured Slide, each in a collapsible section. |
 | Timeline | Every dated event on the deal, plus all manual entry. |
 | Details | Company Information, track variables, AI card, stage history. |
-| L1 Screening / L1 Filters | Screening criteria results. |
+| Pre-pipeline Filters | AI screening results against each matched track's criteria — run in Pending Confirmation (Scan now, Auto-scan, or a row's Run AI Screening); results stay with the company after it moves to L0. Pipeline's AI Screening tab opens the dialog here. |
 | Voting | The Investment-Committee round. |
 
 The page mirrors its tab in `?tab=`, so each switch is a history entry and Back

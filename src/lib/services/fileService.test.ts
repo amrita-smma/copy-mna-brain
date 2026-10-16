@@ -211,7 +211,12 @@ function makeCompanyAnalysisServiceStub(): CompanyAnalysisService {
 
 function makeAIScreeningServiceStub(): AIScreeningService {
   return {
-    dispatch: vi.fn(),
+    enqueue: vi.fn().mockResolvedValue({
+      queued: [],
+      alreadyQueued: [],
+      nothingToScreen: [],
+      prepared: new Map(),
+    }),
   } as unknown as AIScreeningService;
 }
 
@@ -716,8 +721,7 @@ describe('FileService.processUpload', () => {
 
     await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
 
-    expect(screeningRepo.insert).not.toHaveBeenCalled();
-    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
+    expect(aiScreeningService.enqueue).not.toHaveBeenCalled();
   });
 
   it('returns signed URL with file data', async () => {
@@ -1465,9 +1469,10 @@ describe('FileService.processUpload', () => {
       expect.objectContaining({ companyId: 'company-b', source: 'prospectus' }),
     );
     await vi.waitFor(() => {
-      expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ companyId: 'company-b' }),
-      );
+      expect(aiScreeningService.enqueue).toHaveBeenCalledWith(['company-b'], {
+        mode: 'tracks',
+        force: true,
+      });
     });
   });
 
@@ -1494,8 +1499,7 @@ describe('FileService.processUpload', () => {
     expect(onCompanyEnteredPending).toHaveBeenCalledWith('company-b');
     // Screening is fire-and-forget; let it run before asserting it didn't.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screeningRepo.insert).not.toHaveBeenCalled();
-    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
+    expect(aiScreeningService.enqueue).not.toHaveBeenCalled();
   });
 
   it('falls back to its own screening when auto-scan is off', async () => {
@@ -1521,9 +1525,10 @@ describe('FileService.processUpload', () => {
     await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
 
     await vi.waitFor(() => {
-      expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ companyId: 'company-b' }),
-      );
+      expect(aiScreeningService.enqueue).toHaveBeenCalledWith(['company-b'], {
+        mode: 'tracks',
+        force: true,
+      });
     });
   });
 
@@ -2226,67 +2231,39 @@ describe('FileService.approve', () => {
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
-  it('dispatches screening jobs and marks failed on dispatch error', async () => {
+  it('queues an AI Workforce screening task for the approved company', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
     );
     vi.mocked(companyService.findById).mockResolvedValue(
       makeCompany({ matched_track_ids: ['track-1'] }),
     );
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
-    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
-    vi.mocked(aiScreeningService.dispatch).mockRejectedValue(new Error('fail'));
 
     const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
     await service.approve('file-1', input);
 
     await vi.waitFor(() => {
-      expect(screeningRepo.update).toHaveBeenCalledWith('s-1', expect.objectContaining({ state: 'failed' }));
+      expect(aiScreeningService.enqueue).toHaveBeenCalledWith(['company-1'], {
+        mode: 'tracks',
+        force: true,
+      });
     });
-  });
-
-  it('screens only criteria belonging to the company\'s matched tracks', async () => {
-    vi.mocked(fileRepo.findById).mockResolvedValue(
-      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
-    );
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ matched_track_ids: ['track-1'] }),
-    );
-    // c-1 belongs to the matched track; c-2 belongs to an unmatched track and
-    // must be skipped; c-3 has no track and must be skipped.
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([
-      makeCriteria('c-1', 'track-1'),
-      makeCriteria('c-2', 'track-2'),
-      makeCriteria('c-3', null),
-    ]);
-    vi.mocked(screeningRepo.insert).mockResolvedValue(makeScreening('s-1'));
-
-    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
-    await service.approve('file-1', input);
-
-    await vi.waitFor(() => {
-      expect(screeningRepo.insert).toHaveBeenCalledTimes(1);
-    });
-    expect(screeningRepo.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ criteria_id: 'c-1', track_id: 'track-1' }),
-    );
-    expect(aiScreeningService.dispatch).toHaveBeenCalledTimes(1);
-    expect(aiScreeningService.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ criteriaId: 'c-1' }),
-    );
-  });
-
-  it('does not screen when the company has no matched tracks', async () => {
-    vi.mocked(fileRepo.findById).mockResolvedValue(
-      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
-    );
-    vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ matched_track_ids: [] }),
-    );
-    vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
-
+    // Screening rows are the task's job now, not the file's.
     expect(screeningRepo.insert).not.toHaveBeenCalled();
-    expect(aiScreeningService.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('does not fail the approval when queuing screening fails', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(
+      makeCompany({ matched_track_ids: ['track-1'] }),
+    );
+    vi.mocked(aiScreeningService.enqueue).mockRejectedValue(new Error('queue down'));
+
+    const input: ApproveFileInput = { file_type: 'prospectus', matched_company_id: 'company-1' };
+    await expect(service.approve('file-1', input)).resolves.toBeDefined();
+    await vi.waitFor(() => expect(aiScreeningService.enqueue).toHaveBeenCalled());
   });
 
   describe('FileService.approve (fund_updates v1 proposals)', () => {

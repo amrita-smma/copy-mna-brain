@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { companies, criterias, investmentThesis, screenings } from '@/lib/db/schema';
+import { SCREENING_PANEL_STAGES } from '@/lib/screening/scope';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 type ScreeningWithRelations = Pick<
@@ -37,12 +38,18 @@ export class ScreeningRepository {
 
   async findAllWithRelations(opts: {
     companyId?: string;
-    onlyL0?: boolean;
+    /** Only active companies in Pending Confirmation or L0 (the AI Screening panel). */
+    inScreening?: boolean;
   } = {}): Promise<ScreeningWithRelations[]> {
-    const workspaceCond = eq(companies.workspace_id, this.workspaceId);
-    const whereExpr = opts.companyId
-      ? and(eq(screenings.company_id, opts.companyId), workspaceCond)
-      : workspaceCond;
+    const conditions = [eq(companies.workspace_id, this.workspaceId)];
+    if (opts.companyId) conditions.push(eq(screenings.company_id, opts.companyId));
+    if (opts.inScreening) {
+      conditions.push(
+        inArray(companies.pipeline_stage, [...SCREENING_PANEL_STAGES]),
+        eq(companies.status, 'active'),
+      );
+    }
+    const whereExpr = and(...conditions);
 
     const rows = await this.db
       .select({
@@ -101,9 +108,6 @@ export class ScreeningRepository {
           : { id: r.track_id_inner, title: r.track_title! },
     }));
 
-    if (opts.onlyL0) {
-      return mapped.filter((row) => row.company?.pipeline_stage === 'L0');
-    }
     return mapped;
   }
 
@@ -178,6 +182,26 @@ export class ScreeningRepository {
       )
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * Set-based {@link markFailedIfPending} for every still-pending screening of
+   * one company — the clean-up when its AI screening task ends without
+   * writing them. Returns how many rows it failed.
+   */
+  async markPendingFailedForCompany(companyId: string, remarks: string): Promise<number> {
+    const rows = await this.db
+      .update(screenings)
+      .set({ state: 'failed', result: 'error', remarks } as TablesUpdate<'screenings'>)
+      .where(
+        and(
+          eq(screenings.company_id, companyId),
+          eq(screenings.state, 'pending'),
+          inArray(screenings.company_id, this.workspaceCompanyIds()),
+        ),
+      )
+      .returning({ id: screenings.id });
+    return rows.length;
   }
 
   /**

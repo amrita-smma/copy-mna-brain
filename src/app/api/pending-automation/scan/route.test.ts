@@ -24,7 +24,7 @@ beforeEach(() => {
   authMock.mockReset().mockResolvedValue({ user: { id: 'user-1' } });
   createDbMock.mockReset().mockReturnValue({});
   getActiveWorkspaceIdOrThrowMock.mockReset().mockResolvedValue('w1');
-  scanNowMock.mockReset().mockResolvedValue(7);
+  scanNowMock.mockReset().mockResolvedValue({ queued: 7, alreadyQueued: 1 });
   createContainerMock.mockReset().mockReturnValue({
     pendingAutoScanService: { scanNow: scanNowMock },
   });
@@ -38,11 +38,12 @@ describe('POST /api/pending-automation/scan', () => {
     expect(scanNowMock).not.toHaveBeenCalled();
   });
 
-  it('queues every pending company and reports how many', async () => {
+  it('queues a screening task per pending company as the signed-in user', async () => {
     const res = await POST();
     expect(res.status).toBe(202);
-    expect(await res.json()).toEqual({ data: { queued: 7 } });
+    expect(await res.json()).toEqual({ data: { queued: 7, alreadyQueued: 1 } });
     expect(createContainerMock).toHaveBeenCalledWith({}, 'w1');
+    expect(scanNowMock).toHaveBeenCalledWith('user-1');
   });
 
   it('returns 403 without an active workspace', async () => {

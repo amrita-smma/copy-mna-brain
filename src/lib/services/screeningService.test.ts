@@ -111,8 +111,8 @@ describe('ScreeningService.findAll', () => {
     const repo = makeRepoStub();
     const service = new ScreeningService(repo, WORKSPACE_ID);
 
-    await service.findAll({ onlyL0: true });
+    await service.findAll({ inScreening: true });
 
-    expect(repo.findAllWithRelations).toHaveBeenCalledWith({ onlyL0: true });
+    expect(repo.findAllWithRelations).toHaveBeenCalledWith({ inScreening: true });
   });
 });

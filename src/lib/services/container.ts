@@ -275,7 +275,17 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db, workspaceId);
   const aiOpinionService = new AiOpinionService(companyRepo, db, workspaceId);
-  const aiScreeningService = new AIScreeningService(screeningRepo, jobDispatcher);
+  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
+  const aiScreeningService = new AIScreeningService(
+    db,
+    workspaceId,
+    companyRepo,
+    screeningRepo,
+    criteriaRepo,
+    thesisRepo,
+    screeningService,
+    aiWorkforceQueueRepo,
+  );
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
   const trackMatchingService = new TrackMatchingService(jobDispatcher, db, workspaceId);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);
@@ -358,15 +368,10 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceId,
     companyRepo,
     screeningRepo,
-    criteriaRepo,
-    thesisRepo,
-    jobRepo,
     workspaceService,
     companyService,
-    screeningService,
     aiScreeningService,
     trackMatchingService,
-    jobDispatcher,
   );
   // Setters, not constructor args: PendingAutoScanService depends on both.
   companyService.setPendingArrivalHandler((companyId) =>
@@ -405,7 +410,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     workspaceId,
   );
 
-  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
   const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db, new AgentCheckpointRepository(db));
   const notificationService = new NotificationService(aiWorkforceQueueRepo);
 

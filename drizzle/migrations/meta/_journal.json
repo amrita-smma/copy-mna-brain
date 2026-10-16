@@ -1093,6 +1093,13 @@
       "when": 1792022401000,
       "tag": "20261015000001_pending_auto_scan_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1792022402000,
+      "tag": "20261015000002_ai_screening_task_company_index",
+      "breakpoints": true
     }
   ]
 }

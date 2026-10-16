@@ -25,8 +25,11 @@ interface PendingAutomationTogglesProps {
   testIdPrefix?: string;
 }
 
-const queuedMessage = (queued: number) =>
-  `Queued ${queued} ${queued === 1 ? "company" : "companies"} for AI screening — results land over the next few minutes`;
+const plural = (n: number) => `${n} ${n === 1 ? "company" : "companies"}`;
+
+const queuedMessage = (queued: number, alreadyQueued: number) =>
+  `Queued ${plural(queued)} for AI screening in AI Workforce` +
+  (alreadyQueued > 0 ? ` (${alreadyQueued} already queued)` : "");
 
 /**
  * Pending Confirmation automation (Sourcing's Pending tab and Pipeline's
@@ -81,10 +84,12 @@ export default function PendingAutomationToggles({
   const handleScanNow = async () => {
     setScanning(true);
     try {
-      const { queued } = await scanPendingNow();
+      const { queued, alreadyQueued } = await scanPendingNow();
       if (queued > 0) {
-        toast.success(queuedMessage(queued));
+        toast.success(queuedMessage(queued, alreadyQueued));
         onQueued?.();
+      } else if (alreadyQueued > 0) {
+        toast.info(`All ${plural(alreadyQueued)} are already queued for AI screening`);
       } else {
         toast.info("No companies are waiting in Pending Confirmation");
       }

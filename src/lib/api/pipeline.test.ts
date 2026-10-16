@@ -4,7 +4,7 @@ const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
 
 vi.mock('@/lib/api/client', () => ({ apiRequest: apiRequestMock }));
 
-import { getCompaniesCount } from './pipeline';
+import { getCompaniesCount, startAIScreening } from './pipeline';
 
 beforeEach(() => {
   apiRequestMock.mockReset().mockResolvedValue({ count: 3 });
@@ -30,5 +30,15 @@ describe('getCompaniesCount', () => {
     expect(apiRequestMock).toHaveBeenCalledWith(
       '/api/companies?countOnly=true&stage=market_screening',
     );
+  });
+});
+
+describe('startAIScreening', () => {
+  it('queues the company’s screening with one POST', async () => {
+    await startAIScreening('c1');
+    expect(apiRequestMock).toHaveBeenCalledWith('/api/ai-screening', {
+      method: 'POST',
+      body: JSON.stringify({ companyId: 'c1' }),
+    });
   });
 });

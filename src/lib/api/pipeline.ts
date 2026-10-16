@@ -394,11 +394,27 @@ export async function deleteTrackVariable(id: string) {
   });
 }
 
-export async function getScreenings(params?: { companyId?: string; onlyL0?: boolean }) {
+/**
+ * `inScreening` limits to active Pending Confirmation and L0 companies — the
+ * Pipeline's AI Screening panel.
+ */
+export async function getScreenings(params?: { companyId?: string; inScreening?: boolean }) {
   const search = new URLSearchParams();
   if (params?.companyId) search.set('companyId', params.companyId);
-  if (params?.onlyL0) search.set('onlyL0', 'true');
+  if (params?.inScreening) search.set('inScreening', 'true');
   return apiRequest<any[]>(`/api/screenings${search.toString() ? `?${search.toString()}` : ''}`);
+}
+
+/**
+ * A Pending Confirmation company's Run AI Screening: queue an AI Workforce
+ * task that matches tracks if needed and screens the company. Rejects (409)
+ * for a company not in Pending Confirmation.
+ */
+export function startAIScreening(companyId: string) {
+  return apiRequest<{ alreadyQueued: boolean; trackCount: number; screeningCount: number }>(
+    '/api/ai-screening',
+    { method: 'POST', body: JSON.stringify({ companyId }) },
+  );
 }
 
 export interface ScreeningGroupInput {

@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
-import { aiWorkforceQueue, workforceStatus } from '@/lib/db/schema';
+import { aiWorkforceQueue, companies, workforceStatus } from '@/lib/db/schema';
 import type {
   HumanDecision,
   PendingIntervention,
@@ -20,6 +20,35 @@ type Row = WorkforceQueueRow;
 type Status = WorkforceStatus;
 
 type TriggerSource = 'chat' | 'cron' | 'webhook' | 'api';
+
+/** Must match `AI_SCREENING_AGENT_NAME` in `aiScreeningService.ts`. */
+const AI_SCREENING_AGENT_NAME = 'ai_screening';
+
+function aiScreeningCompanyIdExpr() {
+  return sql<string>`COALESCE(
+    ${aiWorkforceQueue.trigger_meta}->>'company_id',
+    ${aiWorkforceQueue.input}->>'company_id'
+  )`;
+}
+
+/** `retryById` drops trigger_meta for most agents; ai_screening needs company_id for in-flight checks and cleanup. */
+function triggerMetaForRetry(original: Row): Record<string, unknown> | undefined {
+  if (original.agent_name !== AI_SCREENING_AGENT_NAME) return undefined;
+  if (
+    original.trigger_meta &&
+    typeof original.trigger_meta === 'object' &&
+    typeof (original.trigger_meta as Record<string, unknown>).company_id === 'string'
+  ) {
+    return original.trigger_meta as Record<string, unknown>;
+  }
+  const input =
+    typeof original.input === 'object' && original.input !== null
+      ? (original.input as Record<string, unknown>)
+      : null;
+  const companyId = typeof input?.company_id === 'string' ? input.company_id.trim() : '';
+  if (!companyId) return undefined;
+  return { company_id: companyId };
+}
 
 /**
  * Explicit insert shape used by the MB-151 enqueue() path. New code should
@@ -206,15 +235,19 @@ export class AiWorkforceQueueRepository {
     companyIds: string[],
   ): Promise<Set<string>> {
     if (companyIds.length === 0) return new Set();
+    const companyIdCol =
+      agentName === AI_SCREENING_AGENT_NAME
+        ? aiScreeningCompanyIdExpr()
+        : sql<string>`${aiWorkforceQueue.trigger_meta}->>'company_id'`;
     const rows = await this.db
       .select({
-        company_id: sql<string>`${aiWorkforceQueue.trigger_meta}->>'company_id'`,
+        company_id: companyIdCol,
       })
       .from(aiWorkforceQueue)
       .where(
         and(
           eq(aiWorkforceQueue.agent_name, agentName),
-          inArray(sql`${aiWorkforceQueue.trigger_meta}->>'company_id'`, companyIds),
+          inArray(companyIdCol, companyIds),
           sql`${aiWorkforceQueue.status} NOT IN ('succeeded', 'failed', 'rejected', 'timed_out')`,
           eq(aiWorkforceQueue.workspace_id, this.workspaceId),
         ),
@@ -345,6 +378,60 @@ export class AiWorkforceQueueRepository {
       // that first row the newest one.
       .orderBy(asc(correspondentId), desc(aiWorkforceQueue.created_at));
     return rows.map((r) => r.run);
+  }
+
+  /**
+   * The newest `agentName` run per company, for this workspace's active
+   * companies at `stages` — the Pipeline AI Screening panel's task status and
+   * "View task" links. One `DISTINCT ON` over a join, so the panel's live
+   * stream costs one query per tick whatever the number of companies.
+   * Served by `idx_ai_workforce_queue_ai_screening_company`.
+   */
+  async findLatestPerCompanyAtStages(
+    agentName: string,
+    stages: readonly string[],
+  ): Promise<
+    Array<{
+      run: Pick<Row, 'id' | 'status' | 'created_at' | 'started_at' | 'ended_at'>;
+      company: { id: string; target: string | null; project_name: string | null; pipeline_stage: string | null };
+    }>
+  > {
+    if (stages.length === 0) return [];
+    const companyId =
+      agentName === AI_SCREENING_AGENT_NAME
+        ? aiScreeningCompanyIdExpr()
+        : sql<string>`${aiWorkforceQueue.trigger_meta}->>'company_id'`;
+    return this.db
+      .selectDistinctOn([companyId], {
+        run: {
+          id: aiWorkforceQueue.id,
+          status: aiWorkforceQueue.status,
+          created_at: aiWorkforceQueue.created_at,
+          started_at: aiWorkforceQueue.started_at,
+          ended_at: aiWorkforceQueue.ended_at,
+        },
+        company: {
+          id: companies.id,
+          target: companies.target,
+          project_name: companies.project_name,
+          pipeline_stage: companies.pipeline_stage,
+        },
+      })
+      .from(aiWorkforceQueue)
+      // Compare as text, not `::uuid`: one malformed company_id in a queue
+      // row would otherwise fail the cast and the whole panel's stream.
+      .innerJoin(companies, sql`${companies.id}::text = ${companyId}`)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.status, 'active'),
+          inArray(companies.pipeline_stage, [...stages]),
+        ),
+      )
+      // DISTINCT ON keeps each group's first row: newest first.
+      .orderBy(asc(companyId), desc(aiWorkforceQueue.created_at));
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -649,6 +736,7 @@ export class AiWorkforceQueueRepository {
       throw new Error(`ai_workforce_queue row ${originalId} not found`);
     }
 
+    const screeningMeta = triggerMetaForRetry(original);
     const [row] = await this.db
       .insert(aiWorkforceQueue)
       .values({
@@ -662,6 +750,7 @@ export class AiWorkforceQueueRepository {
         title: original.title,
         retried_from_id: original.id,
         workspace_id: original.workspace_id,
+        ...(screeningMeta ? { trigger_meta: screeningMeta } : {}),
       } as TablesInsert<'ai_workforce_queue'>)
       .returning();
     return row;
