@@ -6,6 +6,18 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "e5a870411766cad17a0880086b458cea58df0b34",
+    "date": "2026-10-16",
+    "subject": "Contacts merge by email across manual and email sources, and CSV import added",
+    "category": "feature"
+  },
+  {
+    "hash": "41bce5c982f839f13864f5d824552985f042edf4",
+    "date": "2026-10-16",
+    "subject": "Deal screening now runs through AI Workforce tasks, shown in the Pipeline tab",
+    "category": "improvement"
+  },
+  {
     "hash": "5b1d3f039875bc3394192c1215d899d727678795",
     "date": "2026-10-15",
     "subject": "Refreshed CRM page layout to match the updated design",
@@ -33,6 +45,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "823de2dc8325e54f03ad51c734e9d8734972249d",
+    "date": "2026-10-15",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "955192f09a90fa87e572703ac95f54b3c3dcb54e",
     "date": "2026-10-15",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
