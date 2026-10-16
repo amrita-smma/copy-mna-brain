@@ -18,6 +18,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "accde80d5465b8d9e257f826403d136aa4bcd3f7",
+    "date": "2026-10-16",
+    "subject": "Company Details now shows partnership contacts linked from the CRM",
+    "category": "improvement"
+  },
+  {
+    "hash": "9c229b5a880971a4d9dd4fa0c40a8f21c5885b9f",
+    "date": "2026-10-16",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "5b1d3f039875bc3394192c1215d899d727678795",
     "date": "2026-10-15",
     "subject": "Refreshed CRM page layout to match the updated design",
