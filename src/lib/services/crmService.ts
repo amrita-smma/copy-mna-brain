@@ -19,6 +19,7 @@ import type {
   EmployerTeamRepository,
   EmployerTopicAssignment,
   EmployerUpdate,
+  MatchedContact,
   RelatedCompanyWithEvidence,
   TeamMember,
   Topic,
@@ -26,6 +27,11 @@ import type {
   WorkspaceCorrespondentRepository,
 } from "@/lib/repositories";
 import { normalizeCompanyName } from "@/lib/crm/normalizeCompanyName";
+import {
+  collapseByEmail,
+  normalizeEmail,
+  type ImportContactRow,
+} from "@/lib/crm/contactImport";
 
 export class DuplicateEmployerError extends Error {
   constructor(message: string) {
@@ -117,6 +123,17 @@ export interface InsightsContext {
   vaultSyncCadenceMs?: number;
   /** Client's today timestamp in ISO format for time-relative insights. */
   clientTodayIso?: string;
+}
+
+/** Outcome of `CRMService.importContacts`. */
+export interface ImportContactsResult {
+  /** New contacts inserted. */
+  created: number;
+  /** Rows whose email matched an existing contact (manual or ingested). */
+  merged: number;
+  /** Rows dropped — a repeated email in the same file, or no firm to file under. */
+  skipped: number;
+  errors: string[];
 }
 
 export interface CreateContactInput {
@@ -244,7 +261,30 @@ export class CRMService {
       this.employerRepo.list(filters, this.workspaceId),
       this.employerRepo.count(filters, this.workspaceId),
     ]);
-    return { data, total };
+    const search = filters.search?.trim();
+    if (!search || data.length === 0) return { data, total };
+
+    // Person search: one batched query for the page's firms tells the UI which
+    // contacts matched, so it can open those firms and show only those people
+    // without loading every contact client-side.
+    const matches = await this.correspondentRepo.searchInEmployers(
+      data.map((e) => e.id),
+      search,
+      this.workspaceId,
+    );
+    const byEmployer = new Map<string, MatchedContact[]>();
+    for (const m of matches) {
+      const list = byEmployer.get(m.employer_id);
+      if (list) list.push(m);
+      else byEmployer.set(m.employer_id, [m]);
+    }
+    return {
+      data: data.map((e) => ({
+        ...e,
+        matched_contacts: byEmployer.get(e.id) ?? [],
+      })),
+      total,
+    };
   }
 
   async getEmployerDetail(id: string): Promise<EmployerDetail> {
@@ -450,16 +490,19 @@ export class CRMService {
       throw new EmployerNotFoundError(input.employerId ?? "(unknown)");
     }
 
-    if (input.email) {
-      const dupe = await this.correspondentRepo.findByEmployerAndEmail(
+    const email = normalizeEmail(input.email);
+    if (email) {
+      const dupe = pickCanonicalByEmail(
+        await this.correspondentRepo.findByEmails([email]),
         employer.id,
-        input.email,
-      );
+      ).get(email);
       if (dupe) {
-        // Adding a contact that already exists (by email) = a human edit of the
-        // existing row → goes to the overlay via updateContact. Also ensures
-        // this workspace gets a membership row, so re-adding a contact that
-        // was only visible to another workspace makes it visible here too.
+        // Email is the join key between manual and email-ingested contacts —
+        // across employers, since a human-picked firm and the ingest's
+        // domain-derived employer can differ. Adding a contact that already
+        // exists = a human edit of that row → overlay via updateContact. Also
+        // ensures this workspace gets a membership row, so re-adding a contact
+        // that was only visible to another workspace makes it visible here too.
         await this.workspaceCorrespondentRepo.addMembership(
           this.workspaceId,
           dupe.id,
@@ -484,7 +527,7 @@ export class CRMService {
       {
         employer_id: employer.id,
         name: input.name,
-        email: input.email,
+        email,
         phone: input.phone,
         title: input.title,
         type: input.type,
@@ -506,6 +549,136 @@ export class CRMService {
       "manual",
     );
     return created;
+  }
+
+  /**
+   * Bulk-adds contacts from a CSV import, merging into existing contacts by
+   * email (case-insensitive, across employers) so manually-imported and
+   * email-ingested people collapse into one record:
+   *
+   * - email matches an existing contact → its non-blank fields go to the
+   *   curation overlay (a human edit; blanks never clear) and the workspace
+   *   gains a membership row. Its employer is left as-is.
+   * - otherwise → a new `origin='manual'` contact under the row's firm (or the
+   *   email's domain when no firm is given), find-or-creating the employer.
+   *
+   * A fixed number of batched queries regardless of row count.
+   */
+  async importContacts(
+    rows: ImportContactRow[],
+    editedBy: string | null = null,
+  ): Promise<ImportContactsResult> {
+    const result: ImportContactsResult = {
+      created: 0,
+      merged: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    // Collapse repeats of one email within the batch — later rows fill blanks.
+    const collapsed = collapseByEmail(rows);
+    result.skipped += collapsed.duplicates;
+    const byEmail = new Map<string, ImportContactRow>();
+    const withoutEmail: ImportContactRow[] = [];
+    for (const row of collapsed.rows) {
+      if (row.email) byEmail.set(row.email, row);
+      else withoutEmail.push(row);
+    }
+
+    const canonical = pickCanonicalByEmail(
+      await this.correspondentRepo.findByEmails([...byEmail.keys()]),
+    );
+
+    const mergeEdits: Array<{
+      correspondentId: string;
+      edit: CorrespondentCurationEdit;
+    }> = [];
+    const toCreate: ImportContactRow[] = [...withoutEmail];
+    for (const [email, row] of byEmail) {
+      const existing = canonical.get(email);
+      if (existing) {
+        mergeEdits.push({ correspondentId: existing.id, edit: overlayOf(row) });
+      } else {
+        toCreate.push(row);
+      }
+    }
+
+    // Resolve every firm in two queries: one lookup, one insert of the misses.
+    const firmOf = (row: ImportContactRow) =>
+      row.firm?.trim() || (row.email ? domainOf(row.email) : null) || null;
+    const firmByNorm = new Map<string, string>();
+    for (const row of toCreate) {
+      const firm = firmOf(row);
+      if (firm && !firmByNorm.has(normalizeName(firm))) {
+        firmByNorm.set(normalizeName(firm), firm);
+      }
+    }
+    const employerIdByNorm = new Map(
+      (
+        await this.employerRepo.findByNormalizedNames([...firmByNorm.keys()])
+      ).map((e) => [e.normalized_name, e.id]),
+    );
+    const missingFirms = [...firmByNorm].filter(
+      ([norm]) => !employerIdByNorm.has(norm),
+    );
+    for (const e of await this.employerRepo.upsertBatch(
+      missingFirms.map(([norm, name]) => ({
+        name,
+        normalized_name: norm,
+        status: "inbound",
+        curation_status: "published",
+      })),
+    )) {
+      employerIdByNorm.set(e.normalized_name, e.id);
+    }
+
+    const inserts: CorrespondentInsert[] = [];
+    for (const row of toCreate) {
+      const firm = firmOf(row);
+      const employerId = firm
+        ? employerIdByNorm.get(normalizeName(firm))
+        : undefined;
+      if (!employerId) {
+        result.skipped++;
+        result.errors.push(`${row.name}: no firm or email to file it under.`);
+        continue;
+      }
+      inserts.push({
+        employer_id: employerId,
+        name: row.name,
+        email: normalizeEmail(row.email),
+        phone: row.phone,
+        title: row.title,
+        type: row.type,
+        department: row.department,
+        specialization: row.specialization,
+        seniority: row.seniority,
+        coverage_region: row.coverageRegion,
+        linkedin_url: row.linkedinUrl,
+        bio: row.bio,
+        source: "manual",
+        origin: "manual",
+        last_edited_by_user_id: editedBy,
+      });
+    }
+
+    await this.correspondentCurationRepo.fillMany(mergeEdits, editedBy);
+    const created = await this.correspondentRepo.insertMany(inserts);
+    // Rows a concurrent insert beat to `(employer_id, email)` come back empty.
+    result.skipped += inserts.length - created.length;
+    result.created = created.length;
+    result.merged = mergeEdits.length;
+
+    await this.workspaceCorrespondentRepo.addMemberships(
+      [...mergeEdits.map((m) => m.correspondentId), ...created.map((c) => c.id)].map(
+        (correspondentId) => ({
+          workspaceId: this.workspaceId,
+          correspondentId,
+          source: "manual" as const,
+        }),
+      ),
+    );
+    return result;
   }
 
   async listContacts(employerId: string): Promise<Correspondent[]> {
@@ -870,11 +1043,14 @@ export class CRMService {
     employerId: string,
     data: { email?: string; name?: string },
   ): Promise<Correspondent | null> {
-    if (!data.email) return null;
-    const existing = await this.correspondentRepo.findByEmployerAndEmail(
+    const email = normalizeEmail(data.email);
+    if (!email) return null;
+    // Join on email alone so an ingested address links to a contact a human
+    // already added under a different firm.
+    const existing = pickCanonicalByEmail(
+      await this.correspondentRepo.findByEmails([email]),
       employerId,
-      data.email,
-    );
+    ).get(email);
     if (existing) {
       await this.workspaceCorrespondentRepo.addMembership(
         this.workspaceId,
@@ -886,8 +1062,8 @@ export class CRMService {
     const created = await this.correspondentRepo.insert(
       {
         employer_id: employerId,
-        name: data.name?.trim() || data.email,
-        email: data.email,
+        name: data.name?.trim() || email,
+        email,
         source: "auto",
         is_primary: false,
       },
@@ -900,6 +1076,54 @@ export class CRMService {
     );
     return created;
   }
+}
+
+/**
+ * One contact per lowercased email out of `findByEmails` rows (already ordered
+ * manual-first, oldest-first). A row under `preferEmployerId` wins over that
+ * order, so re-adding a contact on the card it already sits on stays put.
+ */
+function pickCanonicalByEmail(
+  rows: Correspondent[],
+  preferEmployerId?: string,
+): Map<string, Correspondent> {
+  const out = new Map<string, Correspondent>();
+  for (const row of rows) {
+    const key = normalizeEmail(row.email);
+    if (!key) continue;
+    const current = out.get(key);
+    if (
+      !current ||
+      (preferEmployerId &&
+        row.employer_id === preferEmployerId &&
+        current.employer_id !== preferEmployerId)
+    ) {
+      out.set(key, row);
+    }
+  }
+  return out;
+}
+
+function definedOnly<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined && v !== ""),
+  ) as Partial<T>;
+}
+
+/** An import row's human-editable fields, as a curation overlay edit. */
+function overlayOf(row: ImportContactRow): CorrespondentCurationEdit {
+  return definedOnly({
+    name: row.name,
+    title: row.title,
+    phone: row.phone,
+    type: row.type,
+    department: row.department,
+    specialization: row.specialization,
+    seniority: row.seniority,
+    coverage_region: row.coverageRegion,
+    linkedin_url: row.linkedinUrl,
+    bio: row.bio,
+  });
 }
 
 function domainOf(email: string): string | null {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import { correspondents } from '@/lib/db/schema';
 import { CorrespondentRepository } from './correspondentRepository';
 
 function makeDb() {
@@ -279,5 +280,105 @@ describe('CorrespondentRepository', () => {
       expect(text).not.toContain('user_workspaces');
       expect(text).not.toContain('is_email_synced');
     });
+  });
+});
+
+describe('CorrespondentRepository email join key', () => {
+  let db: ReturnType<typeof makeDb>;
+  let repo: CorrespondentRepository;
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new CorrespondentRepository(db as never);
+  });
+
+  it('findByEmails returns [] without hitting the DB when no usable email is given', async () => {
+    expect(await repo.findByEmails([])).toEqual([]);
+    expect(await repo.findByEmails(['  '])).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('findByEmails matches lower(email) against deduped, lowercased input across employers', async () => {
+    db.orderBy.mockResolvedValueOnce([{ id: 'c1', email: 'A@b.com' }]);
+    const out = await repo.findByEmails(['A@B.com', ' a@b.com ']);
+    expect(out).toEqual([{ id: 'c1', email: 'A@b.com' }]);
+    const where = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+    expect(where.sql).toMatch(/lower\("correspondent_effective"\."email"\) in \(\$1\)/i);
+    expect(where.params).toEqual(['a@b.com']);
+    // No employer filter: the join is on email alone.
+    expect(where.sql).not.toMatch(/employer_id/);
+  });
+
+  it('findByEmployerAndEmail compares emails case-insensitively', async () => {
+    db.limit.mockResolvedValueOnce([{ id: 'c1' }]);
+    await repo.findByEmployerAndEmail('e1', 'A@B.com');
+    const where = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+    expect(where.params).toContain('a@b.com');
+  });
+
+  it('insertMany returns [] without hitting the DB for no rows', async () => {
+    expect(await repo.insertMany([])).toEqual([]);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('insertMany strips is_primary and skips (employer_id, email) conflicts', async () => {
+    const onConflictDoNothing = vi.fn().mockReturnThis();
+    Object.assign(db, { onConflictDoNothing });
+    db.returning.mockResolvedValueOnce([{ id: 'c1', email: 'a@b.com' }]);
+    const out = await repo.insertMany([
+      { employer_id: 'e1', name: 'A', email: 'a@b.com', is_primary: true } as never,
+    ]);
+    expect(db.values).toHaveBeenCalledWith([
+      { employer_id: 'e1', name: 'A', email: 'a@b.com' },
+    ]);
+    expect(onConflictDoNothing).toHaveBeenCalledWith({
+      target: [correspondents.employer_id, correspondents.email],
+      where: expect.anything(),
+    });
+    expect(out).toEqual([{ id: 'c1', email: 'a@b.com' }]);
+  });
+
+  it('upsertBatch never rewrites the profile of a manually-added contact', async () => {
+    db.onConflictDoUpdate.mockReturnThis();
+    db.returning.mockResolvedValueOnce([{ id: 'c1', email: 'a@b.com' }]);
+    await repo.upsertBatch([{ employer_id: 'e1', name: 'A', email: 'a@b.com' }]);
+    const { set } = db.onConflictDoUpdate.mock.calls[0][0];
+    const dialect = new PgDialect();
+    for (const col of ['name', 'title', 'phone', 'type', 'source']) {
+      expect(dialect.sqlToQuery(set[col]).sql).toMatch(
+        /CASE WHEN "correspondents"\."origin" = 'manual'/,
+      );
+    }
+  });
+});
+
+describe('CorrespondentRepository.searchInEmployers', () => {
+  let db: ReturnType<typeof makeDb>;
+  let repo: CorrespondentRepository;
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new CorrespondentRepository(db as never);
+  });
+
+  it('returns [] without hitting the DB for no firms or a blank term', async () => {
+    expect(await repo.searchInEmployers([], 'jane', 'w1')).toEqual([]);
+    expect(await repo.searchInEmployers(['e1'], '   ', 'w1')).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('matches name or email across the page of firms in one query, workspace-scoped and ordered for grouping', async () => {
+    db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1', name: 'Jane' }]);
+    const out = await repo.searchInEmployers(['e1', 'e2'], ' Jane ', 'w1');
+    expect(out).toEqual([{ id: 'c1', employer_id: 'e1', name: 'Jane' }]);
+    // [0] is the workspace-visibility subquery, [1] the search itself.
+    const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[1][0]);
+    expect(text).toMatch(/"employer_id" in \(\$1, \$2\)/);
+    expect(text).toMatch(/"name" ilike/i);
+    expect(text).toMatch(/"email" ilike/i);
+    expect(params).toContain('%Jane%');
+    expect(text).toMatch(/"correspondent_effective"\."id" in/i);
+    expect(db.orderBy).toHaveBeenCalledTimes(1);
+    expect(db.limit).toHaveBeenCalledWith(1000);
   });
 });

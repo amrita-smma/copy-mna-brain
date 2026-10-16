@@ -39,6 +39,19 @@ export interface EmployerSummary {
   response_pair_count: number;
   topics: TopicChip[];
   team: TeamMemberSummary[];
+  /**
+   * Present only on a searched list: the firm's contacts whose name or email
+   * matched (server-side). Empty = the firm matched on its own name/domain.
+   */
+  matched_contacts?: MatchedContactSummary[];
+}
+
+export interface MatchedContactSummary {
+  id: string;
+  employer_id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
 }
 
 export interface Correspondent {

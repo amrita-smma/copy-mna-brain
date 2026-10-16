@@ -345,15 +345,30 @@ export async function upsertEphemeralCrmBatch(
         });
       }
     }
-    const correspondentRows = await correspondentRepo.upsertBatch([
-      ...corrByEmail.values(),
-    ]);
+    // Email is the CRM join key: an address that already belongs to a contact
+    // under a DIFFERENT employer (typically one a human added by hand under the
+    // firm they chose) links to that contact instead of spawning a duplicate
+    // under the domain-derived employer. Same-employer rows still go through
+    // the upsert, which leaves origin='manual' rows untouched.
+    const existingByEmail = new Map<string, { id: string; employer_id: string }>();
+    for (const c of await correspondentRepo.findByEmails([...corrByEmail.keys()])) {
+      const key = c.email?.toLowerCase();
+      if (key && !existingByEmail.has(key)) existingByEmail.set(key, c);
+    }
+    const emailToCorrId = new Map<string, string>();
+    const toUpsert = [...corrByEmail].flatMap(([key, row]) => {
+      const existing = existingByEmail.get(key);
+      if (existing && existing.employer_id !== row.employer_id) {
+        emailToCorrId.set(key, existing.id);
+        return [];
+      }
+      return [row];
+    });
+    const correspondentRows = await correspondentRepo.upsertBatch(toUpsert);
     result.correspondents_upserted = correspondentRows.length;
-    const emailToCorrId = new Map(
-      correspondentRows
-        .filter((c) => c.email)
-        .map((c) => [c.email!.toLowerCase(), c.id]),
-    );
+    for (const c of correspondentRows) {
+      if (c.email) emailToCorrId.set(c.email.toLowerCase(), c.id);
+    }
 
     const partRows: Array<{
       email_id: string;

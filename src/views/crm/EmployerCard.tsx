@@ -55,8 +55,11 @@ export function EmployerCard({
   onAddContact,
   onRefreshDetail,
   onRefreshList,
+  searchTerm,
 }: {
   employer: EmployerSummary;
+  /** The search the list was fetched with; drives the contact filter. */
+  searchTerm?: string;
   expanded: boolean;
   detail?: EmployerDetail;
   loadingDetail: boolean;
@@ -84,6 +87,7 @@ export function EmployerCard({
         (a.source === "auto" ? -1 : 1),
     )
     .slice(0, 2);
+  const matched = employer.matched_contacts ?? [];
 
   return (
     <div
@@ -108,6 +112,19 @@ export function EmployerCard({
 
         <div className="min-w-0">
           <div className="truncate text-sm font-bold">{employer.name}</div>
+          {matched.length > 0 && (
+            <div
+              className="truncate text-[11px] font-semibold text-blue-600 dark:text-blue-400"
+              title={matched.map((m) => m.name).join(", ")}
+              data-testid="crm-row-matched-contacts"
+            >
+              {matched
+                .slice(0, 2)
+                .map((m) => m.name)
+                .join(", ")}
+              {matched.length > 2 && ` +${matched.length - 2}`}
+            </div>
+          )}
           <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>{metaLabel}</span>
             <Badge
@@ -246,6 +263,8 @@ export function EmployerCard({
             <ExpandedTabs
               employerId={employer.id}
               detail={detail}
+              matchedContactIds={matched.map((m) => m.id)}
+              searchTerm={searchTerm}
               onAddContact={onAddContact}
               onRefreshDetail={onRefreshDetail}
               onRefreshList={onRefreshList}
@@ -411,12 +430,16 @@ function TopicDropZone({
 function ExpandedTabs({
   employerId,
   detail,
+  matchedContactIds,
+  searchTerm,
   onAddContact,
   onRefreshDetail,
   onRefreshList,
 }: {
   employerId: string;
   detail: EmployerDetail;
+  matchedContactIds: string[];
+  searchTerm?: string;
   onAddContact: () => void;
   onRefreshDetail: () => void;
   onRefreshList: () => void;
@@ -426,7 +449,11 @@ function ExpandedTabs({
       <TabsList className="h-auto w-full justify-start rounded-none border-b bg-background px-5 py-0">
         <TabsTrigger value="contacts" className={tabTriggerCls}>
           Contacts{" "}
-          <span className="ml-1 text-xs">({detail.correspondents.length})</span>
+          <span className="ml-1 text-xs">
+            ({matchedContactIds.length > 0
+              ? `${detail.correspondents.filter((c) => matchedContactIds.includes(c.id)).length} of ${detail.correspondents.length}`
+              : detail.correspondents.length})
+          </span>
         </TabsTrigger>
         <TabsTrigger value="topics" className={tabTriggerCls}>
           Topics Tag{" "}
@@ -445,6 +472,8 @@ function ExpandedTabs({
         <ContactsTab
           employerId={employerId}
           correspondents={detail.correspondents}
+          matchedContactIds={matchedContactIds}
+          searchTerm={searchTerm}
           onAddContact={onAddContact}
           onChanged={() => {
             onRefreshDetail();
@@ -487,11 +516,16 @@ function ExpandedTabs({
 function ContactsTab({
   employerId,
   correspondents,
+  matchedContactIds,
+  searchTerm,
   onAddContact,
   onChanged,
 }: {
   employerId: string;
   correspondents: Correspondent[];
+  /** Server-matched contact ids; non-empty narrows the list to them. */
+  matchedContactIds: string[];
+  searchTerm?: string;
   onAddContact: () => void;
   onChanged: () => void;
 }) {
@@ -505,6 +539,16 @@ function ContactsTab({
     {},
   );
   const enrichRunsLive = useRef(true);
+  // A person search narrows the table to the people who matched; "Show all"
+  // reveals the rest of the firm without refetching. A new search resets it.
+  const matchKey = matchedContactIds.join(",");
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => setShowAll(false), [matchKey]);
+  const filtering = matchedContactIds.length > 0;
+  const visible =
+    filtering && !showAll
+      ? correspondents.filter((c) => matchedContactIds.includes(c.id))
+      : correspondents;
 
   const loadEnrichRuns = useCallback(async () => {
     try {
@@ -533,7 +577,29 @@ function ContactsTab({
 
   return (
     <>
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-2 flex items-center justify-end gap-3">
+        {filtering && (
+          <div
+            className="mr-auto text-xs text-muted-foreground"
+            data-testid="crm-contact-search-filter"
+          >
+            {showAll ? (
+              <>Showing all {correspondents.length} contacts · </>
+            ) : (
+              <>
+                Showing {visible.length} of {correspondents.length} contacts
+                matching <b className="text-foreground">“{searchTerm}”</b> ·{" "}
+              </>
+            )}
+            <button
+              type="button"
+              className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? "Only matches" : "Show all"}
+            </button>
+          </div>
+        )}
         <button
           className="text-sm font-bold text-blue-600 hover:underline dark:text-blue-400"
           onClick={onAddContact}
@@ -541,9 +607,11 @@ function ContactsTab({
           + Add contact
         </button>
       </div>
-      {correspondents.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="py-6 text-sm text-muted-foreground">
-          No contacts on file.
+          {filtering && correspondents.length > 0 && !showAll
+            ? "No contacts match this search."
+            : "No contacts on file."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-card">
@@ -561,7 +629,7 @@ function ContactsTab({
               <div className="px-2.5 py-1.5">Industry Focus</div>
               <div className="px-2.5 py-1.5 text-center">Action</div>
             </div>
-            {correspondents.map((c) => {
+            {visible.map((c) => {
               // Profile fields are free text, so the stored URL is only safe to
               // put in an href once its scheme has been checked.
               const linkedinHref = safeProfileUrl(c.linkedin_url);

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { CorrespondentCurationRepository } from './correspondentCurationRepository';
 
 function makeDb() {
@@ -117,5 +118,49 @@ describe('CorrespondentCurationRepository.clear', () => {
     const repo = new CorrespondentCurationRepository(db as never);
     await repo.clear('c1');
     expect(db.delete).toHaveBeenCalled();
+  });
+});
+
+describe('CorrespondentCurationRepository.fillMany', () => {
+  it('does nothing for an empty batch', async () => {
+    const db = makeDb();
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.fillMany([], 'u1');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('writes every row in one statement, folding repeats of one contact together', async () => {
+    const db = makeDb();
+    db.onConflictDoUpdate.mockResolvedValueOnce(undefined);
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.fillMany(
+      [
+        { correspondentId: 'c1', edit: { title: 'VP' } },
+        { correspondentId: 'c2', edit: { name: 'B' } },
+        { correspondentId: 'c1', edit: { phone: '123' } },
+      ],
+      'u1',
+    );
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    const rows = db.values.mock.calls[0][0];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      correspondent_id: 'c1',
+      title: 'VP',
+      phone: '123',
+      name: null,
+      edited_by: 'u1',
+    });
+  });
+
+  it('never clears an existing overlay value with a blank import cell', async () => {
+    const db = makeDb();
+    db.onConflictDoUpdate.mockResolvedValueOnce(undefined);
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.fillMany([{ correspondentId: 'c1', edit: { title: 'VP' } }], null);
+    const { set } = db.onConflictDoUpdate.mock.calls[0][0];
+    expect(new PgDialect().sqlToQuery(set.name).sql).toBe(
+      'COALESCE(EXCLUDED.name, correspondent_curation.name)',
+    );
   });
 });

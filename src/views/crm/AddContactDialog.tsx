@@ -71,7 +71,14 @@ export function AddContactDialog({
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || "Failed to create contact");
       }
-      toast.success("Contact created");
+      const j = await res.json().catch(() => ({}));
+      // Email is the CRM join key: an address already on file (e.g. found in
+      // synced email under another firm) merges into that contact.
+      toast.success(
+        j.data?.employer_id && j.data.employer_id !== targetId
+          ? "Email already on file — merged into the existing contact"
+          : "Contact created",
+      );
       onCreated();
     } catch (err) {
       toast.error((err as Error).message);

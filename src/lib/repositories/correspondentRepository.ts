@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
   correspondents,
   correspondentEffective,
@@ -6,6 +6,8 @@ import {
   workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
+import type { MatchedContact } from "./employerRepository";
+import { escapeLikePattern } from "./insightRepository";
 
 export type Correspondent = typeof correspondents.$inferSelect;
 export type CorrespondentInsert = typeof correspondents.$inferInsert;
@@ -448,18 +450,98 @@ export class CorrespondentRepository {
       .where(
         and(
           eq(correspondentEffective.employer_id, employerId),
-          eq(correspondentEffective.email, email),
+          sql`lower(${correspondentEffective.email}) = ${email.trim().toLowerCase()}`,
         ),
       )
       .limit(1);
     return rows[0];
   }
 
-  async findByEmail(email: string): Promise<Correspondent[]> {
+  /**
+   * Every correspondent whose email matches one of `emails`, case-insensitively
+   * and across ALL employers. Email is the join key between manually-added and
+   * email-ingested contacts, and the two paths can disagree on the employer
+   * (a human picks a firm; ingest derives one from the domain), so dedupe must
+   * not be scoped to `(employer_id, email)`.
+   *
+   * Ordered by lowercased email, then manual-before-auto, then oldest, so
+   * callers can take the first row per email as the canonical contact.
+   * Backed by `idx_correspondent_email_lower`.
+   */
+  async findByEmails(emails: string[]): Promise<Correspondent[]> {
+    const lowered = [
+      ...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+    ];
+    if (lowered.length === 0) return [];
+    const lowerEmail = sql<string>`lower(${correspondentEffective.email})`;
     return this.db
       .select()
       .from(correspondentEffective)
-      .where(eq(correspondentEffective.email, email));
+      .where(inArray(lowerEmail, lowered))
+      .orderBy(
+        asc(lowerEmail),
+        sql`CASE WHEN ${correspondentEffective.origin} = 'manual' THEN 0 ELSE 1 END`,
+        asc(correspondentEffective.created_at),
+      );
+  }
+
+  /**
+   * Contacts under `employerIds` whose overlay-aware name or email contains
+   * `search` (case-insensitive), restricted to this workspace's visible
+   * contacts. Backs the CRM list's person search: one query for the whole
+   * page of firms, ordered by employer then name so the caller can group in
+   * a single pass. Capped at `limit` rows overall.
+   */
+  async searchInEmployers(
+    employerIds: string[],
+    search: string,
+    workspaceId: string,
+    limit = 1000,
+  ): Promise<MatchedContact[]> {
+    const term = search.trim();
+    if (employerIds.length === 0 || !term) return [];
+    const pattern = `%${escapeLikePattern(term)}%`;
+    return this.db
+      .select({
+        id: correspondentEffective.id,
+        employer_id: correspondentEffective.employer_id,
+        name: correspondentEffective.name,
+        title: correspondentEffective.title,
+        email: correspondentEffective.email,
+      })
+      .from(correspondentEffective)
+      .where(
+        and(
+          inArray(correspondentEffective.employer_id, employerIds),
+          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+          or(
+            ilike(correspondentEffective.name, pattern),
+            ilike(correspondentEffective.email, pattern),
+          ),
+        ),
+      )
+      .orderBy(asc(correspondentEffective.employer_id), asc(correspondentEffective.name))
+      .limit(limit);
+  }
+
+  /**
+   * Plain multi-row insert for human-created contacts (CSV import). Callers
+   * dedupe by email first via `findByEmails`; a concurrent insert racing on
+   * `(employer_id, email)` is skipped rather than overwriting a row.
+   */
+  async insertMany(
+    rows: CorrespondentInsert[],
+  ): Promise<Array<{ id: string; email: string | null }>> {
+    if (rows.length === 0) return [];
+    const values = rows.map(({ is_primary: _ignored, ...rest }) => rest);
+    return this.db
+      .insert(correspondents)
+      .values(values)
+      .onConflictDoNothing({
+        target: [correspondents.employer_id, correspondents.email],
+        where: sql`email IS NOT NULL`,
+      })
+      .returning({ id: correspondents.id, email: correspondents.email });
   }
 
   async insert(data: CorrespondentInsert, workspaceId: string): Promise<Correspondent> {
@@ -545,12 +627,15 @@ export class CorrespondentRepository {
         .onConflictDoUpdate({
           target: [correspondents.employer_id, correspondents.email],
           targetWhere: sql`email IS NOT NULL`,
+          // A human-added row (origin='manual') is never rewritten by the
+          // ETL (RFC §3.4) — the conflict still resolves so its id comes back
+          // and the ingested email links to the manual contact.
           set: {
-            name: sql`EXCLUDED.name`,
-            title: sql`COALESCE(EXCLUDED.title, ${correspondents.title})`,
-            phone: sql`COALESCE(EXCLUDED.phone, ${correspondents.phone})`,
-            type: sql`EXCLUDED.type`,
-            source: sql`EXCLUDED.source`,
+            name: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.name} ELSE EXCLUDED.name END`,
+            title: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.title} ELSE COALESCE(EXCLUDED.title, ${correspondents.title}) END`,
+            phone: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.phone} ELSE COALESCE(EXCLUDED.phone, ${correspondents.phone}) END`,
+            type: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.type} ELSE EXCLUDED.type END`,
+            source: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.source} ELSE EXCLUDED.source END`,
             updated_at: sql`now()`,
           },
         })

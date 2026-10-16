@@ -1829,6 +1829,12 @@ export const correspondents = pgTable(
       "btree",
       table.email.asc().nullsLast().op("text_ops"),
     ),
+    // Email is the join key between manual and email-ingested contacts, matched
+    // case-insensitively (CorrespondentRepository.findByEmails).
+    idxCorrespondentEmailLower: index("idx_correspondent_email_lower").using(
+      "btree",
+      sql`lower(${table.email})`,
+    ),
     correspondentsEmployerFkey: foreignKey({
       columns: [table.employer_id],
       foreignColumns: [employers.id],

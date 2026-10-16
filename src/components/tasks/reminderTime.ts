@@ -1,4 +1,4 @@
-import { addDays, addHours, format, isThisYear, isToday, isTomorrow, nextMonday, setHours, startOfHour } from 'date-fns';
+import { addDays, addHours, format, isSameDay, isThisYear, isToday, isTomorrow, nextMonday, setHours, startOfHour } from 'date-fns';
 
 /** "Today 15:00", "Tomorrow 09:00", "Mon 20 Oct 09:00", "20 Oct 2027 09:00". */
 export function formatReminder(iso: string, now: Date = new Date()): string {
@@ -23,7 +23,7 @@ export function reminderPresets(now: Date = new Date()): ReminderPreset[] {
   const atNine = (d: Date) => setHours(startOfHour(d), 9);
   const later = startOfHour(addHours(now, 4));
   const presets: ReminderPreset[] = [];
-  if (isToday(later)) presets.push({ label: 'Later today', at: later });
+  if (isSameDay(later, now)) presets.push({ label: 'Later today', at: later });
   presets.push({ label: 'Tomorrow', at: atNine(addDays(now, 1)) });
   presets.push({ label: 'Next week', at: atNine(nextMonday(now)) });
   return presets;

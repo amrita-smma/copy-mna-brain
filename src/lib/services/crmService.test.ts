@@ -11,6 +11,8 @@ const employerRepo = {
   count: vi.fn(),
   findById: vi.fn(),
   findByNormalizedName: vi.fn(),
+  findByNormalizedNames: vi.fn(),
+  upsertBatch: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -25,6 +27,9 @@ const correspondentRepo = {
   findById: vi.fn(),
   findByEmployerAndEmail: vi.fn(),
   findByEmail: vi.fn(),
+  findByEmails: vi.fn(),
+  searchInEmployers: vi.fn(),
+  insertMany: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -84,6 +89,7 @@ const correspondentCurationRepo = {
   findByCorrespondentId: vi.fn(),
   findManyByCorrespondentIds: vi.fn(),
   upsert: vi.fn(),
+  fillMany: vi.fn(),
   clear: vi.fn(),
 };
 
@@ -133,12 +139,57 @@ describe('CRMService.listEmployers', () => {
   it('returns aggregated rows and total in parallel', async () => {
     employerRepo.list.mockResolvedValue([{ id: '1', name: 'GS' }]);
     employerRepo.count.mockResolvedValue(1);
+    correspondentRepo.searchInEmployers.mockResolvedValue([]);
 
     const out = await makeService().listEmployers({ search: 'gs' });
 
-    expect(out).toEqual({ data: [{ id: '1', name: 'GS' }], total: 1 });
+    expect(out).toEqual({
+      data: [{ id: '1', name: 'GS', matched_contacts: [] }],
+      total: 1,
+    });
     expect(employerRepo.list).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
     expect(employerRepo.count).toHaveBeenCalledWith({ search: 'gs' }, WORKSPACE_ID);
+  });
+});
+
+describe('CRMService.listEmployers (person search)', () => {
+  it('attaches each firm\'s matching contacts from one batched lookup', async () => {
+    employerRepo.list.mockResolvedValue([{ id: 'e1' }, { id: 'e2' }]);
+    employerRepo.count.mockResolvedValue(2);
+    correspondentRepo.searchInEmployers.mockResolvedValue([
+      { id: 'c1', employer_id: 'e1', name: 'Jane A' },
+      { id: 'c2', employer_id: 'e1', name: 'Jane B' },
+    ]);
+
+    const out = await makeService().listEmployers({ search: ' jane ' });
+
+    expect(correspondentRepo.searchInEmployers).toHaveBeenCalledTimes(1);
+    expect(correspondentRepo.searchInEmployers).toHaveBeenCalledWith(
+      ['e1', 'e2'],
+      'jane',
+      WORKSPACE_ID,
+    );
+    expect(out.data).toEqual([
+      {
+        id: 'e1',
+        matched_contacts: [
+          { id: 'c1', employer_id: 'e1', name: 'Jane A' },
+          { id: 'c2', employer_id: 'e1', name: 'Jane B' },
+        ],
+      },
+      // Matched on its own name/domain — no people to narrow to.
+      { id: 'e2', matched_contacts: [] },
+    ]);
+  });
+
+  it('skips the contact lookup when there is no search', async () => {
+    employerRepo.list.mockResolvedValue([{ id: 'e1' }]);
+    employerRepo.count.mockResolvedValue(1);
+
+    const out = await makeService().listEmployers({});
+
+    expect(correspondentRepo.searchInEmployers).not.toHaveBeenCalled();
+    expect(out.data).toEqual([{ id: 'e1' }]);
   });
 });
 
@@ -302,7 +353,7 @@ describe('CRMService.createEmployer', () => {
 describe('CRMService.createContact', () => {
   it('updates rather than duplicates when (employer, email) already exists', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findByEmails.mockResolvedValue([{ id: 'c1', email: 'a@b.com', employer_id: 'e1' }]);
     correspondentRepo.findById.mockResolvedValue({ id: 'c1', name: 'Updated' });
 
     await makeService().createContact({
@@ -330,7 +381,7 @@ describe('CRMService.createContact', () => {
   it('creates an employer on the fly when only firmName is provided', async () => {
     employerRepo.findByNormalizedName.mockResolvedValue(undefined);
     employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.findByEmails.mockResolvedValue([]);
     correspondentRepo.insert.mockResolvedValue({ id: 'new-c' });
 
     await makeService().createContact({
@@ -351,7 +402,7 @@ describe('CRMService.createContact', () => {
   it('grants the creating workspace visibility into a brand-new contact', async () => {
     employerRepo.findByNormalizedName.mockResolvedValue(undefined);
     employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.findByEmails.mockResolvedValue([]);
     correspondentRepo.insert.mockResolvedValue({ id: 'new-c' });
 
     await makeService().createContact({
@@ -369,7 +420,7 @@ describe('CRMService.createContact', () => {
 
   it('grants the creating workspace visibility into a pre-existing (dupe) contact too', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'dupe-c' });
+    correspondentRepo.findByEmails.mockResolvedValue([{ id: 'dupe-c', email: 'a@b.com', employer_id: 'e1' }]);
     correspondentRepo.findById.mockResolvedValue({ id: 'dupe-c', name: 'Updated' });
 
     await makeService().createContact({
@@ -389,7 +440,7 @@ describe('CRMService.createContact', () => {
 describe('CRMService.createContact (profile fields)', () => {
   it('writes the banker profile fields onto a brand-new contact row', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.findByEmails.mockResolvedValue([]);
     correspondentRepo.insert.mockResolvedValue({ id: 'c-new' });
 
     await makeService().createContact({
@@ -419,7 +470,7 @@ describe('CRMService.createContact (profile fields)', () => {
 
   it('routes profile fields of a duplicate (employer, email) to the overlay', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findByEmails.mockResolvedValue([{ id: 'c1', email: 'jane@bank.com', employer_id: 'e1' }]);
     correspondentRepo.findById.mockResolvedValue({ id: 'c1' });
 
     await makeService().createContact({
@@ -779,7 +830,7 @@ describe('CRMService.insights', () => {
 describe('CRMService.ingestEmails', () => {
   it('reuses an existing employer and creates an email + from-participant', async () => {
     employerRepo.findByNormalizedName.mockResolvedValue({ id: 'e1', name: 'Goldman' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue({ id: 'c1' });
+    correspondentRepo.findByEmails.mockResolvedValue([{ id: 'c1', email: 'james@goldman.com', employer_id: 'e1' }]);
     emailRepo.insert.mockResolvedValue({ id: 'em1' });
     emailRepo.insertParticipants.mockResolvedValue([]);
 
@@ -814,7 +865,7 @@ describe('CRMService.ingestEmails', () => {
   it('creates the employer when one is missing', async () => {
     employerRepo.findByNormalizedName.mockResolvedValue(undefined);
     employerRepo.insert.mockResolvedValue({ id: 'new-emp' });
-    correspondentRepo.findByEmployerAndEmail.mockResolvedValue(undefined);
+    correspondentRepo.findByEmails.mockResolvedValue([]);
     correspondentRepo.insert.mockResolvedValue({ id: 'c1' });
     emailRepo.insert.mockResolvedValue({ id: 'em1' });
     emailRepo.insertParticipants.mockResolvedValue([]);
@@ -831,5 +882,162 @@ describe('CRMService.ingestEmails', () => {
     expect(employerRepo.insert).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Morgan Stanley' }),
     );
+  });
+});
+
+describe('CRMService.createContact (email join key)', () => {
+  it('merges into a contact ingested under a different employer, matching email case-insensitively', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e-manual' });
+    correspondentRepo.findByEmails.mockResolvedValue([
+      { id: 'c-ingested', email: 'jane@bank.com', employer_id: 'e-domain' },
+    ]);
+    correspondentRepo.findById.mockResolvedValue({ id: 'c-ingested' });
+
+    const out = await makeService().createContact({
+      employerId: 'e-manual',
+      name: 'Jane Banker',
+      email: '  Jane@Bank.COM ',
+    });
+
+    expect(correspondentRepo.findByEmails).toHaveBeenCalledWith(['jane@bank.com']);
+    expect(correspondentRepo.insert).not.toHaveBeenCalled();
+    expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      'c-ingested',
+      { name: 'Jane Banker' },
+      null,
+    );
+    expect(out).toEqual({ id: 'c-ingested' });
+  });
+
+  it('prefers the match already under the chosen employer when one email has several rows', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmails.mockResolvedValue([
+      { id: 'c-other', email: 'a@b.com', employer_id: 'e2' },
+      { id: 'c-here', email: 'a@b.com', employer_id: 'e1' },
+    ]);
+    correspondentRepo.findById.mockResolvedValue({ id: 'c-here' });
+
+    await makeService().createContact({ employerId: 'e1', name: 'A', email: 'a@b.com' });
+
+    expect(workspaceCorrespondentRepo.addMembership).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'c-here',
+      'manual',
+    );
+  });
+
+  it('stores a new contact\'s email lowercased so later ingests join on it', async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1' });
+    correspondentRepo.findByEmails.mockResolvedValue([]);
+    correspondentRepo.insert.mockResolvedValue({ id: 'c-new' });
+
+    await makeService().createContact({ employerId: 'e1', name: 'A', email: 'A@B.com' });
+
+    expect(correspondentRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'a@b.com', origin: 'manual' }),
+      WORKSPACE_ID,
+    );
+  });
+});
+
+describe('CRMService.importContacts', () => {
+  beforeEach(() => {
+    correspondentRepo.findByEmails.mockResolvedValue([]);
+    employerRepo.findByNormalizedNames.mockResolvedValue([]);
+    employerRepo.upsertBatch.mockResolvedValue([]);
+    correspondentRepo.insertMany.mockResolvedValue([]);
+  });
+
+  it('merges a row whose email already exists into that contact via the overlay, without inserting', async () => {
+    correspondentRepo.findByEmails.mockResolvedValue([
+      { id: 'c1', email: 'jane@bank.com', employer_id: 'e-domain' },
+    ]);
+
+    const out = await makeService().importContacts(
+      [{ name: 'Jane Banker', firm: 'Some Bank', email: 'Jane@Bank.com', title: 'MD' }],
+      'u1',
+    );
+
+    expect(out).toEqual({ created: 0, merged: 1, skipped: 0, errors: [] });
+    expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      [{ correspondentId: 'c1', edit: { name: 'Jane Banker', title: 'MD' } }],
+      'u1',
+    );
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([]);
+    expect(workspaceCorrespondentRepo.addMemberships).toHaveBeenCalledWith([
+      { workspaceId: WORKSPACE_ID, correspondentId: 'c1', source: 'manual' },
+    ]);
+  });
+
+  it('creates new manual contacts, reusing existing employers and batch-creating missing ones', async () => {
+    employerRepo.findByNormalizedNames.mockResolvedValue([
+      { id: 'e-gs', normalized_name: 'goldman sachs' },
+    ]);
+    employerRepo.upsertBatch.mockResolvedValue([
+      { id: 'e-new', normalized_name: 'new firm' },
+    ]);
+    correspondentRepo.insertMany.mockResolvedValue([
+      { id: 'c-a', email: 'a@gs.com' },
+      { id: 'c-b', email: null },
+    ]);
+
+    const out = await makeService().importContacts([
+      { name: 'A', firm: 'Goldman  Sachs', email: 'a@gs.com' },
+      { name: 'B', firm: 'New Firm' },
+    ]);
+
+    expect(employerRepo.findByNormalizedNames).toHaveBeenCalledTimes(1);
+    expect(employerRepo.findByNormalizedNames.mock.calls[0][0].sort()).toEqual([
+      'goldman sachs',
+      'new firm',
+    ]);
+    expect(employerRepo.upsertBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'New Firm', normalized_name: 'new firm' }),
+    ]);
+    const inserted = correspondentRepo.insertMany.mock.calls[0][0];
+    expect(inserted).toHaveLength(2);
+    expect(inserted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ employer_id: 'e-gs', email: 'a@gs.com', origin: 'manual', source: 'manual' }),
+        expect.objectContaining({ employer_id: 'e-new', name: 'B', origin: 'manual' }),
+      ]),
+    );
+    expect(out).toMatchObject({ created: 2, merged: 0, skipped: 0 });
+  });
+
+  it('collapses repeated emails within one file and counts the repeats as skipped', async () => {
+    correspondentRepo.insertMany.mockResolvedValue([{ id: 'c1', email: 'a@x.com' }]);
+    employerRepo.findByNormalizedNames.mockResolvedValue([
+      { id: 'e1', normalized_name: 'x' },
+    ]);
+
+    const out = await makeService().importContacts([
+      { name: 'A', firm: 'X', email: 'a@x.com', phone: '1' },
+      { name: 'A Again', email: 'A@X.com', title: 'VP' },
+    ]);
+
+    expect(correspondentRepo.findByEmails).toHaveBeenCalledWith(['a@x.com']);
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'A Again', phone: '1', title: 'VP', employer_id: 'e1' }),
+    ]);
+    expect(out).toMatchObject({ created: 1, skipped: 1 });
+  });
+
+  it('falls back to the email domain as the firm, and skips rows with neither firm nor email', async () => {
+    employerRepo.upsertBatch.mockResolvedValue([
+      { id: 'e-dom', normalized_name: 'morganstanley' },
+    ]);
+    correspondentRepo.insertMany.mockResolvedValue([{ id: 'c1', email: 'x@morganstanley.com' }]);
+
+    const out = await makeService().importContacts([
+      { name: 'X', email: 'x@morganstanley.com' },
+      { name: 'Nobody' },
+    ]);
+
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([
+      expect.objectContaining({ employer_id: 'e-dom' }),
+    ]);
+    expect(out.skipped).toBe(1);
+    expect(out.errors).toEqual(['Nobody: no firm or email to file it under.']);
   });
 });

@@ -3,16 +3,17 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, Loader2, Plus, Search, Users, X } from "lucide-react";
+import { AlertTriangle, FileUp, Loader2, Plus, Search, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
 import { AddContactDialog } from "./crm/AddContactDialog";
 import { CurationDialog } from "./crm/CurationDialog";
 import { EmployerCard } from "./crm/EmployerCard";
+import { ImportContactsDialog } from "./crm/ImportContactsDialog";
 import { CrmHeader } from "./crm/Header";
 import { LastContactFilter } from "./crm/LastContactFilter";
 import { Pagination } from "./crm/Pagination";
@@ -34,10 +35,13 @@ export default function CRM() {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.id ?? null;
 
-  // Deep-link support (e.g. from the dashboard's "Banker related companies"
-  // card): `?firm=<name>` seeds the search so the row surfaces in the list,
-  // `?employerId=<id>` picks which card to auto-expand. Read once on mount.
-  const [initialFirm] = useState(() => searchParams.get("firm") ?? "");
+  // Deep-link support: `?q=<text>` is the search box (kept in sync below, so a
+  // searched view is shareable/reloadable); `?firm=<name>` is the older seed
+  // from the dashboard's "Banker related companies" card; `?employerId=<id>`
+  // picks which card to auto-expand. Read once on mount.
+  const [initialFirm] = useState(
+    () => searchParams.get("q") ?? searchParams.get("firm") ?? "",
+  );
   const [initialEmployerId] = useState(() => searchParams.get("employerId"));
 
   const [employers, setEmployers] = useState<EmployerSummary[]>([]);
@@ -47,6 +51,11 @@ export default function CRM() {
 
   const [search, setSearch] = useState(initialFirm);
   const [debouncedSearch, setDebouncedSearch] = useState(initialFirm);
+  // The search the current `employers` page was fetched with — lags
+  // `debouncedSearch` while a fetch is in flight, so the auto-expand below
+  // never acts on the previous search's rows.
+  const [resultSearch, setResultSearch] = useState("");
+  const autoExpandedFor = useRef<string | null>(null);
 
   const [lastContact, setLastContact] = useState<LastContactPreset | null>(
     null,
@@ -69,6 +78,7 @@ export default function CRM() {
   >(null);
 
   const [curationOpen, setCurationOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const handleUnauthorized = useCallback(() => {
     toast.error("Your session has expired. Please sign in again.");
@@ -85,6 +95,20 @@ export default function CRM() {
     const handle = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(handle);
   }, [search]);
+
+  // Mirror the search into `?q=`. `history.replaceState`, not router.replace:
+  // it updates the URL bar without a Next.js soft navigation, so the server
+  // page doesn't re-run on every debounced keystroke. `firm` was only a seed.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("firm");
+    if (debouncedSearch) url.searchParams.set("q", debouncedSearch);
+    else url.searchParams.delete("q");
+    if (url.href !== window.location.href) {
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [debouncedSearch]);
 
   // ─── Fetch employers ──────────────────────────────────────────────────────
   const fetchEmployers = useCallback(async () => {
@@ -119,6 +143,7 @@ export default function CRM() {
       }
       if (!res.ok) throw new Error(json.error || "Failed to load CRM");
       setEmployers(json.data);
+      setResultSearch(debouncedSearch);
       setTotal(json.total);
       setInsights(json.insights);
     } catch (err) {
@@ -211,6 +236,23 @@ export default function CRM() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, userId, initialEmployerId]);
 
+  // A person search opens the first firm with a matching contact (the card
+  // then shows only the matching people). Once per search term, so collapsing
+  // it or paging doesn't keep re-opening it. One detail fetch, never a fan-out.
+  useEffect(() => {
+    if (!resultSearch) {
+      autoExpandedFor.current = null;
+      return;
+    }
+    if (resultSearch !== debouncedSearch) return;
+    if (autoExpandedFor.current === resultSearch) return;
+    autoExpandedFor.current = resultSearch;
+    const first = employers.find((e) => (e.matched_contacts?.length ?? 0) > 0);
+    if (!first) return;
+    setExpandedId(first.id);
+    loadDetail(first.id);
+  }, [employers, resultSearch, debouncedSearch, loadDetail]);
+
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeTags = useMemo(() => {
     const tags: Array<{ key: string; label: string; clear: () => void }> = [];
@@ -296,9 +338,10 @@ export default function CRM() {
           <div className="mx-auto max-w-screen-2xl px-7 py-3">
             <Card className="border bg-card">
               <CardContent className="pt-6">
-                {/* Toolbar */}
+                {/* Toolbar — search leftmost, then the actions, on one row;
+                    the filters wrap onto the next line when the row overflows. */}
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <div className="relative min-w-[180px] flex-1">
+                  <div className="relative min-w-[240px] flex-1">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       placeholder="Search by company name or PIC name…"
@@ -307,6 +350,27 @@ export default function CRM() {
                       className="pl-9 bg-background"
                     />
                   </div>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setImportOpen(true)}
+                    data-testid="contact-import-open"
+                  >
+                    <FileUp className="mr-2 h-4 w-4" />
+                    Import
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setAddContactEmployerId(null);
+                      setAddContactOpen(true);
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Contact
+                  </Button>
 
                   <LastContactFilter
                     value={lastContact}
@@ -339,18 +403,6 @@ export default function CRM() {
                       setPage(1);
                     }}
                   />
-
-                  <Button
-                    size="sm"
-                    className="ml-auto"
-                    onClick={() => {
-                      setAddContactEmployerId(null);
-                      setAddContactOpen(true);
-                    }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Contact
-                  </Button>
                 </div>
 
                 {/* Active filter chips */}
@@ -404,6 +456,7 @@ export default function CRM() {
                         key={emp.id}
                         employer={emp}
                         expanded={expandedId === emp.id}
+                        searchTerm={resultSearch}
                         detail={details[emp.id]}
                         loadingDetail={loadingDetail === emp.id}
                         onToggle={() => toggleExpand(emp.id)}
@@ -451,6 +504,15 @@ export default function CRM() {
           setAddContactOpen(false);
           fetchEmployers();
           if (addContactEmployerId) loadDetail(addContactEmployerId);
+        }}
+      />
+
+      <ImportContactsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => {
+          fetchEmployers();
+          if (expandedId) loadDetail(expandedId);
         }}
       />
 

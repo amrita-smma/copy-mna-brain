@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 204 | `src/app/api/**/route.ts` |
+| API routes | 205 | `src/app/api/**/route.ts` |
 | Services | 81 | `src/lib/services/` |
 | Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 157 | `drizzle/migrations/` |
+| Migrations (app) | 158 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -144,6 +144,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/criterias/[id]` | PATCH, DELETE | `criteriaService` |
 | `/api/crm` | GET, POST | `crmService` |
 | `/api/crm/banker-related-companies` | GET | `crmService` |
+| `/api/crm/contacts/import` | POST | `crmService` |
 | `/api/crm/correspondents/[id]` | PATCH, DELETE | `crmService` |
 | `/api/crm/correspondents/[id]/enrich` | GET, POST | `crmContactEnrichmentService` |
 | `/api/crm/employers/[id]` | GET, PATCH, DELETE | `crmService` |

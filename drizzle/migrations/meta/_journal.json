@@ -1100,6 +1100,13 @@
       "when": 1792022402000,
       "tag": "20261015000002_ai_screening_task_company_index",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1792108800000,
+      "tag": "20261016000000_correspondent_email_lower_index",
+      "breakpoints": true
     }
   ]
 }

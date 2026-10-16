@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
+  correspondentEffective,
   correspondents,
   emailParticipants,
   emails,
@@ -16,6 +17,7 @@ import {
   workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
+import { escapeLikePattern } from "./insightRepository";
 
 export type Employer = typeof employers.$inferSelect;
 export type EmployerInsert = typeof employers.$inferInsert;
@@ -78,7 +80,22 @@ export interface EmployerSummary {
     source: string;
     is_highlight: boolean;
   }>;
+  /**
+   * Set only when the list was searched: the firm's visible contacts whose
+   * name or email matched (`CorrespondentRepository.searchInEmployers`). Empty
+   * when the firm matched on its own name/domain, which means "show everyone".
+   */
+  matched_contacts?: MatchedContact[];
   team: Array<{ id: string; name: string; email: string | null }>;
+}
+
+/** A contact that matched a CRM list search, as shown on the firm's row. */
+export interface MatchedContact {
+  id: string;
+  employer_id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
 }
 
 export class EmployerRepository {
@@ -88,7 +105,9 @@ export class EmployerRepository {
     filters: EmployerListFilters,
     workspaceId: string,
   ): SQL | undefined {
-    const searchPattern = filters.search ? `%${filters.search}%` : null;
+    const searchPattern = filters.search
+      ? `%${escapeLikePattern(filters.search)}%`
+      : null;
     return and(
       eq(employers.curation_status, filters.curationStatus ?? "published"),
       // Workspace visibility: an employer shows up if this workspace has any
@@ -141,7 +160,16 @@ export class EmployerRepository {
             ilike(employers.name, searchPattern),
             sql`EXISTS (SELECT 1 FROM ${employerCuration} WHERE ${employerCuration.employer_id} = ${employers.id} AND ${employerCuration.name} ILIKE ${searchPattern})`,
             sql`EXISTS (SELECT 1 FROM ${employerDomains} WHERE ${employerDomains.employer_id} = ${employers.id} AND ${employerDomains.domain} ILIKE ${searchPattern})`,
-            sql`EXISTS (SELECT 1 FROM ${correspondents} WHERE ${correspondents.employer_id} = ${employers.id} AND (${correspondents.name} ILIKE ${searchPattern} OR ${correspondents.email} ILIKE ${searchPattern}))`,
+            // A person search: the overlay-aware (curated) name or the email,
+            // and only contacts this workspace can see — otherwise a firm
+            // surfaces for a match its card would never show.
+            sql`EXISTS (
+              SELECT 1 FROM ${correspondentEffective}
+              JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondentEffective.id}
+              WHERE ${correspondentEffective.employer_id} = ${employers.id}
+                AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+                AND (${correspondentEffective.name} ILIKE ${searchPattern} OR ${correspondentEffective.email} ILIKE ${searchPattern})
+            )`,
           )
         : undefined,
       filters.lastContactAfter
@@ -367,6 +395,15 @@ export class EmployerRepository {
       .where(eq(employerEffective.normalized_name, normalizedName))
       .limit(1);
     return rows[0];
+  }
+
+  async findByNormalizedNames(normalizedNames: string[]): Promise<Employer[]> {
+    if (normalizedNames.length === 0) return [];
+    return this.db
+      .select()
+      .from(employerEffective)
+      .where(inArray(employerEffective.normalized_name, normalizedNames))
+      .orderBy(asc(employerEffective.normalized_name));
   }
 
   async insert(data: EmployerInsert): Promise<Employer> {

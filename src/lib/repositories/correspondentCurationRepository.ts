@@ -87,6 +87,43 @@ export class CorrespondentCurationRepository {
     return row;
   }
 
+  /**
+   * Batch overlay write for the CSV import: one INSERT … ON CONFLICT for every
+   * row. Unlike `upsert`, an absent/blank field never clears an existing
+   * overlay value — `COALESCE(EXCLUDED.f, current.f)` — so a sparse import row
+   * only fills in what it actually carries.
+   */
+  async fillMany(
+    edits: Array<{ correspondentId: string; edit: CorrespondentCurationEdit }>,
+    editedBy: string | null,
+  ): Promise<void> {
+    if (edits.length === 0) return;
+    // ON CONFLICT DO UPDATE cannot touch the same row twice in one statement.
+    const byId = new Map<string, CorrespondentCurationEdit>();
+    for (const { correspondentId, edit } of edits) {
+      byId.set(correspondentId, { ...byId.get(correspondentId), ...edit });
+    }
+    const values = Array.from(byId, ([correspondentId, edit]) => {
+      const row: Record<string, unknown> = {
+        correspondent_id: correspondentId,
+        edited_by: editedBy,
+      };
+      for (const f of EDITABLE_FIELDS) row[f] = edit[f] ?? null;
+      return row as TablesInsert<'correspondent_curation'>;
+    });
+    const set: Record<string, unknown> = {
+      edited_at: sql`now()`,
+      edited_by: sql`EXCLUDED.edited_by`,
+    };
+    for (const f of EDITABLE_FIELDS) {
+      set[f] = sql.raw(`COALESCE(EXCLUDED.${f}, correspondent_curation.${f})`);
+    }
+    await this.db
+      .insert(correspondentCuration)
+      .values(values)
+      .onConflictDoUpdate({ target: correspondentCuration.correspondent_id, set });
+  }
+
   async clear(correspondentId: string): Promise<void> {
     await this.db
       .delete(correspondentCuration)

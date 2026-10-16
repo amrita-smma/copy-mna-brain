@@ -232,3 +232,44 @@ describe('EmployerRepository', () => {
     });
   });
 });
+
+describe('EmployerRepository.findByNormalizedNames', () => {
+  it('returns [] without hitting the DB when the name list is empty', async () => {
+    const db = makeDb();
+    const repo = new EmployerRepository(db as never);
+    expect(await repo.findByNormalizedNames([])).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('looks up every name in one query ordered by normalized name', async () => {
+    const db = makeDb();
+    db.orderBy.mockResolvedValueOnce([{ id: 'e1', normalized_name: 'gs' }]);
+    const repo = new EmployerRepository(db as never);
+    expect(await repo.findByNormalizedNames(['gs', 'ms'])).toEqual([
+      { id: 'e1', normalized_name: 'gs' },
+    ]);
+    expect(db.select).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EmployerRepository.list (search)', () => {
+  it('matches people by their curated name or email, only among contacts the workspace can see', async () => {
+    const db = makeDb();
+    db.offset.mockResolvedValueOnce([]);
+    const repo = new EmployerRepository(db as never);
+    await repo.list({ search: 'jane' }, 'w1');
+    const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+    expect(text).toMatch(/"correspondent_effective"\."name" ILIKE/);
+    expect(text).toMatch(/"correspondent_effective"\."email" ILIKE/);
+    expect(params).toContain('%jane%');
+  });
+
+  it('escapes LIKE wildcards in the search term', async () => {
+    const db = makeDb();
+    db.offset.mockResolvedValueOnce([]);
+    const repo = new EmployerRepository(db as never);
+    await repo.list({ search: '50%_off' }, 'w1');
+    const { params } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+    expect(params).toContain('%50\\%\\_off%');
+  });
+});
