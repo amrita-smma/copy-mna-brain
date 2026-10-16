@@ -32,18 +32,42 @@ import { SERVER_TOOLS, narrateStep, valyuSearch } from '@/lib/agents/analysis/to
 import { enrichCrmContact } from './enrich_crm_contact';
 import { getCrmContact } from './get_crm_contact';
 import { updateCrmContact } from './update_crm_contact';
+import { enrichCompanyContact } from './enrich_company_contact';
+import { getCompanyForContacts } from './get_company_for_contacts';
+import { saveCompanyContacts } from './save_company_contacts';
 
 export { enrichCrmContact, enrichCrmContactSchema } from './enrich_crm_contact';
 export type { EnrichCrmContactInput } from './enrich_crm_contact';
 export { getCrmContact } from './get_crm_contact';
 export { updateCrmContact, updateCrmContactSchema } from './update_crm_contact';
 export type { UpdateCrmContactInput } from './update_crm_contact';
+export { enrichCompanyContact, enrichCompanyContactSchema } from './enrich_company_contact';
+export type { EnrichCompanyContactInput } from './enrich_company_contact';
+export { getCompanyForContacts } from './get_company_for_contacts';
+export { saveCompanyContacts, saveCompanyContactsSchema } from './save_company_contacts';
+export type { SaveCompanyContactsInput } from './save_company_contacts';
 
 export const CRM_CONTACT_TOOLS = [
   ...SERVER_TOOLS,
   getCrmContact,
   enrichCrmContact,
   updateCrmContact,
+  valyuSearch,
+  narrateStep,
+];
+
+/**
+ * The company-contacts task's tool set: find the partnership contacts AT a
+ * pipeline company. Same shape and the same exclusions as above — its only
+ * write files people under that one company's CRM firm (linking or creating
+ * it), merging into existing contacts by filling empty fields only. It can
+ * neither delete a contact nor rename one, nor change an email.
+ */
+export const CRM_COMPANY_CONTACTS_TOOLS = [
+  ...SERVER_TOOLS,
+  getCompanyForContacts,
+  enrichCompanyContact,
+  saveCompanyContacts,
   valyuSearch,
   narrateStep,
 ];

@@ -23,6 +23,14 @@ export class EmployerDomainRepository {
     return row ?? null;
   }
 
+  /** Every domain mapped to one employer. */
+  async findByEmployerId(employerId: string): Promise<EmployerDomain[]> {
+    return this.db
+      .select()
+      .from(employerDomains)
+      .where(eq(employerDomains.employer_id, employerId));
+  }
+
   async findManyByDomains(domains: string[]): Promise<EmployerDomain[]> {
     if (domains.length === 0) return [];
     const lowered = domains.map((d) => d.toLowerCase());

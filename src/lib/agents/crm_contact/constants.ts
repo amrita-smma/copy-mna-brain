@@ -66,3 +66,81 @@ export function missingProfileFields(
 ): CrmContactWritableField[] {
   return CRM_CONTACT_WRITABLE_FIELDS.filter((field) => !contact[field]?.trim());
 }
+
+/**
+ * `ai_workforce_queue.agent_name` for @crm_contact's second task: find the
+ * partnership contacts AT a pipeline company (the Details tab's "Contact
+ * Details" card), rather than fill in one CRM correspondent. Same agent, its
+ * own prompt and tool list — a separate name because the runtime picks the
+ * graph by agent_name, and because the queue lookups that drive each button
+ * must not see the other task's runs.
+ */
+export const CRM_COMPANY_CONTACTS_AGENT_NAME = 'crm_company_contacts';
+
+/** Does this queue row belong to @crm_contact's company-contacts task? */
+export function isCrmCompanyContactsAgent(agentName: string | null | undefined): boolean {
+  return agentName === CRM_COMPANY_CONTACTS_AGENT_NAME;
+}
+
+/** How many contacts a company-contacts run keeps — the card shows the top N. */
+export const MAX_COMPANY_CONTACTS = 5;
+
+/**
+ * Title patterns, best partnership contact first. The card ranks the
+ * company's CRM contacts by the first pattern a title matches, so contacts
+ * from any source — this agent, the mailbox ingest, a CSV import, a human —
+ * sort the same way. Order matters: "Business Development Manager" must hit
+ * the BD tiers before a generic "manager".
+ */
+const PARTNERSHIP_TITLE_TIERS: readonly RegExp[] = [
+  /\b(ceo|chief executive|managing director|president|founder|co-founder|owner|presiden direktur|direktur utama)\b/i,
+  /\b(cbo|cco|cso|chief (business|commercial|strategy|revenue|growth|partnership)s? officer)\b/i,
+  /\b(vp|vice president|head|director|svp|evp|gm|general manager)\b.*\b(business development|bd|partnerships?|alliances?|corporate development|strategy|commercial)\b/i,
+  /\b(business development|bd|partnerships?|alliances?|corporate development)\b/i,
+  /\b(country manager|general manager|gm)\b/i,
+  /\b(coo|cfo|cto|chief)\b/i,
+];
+
+/**
+ * 0 = best partnership contact; `PARTNERSHIP_TITLE_TIERS.length` = no
+ * recognisable partnership role (or no title).
+ */
+export function partnershipRoleRank(title: string | null | undefined): number {
+  const t = title?.trim();
+  if (!t) return PARTNERSHIP_TITLE_TIERS.length;
+  const tier = PARTNERSHIP_TITLE_TIERS.findIndex((re) => re.test(t));
+  return tier === -1 ? PARTNERSHIP_TITLE_TIERS.length : tier;
+}
+
+/**
+ * Hosts that are not a company's own domain: a "website" pointing at a
+ * social profile or a site builder. Claiming one in `employer_domains` would
+ * file every future email from that host under this company.
+ */
+const SHARED_WEB_HOSTS = new Set([
+  'linkedin.com', 'facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+  'youtube.com', 'tiktok.com', 'medium.com', 'linktr.ee', 'google.com',
+  'sites.google.com', 'wixsite.com', 'blogspot.com', 'wordpress.com',
+  'notion.site', 'github.com', 'crunchbase.com',
+]);
+
+/**
+ * `https://www.acme.co.id/about` → `acme.co.id`. The company's website is the
+ * best identity anchor a company-contacts run has, the domain is what treg
+ * matches a person against, and it is how a company is matched to its CRM
+ * employer. `undefined` for an empty, unparseable or shared host.
+ */
+export function domainFromWebsite(website: string | null | undefined): string | undefined {
+  const raw = website?.trim();
+  if (!raw) return undefined;
+  let host: string;
+  try {
+    host = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname;
+  } catch {
+    return undefined;
+  }
+  host = host.replace(/^www\./i, '').toLowerCase();
+  if (!host.includes('.')) return undefined;
+  const shared = [...SHARED_WEB_HOSTS].some((h) => host === h || host.endsWith(`.${h}`));
+  return shared ? undefined : host;
+}

@@ -225,6 +225,30 @@ export class AiWorkforceQueueRepository {
   }
 
   /**
+   * The newest `agentName` run for this company, whatever its status — what a
+   * per-company button polls to tell "still running" from "finished" and
+   * "failed". Matches on `trigger_meta.company_id`.
+   */
+  async findLatestByCompanyId(
+    agentName: string,
+    companyId: string,
+  ): Promise<Row | null> {
+    const [row] = await this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          sql`${aiWorkforceQueue.trigger_meta}->>'company_id' = ${companyId}`,
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
    * Batched {@link findActiveByCompanyId}: the subset of `companyIds` that
    * already have a non-terminal run for `agentName`. Lets a bulk caller ask
    * "which of these are already in flight?" in one query instead of one

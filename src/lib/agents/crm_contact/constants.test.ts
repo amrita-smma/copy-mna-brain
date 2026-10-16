@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CRM_COMPANY_CONTACTS_AGENT_NAME,
+  domainFromWebsite,
   CRM_CONTACT_AGENT_NAME,
+  isCrmCompanyContactsAgent,
   CRM_CONTACT_WRITABLE_FIELDS,
   isCrmContactAgent,
   missingProfileFields,
+  partnershipRoleRank,
 } from './constants';
 
 describe('CRM_CONTACT_WRITABLE_FIELDS', () => {
@@ -76,5 +80,66 @@ describe('missingProfileFields', () => {
       CRM_CONTACT_WRITABLE_FIELDS.map((f) => [f, 'set']),
     );
     expect(missingProfileFields(complete)).toEqual([]);
+  });
+});
+
+describe('isCrmCompanyContactsAgent', () => {
+  it('matches only the company-contacts agent_name, distinct from the correspondent one', () => {
+    expect(CRM_COMPANY_CONTACTS_AGENT_NAME).not.toBe(CRM_CONTACT_AGENT_NAME);
+    expect(isCrmCompanyContactsAgent(CRM_COMPANY_CONTACTS_AGENT_NAME)).toBe(true);
+    expect(isCrmCompanyContactsAgent(CRM_CONTACT_AGENT_NAME)).toBe(false);
+    expect(isCrmCompanyContactsAgent(null)).toBe(false);
+    expect(isCrmContactAgent(CRM_COMPANY_CONTACTS_AGENT_NAME)).toBe(false);
+  });
+});
+
+describe('partnershipRoleRank', () => {
+  it('ranks CEO above commercial chiefs above BD leads above BD managers above other execs', () => {
+    const ranks = [
+      'Chief Executive Officer',
+      'Chief Commercial Officer',
+      'VP Business Development',
+      'Business Development Manager',
+      'Country Manager',
+      'CFO',
+    ].map(partnershipRoleRank);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(new Set(ranks).size).toBe(ranks.length);
+  });
+
+  it('puts a BD manager in the BD tier, not the generic-manager tier', () => {
+    expect(partnershipRoleRank('Business Development Manager')).toBeLessThan(
+      partnershipRoleRank('General Manager'),
+    );
+  });
+
+  it('does not lift a non-commercial "Head of" above the C-level tier', () => {
+    expect(partnershipRoleRank('Head of Engineering')).toBeGreaterThan(partnershipRoleRank('CFO'));
+    expect(partnershipRoleRank('Head of Partnerships')).toBeLessThan(partnershipRoleRank('CFO'));
+  });
+
+  it('puts a missing or unrecognised title last', () => {
+    expect(partnershipRoleRank(null)).toBe(partnershipRoleRank('Software Engineer'));
+    expect(partnershipRoleRank('CEO')).toBeLessThan(partnershipRoleRank(''));
+  });
+});
+
+describe('domainFromWebsite', () => {
+  it('strips scheme, www and path', () => {
+    expect(domainFromWebsite('https://www.acme.co.id/about')).toBe('acme.co.id');
+    expect(domainFromWebsite('acme.com')).toBe('acme.com');
+  });
+
+  it('refuses social and site-builder hosts, which must never be claimed as a company domain', () => {
+    expect(domainFromWebsite('https://www.linkedin.com/company/acme')).toBeUndefined();
+    expect(domainFromWebsite('facebook.com/acme')).toBeUndefined();
+    expect(domainFromWebsite('acme.wixsite.com/home')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty or unparseable website', () => {
+    expect(domainFromWebsite(null)).toBeUndefined();
+    expect(domainFromWebsite('   ')).toBeUndefined();
+    expect(domainFromWebsite('http://')).toBeUndefined();
+    expect(domainFromWebsite('localhost')).toBeUndefined();
   });
 });

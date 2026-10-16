@@ -26,6 +26,7 @@ import {
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
+  EmployerDomainRepository,
   CorrespondentRepository,
   CorrespondentCurationRepository,
   EmployerNoteRepository,
@@ -114,6 +115,7 @@ import { AuthService } from './authService';
 import { UserService } from './userService';
 import { CRMService } from './crmService';
 import { CrmContactEnrichmentService } from './crmContactEnrichmentService';
+import { CompanyContactDiscoveryService } from './companyContactDiscoveryService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
 import { AlphasenseToolCallService } from './alphasenseToolCallService';
@@ -177,6 +179,7 @@ export interface Container {
   userService: UserService;
   crmService: CRMService;
   crmContactEnrichmentService: CrmContactEnrichmentService;
+  companyContactDiscoveryService: CompanyContactDiscoveryService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
   alphasenseToolCallService: AlphasenseToolCallService;
@@ -406,6 +409,15 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const crmContactEnrichmentService = new CrmContactEnrichmentService(
     correspondentRepo,
     employerRepo,
+    db,
+    workspaceId,
+  );
+  const companyContactDiscoveryService = new CompanyContactDiscoveryService(
+    companyRepo,
+    employerRepo,
+    new EmployerDomainRepository(db),
+    correspondentRepo,
+    crmService,
     db,
     workspaceId,
   );
@@ -687,6 +699,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     userService,
     crmService,
     crmContactEnrichmentService,
+    companyContactDiscoveryService,
     aiWorkforceService,
     copilotChatsService,
     alphasenseToolCallService,

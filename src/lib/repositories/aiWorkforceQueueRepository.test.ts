@@ -1050,6 +1050,44 @@ describe('AiWorkforceQueueRepository.findLatestByCorrespondentId', () => {
   });
 });
 
+describe('AiWorkforceQueueRepository.findLatestByCompanyId', () => {
+  function makeFindDb() {
+    const chain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn(),
+    };
+    const db = { select: vi.fn().mockReturnValue(chain) };
+    return { db, chain };
+  }
+
+  it('returns the newest run for the company, terminal or not', async () => {
+    const { db, chain } = makeFindDb();
+    const row = { id: 'run-1', status: 'succeeded' };
+    chain.limit.mockResolvedValueOnce([row]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    const result = await repo.findLatestByCompanyId('crm_company_contacts', 'co-1');
+
+    expect(result).toBe(row);
+    expect(chain.limit).toHaveBeenCalledWith(1);
+    const { sql: whereText } = new PgDialect().sqlToQuery(
+      chain.where.mock.calls[0][0] as SQL,
+    );
+    expect(whereText).not.toContain('succeeded');
+    expect(whereText).toContain("->>'company_id'");
+  });
+
+  it('returns null when the company has never had a run', async () => {
+    const { db, chain } = makeFindDb();
+    chain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    expect(await repo.findLatestByCompanyId('crm_company_contacts', 'co-1')).toBeNull();
+  });
+});
+
 describe('AiWorkforceQueueRepository.findLatestByCorrespondentIds', () => {
   function makeDistinctDb() {
     const chain = {

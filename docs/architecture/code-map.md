@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 205 | `src/app/api/**/route.ts` |
-| Services | 81 | `src/lib/services/` |
+| API routes | 206 | `src/app/api/**/route.ts` |
+| Services | 82 | `src/lib/services/` |
 | Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 158 | `drizzle/migrations/` |
+| Migrations (app) | 159 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -119,6 +119,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/client-health` | POST | `clientHealthService` |
 | `/api/companies` | GET, POST, PATCH, DELETE | `companyService` |
 | `/api/companies/[id]/assignees` | GET, PUT | `companyService` |
+| `/api/companies/[id]/contacts` | GET, POST | `companyContactDiscoveryService` |
 | `/api/companies/[id]/details` | GET | `companyService` |
 | `/api/companies/[id]/drop` | POST | `companyService` |
 | `/api/companies/[id]/financials` | PUT | `companyService` |
@@ -304,7 +305,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 67 keys. Wire new services in
+`Container` exposes 68 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -321,6 +322,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `clientHealthService.ts` | `ClientHealthService` | ✅ |
 | `companyAnalysisService.ts` | `CompanyAnalysisService` | ✅ |
 | `companyCardSlideService.ts` | `CompanyNotFoundForCardError`, `CompanyCardSlideService` | ✅ |
+| `companyContactDiscoveryService.ts` | `CompanyNotFoundError`, `CompanyContactDiscoveryService` | ✅ |
 | `companyGraphService.ts` | `CompanyGraphService` | ✅ |
 | `companyRelationshipService.ts` | `CompanyNotFoundError`, `InvalidCombineError`, `CompanyRelationshipService` | ✅ |
 | `companyService.ts` | `PipelineStageUnavailableError`, `RestoreStageRequiredError`, `CompanyL0RequirementsError`, `CompanyDroppedError`, `CompanyService` | ✅ |
@@ -486,7 +488,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 |---|---|---|---|
 | `analysis` | 75 | 68/75 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
-| `crm_contact` | 3 | 3/3 | ✅ |
+| `crm_contact` | 6 | 6/6 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
 | `file_processing` | 2 | 2/2 | ✅ |
 | `fund_update_processing` | 0 | 0/0 | ✅ |

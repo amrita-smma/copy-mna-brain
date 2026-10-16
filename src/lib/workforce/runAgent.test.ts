@@ -26,7 +26,9 @@ const {
   notifyInsightRefreshedMock,
   getSectorAgentGraphMock,
   getCrmContactAgentGraphMock,
+  getCrmCompanyContactsAgentGraphMock,
 } = vi.hoisted(() => ({
+  getCrmCompanyContactsAgentGraphMock: vi.fn(),
   getSectorAgentGraphMock: vi.fn(),
   getCrmContactAgentGraphMock: vi.fn(),
   findById: vi.fn(),
@@ -167,6 +169,7 @@ vi.mock('@/lib/agents/sector/graph', () => ({
 
 vi.mock('@/lib/agents/crm_contact', () => ({
   getCrmContactAgentGraph: getCrmContactAgentGraphMock,
+  getCrmCompanyContactsAgentGraph: getCrmCompanyContactsAgentGraphMock,
 }));
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
@@ -250,6 +253,7 @@ beforeEach(() => {
   getWorkforceAgentGraph.mockReset().mockResolvedValue(graph());
   getSectorAgentGraphMock.mockReset();
   getCrmContactAgentGraphMock.mockReset();
+  getCrmCompanyContactsAgentGraphMock.mockReset();
   dispatcherTick.mockReset().mockResolvedValue({ outcome: 'empty' });
   failAiOpinionIfStillProcessingMock.mockReset().mockResolvedValue(undefined);
   prepareForMessageMock.mockReset().mockResolvedValue({
@@ -1387,5 +1391,37 @@ describe('runAgent — @crm_contact rows run on their own agent', () => {
         'crm_contact',
       ),
     ).rejects.toThrow('crm_contact agent graph unavailable');
+  });
+});
+
+describe('runAgent — @crm_contact company-contacts rows run on their own graph', () => {
+  it('builds the company-contacts graph, not the correspondent or workforce one', async () => {
+    findById.mockResolvedValueOnce(
+      makeRow({
+        agent_name: 'crm_company_contacts',
+        trigger_meta: { company_id: 'co-1' },
+        input: { prompt: PROMPT, company_id: 'co-1' },
+      }),
+    );
+    getCrmCompanyContactsAgentGraphMock.mockResolvedValueOnce(graph());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(getCrmCompanyContactsAgentGraphMock).toHaveBeenCalledTimes(1);
+    expect(getCrmContactAgentGraphMock).not.toHaveBeenCalled();
+    expect(getWorkforceAgentGraph).not.toHaveBeenCalled();
+    expect(markSucceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unavailable company-contacts graph is retryable, and says which agent', async () => {
+    getCrmCompanyContactsAgentGraphMock.mockResolvedValueOnce(null);
+
+    await expect(
+      invokeAgent(
+        RUN_ID, PROMPT, null, RUN_ID, [], 'ws-1', 'medium', null, null, undefined,
+        { originRoutineId: null, refreshInsightId: null },
+        'crm_company_contacts',
+      ),
+    ).rejects.toThrow('crm_company_contacts agent graph unavailable');
   });
 });

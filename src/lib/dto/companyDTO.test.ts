@@ -19,6 +19,7 @@ function makeCompany(overrides: Partial<Tables<'companies'>> = {}): Tables<'comp
     comments: null,
     ownership: null,
     geography: null,
+    crm_employer_id: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     pipeline_stage: 'L0',

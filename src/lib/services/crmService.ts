@@ -227,6 +227,11 @@ export function pickEditableContactFields(
   return out;
 }
 
+/** How `employers.normalized_name` is derived — the employer match key. */
+export function normalizeEmployerName(s: string): string {
+  return normalizeName(s);
+}
+
 function normalizeName(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -679,6 +684,109 @@ export class CRMService {
       ),
     );
     return result;
+  }
+
+  /**
+   * File people under one known employer, merging into contacts the CRM
+   * already has rather than duplicating them. Used by @crm_contact's
+   * company-contacts task, which re-runs on the same company.
+   *
+   * A row matches an existing contact by email (case-insensitive, across
+   * employers, like {@link createContact}) or, failing that, by name within
+   * this employer — agent-found people often have no published email, and a
+   * refresh must not file a second "Jane Doe". A match only has its EMPTY
+   * fields filled: a value someone already entered, or the ingest captured,
+   * outranks a web search, and the name and email are never changed. The
+   * rest are inserted as `origin='manual'` so the mailbox ingest never prunes
+   * them. A fixed number of batched queries regardless of row count.
+   */
+  async addContactsToEmployer(
+    employerId: string,
+    rows: Omit<ImportContactRow, "firm">[],
+    opts: { source?: string; editedBy?: string | null } = {},
+  ): Promise<{ createdIds: string[]; merged: Correspondent[] }> {
+    const editedBy = opts.editedBy ?? null;
+    const [existing, byEmailRows] = await Promise.all([
+      this.correspondentRepo.findByEmployerId(employerId, this.workspaceId),
+      this.correspondentRepo.findByEmails(
+        rows.map((r) => normalizeEmail(r.email)).filter((e): e is string => !!e),
+      ),
+    ]);
+    const byEmail = pickCanonicalByEmail(byEmailRows, employerId);
+    const byName = new Map<string, Correspondent>();
+    for (const c of existing) {
+      const key = normalizeName(c.name);
+      if (!byName.has(key)) byName.set(key, c);
+    }
+
+    const fillable: Array<[keyof ImportContactRow, keyof CorrespondentCurationEdit]> = [
+      ["title", "title"],
+      ["phone", "phone"],
+      ["type", "type"],
+      ["department", "department"],
+      ["specialization", "specialization"],
+      ["seniority", "seniority"],
+      ["coverageRegion", "coverage_region"],
+      ["linkedinUrl", "linkedin_url"],
+      ["bio", "bio"],
+    ];
+
+    const seen = new Set<string>();
+    const merged: Correspondent[] = [];
+    const mergeEdits: Array<{ correspondentId: string; edit: CorrespondentCurationEdit }> = [];
+    const inserts: CorrespondentInsert[] = [];
+    for (const row of rows) {
+      const email = normalizeEmail(row.email);
+      const nameKey = normalizeName(row.name);
+      if (seen.has(nameKey) || (email && seen.has(email))) continue;
+      seen.add(nameKey);
+      if (email) seen.add(email);
+
+      const match = (email ? byEmail.get(email) : undefined) ?? byName.get(nameKey);
+      if (match) {
+        const edit: CorrespondentCurationEdit = {};
+        for (const [from, to] of fillable) {
+          const value = row[from]?.trim();
+          const current = match[to as keyof Correspondent];
+          if (value && !(typeof current === "string" && current.trim())) edit[to] = value;
+        }
+        merged.push(match);
+        if (Object.keys(edit).length > 0) {
+          mergeEdits.push({ correspondentId: match.id, edit });
+        }
+        continue;
+      }
+      inserts.push({
+        employer_id: employerId,
+        name: row.name.trim(),
+        email,
+        phone: row.phone,
+        title: row.title,
+        type: row.type,
+        department: row.department,
+        specialization: row.specialization,
+        seniority: row.seniority,
+        coverage_region: row.coverageRegion,
+        linkedin_url: row.linkedinUrl,
+        bio: row.bio,
+        source: opts.source ?? "manual",
+        origin: "manual",
+        last_edited_by_user_id: editedBy,
+      });
+    }
+
+    await this.correspondentCurationRepo.fillMany(mergeEdits, editedBy);
+    const created = await this.correspondentRepo.insertMany(inserts);
+    await this.workspaceCorrespondentRepo.addMemberships(
+      [...merged, ...created].map((c) => ({
+        workspaceId: this.workspaceId,
+        correspondentId: c.id,
+        source: "manual" as const,
+      })),
+    );
+    // `merged` rows keep their own employer: an email match can be a contact
+    // filed under another firm, and the email-keyed merge leaves it there.
+    return { createdIds: created.map((c) => c.id), merged };
   }
 
   async listContacts(employerId: string): Promise<Correspondent[]> {

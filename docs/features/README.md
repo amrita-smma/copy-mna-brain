@@ -21,6 +21,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [CRM banker matching ("which banker can help me close this deal?")](crm-banker-matching.md) — 8KB
 - [Filling a CRM contact from the web (`@crm_contact`)](crm-contact-fill.md) — 4KB
 - [CRM contacts: email-keyed merge and CSV/Excel import](crm-contact-merge-and-import.md) — 4KB
+- [Company contact details (partnership contacts in the CRM via `@crm_contact`)](company-contacts.md) — 3KB
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
 - [Pending Confirmation auto-scan, auto drop/promote, Scan now; AI screening on the AI Workforce](pending-auto-scan.md) — 5KB
 - [Company detail tabs (page + pipeline dialog)](company-detail-tabs.md) — 4KB

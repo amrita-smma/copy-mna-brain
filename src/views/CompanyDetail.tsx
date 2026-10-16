@@ -7,6 +7,7 @@ import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyConte
 import { CompanyContextCard } from '@/components/pipeline/CompanyContextCard';
 import { CollapsibleSection } from '@/components/pipeline/CollapsibleSection';
 import { CompanyTimeline } from '@/components/pipeline/CompanyTimeline';
+import { CompanyContactsSection } from '@/components/pipeline/CompanyContactsSection';
 import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
 import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
@@ -2253,6 +2254,14 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </div>
               )}
             </div>
+
+            {/* Partnership contacts at this company, kept in the CRM and found
+                on demand by @crm_contact on the AI Workforce. */}
+            <CompanyContactsSection
+              key={company.id}
+              companyId={company.id}
+              companyName={companyDisplayName(company, 'This company')}
+            />
 
             {/* Relationship graph snippet — this company and the companies
                 directly connected to it. Filtering lives on the graph page. */}

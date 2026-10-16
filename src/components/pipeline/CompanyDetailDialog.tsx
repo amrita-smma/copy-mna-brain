@@ -5,6 +5,7 @@ import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyConte
 import { CompanyContextCard } from "@/components/pipeline/CompanyContextCard";
 import { CollapsibleSection } from "@/components/pipeline/CollapsibleSection";
 import { CompanyTimeline } from "@/components/pipeline/CompanyTimeline";
+import { CompanyContactsSection } from "@/components/pipeline/CompanyContactsSection";
 import { formatMoneyMn } from "@/lib/currency";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
@@ -2601,6 +2602,17 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   </div>
                 )}
               </div>
+
+              {/* Partnership contacts at this company, found on demand by
+                  @crm_contact on the AI Workforce. Mounted only while open:
+                  Company Graph keeps a closed dialog mounted, and the card
+                  must not keep polling (or toasting) behind it. */}
+              {open && (
+                <CompanyContactsSection
+                  companyId={company.id}
+                  companyName={companyDisplayName(company, 'This company')}
+                />
+              )}
 
               {/* Relationship graph snippet — this company and the companies
                   directly connected to it. Filtering lives on the graph page. */}

@@ -474,3 +474,25 @@ instructions that fed it were redirected by kind of change (shape ->
 `docs/features/`). Four dead file references were corrected in the move.
 Watch for the loop returning: any new instruction to document architecture in
 `README.md` recreates it.
+
+---
+
+## Company Contact Details card reads every CRM contact of the firm
+
+**Area:** `CompanyContactDiscoveryService.getState`
+(`src/lib/services/companyContactDiscoveryService.ts`), polled by
+`CompanyContactsSection` every 4s while a contact search runs.
+
+**What it is:** the card loads all of the linked firm's visible
+correspondents (`findByEmployerId`), ranks them in memory by
+`partnershipRoleRank(title)` and keeps the top five.
+
+**Why we took it:** a pipeline company's CRM firm holds a handful of people,
+and the ranking is regex-based — moving it into SQL means a second copy of the
+tiers as a `CASE` expression that can drift from the TypeScript one.
+
+**Trigger to revisit:** any linked firm with more than ~200 visible contacts,
+or the GET showing up in slow-query logs.
+
+**Fix:** rank in SQL with `LIMIT 5` plus a separate `COUNT(*)`, generating the
+`CASE` from `PARTNERSHIP_TITLE_TIERS` so there is one source of truth.

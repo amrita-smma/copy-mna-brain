@@ -1041,3 +1041,79 @@ describe('CRMService.importContacts', () => {
     expect(out.errors).toEqual(['Nobody: no firm or email to file it under.']);
   });
 });
+
+describe('CRMService.addContactsToEmployer', () => {
+  beforeEach(() => {
+    correspondentRepo.findByEmployerId.mockResolvedValue([]);
+    correspondentRepo.findByEmails.mockResolvedValue([]);
+    correspondentRepo.insertMany.mockImplementation(async (rows: Array<{ name: string }>) =>
+      rows.map((r, i) => ({ id: `new-${i}`, ...r })),
+    );
+  });
+
+  it('inserts new people under the employer as manual contacts with the given source', async () => {
+    const out = await makeService().addContactsToEmployer(
+      'emp-1',
+      [{ name: 'Jane Doe', title: 'CEO', email: 'Jane@Acme.co.id' }],
+      { source: 'crm_contact', editedBy: 'u1' },
+    );
+
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([
+      expect.objectContaining({
+        employer_id: 'emp-1',
+        name: 'Jane Doe',
+        email: 'jane@acme.co.id',
+        title: 'CEO',
+        origin: 'manual',
+        source: 'crm_contact',
+        last_edited_by_user_id: 'u1',
+      }),
+    ]);
+    expect(out.createdIds).toEqual(['new-0']);
+    expect(workspaceCorrespondentRepo.addMemberships).toHaveBeenCalledWith([
+      { workspaceId: WORKSPACE_ID, correspondentId: 'new-0', source: 'manual' },
+    ]);
+  });
+
+  it('merges by name within the employer, filling only empty fields and never the name', async () => {
+    correspondentRepo.findByEmployerId.mockResolvedValue([
+      { id: 'c1', name: 'Jane  Doe', title: 'Chief Executive', linkedin_url: null, email: null },
+    ]);
+
+    const out = await makeService().addContactsToEmployer('emp-1', [
+      { name: 'jane doe', title: 'CEO', linkedinUrl: 'https://linkedin.com/in/jane' },
+    ]);
+
+    expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      [{ correspondentId: 'c1', edit: { linkedin_url: 'https://linkedin.com/in/jane' } }],
+      null,
+    );
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([]);
+    expect(out.merged.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('merges by email across employers before falling back to name', async () => {
+    correspondentRepo.findByEmails.mockResolvedValue([
+      { id: 'c-mail', name: 'J. Doe', email: 'jane@acme.co.id', employer_id: 'emp-other', title: null },
+    ]);
+
+    await makeService().addContactsToEmployer('emp-1', [
+      { name: 'Jane Doe', email: 'jane@acme.co.id', title: 'CEO' },
+    ]);
+
+    expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      [{ correspondentId: 'c-mail', edit: { title: 'CEO' } }],
+      null,
+    );
+    expect(correspondentRepo.insertMany).toHaveBeenCalledWith([]);
+  });
+
+  it('drops a person repeated within the batch', async () => {
+    await makeService().addContactsToEmployer('emp-1', [
+      { name: 'Jane Doe', title: 'CEO' },
+      { name: 'JANE DOE', title: 'President' },
+    ]);
+
+    expect(correspondentRepo.insertMany.mock.calls[0][0]).toHaveLength(1);
+  });
+});

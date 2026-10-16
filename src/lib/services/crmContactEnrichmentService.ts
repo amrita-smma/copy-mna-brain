@@ -81,7 +81,7 @@ export class CrmContactEnrichmentService {
       correspondentId,
     );
     if (existing && !isTerminalWorkforceStatus(existing.status)) {
-      return { run: toRun(existing), created: false };
+      return { run: toContactEnrichmentRun(existing), created: false };
     }
 
     const contact = await this.correspondentRepo.findById(
@@ -140,7 +140,7 @@ export class CrmContactEnrichmentService {
     // means it is not readable in this workspace, which is a bug worth
     // surfacing rather than a state the caller can act on.
     if (!row) throw new Error(`enrich: queue row ${runId} is not readable`);
-    return { run: toRun(row), created };
+    return { run: toContactEnrichmentRun(row), created };
   }
 
   /**
@@ -153,7 +153,7 @@ export class CrmContactEnrichmentService {
       CRM_CONTACT_AGENT_NAME,
       correspondentId,
     );
-    return row ? toRun(row) : null;
+    return row ? toContactEnrichmentRun(row) : null;
   }
 
   /**
@@ -181,7 +181,7 @@ export class CrmContactEnrichmentService {
     const byContact: Record<string, ContactEnrichmentRun> = {};
     for (const row of rows) {
       const id = row.trigger_meta?.correspondent_id;
-      if (typeof id === 'string') byContact[id] = toRun(row);
+      if (typeof id === 'string') byContact[id] = toContactEnrichmentRun(row);
     }
     return byContact;
   }
@@ -197,7 +197,8 @@ export class CrmContactEnrichmentService {
   }
 }
 
-function toRun(row: WorkforceQueueRow): ContactEnrichmentRun {
+/** Map a queue row to what a run-watching button needs. */
+export function toContactEnrichmentRun(row: WorkforceQueueRow): ContactEnrichmentRun {
   const error =
     row.error && typeof row.error === 'object' && typeof row.error.message === 'string'
       ? row.error.message

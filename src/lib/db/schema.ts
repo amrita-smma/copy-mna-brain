@@ -412,6 +412,11 @@ export const companies = pgTable(
     comments: text(),
     ownership: text(),
     geography: text(),
+    // The CRM employer that IS this company (not a banker covering it — that
+    // is employer_related_companies). Set when @crm_contact files the
+    // company's partnership contacts into the CRM; until then the link is
+    // resolved by website domain or name (CompanyContactDiscoveryService).
+    crm_employer_id: uuid().references(() => employers.id, { onDelete: "set null" }),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     // A stage key. The pre-pipeline buckets (`market_screening`, `unreviewed`
@@ -515,6 +520,9 @@ export const companies = pgTable(
       idxCompaniesAutoScanRequestedAt: index("idx_companies_auto_scan_requested_at")
         .using("btree", table.auto_scan_requested_at.asc().nullsLast())
         .where(sql`auto_scan_requested_at IS NOT NULL`),
+      idxCompaniesCrmEmployerId: index("idx_companies_crm_employer_id")
+        .using("btree", table.crm_employer_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`crm_employer_id IS NOT NULL`),
       idxCompaniesWorkspaceId: index("idx_companies_workspace_id").using(
         "btree",
         table.workspace_id.asc().nullsLast().op("uuid_ops"),
@@ -2835,6 +2843,16 @@ export const aiWorkforceQueue = pgTable(
           table.created_at.desc(),
         )
         .where(sql`agent_name = 'ai_screening'`),
+      // Newest crm_company_contacts run per company (the Contact Details card).
+      idxAiWorkforceQueueCompanyContactsCompany: index(
+        "idx_ai_workforce_queue_company_contacts_company",
+      )
+        .on(
+          table.workspace_id,
+          sql`(${table.trigger_meta}->>'company_id')`,
+          table.created_at.desc(),
+        )
+        .where(sql`agent_name = 'crm_company_contacts'`),
       idxAiWorkforceQueueTerminal: index(
         "idx_ai_workforce_queue_terminal",
       ).using("btree", table.ended_at.desc().nullsLast().op("timestamptz_ops")),

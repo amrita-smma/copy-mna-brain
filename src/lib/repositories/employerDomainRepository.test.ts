@@ -90,3 +90,15 @@ describe('EmployerDomainRepository.repoint', () => {
     expect(db.set).toHaveBeenCalled();
   });
 });
+
+describe('EmployerDomainRepository.findByEmployerId', () => {
+  it("returns the employer's domain rows", async () => {
+    const db = makeDb();
+    db.where.mockResolvedValueOnce([{ domain: 'acme.co.id', employer_id: 'e1' }]);
+    const repo = new EmployerDomainRepository(db as never);
+    await expect(repo.findByEmployerId('e1')).resolves.toEqual([
+      { domain: 'acme.co.id', employer_id: 'e1' },
+    ]);
+    expect(db.select).toHaveBeenCalledTimes(1);
+  });
+});

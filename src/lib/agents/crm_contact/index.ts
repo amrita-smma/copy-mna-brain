@@ -34,12 +34,16 @@ import {
   type AgentGraph,
   type EffortChoice,
 } from '@/lib/agents/analysis';
+import { CRM_COMPANY_CONTACTS_SYSTEM_PROMPT } from './companyContactsPrompt';
 import { CRM_CONTACT_SYSTEM_PROMPT } from './prompt';
-import { CRM_CONTACT_TOOLS } from './tools';
+import { CRM_COMPANY_CONTACTS_TOOLS, CRM_CONTACT_TOOLS } from './tools';
 
 export {
+  CRM_COMPANY_CONTACTS_AGENT_NAME,
   CRM_CONTACT_AGENT_NAME,
   CRM_CONTACT_WRITABLE_FIELDS,
+  MAX_COMPANY_CONTACTS,
+  isCrmCompanyContactsAgent,
   isCrmContactAgent,
   missingProfileFields,
   type CrmContactWritableField,
@@ -49,7 +53,12 @@ export {
   buildContactEnrichmentPrompt,
   buildContactEnrichmentTitle,
 } from './prompt';
-export { CRM_CONTACT_TOOLS } from './tools';
+export {
+  CRM_COMPANY_CONTACTS_SYSTEM_PROMPT,
+  buildCompanyContactsPrompt,
+  buildCompanyContactsTitle,
+} from './companyContactsPrompt';
+export { CRM_COMPANY_CONTACTS_TOOLS, CRM_CONTACT_TOOLS } from './tools';
 
 /**
  * Cached per effort tier, like the workforce graphs — the graph holds no
@@ -57,7 +66,11 @@ export { CRM_CONTACT_TOOLS } from './tools';
  * clears this too, via the listener below.
  */
 const crmContactGraphs = new Map<EffortChoice, AgentGraph>();
-onResetAgent(() => crmContactGraphs.clear());
+const crmCompanyContactsGraphs = new Map<EffortChoice, AgentGraph>();
+onResetAgent(() => {
+  crmContactGraphs.clear();
+  crmCompanyContactsGraphs.clear();
+});
 
 /**
  * The agent's graph at one effort tier.
@@ -85,5 +98,29 @@ export async function getCrmContactAgentGraph(
     effort,
   );
   if (graph) crmContactGraphs.set(effort, graph);
+  return graph;
+}
+
+/**
+ * The company-contacts task's graph at one effort tier: find the partnership
+ * contacts (CEO, head of BD, BD manager) AT a pipeline company. Same runtime,
+ * caching and checkpointing as {@link getCrmContactAgentGraph}; only the
+ * prompt and tool list differ. A run fired from the company dialog's "Find
+ * contacts" button is floored at `medium` by the workforce, like the CRM one.
+ */
+export async function getCrmCompanyContactsAgentGraph(
+  effort: EffortChoice = 'low',
+): Promise<AgentGraph | null> {
+  const cached = crmCompanyContactsGraphs.get(effort);
+  if (cached) return cached;
+
+  const graph = await buildAgentGraph(
+    CRM_COMPANY_CONTACTS_TOOLS as never,
+    CRM_COMPANY_CONTACTS_SYSTEM_PROMPT,
+    [],
+    true,
+    effort,
+  );
+  if (graph) crmCompanyContactsGraphs.set(effort, graph);
   return graph;
 }
