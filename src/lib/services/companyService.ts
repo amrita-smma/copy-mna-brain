@@ -748,8 +748,9 @@ export class CompanyService {
     promotionReason?: string,
     /** Telemetry-only context — see the `captureWorkspaceEvent` call below. */
     opts?: {
-      /** Session user behind the move. Absent for agent-tool and bulk-triage
-       *  callers, which capture as 'server'. */
+      /** Session user behind the move. Also the default `entered_by` when a
+       *  company enters L0 without one. Absent for agent-tool callers, which
+       *  capture as 'server'. */
       triggeredByUserId?: string | null;
       /** Whether the caller is about to attach a document. The upload happens
        *  after this call returns, so the server can't observe it itself. */
@@ -767,9 +768,17 @@ export class CompanyService {
     // Coming down to L0 from a later stage is a demotion, not a fresh entry, so
     // it must NOT re-run the entry checks or track matching.
     const isEnteringL0 = nextStage === L0_STAGE && !isInPipelineStage(currentStage);
+    // An unset Entered By defaults to the user making the move, so nobody has
+    // to fill it in by hand just to clear the L0 gate.
+    const defaultEnteredBy =
+      isEnteringL0 && !existing.entered_by?.trim() && opts?.triggeredByUserId
+        ? opts.triggeredByUserId
+        : null;
     if (isEnteringL0) {
       // Hard-block: all required fields must be present before L0 entry.
-      this.assertL0Requirements(existing);
+      this.assertL0Requirements(
+        defaultEnteredBy ? { ...existing, entered_by: defaultEnteredBy } : existing,
+      );
       // Ensure a track is assigned: run inline matching if none yet.
       if (!existing.matched_track_ids?.length && this.trackMatchingService) {
         await this.trackMatchingService.runSync({ companyId: id });
@@ -779,6 +788,7 @@ export class CompanyService {
     const trimmedPromotionReason = promotionReason?.trim() || null;
     const companyUpdate: TablesUpdate<'companies'> = {
       pipeline_stage: nextStage as DealStage,
+      ...(defaultEnteredBy ? { entered_by: defaultEnteredBy } : {}),
     };
     // Deal Captain is shown from L3 onwards — L3 and every stage the workspace
     // orders after it; on entry to one of those it inherits the Deal Sponsor

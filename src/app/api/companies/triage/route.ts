@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services';
+import { auth } from '@/auth';
 import { CompanyL0RequirementsError } from '@/lib/services/companyService';
 
 export interface TriageDecision {
@@ -30,11 +31,24 @@ export async function POST(req: NextRequest) {
     const drops = decisions.filter((d) => d.action === 'drop');
 
     // Keep: promote each company from unreviewed → L0 (triggers MB-320 field validation).
+    // The acting user fills in a blank Entered By and is credited in telemetry.
+    const session = await auth();
+    const triggeredByUserId = session?.user?.id ?? null;
     const keepErrors: TriageKeepError[] = [];
     let kept = 0;
     for (const decision of keeps) {
       try {
-        await companyService.promote(decision.id, 'unreviewed', 'L0');
+        await companyService.promote(
+          decision.id,
+          'unreviewed',
+          'L0',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { triggeredByUserId },
+        );
         kept++;
       } catch (err) {
         if (err instanceof CompanyL0RequirementsError) {

@@ -1618,6 +1618,53 @@ describe("CompanyService.promote — L0 requirements guard", () => {
     });
   });
 
+  it("defaults a blank entered_by to the promoting user and passes the gate", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, entered_by: null }),
+    );
+    await expect(
+      service.promote("company-1", "market_screening", "L0", undefined, undefined, undefined, undefined, undefined, {
+        triggeredByUserId: "user-42",
+      }),
+    ).resolves.toBeUndefined();
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ pipeline_stage: "L0", entered_by: "user-42" }),
+    );
+  });
+
+  it("keeps an existing entered_by rather than overwriting it with the promoting user", async () => {
+    await service.promote("company-1", "market_screening", "L0", undefined, undefined, undefined, undefined, undefined, {
+      triggeredByUserId: "user-42",
+    });
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.not.objectContaining({ entered_by: expect.anything() }),
+    );
+  });
+
+  it("still blocks a blank entered_by when there is no promoting user", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, entered_by: null }),
+    );
+    await expect(service.promote("company-1", "market_screening", "L0")).rejects.toMatchObject({
+      missingFields: ["Entered By"],
+    });
+  });
+
+  it("does not stamp entered_by on a move that is not an L0 entry", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ ...l0BaseCompany, pipeline_stage: "market_screening", entered_by: null }),
+    );
+    await service.promote("company-1", "market_screening", "unreviewed", undefined, undefined, undefined, undefined, undefined, {
+      triggeredByUserId: "user-42",
+    });
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "company-1",
+      expect.not.objectContaining({ entered_by: expect.anything() }),
+    );
+  });
+
   it("rejects when neither target nor project_name is set", async () => {
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(
       makeCompany({ ...l0BaseCompany, target: null, project_name: null }),

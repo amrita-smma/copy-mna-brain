@@ -21,7 +21,7 @@ import {
   type ColumnDef,
 } from '@/components/table';
 import { toast } from 'sonner';
-import { Loader2, Zap, Target, Sparkles, Trash2, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { Loader2, Zap, Target, Sparkles, Trash2, ChevronLeft, ChevronRight, ArrowRight, Inbox } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
 import PromoteDialog from './PromoteDialog';
 import {
@@ -35,7 +35,8 @@ import { useChatActions } from '@/components/chat/ChatProvider';
 import { cn } from '@/lib/utils';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
-import { deleteCompanyById, getCompanies } from '@/lib/api/pipeline';
+import { deleteCompanyById, getCompanies, promoteCompany } from '@/lib/api/pipeline';
+import { UNREVIEWED_STAGE } from '@/lib/constants';
 
 // Sticky cells follow this table's blue row hover with an opaque tint.
 const stickyHoverClass = 'group-hover:bg-blue-50 dark:group-hover:bg-blue-950';
@@ -179,6 +180,33 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
     } catch (error: any) {
       console.error('Error dismissing result:', error);
       toast.error('Failed to dismiss result');
+    }
+  };
+
+  // Ids currently being moved to Pending Confirmation, so a double click can't
+  // fire the move twice.
+  const [movingToPendingIds, setMovingToPendingIds] = useState<Set<string>>(new Set());
+
+  const moveToPendingConfirmation = async (result: MarketScreeningResult) => {
+    if (movingToPendingIds.has(result.id)) return;
+    setMovingToPendingIds((prev) => new Set(prev).add(result.id));
+    try {
+      await promoteCompany(result.id, {
+        currentStage: result.pipeline_stage,
+        nextStage: UNREVIEWED_STAGE,
+      });
+      toast.success(`${companyDisplayName(result, 'Company')} added to Pending Confirmation`);
+      fetchResults({ silent: true });
+      onAddedToPipeline();
+    } catch (error: any) {
+      console.error('Error adding to Pending Confirmation:', error);
+      toast.error(`Failed to add to Pending Confirmation: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setMovingToPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(result.id);
+        return next;
+      });
     }
   };
 
@@ -457,6 +485,14 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
                               label: 'Add to L0',
                               icon: ArrowRight,
                               onSelect: () => setCompanyToPromote(result),
+                            },
+                            {
+                              key: 'pending',
+                              label: 'Add to Pending Confirmation',
+                              icon: movingToPendingIds.has(result.id) ? Loader2 : Inbox,
+                              iconClassName: movingToPendingIds.has(result.id) ? 'animate-spin' : undefined,
+                              disabled: movingToPendingIds.has(result.id),
+                              onSelect: () => moveToPendingConfirmation(result),
                             },
                             {
                               key: 'delete',
