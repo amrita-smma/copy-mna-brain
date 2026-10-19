@@ -13,7 +13,16 @@ import {
   type TrackScreeningGroup,
 } from '@/lib/tracks/matchTracks';
 import { enqueueAgentRun } from '@/lib/workforce';
-import { screeningVerdict, tallyScreenings, type ScreeningVerdict } from '@/lib/screening/verdict';
+import {
+  companyScreeningVerdict,
+  isConfiguredRule,
+  optionalPassThresholdPercent,
+  tallyScreenings,
+  trackPassRule,
+  trackScreeningVerdict,
+  type ScreeningVerdict,
+  type TrackPassRule,
+} from '@/lib/screening/verdict';
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import { UNREVIEWED_STAGE } from '@/lib/constants';
 import { SCREENING_PANEL_STAGES } from '@/lib/screening/scope';
@@ -59,7 +68,30 @@ export interface ScreenTracksResult {
   /** Criteria screened by this call. */
   screened: number;
   tracks: Tables<'investment_thesis'>[];
+  /** Each screened track's pass rule (must-pass criteria + minimum optional passes), by track id. */
+  rules: Map<string, TrackPassRule>;
 }
+
+/** Each track's pass rule, by track id, from the workspace's tracks and criteria. */
+export function buildTrackPassRules(
+  tracks: Array<Pick<Tables<'investment_thesis'>, 'id' | 'min_optional_criteria_pass'>>,
+  criteria: Array<Pick<Tables<'criterias'>, 'id' | 'investment_thesis_id' | 'must_pass'>>,
+): Map<string, TrackPassRule> {
+  const criteriaByTrack = new Map<string, typeof criteria>();
+  for (const c of criteria) {
+    const list = criteriaByTrack.get(c.investment_thesis_id);
+    if (list) list.push(c);
+    else criteriaByTrack.set(c.investment_thesis_id, [c]);
+  }
+  return new Map(
+    tracks.map((t) => [
+      t.id,
+      trackPassRule(criteriaByTrack.get(t.id) ?? [], t.min_optional_criteria_pass),
+    ]),
+  );
+}
+
+const RESULT_MARK: Record<string, string> = { pass: '✓ pass', fail: '✗ fail', error: '✗ error' };
 
 /** A company's newest AI screening task, as the Pipeline AI Screening panel shows it. */
 export interface ScreeningTaskStatus {
@@ -236,7 +268,8 @@ export class AIScreeningService {
       this.criteriaRepo.findAll(),
     ]);
     const groups = buildTrackScreeningGroups(company, tracks, criteria);
-    if (groups.length === 0) return { groups, screened: 0, tracks };
+    const rules = buildTrackPassRules(tracks, criteria);
+    if (groups.length === 0) return { groups, screened: 0, tracks, rules };
 
     let toRun = groups;
     if (!opts.force) {
@@ -253,7 +286,7 @@ export class AIScreeningService {
         }))
         .filter((g) => g.criteriaIds.length > 0);
     }
-    if (toRun.length === 0) return { groups, screened: 0, tracks };
+    if (toRun.length === 0) return { groups, screened: 0, tracks, rules };
 
     const entries = await this.screeningService.prepare(
       toRun.map((g) => ({ companyId: company.id, trackId: g.trackId, criteriaIds: g.criteriaIds })),
@@ -276,7 +309,7 @@ export class AIScreeningService {
         ),
       ),
     );
-    return { groups, screened: entries.length, tracks };
+    return { groups, screened: entries.length, tracks, rules };
   }
 
   /**
@@ -291,22 +324,91 @@ export class AIScreeningService {
     tracks: Array<{ trackId: string; title: string; verdict: ScreeningVerdict | 'pending' }>;
   }> {
     const company = await this.companyRepo.findById(companyId);
-    const { groups, screened, tracks } = await this.screenMatchedTracks(company, opts);
+    const { groups, screened, tracks, rules } = await this.screenMatchedTracks(company, opts);
     if (groups.length === 0) return { screened, tracks: [] };
     const rows = await this.screeningRepo.findByCompanyIds([companyId]);
     return {
       screened,
       tracks: groups.map((g) => {
-        const tally = tallyScreenings(
-          rows.filter((r) => r.track_id === g.trackId && g.criteriaIds.includes(r.criteria_id)),
+        const groupRows = rows.filter(
+          (r) => r.track_id === g.trackId && g.criteriaIds.includes(r.criteria_id),
         );
         return {
           trackId: g.trackId,
           title: tracks.find((t) => t.id === g.trackId)?.title?.trim() || 'Untitled track',
-          verdict: tally.pending > 0 ? 'pending' : screeningVerdict(tally),
+          verdict:
+            tallyScreenings(groupRows).pending > 0
+              ? 'pending'
+              : trackScreeningVerdict(groupRows, rules.get(g.trackId)),
         };
       }),
     };
+  }
+
+  /**
+   * The company's AI Screening results as a prompt block for the AI Opinion:
+   * per matched track, its verdict under the track's pass rule, the must-pass
+   * criteria and how the optional criteria fared against the minimum. `null`
+   * when the company has no screening results on a current matched track.
+   * Four reads, whatever the number of tracks or criteria.
+   */
+  async summarizeForOpinion(company: Company): Promise<string | null> {
+    const [tracks, criteria, rows] = await Promise.all([
+      this.thesisRepo.findAll(),
+      this.criteriaRepo.findAll(),
+      this.screeningRepo.findByCompanyIds([company.id]),
+    ]);
+    const groups = buildTrackScreeningGroups(company, tracks, criteria);
+    if (groups.length === 0 || rows.length === 0) return null;
+
+    const rules = buildTrackPassRules(tracks, criteria);
+    const criterionById = new Map(criteria.map((c) => [c.id, c]));
+    const scoped: typeof rows = [];
+    const lines: string[] = [];
+
+    for (const g of groups) {
+      const groupRows = rows.filter(
+        (r) => r.track_id === g.trackId && g.criteriaIds.includes(r.criteria_id),
+      );
+      if (groupRows.length === 0) continue;
+      scoped.push(...groupRows);
+
+      const title = tracks.find((t) => t.id === g.trackId)?.title?.trim() || 'Untitled track';
+      const rule = rules.get(g.trackId);
+      const tally = tallyScreenings(groupRows);
+      const verdict =
+        tally.pending > 0 ? 'pending' : trackScreeningVerdict(groupRows, rule);
+      lines.push(`- Track "${title}": ${verdict.toUpperCase()}`);
+
+      if (!isConfiguredRule(rule)) {
+        lines.push(
+          `  - Rule: at least 3 criteria pass and at most 1 fails. ` +
+            `${tally.passed} passed, ${tally.failed} failed, ${tally.inconclusive} inconclusive, ` +
+            `${tally.pending} pending of ${tally.total}.`,
+        );
+        continue;
+      }
+
+      const must = groupRows.filter((r) => rule.mustPassCriteriaIds.has(r.criteria_id));
+      const optional = groupRows.filter((r) => !rule.mustPassCriteriaIds.has(r.criteria_id));
+      const describe = (r: (typeof rows)[number]) =>
+        `${criterionById.get(r.criteria_id)?.name ?? 'Unnamed criterion'} ` +
+        `(${r.state === 'pending' ? 'pending' : r.state === 'failed' ? '✗ fail' : (RESULT_MARK[r.result ?? ''] ?? r.result ?? 'no result')})`;
+      if (must.length > 0) {
+        lines.push(`  - Must-pass (every one is required): ${must.map(describe).join('; ')}`);
+      }
+      const optionalTally = tallyScreenings(optional);
+      const min = Math.min(rule.minOptionalPass ?? 0, optional.length);
+      lines.push(
+        `  - Optional: ${optionalTally.passed} of ${optional.length} passed; at least ${min} ` +
+          `required (${optionalPassThresholdPercent(rule.minOptionalPass, optional.length)}%).` +
+          (optional.length > 0 ? ` ${optional.map(describe).join('; ')}` : ''),
+      );
+    }
+    if (lines.length === 0) return null;
+
+    const overall = companyScreeningVerdict(scoped, rules);
+    return `Overall AI Screening verdict: ${overall.toUpperCase()} (passes when any matched track passes).\n${lines.join('\n')}`;
   }
 
   /**

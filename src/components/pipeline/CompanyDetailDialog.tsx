@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { trackPassRuleFromRows, trackScreeningVerdict } from "@/lib/screening/verdict";
 import { useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
@@ -330,24 +331,25 @@ interface Screening {
     id: string;
     name: string;
     prompt: string;
+    must_pass?: boolean;
   };
   track?: {
     id: string;
     title: string | null;
+    min_optional_criteria_pass?: number | null;
   } | null;
 }
 
 type OverallScreeningStatus = "pending" | "pass" | "fail" | "inconclusive";
 
-/** Aggregate verdict for a set of screenings (matches the L0 progress rules). */
+/**
+ * Aggregate verdict for one track's screenings, under that track's rule
+ * (must-pass criteria + minimum optional passes) — the same rule the AI
+ * Screening panel and auto drop/promote use (src/lib/screening/verdict.ts).
+ */
 function overallScreeningStatus(list: Screening[]): OverallScreeningStatus {
   if (list.some((s) => s.state === "pending")) return "pending";
-  const pass = list.filter((s) => s.result?.toLowerCase() === "pass").length;
-  const fail = list.filter((s) => s.result?.toLowerCase() === "fail").length;
-  // Pass: minimum 3 pass AND maximum 1 fail.
-  if (pass >= 3 && fail <= 1) return "pass";
-  if (fail >= 1) return "fail";
-  return "inconclusive";
+  return trackScreeningVerdict(list, trackPassRuleFromRows(list));
 }
 
 interface ScreeningTrackGroup {
@@ -2772,6 +2774,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                                   {screening.criterias?.name ||
                                     "Unknown Criteria"}
                                 </span>
+                                {screening.criterias?.must_pass && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    Must-pass
+                                  </Badge>
+                                )}
                                 <Badge
                                   variant={
                                     screening.state === "completed"

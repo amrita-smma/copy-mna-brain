@@ -25,7 +25,7 @@ export class ChatService {
         contextParts.push('## Screening Criteria\n');
         contextParts.push('The following criteria are used to evaluate companies:\n');
         criteria.forEach((c, i) => {
-          contextParts.push(`${i + 1}. **${c.name}**: ${c.prompt}`);
+          contextParts.push(`${i + 1}. **${c.name}**${c.must_pass ? ' (must-pass)' : ''}: ${c.prompt}`);
         });
         contextParts.push('');
       }

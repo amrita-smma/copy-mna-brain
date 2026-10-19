@@ -106,9 +106,12 @@ the screening results per track (formerly "L1 Filters").
 ## Verdict rule
 
 `src/lib/screening/verdict.ts`, shared with the AI Screening progress panel.
-Per track: **pass** = ≥3 passes and ≤1 fail; **fail** = ≥1 fail otherwise;
-else inconclusive (`error` results count as fails). Per company: pass if any
-track passes, fail if every track fails, otherwise inconclusive.
+Each track is judged by its own pass rule — must-pass criteria plus a minimum
+number of optional criteria (see [track-screening-rule.md](track-screening-rule.md));
+a track with neither configured keeps the default: **pass** = ≥3 passes and
+≤1 fail, **fail** = ≥1 fail otherwise, else inconclusive (`error` results
+count as fails). Per company: pass if any track passes, fail if every track
+fails, otherwise inconclusive.
 
 ## Local development
 

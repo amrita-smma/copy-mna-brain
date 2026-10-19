@@ -6,10 +6,15 @@ import { createContainer } from '@/lib/services';
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { name, prompt } = await req.json();
+    const { name, prompt, mustPass } = await req.json();
     const db = createDb();
     const { criteriaService } = createContainer(db, await getActiveWorkspaceId());
-    const data = await criteriaService.update(id, name, prompt);
+    const data = await criteriaService.update(
+      id,
+      name,
+      prompt,
+      typeof mustPass === 'boolean' ? mustPass : undefined,
+    );
     return NextResponse.json({ data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to update criteria';

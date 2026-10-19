@@ -7,16 +7,22 @@ export class CriteriaService {
     return this.criteriaRepo.findAll(thesisId);
   }
 
-  create(name: string, prompt: string, investmentThesisId: string) {
+  create(name: string, prompt: string, investmentThesisId: string, mustPass = false) {
     return this.criteriaRepo.insert({
       name,
       prompt,
       investment_thesis_id: investmentThesisId,
+      must_pass: mustPass,
     });
   }
 
-  update(id: string, name: string, prompt: string) {
-    return this.criteriaRepo.update(id, { name, prompt });
+  /** `mustPass` left undefined keeps the criterion's current must-pass flag. */
+  update(id: string, name: string, prompt: string, mustPass?: boolean) {
+    return this.criteriaRepo.update(id, {
+      name,
+      prompt,
+      ...(mustPass === undefined ? {} : { must_pass: mustPass }),
+    });
   }
 
   delete(id: string) {

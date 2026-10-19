@@ -153,7 +153,7 @@ export class PendingAutoScanService {
     }
 
     // 2. Screen each matched track's criteria.
-    const { groups, screened, tracks } = await this.aiScreeningService.screenMatchedTracks(
+    const { groups, screened, tracks, rules } = await this.aiScreeningService.screenMatchedTracks(
       company,
       { force: opts.force },
     );
@@ -163,14 +163,15 @@ export class PendingAutoScanService {
     }
     steps.push(`Screened ${screened} criteria across ${groups.length} track(s)`);
 
-    // 3. Verdict over the current matched tracks' current criteria only.
+    // 3. Verdict over the current matched tracks' current criteria only, each
+    //    track judged by its own rule (must-pass + minimum optional passes).
     const inScope = new Set(
       groups.flatMap((g) => g.criteriaIds.map((c) => `${g.trackId}:${c}`)),
     );
     const rows = (await this.screeningRepo.findByCompanyIds([companyId])).filter((s) =>
       inScope.has(`${s.track_id}:${s.criteria_id}`),
     );
-    const verdict = companyScreeningVerdict(rows);
+    const verdict = companyScreeningVerdict(rows, rules);
     steps.push(`Verdict: ${verdict}`);
 
     // 4. Drop / promote — the settings are re-read now, since a scan takes minutes.

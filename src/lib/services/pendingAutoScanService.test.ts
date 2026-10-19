@@ -379,6 +379,26 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(t.companyAnalysisService.generateIfMissing).not.toHaveBeenCalled();
   });
 
+  it('judges each track by its pass rule from the scan', async () => {
+    t.aiScreeningService.screenMatchedTracks.mockResolvedValue({
+      groups: GROUPS,
+      screened: 3,
+      tracks: TRACKS,
+      rules: new Map([['t1', { mustPassCriteriaIds: new Set(['k1']), minOptionalPass: 1 }]]),
+    });
+    // 2 passes / 1 fail is inconclusive under the original rule; here the
+    // must-pass k1 passed and 1 of 2 optional passed, so the track passes.
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'fail'),
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result).toMatchObject({ outcome: 'promoted', verdict: 'pass' });
+  });
+
   it('judges only the current matched tracks’ criteria', async () => {
     t.screeningRepo.findByCompanyIds.mockResolvedValue([
       screening('k1', 'pass'),

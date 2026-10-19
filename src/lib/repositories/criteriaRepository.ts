@@ -26,7 +26,7 @@ export class CriteriaRepository {
   }
 
   async insert(
-    data: Pick<TablesInsert<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id'>,
+    data: Pick<TablesInsert<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id' | 'must_pass'>,
   ): Promise<Tables<'criterias'>> {
     const [row] = await this.db.insert(criterias).values(data).returning();
     return row;
@@ -34,7 +34,7 @@ export class CriteriaRepository {
 
   async update(
     id: string,
-    updates: Pick<TablesUpdate<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id'>,
+    updates: Pick<TablesUpdate<'criterias'>, 'name' | 'prompt' | 'investment_thesis_id' | 'must_pass'>,
   ): Promise<Tables<'criterias'>> {
     const [row] = await this.db
       .update(criterias)

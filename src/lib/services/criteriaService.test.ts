@@ -46,6 +46,36 @@ describe('CriteriaService.create', () => {
       name: 'Asia Revenue',
       prompt: 'Revenue from Asia > 30%',
       investment_thesis_id: 'thesis-1',
+      must_pass: false,
+    });
+  });
+
+  it('stores a must-pass criterion', async () => {
+    await service.create('Asia Revenue', 'Revenue from Asia > 30%', 'thesis-1', true);
+    expect(repo.insert).toHaveBeenCalledWith(expect.objectContaining({ must_pass: true }));
+  });
+});
+
+describe('CriteriaService.update', () => {
+  let repo: CriteriaRepository;
+  let service: CriteriaService;
+
+  beforeEach(() => {
+    repo = makeRepoStub();
+    service = new CriteriaService(repo);
+  });
+
+  it('leaves the must-pass flag alone when none is given', async () => {
+    await service.update('crit-1', 'Name', 'Prompt');
+    expect(repo.update).toHaveBeenCalledWith('crit-1', { name: 'Name', prompt: 'Prompt' });
+  });
+
+  it('sets the must-pass flag when given', async () => {
+    await service.update('crit-1', 'Name', 'Prompt', false);
+    expect(repo.update).toHaveBeenCalledWith('crit-1', {
+      name: 'Name',
+      prompt: 'Prompt',
+      must_pass: false,
     });
   });
 });

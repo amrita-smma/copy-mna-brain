@@ -39,6 +39,8 @@ interface WorkingTrack {
   title: string;
   pic: string;
   content: string;
+  /** Optional criteria that must pass for the track to pass; null = default rule. */
+  minOptionalPass: number | null;
   isNew?: boolean;
 }
 
@@ -64,6 +66,7 @@ const toWorking = (t: Track): WorkingTrack => ({
   title: t.title ?? "",
   pic: t.pic ?? "",
   content: t.content ?? "",
+  minOptionalPass: t.min_optional_criteria_pass ?? null,
 });
 
 const summary = (content: string) => {
@@ -165,7 +168,7 @@ export default function TrackSettingsDialog({
     const id = `new-${tempCounter}`;
     setTempCounter((c) => c + 1);
     setTracks((prev) => [
-      { id, title: "New track", pic: "", content: "", isNew: true },
+      { id, title: "New track", pic: "", content: "", minOptionalPass: null, isNew: true },
       ...prev,
     ]);
     setActiveId(id);
@@ -197,7 +200,8 @@ export default function TrackSettingsDialog({
       !orig ||
       orig.title !== t.title ||
       orig.pic !== t.pic ||
-      orig.content !== t.content
+      orig.content !== t.content ||
+      orig.minOptionalPass !== t.minOptionalPass
     );
   };
 
@@ -221,6 +225,7 @@ export default function TrackSettingsDialog({
           title: t.title.trim(),
           pic: t.pic.trim() || null,
           content: t.content.trim(),
+          min_optional_criteria_pass: t.minOptionalPass,
         });
       }
       toast.success(
@@ -416,6 +421,10 @@ export default function TrackSettingsDialog({
                             thesisId={active.id}
                             criterias={criterias}
                             onChange={setCriterias}
+                            minOptionalPass={active.minOptionalPass}
+                            onMinOptionalPassChange={(minOptionalPass) =>
+                              patchActive({ minOptionalPass })
+                            }
                             disabled={saving}
                           />
                         )}

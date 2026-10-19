@@ -259,6 +259,10 @@ export const criterias = pgTable(
       .references((): AnyPgColumn => investmentThesis.id, {
         onDelete: "cascade",
       }),
+    // A must-pass criterion has to pass for its track to pass screening; the
+    // rest are optional and count toward the track's
+    // `min_optional_criteria_pass` (src/lib/screening/verdict.ts).
+    must_pass: boolean().default(false).notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
   },
@@ -906,6 +910,10 @@ export const investmentThesis = pgTable(
     last_scan_at: timestamp({ withTimezone: true, mode: "string" }),
     next_scan_at: timestamp({ withTimezone: true, mode: "string" }),
     sources_count: integer().default(5),
+    // How many of this track's optional (non-must-pass) screening criteria
+    // must pass for the track to pass. NULL with no must-pass criteria keeps
+    // the original rule (>= 3 passes, <= 1 fail); see src/lib/screening/verdict.ts.
+    min_optional_criteria_pass: integer(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     updated_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     workspace_id: uuid()

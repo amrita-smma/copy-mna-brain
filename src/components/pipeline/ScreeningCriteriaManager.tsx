@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
@@ -14,11 +16,15 @@ import {
   updateCriteria,
   type Criteria,
 } from "@/lib/api/pipeline";
+import { optionalPassThresholdPercent } from "@/lib/screening/verdict";
 
 /**
  * Manage the screening criteria that belong to one Track (investment_thesis):
- * create / edit / delete. Controlled — the parent holds the full criteria list
- * (`criterias`); this component shows and scopes everything to `thesisId`.
+ * create / edit / delete, mark a criterion must-pass, and set how many of the
+ * optional (non-must-pass) criteria must pass for the track to pass.
+ * Controlled — the parent holds the full criteria list (`criterias`) and the
+ * track's minimum; this component shows and scopes everything to `thesisId`.
+ * Criteria changes save immediately; the minimum saves with the track.
  */
 interface ScreeningCriteriaManagerProps {
   /** The Track these criteria belong to; create assigns this id. */
@@ -26,6 +32,9 @@ interface ScreeningCriteriaManagerProps {
   /** Full criteria list across all Tracks. */
   criterias: Criteria[];
   onChange: (next: Criteria[]) => void;
+  /** Optional criteria that must pass; `null` = the default rule. */
+  minOptionalPass: number | null;
+  onMinOptionalPassChange: (next: number | null) => void;
   disabled?: boolean;
 }
 
@@ -33,10 +42,13 @@ export default function ScreeningCriteriaManager({
   thesisId,
   criterias,
   onChange,
+  minOptionalPass,
+  onMinOptionalPassChange,
   disabled,
 }: ScreeningCriteriaManagerProps) {
   const [newName, setNewName] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
+  const [newMustPass, setNewMustPass] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
@@ -46,6 +58,35 @@ export default function ScreeningCriteriaManager({
   const trackCriterias = criterias.filter(
     (c) => c.investment_thesis_id === thesisId,
   );
+  const mustPassCount = trackCriterias.filter((c) => c.must_pass).length;
+  const optionalCount = trackCriterias.length - mustPassCount;
+  const thresholdPercent = optionalPassThresholdPercent(minOptionalPass, optionalCount);
+  const usesDefaultRule =
+    (minOptionalPass === null || minOptionalPass === 0) && mustPassCount === 0;
+
+  const handleMinChange = (raw: string) => {
+    if (raw.trim() === "") {
+      onMinOptionalPassChange(null);
+      return;
+    }
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 0) return;
+    onMinOptionalPassChange(n);
+  };
+
+  const toggleMustPass = async (criterion: Criteria, mustPass: boolean) => {
+    // Optimistic: flip it now, roll back if the save fails.
+    onChange(
+      criterias.map((c) => (c.id === criterion.id ? { ...c, must_pass: mustPass } : c)),
+    );
+    try {
+      await updateCriteria(criterion.id, criterion.name, criterion.prompt, mustPass);
+    } catch (error: any) {
+      console.error("Error updating must-pass:", error);
+      onChange(criterias);
+      toast.error("Failed to update criterion");
+    }
+  };
 
   const addCriterion = async () => {
     if (!newName.trim() || !newPrompt.trim()) return;
@@ -55,10 +96,12 @@ export default function ScreeningCriteriaManager({
         newName.trim(),
         newPrompt.trim(),
         thesisId,
+        newMustPass,
       );
       onChange([...criterias, data]);
       setNewName("");
       setNewPrompt("");
+      setNewMustPass(false);
       posthog.capture("screening_criterion_added", {
         criterion_id: data.id,
         criterion_name: data.name,
@@ -144,6 +187,66 @@ export default function ScreeningCriteriaManager({
         </Button>
       </div>
 
+      <div
+        className="space-y-2 rounded-lg border bg-card p-3"
+        data-testid="track-pass-rule"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label
+            htmlFor="min-optional-pass-input"
+            className="text-sm font-medium"
+          >
+            Minimum optional criteria to pass
+          </label>
+          <Input
+            id="min-optional-pass-input"
+            data-testid="min-optional-pass-input"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={optionalCount}
+            step={1}
+            className="h-8 w-20"
+            placeholder="—"
+            value={minOptionalPass ?? ""}
+            onChange={(e) => handleMinChange(e.target.value)}
+            disabled={busy}
+          />
+          <span className="text-sm text-muted-foreground">
+            of {optionalCount} optional
+          </span>
+          <div
+            className="flex items-center gap-2"
+            title="Share of optional criteria that must pass"
+          >
+            <Progress
+              value={thresholdPercent}
+              className="h-1.5 w-24"
+              aria-label="Passing threshold for optional criteria"
+              data-testid="min-optional-pass-bar"
+            />
+            <span className="w-9 text-xs font-medium tabular-nums text-muted-foreground">
+              {thresholdPercent}%
+            </span>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {usesDefaultRule
+            ? "Not set — the track uses the default rule: at least 3 criteria pass and at most 1 fails."
+            : `The track passes when ${
+                mustPassCount === 0
+                  ? ""
+                  : `all ${mustPassCount} must-pass ${mustPassCount === 1 ? "criterion passes" : "criteria pass"} and `
+              }at least ${Math.min(minOptionalPass ?? 0, optionalCount)} of ${optionalCount} optional criteria pass. AI Screening and the AI Opinion both judge it this way.`}
+          {minOptionalPass !== null && minOptionalPass > optionalCount && (
+            <span className="text-amber-600 dark:text-amber-400">
+              {" "}
+              Only {optionalCount} optional {optionalCount === 1 ? "criterion exists" : "criteria exist"}, so the minimum is capped at {optionalCount}.
+            </span>
+          )}
+        </p>
+      </div>
+
       <div className="space-y-3">
         {trackCriterias.length === 0 ? (
           <div className="text-center py-6 text-sm text-muted-foreground">
@@ -216,12 +319,31 @@ export default function ScreeningCriteriaManager({
               ) : (
                 <>
                   <div className="flex-1 pt-0.5 min-w-0">
-                    <div className="font-medium text-sm">{criterion.name}</div>
+                    <div className="flex items-center gap-2 font-medium text-sm">
+                      {criterion.name}
+                      {criterion.must_pass && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          Must-pass
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-muted-foreground text-sm break-words">
                       {criterion.prompt}
                     </div>
                   </div>
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
+                    <label
+                      className="mr-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                      title="A must-pass criterion has to pass for the track to pass; the rest count toward the minimum"
+                    >
+                      <Switch
+                        data-testid={`criterion-must-pass-${criterion.id}`}
+                        checked={criterion.must_pass}
+                        disabled={busy}
+                        onCheckedChange={(checked) => toggleMustPass(criterion, checked)}
+                      />
+                      Must-pass
+                    </label>
                     <Button
                       type="button"
                       variant="outline"
@@ -251,7 +373,7 @@ export default function ScreeningCriteriaManager({
         )}
 
         {/* Add New Criterion */}
-        <div className="space-y-2 p-3 border rounded-lg border-dashed">
+        <div className="space-y-2 rounded-lg border border-dashed bg-card p-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground">
               Name
@@ -276,6 +398,15 @@ export default function ScreeningCriteriaManager({
               disabled={busy}
             />
           </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Switch
+              data-testid="new-criterion-must-pass"
+              checked={newMustPass}
+              onCheckedChange={setNewMustPass}
+              disabled={busy}
+            />
+            Must-pass — the track cannot pass unless this criterion passes
+          </label>
           <Button
             type="button"
             onClick={addCriterion}

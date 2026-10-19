@@ -8,8 +8,8 @@ type ScreeningWithRelations = Pick<
   'id' | 'company_id' | 'criteria_id' | 'track_id' | 'state' | 'result' | 'remarks' | 'created_at' | 'updated_at'
 > & {
   company: Pick<Tables<'companies'>, 'target' | 'project_name' | 'pipeline_stage'> | null;
-  criterias: Pick<Tables<'criterias'>, 'id' | 'name' | 'prompt'> | null;
-  track: Pick<Tables<'investment_thesis'>, 'id' | 'title'> | null;
+  criterias: Pick<Tables<'criterias'>, 'id' | 'name' | 'prompt' | 'must_pass'> | null;
+  track: Pick<Tables<'investment_thesis'>, 'id' | 'title' | 'min_optional_criteria_pass'> | null;
 };
 
 type PreparedScreening = Pick<
@@ -68,8 +68,10 @@ export class ScreeningRepository {
         criteria_id_inner: criterias.id,
         criteria_name: criterias.name,
         criteria_prompt: criterias.prompt,
+        criteria_must_pass: criterias.must_pass,
         track_id_inner: investmentThesis.id,
         track_title: investmentThesis.title,
+        track_min_optional_criteria_pass: investmentThesis.min_optional_criteria_pass,
       })
       .from(screenings)
       .innerJoin(companies, eq(companies.id, screenings.company_id))
@@ -101,11 +103,20 @@ export class ScreeningRepository {
       criterias:
         r.criteria_id_inner === null
           ? null
-          : { id: r.criteria_id_inner, name: r.criteria_name!, prompt: r.criteria_prompt! },
+          : {
+              id: r.criteria_id_inner,
+              name: r.criteria_name!,
+              prompt: r.criteria_prompt!,
+              must_pass: r.criteria_must_pass ?? false,
+            },
       track:
         r.track_id_inner === null
           ? null
-          : { id: r.track_id_inner, title: r.track_title! },
+          : {
+              id: r.track_id_inner,
+              title: r.track_title!,
+              min_optional_criteria_pass: r.track_min_optional_criteria_pass,
+            },
     }));
 
     return mapped;

@@ -1121,6 +1121,13 @@
       "when": 1792368000000,
       "tag": "20261019000000_split_pending_auto_drop_promote",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1792368001000,
+      "tag": "20261019000001_track_must_pass_criteria",
+      "breakpoints": true
     }
   ]
 }

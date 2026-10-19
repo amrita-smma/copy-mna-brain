@@ -22,8 +22,16 @@ vi.mock('@/lib/repositories', () => ({
 
 import { AI_OPINION_AGENT_NAME, AiOpinionService } from './aiOpinionService';
 
-function makeService(companyRepo: Record<string, ReturnType<typeof vi.fn>>) {
-  return new AiOpinionService(companyRepo as never, {} as never, 'workspace-1');
+function makeService(
+  companyRepo: Record<string, ReturnType<typeof vi.fn>>,
+  aiScreeningService?: { summarizeForOpinion: ReturnType<typeof vi.fn> },
+) {
+  return new AiOpinionService(
+    companyRepo as never,
+    {} as never,
+    'workspace-1',
+    aiScreeningService as never,
+  );
 }
 
 function makeCompanyRepo() {
@@ -265,5 +273,45 @@ describe('AiOpinionService.dispatch', () => {
     expect(companyRepo.update).toHaveBeenCalledWith('co-1', {
       ai_opinion_status: 'failed',
     });
+  });
+
+  it('inlines the AI Screening results, judged by each track’s pass rule', async () => {
+    const summarizeForOpinion = vi
+      .fn()
+      .mockResolvedValue('Overall AI Screening verdict: FAIL (passes when any matched track passes).');
+    const companyRepo = makeCompanyRepo();
+    const service = makeService(companyRepo, { summarizeForOpinion });
+
+    await service.dispatch('co-1');
+
+    expect(summarizeForOpinion).toHaveBeenCalledWith(expect.objectContaining({ id: 'co-1' }));
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain('--- AI SCREENING RESULTS ---');
+    expect(input.instruction).toContain('Overall AI Screening verdict: FAIL');
+    expect(input.instruction).toContain('EVERY must-pass criterion passes');
+    expect(input.instruction).toContain('optional criteria are not individually required');
+  });
+
+  it('omits the screening block when the company has no screening results', async () => {
+    const service = makeService(makeCompanyRepo(), {
+      summarizeForOpinion: vi.fn().mockResolvedValue(null),
+    });
+
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).not.toContain('AI SCREENING RESULTS');
+  });
+
+  it('still dispatches the opinion when summarising screening fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const service = makeService(makeCompanyRepo(), {
+      summarizeForOpinion: vi.fn().mockRejectedValue(new Error('db down')),
+    });
+
+    await expect(service.dispatch('co-1')).resolves.toEqual({ runId: 'run-9' });
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).not.toContain('AI SCREENING RESULTS');
+    errSpy.mockRestore();
   });
 });

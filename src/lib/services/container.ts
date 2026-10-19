@@ -277,7 +277,6 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const workspaceService = new WorkspaceService(workspaceRepo, userWorkspaceRepo, roleRepo, userRepo);
 
   const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db, workspaceId);
-  const aiOpinionService = new AiOpinionService(companyRepo, db, workspaceId);
   const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
   const aiScreeningService = new AIScreeningService(
     db,
@@ -289,6 +288,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     screeningService,
     aiWorkforceQueueRepo,
   );
+  const aiOpinionService = new AiOpinionService(companyRepo, db, workspaceId, aiScreeningService);
   const marketScreeningService = new MarketScreeningService(jobDispatcher);
   const trackMatchingService = new TrackMatchingService(jobDispatcher, db, workspaceId);
   const slideService = new SlideService(companySlidesRepo, jobDispatcher);

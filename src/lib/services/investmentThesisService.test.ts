@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InvestmentThesisRepository } from '@/lib/repositories';
-import { InvestmentThesisService } from './investmentThesisService';
+import { InvalidTrackPassRuleError, InvestmentThesisService } from './investmentThesisService';
 import type { MarketScanningRoutineService } from './marketScanningRoutineService';
 
 function makeRepoStub(): InvestmentThesisRepository {
@@ -67,6 +67,38 @@ describe('InvestmentThesisService.upsert', () => {
     expect(repo.insert).toHaveBeenCalledWith(
       expect.objectContaining({ content: '' }),
     );
+  });
+
+  it('saves the minimum optional criteria to pass on update', async () => {
+    await service.upsert({ id: 'thesis-1', title: 'Growth', min_optional_criteria_pass: 2 });
+
+    expect(repo.update).toHaveBeenCalledWith(
+      'thesis-1',
+      expect.objectContaining({ min_optional_criteria_pass: 2 }),
+    );
+  });
+
+  it('clears the minimum back to the default rule with null', async () => {
+    await service.upsert({ id: 'thesis-1', min_optional_criteria_pass: null });
+
+    expect(repo.update).toHaveBeenCalledWith(
+      'thesis-1',
+      expect.objectContaining({ min_optional_criteria_pass: null }),
+    );
+  });
+
+  it('leaves the minimum untouched when the body omits it', async () => {
+    await service.upsert({ id: 'thesis-1', title: 'Growth' });
+
+    const [, updates] = (repo.update as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(updates.min_optional_criteria_pass).toBeUndefined();
+  });
+
+  it.each([-1, 1.5, '2'])('rejects a minimum of %j without saving', async (value) => {
+    await expect(
+      service.upsert({ id: 'thesis-1', min_optional_criteria_pass: value as never }),
+    ).rejects.toBeInstanceOf(InvalidTrackPassRuleError);
+    expect(repo.update).not.toHaveBeenCalled();
   });
 
   it('syncs the market-scanning routine with the saved thesis cadence', async () => {

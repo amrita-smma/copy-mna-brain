@@ -294,6 +294,93 @@ describe('AIScreeningService.screenCompanyTracks', () => {
   });
 });
 
+describe('AIScreeningService.screenCompanyTracks — track pass rule', () => {
+  it('passes a track whose must-pass criterion passed and whose optional minimum is met', async () => {
+    t.thesisRepo.findAll.mockResolvedValue([
+      { id: 't1', title: 'Healthcare', min_optional_criteria_pass: 0 },
+    ]);
+    t.criteriaRepo.findAll.mockResolvedValue([
+      { id: 'k1', prompt: 'p1', investment_thesis_id: 't1', must_pass: true },
+      { id: 'k2', prompt: 'p2', investment_thesis_id: 't1', must_pass: false },
+    ]);
+    t.companyRepo.findById.mockResolvedValue(company('c1'));
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      { track_id: 't1', criteria_id: 'k1', state: 'completed', result: 'pass' },
+      { track_id: 't1', criteria_id: 'k2', state: 'completed', result: 'fail' },
+    ]);
+
+    const result = await t.service.screenCompanyTracks('c1', { force: true });
+
+    // The original rule (>= 3 passes) would call this a fail.
+    expect(result.tracks).toEqual([{ trackId: 't1', title: 'Healthcare', verdict: 'pass' }]);
+  });
+});
+
+describe('AIScreeningService.summarizeForOpinion', () => {
+  beforeEach(() => {
+    t.thesisRepo.findAll.mockResolvedValue([
+      { id: 't1', title: 'Healthcare', min_optional_criteria_pass: 1 },
+      { id: 't2', title: 'Energy', min_optional_criteria_pass: null },
+    ]);
+    t.criteriaRepo.findAll.mockResolvedValue([
+      { id: 'k1', name: 'Asia revenue', prompt: 'p1', investment_thesis_id: 't1', must_pass: true },
+      { id: 'k2', name: 'EBITDA margin', prompt: 'p2', investment_thesis_id: 't1', must_pass: false },
+      { id: 'k3', name: 'Founder-led', prompt: 'p3', investment_thesis_id: 't1', must_pass: false },
+    ]);
+  });
+
+  it('returns null without screening results', async () => {
+    await expect(t.service.summarizeForOpinion(company('c1') as never)).resolves.toBeNull();
+  });
+
+  it('describes each track under its rule, naming must-pass and optional results', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      { track_id: 't1', criteria_id: 'k1', state: 'completed', result: 'pass' },
+      { track_id: 't1', criteria_id: 'k2', state: 'completed', result: 'fail' },
+      { track_id: 't1', criteria_id: 'k3', state: 'completed', result: 'pass' },
+    ]);
+
+    const summary = await t.service.summarizeForOpinion(company('c1') as never);
+
+    expect(summary).toContain('Overall AI Screening verdict: PASS');
+    expect(summary).toContain('Track "Healthcare": PASS');
+    expect(summary).toContain('Must-pass (every one is required): Asia revenue (✓ pass)');
+    expect(summary).toContain('Optional: 1 of 2 passed; at least 1 required (50%)');
+    // One read each for tracks, criteria and screenings — whatever the counts.
+    expect(t.screeningRepo.findByCompanyIds).toHaveBeenCalledTimes(1);
+    expect(t.screeningRepo.findByCompanyIds).toHaveBeenCalledWith(['c1']);
+  });
+
+  it('reports a failed must-pass criterion as a failed track', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      { track_id: 't1', criteria_id: 'k1', state: 'completed', result: 'fail' },
+      { track_id: 't1', criteria_id: 'k2', state: 'completed', result: 'pass' },
+      { track_id: 't1', criteria_id: 'k3', state: 'completed', result: 'pass' },
+    ]);
+
+    const summary = await t.service.summarizeForOpinion(company('c1') as never);
+
+    expect(summary).toContain('Overall AI Screening verdict: FAIL');
+    expect(summary).toContain('Asia revenue (✗ fail)');
+  });
+
+  it('describes the default rule for a track without one', async () => {
+    t.criteriaRepo.findAll.mockResolvedValue([
+      { id: 'k1', name: 'Asia revenue', prompt: 'p1', investment_thesis_id: 't2', must_pass: false },
+    ]);
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      { track_id: 't2', criteria_id: 'k1', state: 'completed', result: 'pass' },
+    ]);
+
+    const summary = await t.service.summarizeForOpinion(
+      company('c1', { matched_track_ids: ['t2'] }) as never,
+    );
+
+    expect(summary).toContain('Track "Energy": INCONCLUSIVE');
+    expect(summary).toContain('Rule: at least 3 criteria pass and at most 1 fails');
+  });
+});
+
 describe('AIScreeningService.listCompanyTasks', () => {
   it('maps each Pending Confirmation / L0 company’s newest task for the panel', async () => {
     t.queueRepo.findLatestPerCompanyAtStages.mockResolvedValue([

@@ -306,6 +306,8 @@ export interface Criteria {
   prompt: string;
   /** The Track (investment_thesis) this criterion belongs to. */
   investment_thesis_id: string;
+  /** Has to pass for the track to pass; otherwise optional (counts toward the track's minimum). */
+  must_pass: boolean;
 }
 
 /** All criteria, or — when `thesisId` is set — only those belonging to that Track. */
@@ -318,17 +320,24 @@ export async function createCriteria(
   name: string,
   prompt: string,
   investmentThesisId: string,
+  mustPass = false,
 ) {
-  return apiRequest<any>('/api/criterias', {
+  return apiRequest<Criteria>('/api/criterias', {
     method: 'POST',
-    body: JSON.stringify({ name, prompt, investmentThesisId }),
+    body: JSON.stringify({ name, prompt, investmentThesisId, mustPass }),
   });
 }
 
-export async function updateCriteria(id: string, name: string, prompt: string) {
+/** `mustPass` left undefined keeps the criterion's current flag. */
+export async function updateCriteria(
+  id: string,
+  name: string,
+  prompt: string,
+  mustPass?: boolean,
+) {
   return apiRequest<Criteria>(`/api/criterias/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ name, prompt }),
+    body: JSON.stringify({ name, prompt, mustPass }),
   });
 }
 
@@ -468,6 +477,8 @@ export interface Track {
   sources_count?: number | null;
   last_scan_at?: string | null;
   next_scan_at?: string | null;
+  /** Optional criteria that must pass for the track to pass screening; null = original rule. */
+  min_optional_criteria_pass?: number | null;
 }
 
 /** All tracks (investment theses), newest first. */
@@ -496,6 +507,7 @@ export async function saveTrack(payload: {
   title: string;
   content: string;
   pic?: string | null;
+  min_optional_criteria_pass?: number | null;
 }) {
   return apiRequest<Track>('/api/investment-thesis', {
     method: 'POST',

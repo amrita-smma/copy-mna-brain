@@ -9,6 +9,8 @@ interface ThesisBody {
   scan_frequency?: string;
   sources_count?: number;
   next_scan_at?: string;
+  /** Optional criteria that must pass for the track to pass screening; null = original rule. */
+  min_optional_criteria_pass?: number | null;
 }
 
 interface ScanConfigBody {
@@ -16,6 +18,26 @@ interface ScanConfigBody {
   thesisIds: string[];
   scan_frequency?: string;
   sources_count?: number;
+}
+
+/** Raised when a track's minimum optional criteria is not a non-negative whole number. */
+export class InvalidTrackPassRuleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTrackPassRuleError';
+  }
+}
+
+/** `undefined` = leave as is, `null` = back to the original rule, else a whole number >= 0. */
+function parseMinOptionalPass(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new InvalidTrackPassRuleError(
+      '`min_optional_criteria_pass` must be a whole number of at least 0, or null',
+    );
+  }
+  return value;
 }
 
 export class InvestmentThesisService {
@@ -61,8 +83,16 @@ export class InvestmentThesisService {
 
   async upsert(body: ThesisBody) {
     const { id, title, content, pic, scan_frequency, sources_count, next_scan_at } = body;
+    const min_optional_criteria_pass = parseMinOptionalPass(body.min_optional_criteria_pass);
     const saved = id
-      ? await this.thesisRepo.update(id, { title, content, pic, scan_frequency, sources_count })
+      ? await this.thesisRepo.update(id, {
+          title,
+          content,
+          pic,
+          scan_frequency,
+          sources_count,
+          min_optional_criteria_pass,
+        })
       : await this.thesisRepo.insert({
           title: title || 'Default Thesis',
           content: content ?? '',
@@ -70,6 +100,7 @@ export class InvestmentThesisService {
           scan_frequency,
           sources_count,
           next_scan_at,
+          min_optional_criteria_pass,
         });
 
     // Realign the permanent market-scanning routine with the thesis cadence.

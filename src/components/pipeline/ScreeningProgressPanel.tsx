@@ -25,7 +25,11 @@ import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
 import { DealStage } from '@/lib/types';
 import { UNREVIEWED_STAGE, promoteTargetForStage } from '@/lib/constants';
 import { getScreenings } from '@/lib/api/pipeline';
-import { screeningVerdict, type ScreeningVerdict } from '@/lib/screening/verdict';
+import {
+  trackPassRuleFromRows,
+  trackScreeningVerdict,
+  type ScreeningVerdict,
+} from '@/lib/screening/verdict';
 
 interface Screening {
   id: string;
@@ -44,10 +48,12 @@ interface Screening {
   };
   criterias?: {
     name: string;
+    must_pass?: boolean;
   };
   track?: {
     id: string;
     title: string | null;
+    min_optional_criteria_pass?: number | null;
   } | null;
 }
 
@@ -274,13 +280,11 @@ export default function ScreeningProgressPanel({
     return Array.from(grouped.values());
   };
 
-  // The verdict rule is shared with the server's Pending Confirmation
-  // auto drop/promote pass (src/lib/screening/verdict.ts).
+  // The verdict rule — each track's must-pass criteria and minimum optional
+  // passes — is shared with the server's Pending Confirmation auto
+  // promote / auto drop pass (src/lib/screening/verdict.ts).
   const getOverallStatus = (summary: CompanyScreeningSummary): ScreeningVerdict =>
-    screeningVerdict({
-      passed: summary.passed_criteria,
-      failed: summary.failed_criteria,
-    });
+    trackScreeningVerdict(summary.screenings, trackPassRuleFromRows(summary.screenings));
 
   const handlePromoteClick = (summary: CompanyScreeningSummary) => {
     const nextStage = promoteTargetFor(summary.pipeline_stage);
