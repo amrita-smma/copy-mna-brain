@@ -6,6 +6,18 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
+    "date": "2026-10-19",
+    "subject": "Users can now edit matched track IDs when updating company details",
+    "category": "improvement"
+  },
+  {
+    "hash": "02bb2a88d5fcbdc329898dc6b3aa3e82396d92de",
+    "date": "2026-10-19",
+    "subject": "Timeline composer is now hidden behind a + button to reduce clutter",
+    "category": "improvement"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
@@ -25,6 +37,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "9c229b5a880971a4d9dd4fa0c40a8f21c5885b9f",
+    "date": "2026-10-16",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "52ae09a78423d4810d86f704311849efe7e33503",
     "date": "2026-10-16",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
