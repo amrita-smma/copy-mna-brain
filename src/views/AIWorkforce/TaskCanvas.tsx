@@ -311,7 +311,7 @@ export function TaskCanvas({
     return (
       <main className="flex flex-col min-h-0 bg-card items-center justify-center text-muted-foreground">
         <Inbox className="h-10 w-10 mb-3 opacity-40" />
-        <p className="text-sm">Select a task from the sidebar to see its progress.</p>
+        <p className="text-sm">Select an AI Workforce task from the sidebar to see its progress.</p>
       </main>
     );
   }

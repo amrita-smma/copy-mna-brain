@@ -22,8 +22,8 @@ export default function AIWorkforce({ initialTaskId = null }: AIWorkforceProps) 
     <div className="flex flex-col h-full">
       <PageHeader
         className="flex-shrink-0"
-        title="AI Workspace"
-        subtitle="Delegate tasks to the Workforce and follow their progress"
+        title="AI Workforce"
+        subtitle="Delegate tasks to the AI Workforce and follow their progress"
       />
 
       <WorkforceTasks initialTaskId={initialTaskId} />

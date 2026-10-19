@@ -32,8 +32,8 @@ const UUID_RE =
  */
 function workforceLink(queueId: string | null): { href: string; label: string } {
   return queueId && UUID_RE.test(queueId)
-    ? { href: `/ai-workforce/tasks/${queueId}`, label: "View task in AI Workspace" }
-    : { href: "/ai-workforce", label: "Open AI Workspace" };
+    ? { href: `/ai-workforce/tasks/${queueId}`, label: "View task in AI Workforce" }
+    : { href: "/ai-workforce", label: "Open AI Workforce" };
 }
 
 export interface WorkforceHandoffPayload {

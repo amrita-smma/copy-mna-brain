@@ -759,7 +759,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
               <div className="px-2 py-2 text-[11px] text-rose-600">{error}</div>
             ) : pendingItems.length === 0 ? (
               <div className="px-2 py-2 text-[11px] text-muted-foreground/70">
-                Nothing queued right now.
+                No AI Workforce tasks are queued right now.
               </div>
             ) : (
               <>

@@ -66,7 +66,7 @@ describe('navigatePage', () => {
       page: 'ai-workforce',
       reason: 'to watch the queued task',
     })) as string;
-    expect(result).toContain('Opened **AI Workspace**');
+    expect(result).toContain('Opened **AI Workforce**');
   });
 
   it('refuses (and emits no marker) when the destination is disabled for the workspace', async () => {

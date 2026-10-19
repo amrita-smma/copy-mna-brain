@@ -137,7 +137,7 @@ export const CONSOLE_TABS: ConsoleTab[] = [
   {
     slug: 'ai-workforce',
     path: '/ai-workforce',
-    label: 'AI Workspace',
+    label: 'AI Workforce',
     group: 'intelligence',
     flag: 'AI_WORKFORCE_ENABLED',
     purpose: 'Queued AI Workforce tasks and their reasoning traces.',

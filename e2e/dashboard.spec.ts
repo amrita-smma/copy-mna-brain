@@ -221,7 +221,7 @@ test.describe('Dashboard page', () => {
     // Sidebar navigation links — inside the sidebar's collapsible "Deal Flow"
     // and "Intelligence" sections, above chat history.
     await openPagesNav(page);
-    for (const name of ['Pipeline', 'Master Data', 'CRM', 'Smart Files', 'AI Workspace']) {
+    for (const name of ['Pipeline', 'Master Data', 'CRM', 'Smart Files', 'AI Workforce']) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
 
@@ -620,7 +620,7 @@ test.describe('Dashboard page', () => {
       ['Master Data', '/master-data'],
       ['CRM', '/crm'],
       ['Smart Files', '/smart-files'],
-      ['AI Workspace', '/ai-workforce'],
+      ['AI Workforce', '/ai-workforce'],
     ];
 
     for (const [name, href] of navLinks) {

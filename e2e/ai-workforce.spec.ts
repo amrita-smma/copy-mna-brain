@@ -436,7 +436,7 @@ test.describe('AI Workforce', () => {
     // task; the component actually defaults to a synthetic 'active' selection
     // that resolves to no concrete task, so the empty prompt shows instead.
     await expect(
-      page.getByText('Select a task from the sidebar to see its progress.'),
+      page.getByText('Select an AI Workforce task from the sidebar to see its progress.'),
     ).toBeVisible();
   });
 
@@ -525,7 +525,7 @@ test.describe('AI Workforce', () => {
     // With no task selected the canvas shows the empty prompt — the task
     // composer (data-testid=task-canvas) only exists inside a selected task.
     await expect(
-      page.getByText('Select a task from the sidebar to see its progress.'),
+      page.getByText('Select an AI Workforce task from the sidebar to see its progress.'),
     ).toBeVisible();
     await expect(page.getByTestId('task-canvas')).toHaveCount(0);
   });

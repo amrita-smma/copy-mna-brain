@@ -24,6 +24,13 @@ describe('findTabBySlug', () => {
   it('returns undefined for an unknown slug', () => {
     expect(findTabBySlug('nope')).toBeUndefined();
   });
+
+  it('labels the workforce queue AI Workforce without changing its path', () => {
+    expect(findTabBySlug('ai-workforce')).toMatchObject({
+      path: '/ai-workforce',
+      label: 'AI Workforce',
+    });
+  });
 });
 
 describe('findTabByPath', () => {
