@@ -140,6 +140,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4a0536c5064cfbce64ab311efc6c84ebefd7c0ac",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
