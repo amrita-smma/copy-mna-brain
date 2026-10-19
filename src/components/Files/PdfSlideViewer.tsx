@@ -71,7 +71,7 @@ function PdfSlideViewer({ url, className }: PdfSlideViewerProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [aspectRatios, setAspectRatios] = useState<Record<number, number>>({});
   const [stageSize, setStageSize] = useState<{ width: number; height: number } | null>(null);
-  const [showThumbnails, setShowThumbnails] = useState(true);
+  const [showThumbnails, setShowThumbnails] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
