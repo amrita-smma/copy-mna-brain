@@ -271,6 +271,8 @@ export function CompanyTimeline<
 }: CompanyTimelineProps<D, F>) {
   const isDialog = variant === 'dialog';
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The composer stays collapsed behind the + in its header until asked for.
+  const [composerOpen, setComposerOpen] = useState(false);
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
@@ -470,143 +472,171 @@ export function CompanyTimeline<
     // reach much further down the page than their content does and would
     // otherwise end flush against the bottom of the scroll area — the page
     // background reads as cut off rather than as space around the cards.
-    <div className="space-y-5 pb-6">
+    // In the dialog the cards instead grow to the bottom of the modal: the
+    // parent's TabsContent is a flex column, and the rail row takes the rest.
+    <div className={cn('space-y-5', isDialog ? 'flex flex-1 flex-col lg:min-h-0' : 'pb-6')}>
       {/* Manual entry — a note, a link, or a file, all landing on the rail. */}
-      <div className="rounded-lg border bg-card p-4 space-y-3">
-        <p className="text-sm font-semibold">Add to timeline</p>
-        <Textarea
-          placeholder="Write a timeline entry…"
-          value={newNote}
-          onChange={(e) => onNewNoteChange(e.target.value)}
-          rows={isDialog ? 2 : 3}
-          className={isDialog ? 'min-h-[60px]' : 'min-h-[90px]'}
-        />
-        {showLinkForm && (
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              placeholder="https://..."
-              value={newLinkUrl}
-              onChange={(e) => onNewLinkUrlChange(e.target.value)}
-              className="sm:flex-1"
-            />
-            <Input
-              placeholder="Title (optional)"
-              value={newLinkTitle}
-              onChange={(e) => onNewLinkTitleChange(e.target.value)}
-              className="sm:flex-1"
-            />
-            <Button
-              onClick={addLink}
-              disabled={!canSubmit || !newLinkUrl.trim()}
-              size="sm"
-              className="shrink-0"
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Add link
-            </Button>
-          </div>
+      <div
+        className={cn(
+          'rounded-lg border bg-card p-4 space-y-3',
+          isDialog && 'shrink-0',
         )}
-        {/* Stamping an entry with anything other than the moment it was added
-            is the exception, so the pickers stay behind this toggle rather than
-            asking every author to confirm "now". They sit on their own row:
-            revealed inside the action row, the pill wrapped "Add entry" onto a
-            line of its own at dialog width. */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="timeline-override-time"
-              checked={overrideTime}
-              onCheckedChange={(checked) => toggleOverrideTime(checked === true)}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Add to timeline</p>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setComposerOpen((open) => !open)}
+            title={composerOpen ? 'Close' : 'Add to timeline'}
+            aria-expanded={composerOpen}
+          >
+            {composerOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          </Button>
+        </div>
+        {composerOpen && (
+          <>
+            <Textarea
+              placeholder="Write a timeline entry…"
+              value={newNote}
+              onChange={(e) => onNewNoteChange(e.target.value)}
+              rows={isDialog ? 2 : 3}
+              className={isDialog ? 'min-h-[60px]' : 'min-h-[90px]'}
             />
-            <Label
-              htmlFor="timeline-override-time"
-              className="cursor-pointer text-sm font-normal text-muted-foreground"
-            >
-              Override note time
-            </Label>
-          </div>
-          {overrideTime && (
-            <div className="flex h-9 items-center overflow-hidden rounded-md border border-primary bg-card text-primary">
-              <input
-                type="date"
-                aria-label="Entry date"
-                value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
-                className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
-              />
-              <span className="h-full w-px bg-primary/30" />
-              <input
-                type="time"
-                aria-label="Entry time"
-                value={entryTime}
-                onChange={(e) => setEntryTime(e.target.value)}
-                className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
-              />
-            </div>
-          )}
-          {overrideIncomplete && (
-            <p className="text-xs text-destructive">
-              Pick a date, or switch the override off to stamp it with now.
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Label htmlFor="timeline-file-upload" className="cursor-pointer">
-            <Button variant="ghost" size="sm" disabled={!canSubmit} asChild>
-              <span>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload file
-              </span>
-            </Button>
-          </Label>
-          <Input
-            id="timeline-file-upload"
-            type="file"
-            className="hidden"
-            onChange={uploadFile}
-            disabled={!canSubmit}
-          />
-          <Button variant="ghost" size="sm" onClick={() => setShowLinkForm((prev) => !prev)}>
-            <LinkIcon className="h-4 w-4 mr-2" />
-            {showLinkForm ? 'Cancel link' : 'Add link'}
-          </Button>
-          <Button onClick={addNote} disabled={!canSubmit || !newNote.trim()} size="sm">
-            {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <Plus className="h-4 w-4 mr-2" />
+            {showLinkForm && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  placeholder="https://..."
+                  value={newLinkUrl}
+                  onChange={(e) => onNewLinkUrlChange(e.target.value)}
+                  className="sm:flex-1"
+                />
+                <Input
+                  placeholder="Title (optional)"
+                  value={newLinkTitle}
+                  onChange={(e) => onNewLinkTitleChange(e.target.value)}
+                  className="sm:flex-1"
+                />
+                <Button
+                  onClick={addLink}
+                  disabled={!canSubmit || !newLinkUrl.trim()}
+                  size="sm"
+                  className="shrink-0"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Add link
+                </Button>
+              </div>
             )}
-            Add entry
-          </Button>
-        </div>
+            {/* Stamping an entry with anything other than the moment it was added
+                is the exception, so the pickers stay behind this toggle rather than
+                asking every author to confirm "now". They sit on their own row:
+                revealed inside the action row, the pill wrapped "Add entry" onto a
+                line of its own at dialog width. */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="timeline-override-time"
+                  checked={overrideTime}
+                  onCheckedChange={(checked) => toggleOverrideTime(checked === true)}
+                />
+                <Label
+                  htmlFor="timeline-override-time"
+                  className="cursor-pointer text-sm font-normal text-muted-foreground"
+                >
+                  Override note time
+                </Label>
+              </div>
+              {overrideTime && (
+                <div className="flex h-9 items-center overflow-hidden rounded-md border border-primary bg-card text-primary">
+                  <input
+                    type="date"
+                    aria-label="Entry date"
+                    value={entryDate}
+                    onChange={(e) => setEntryDate(e.target.value)}
+                    className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+                  />
+                  <span className="h-full w-px bg-primary/30" />
+                  <input
+                    type="time"
+                    aria-label="Entry time"
+                    value={entryTime}
+                    onChange={(e) => setEntryTime(e.target.value)}
+                    className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+                  />
+                </div>
+              )}
+              {overrideIncomplete && (
+                <p className="text-xs text-destructive">
+                  Pick a date, or switch the override off to stamp it with now.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Label htmlFor="timeline-file-upload" className="cursor-pointer">
+                <Button variant="ghost" size="sm" disabled={!canSubmit} asChild>
+                  <span>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload file
+                  </span>
+                </Button>
+              </Label>
+              <Input
+                id="timeline-file-upload"
+                type="file"
+                className="hidden"
+                onChange={uploadFile}
+                disabled={!canSubmit}
+              />
+              <Button variant="ghost" size="sm" onClick={() => setShowLinkForm((prev) => !prev)}>
+                <LinkIcon className="h-4 w-4 mr-2" />
+                {showLinkForm ? 'Cancel link' : 'Add link'}
+              </Button>
+              <Button onClick={addNote} disabled={!canSubmit || !newNote.trim()} size="sm">
+                {isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                Add entry
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* The rail beside its reading pane. */}
       <div
         className={cn(
           'flex flex-col gap-5 lg:flex-row lg:items-stretch',
-          isDialog ? 'lg:min-h-[420px]' : 'lg:min-h-[560px]',
+          isDialog ? 'lg:min-h-[420px] lg:flex-1' : 'lg:min-h-[560px]',
         )}
       >
-        <aside className="flex flex-col rounded-lg border bg-card p-4 lg:w-[260px] lg:shrink-0">
+        <aside
+          className={cn(
+            'flex flex-col rounded-lg border bg-card p-4 lg:w-[260px] lg:shrink-0',
+            isDialog && 'lg:min-h-0',
+          )}
+        >
           <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {events.length} event{events.length === 1 ? '' : 's'}
           </p>
 
           {events.length === 0 ? (
             <p className="py-6 text-sm text-muted-foreground">
-              Nothing here yet — add a note, a link, or upload a file above.
+              Nothing here yet — use + above to add a note, a link, or a file.
             </p>
           ) : (
             <>
               <div
                 className={cn(
                   'scrollbar-quiet relative flex-1 overflow-y-auto pl-1',
-                  isDialog ? 'max-h-[360px]' : 'lg:max-h-[520px]',
+                  isDialog ? 'max-h-[360px] lg:max-h-none' : 'lg:max-h-[520px]',
                 )}
               >
                 {/* The rail itself, drawn on the list rather than the scroll
@@ -690,7 +720,12 @@ export function CompanyTimeline<
           )}
         </aside>
 
-        <section className="scrollbar-quiet min-w-0 flex-1 overflow-y-auto rounded-lg border bg-card p-5">
+        <section
+          className={cn(
+            'scrollbar-quiet min-w-0 flex-1 overflow-y-auto rounded-lg border bg-card p-5',
+            isDialog && 'lg:min-h-0',
+          )}
+        >
           {selected ? (
             <EventDetail
               event={selected}

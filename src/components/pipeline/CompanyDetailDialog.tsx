@@ -1701,8 +1701,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               </TabsList>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-6">
-              <div className="h-2" />
+            {/* A flex column so the Timeline tab can grow to the bottom of
+                the modal; the other tabs size to their content as before. */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 flex flex-col">
+              <div className="h-2 shrink-0" />
 
             {/* Overview — read-only L0→L1 submission slide, powered by the AI
                 Company Card. Auto-generates on first open; shows the generating
@@ -1900,7 +1902,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 changes, notes, uploads, links, Smart File references) on one
                 horizontal rail, plus the manual-entry composer that replaced
                 the Attachments tab. */}
-            <TabsContent value="timeline" className="pb-4">
+            {/* `data-[state=active]:flex`, not `flex`: an inactive TabsContent
+                stays mounted with the `hidden` attribute, which a plain `flex`
+                display would override. */}
+            <TabsContent
+              value="timeline"
+              className="pb-4 flex-1 flex-col data-[state=active]:flex lg:min-h-0"
+            >
               <CompanyTimeline
                 variant="dialog"
                 notes={notes}

@@ -81,7 +81,9 @@ unparseable value, so a bad string can never silently become "now". The composer
 blocks its own submits while the override is on and its date is empty, for the
 same reason.
 
-Manual entry is the only place these actions now live: the textbox adds a note,
+The composer starts collapsed: only its "Add to timeline" header shows, with a
+**+** at its top right that opens it. Manual entry is the only place these
+actions now live: the textbox adds a note,
 **Upload file** registers a `deal_document`, and **Add link** reveals the URL +
 title form. Each one delegates to the parent's existing handler, which refetches
 afterwards, so the new entry appears on the rail.
