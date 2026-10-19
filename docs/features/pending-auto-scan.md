@@ -33,8 +33,13 @@ tab reads.
    Smart Files) resets the company's screening rows to `pending` first, so the
    Pipeline tab shows it in progress while the task waits its turn. Arrival
    points for Auto-scan: `CompanyService.createFromDTO` for a company created
-   at `unreviewed`, and Smart Files' two auto-create paths (which, when
-   Auto-scan is on, skip their own screening so nothing is screened twice).
+   at `unreviewed`; a stage move *into* `unreviewed` from another stage —
+   `promote` (Market Scanning's "Add to Pending Confirmation"), `promoteMany`,
+   and the Current Stage dropdown (`updateFromDTO`); and Smart Files' two
+   auto-create paths (which, when Auto-scan is on, skip their own screening so
+   nothing is screened twice). All go through
+   `PendingAutoScanService.onCompaniesEnteredPending` (one settings read, one
+   enqueue per batch).
 2. **Run.** The Workforce queue runs one task at a time across all workspaces,
    so a large Scan now works through companies one by one, interleaved with
    other Workforce tasks. The task's instruction tells the agent to call the

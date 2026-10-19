@@ -97,6 +97,35 @@ describe('PendingAutoScanService.onCompanyEnteredPending', () => {
   });
 });
 
+describe('PendingAutoScanService.onCompaniesEnteredPending', () => {
+  it('returns 0 without reading settings when no company arrived', async () => {
+    await expect(t.service.onCompaniesEnteredPending([])).resolves.toBe(0);
+    expect(t.workspaceService.getPendingAutomation).not.toHaveBeenCalled();
+    expect(t.aiScreeningService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('queues every arrival in one enqueue when auto-scan is on', async () => {
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['a'], alreadyQueued: ['b'] });
+
+    await expect(t.service.onCompaniesEnteredPending(['a', 'b'])).resolves.toBe(2);
+    expect(t.workspaceService.getPendingAutomation).toHaveBeenCalledTimes(1);
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['a', 'b'], {
+      mode: 'pending_scan',
+      force: false,
+    });
+  });
+
+  it('queues nothing when auto-scan is off', async () => {
+    t.workspaceService.getPendingAutomation.mockResolvedValue({
+      autoScan: false,
+      autoDropPromote: false,
+    });
+
+    await expect(t.service.onCompaniesEnteredPending(['a'])).resolves.toBe(0);
+    expect(t.aiScreeningService.enqueue).not.toHaveBeenCalled();
+  });
+});
+
 describe('PendingAutoScanService.scanNow', () => {
   it('queues a forced scan task per active pending company, ignoring the auto-scan toggle', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({

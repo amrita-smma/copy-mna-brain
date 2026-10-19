@@ -65,13 +65,23 @@ export class PendingAutoScanService {
    * own screening fallback (Smart Files) can skip that.
    */
   async onCompanyEnteredPending(companyId: string): Promise<boolean> {
+    return (await this.onCompaniesEnteredPending([companyId])) > 0;
+  }
+
+  /**
+   * Bulk form of {@link onCompanyEnteredPending} for a stage move that lands
+   * several companies in Pending Confirmation at once: one settings read and
+   * one enqueue. Returns how many are queued (or already were).
+   */
+  async onCompaniesEnteredPending(companyIds: string[]): Promise<number> {
+    if (companyIds.length === 0) return 0;
     const { autoScan } = await this.workspaceService.getPendingAutomation(this.workspaceId);
-    if (!autoScan) return false;
-    const { queued, alreadyQueued } = await this.aiScreeningService.enqueue([companyId], {
+    if (!autoScan) return 0;
+    const { queued, alreadyQueued } = await this.aiScreeningService.enqueue(companyIds, {
       mode: 'pending_scan',
       force: false,
     });
-    return queued.length + alreadyQueued.length > 0;
+    return queued.length + alreadyQueued.length;
   }
 
   /**

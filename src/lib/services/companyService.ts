@@ -149,7 +149,7 @@ function ratio(
 }
 
 export class CompanyService {
-  private pendingArrivalHandler?: (companyId: string) => Promise<unknown>;
+  private pendingArrivalHandler?: (companyIds: string[]) => Promise<unknown>;
 
   constructor(
     // First rather than alongside the other scalars at the end: the trailing
@@ -306,18 +306,20 @@ export class CompanyService {
   }
 
   /**
-   * Called when a company is created into Pending Confirmation. Wired by the
-   * container to `PendingAutoScanService.onCompanyEnteredPending` (a setter,
-   * not a constructor argument: that service depends on this one).
+   * Called when companies enter Pending Confirmation — created there, or
+   * moved there from another stage (e.g. Market Scanning's "Add to Pending
+   * Confirmation"). Wired by the container to
+   * `PendingAutoScanService.onCompaniesEnteredPending` (a setter, not a
+   * constructor argument: that service depends on this one).
    */
-  setPendingArrivalHandler(handler: (companyId: string) => Promise<unknown>) {
+  setPendingArrivalHandler(handler: (companyIds: string[]) => Promise<unknown>) {
     this.pendingArrivalHandler = handler;
   }
 
-  private async notifyPendingArrival(companyId: string): Promise<void> {
-    if (!this.pendingArrivalHandler) return;
+  private async notifyPendingArrival(companyIds: string[]): Promise<void> {
+    if (!this.pendingArrivalHandler || companyIds.length === 0) return;
     try {
-      await this.pendingArrivalHandler(companyId);
+      await this.pendingArrivalHandler(companyIds);
     } catch (err) {
       console.error('[CompanyService] pending auto-scan request failed:', err);
     }
@@ -568,7 +570,7 @@ export class CompanyService {
       await this.dispatchTrackMatching(inserted.id);
     }
     if (inserted.pipeline_stage === UNREVIEWED_STAGE && !opts?.deferPendingArrival) {
-      await this.notifyPendingArrival(inserted.id);
+      await this.notifyPendingArrival([inserted.id]);
     }
     return this.findByIdDTO(inserted.id);
   }
@@ -631,6 +633,9 @@ export class CompanyService {
         priorCompany.pipeline_stage ?? undefined,
         nextStage,
       );
+      if (nextStage === UNREVIEWED_STAGE) {
+        await this.notifyPendingArrival([id]);
+      }
     }
     return this.findByIdDTO(id);
   }
@@ -836,6 +841,13 @@ export class CompanyService {
       await this.companyRepo.setAssignees(id, assigneeIds);
     }
     await this.regenerateCompanyCardForStageMove(id, currentStage, nextStage);
+    // Moving into Pending Confirmation (e.g. Market Scanning's "Add to Pending
+    // Confirmation") is an arrival, so auto-scan picks it up just like a
+    // company created there. Keyed on the stored stage, not the caller's
+    // `currentStage`, so a no-op re-move of a pending company doesn't rescan.
+    if (nextStage === UNREVIEWED_STAGE && existing.pipeline_stage !== UNREVIEWED_STAGE) {
+      await this.notifyPendingArrival([id]);
+    }
 
     // Captured here rather than in `PromoteDialog` so an ad blocker can't drop
     // it, and so stage moves made by the agent tools and bulk triage — which
@@ -969,6 +981,12 @@ export class CompanyService {
     this.assertStageAvailable(stages, nextStage);
     const stageOrder = liveStageKeys(stages);
     await this.guardWritableMany(ids);
+    const pendingArrivalIds =
+      nextStage === UNREVIEWED_STAGE
+        ? (await this.companyRepo.findByIds(ids))
+            .filter((row) => row.pipeline_stage !== UNREVIEWED_STAGE)
+            .map((row) => row.id)
+        : null;
     await this.companyRepo.updateMany(ids, {
       pipeline_stage: nextStage as DealStage,
     });
@@ -981,6 +999,9 @@ export class CompanyService {
       })),
     );
     await this.regenerateCompanyCardsForBulkStageMove(deals, nextStage);
+    if (pendingArrivalIds && pendingArrivalIds.length > 0) {
+      await this.notifyPendingArrival(pendingArrivalIds);
+    }
 
     // One event per deal, matching `promote`'s shape, so a bulk move and a
     // single move are counted the same way and a breakdown by stage doesn't

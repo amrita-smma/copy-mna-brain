@@ -66,6 +66,7 @@ function makeRepos() {
     findAssignees: vi.fn().mockResolvedValue([]),
     findAssigneesByCompanies: vi.fn().mockResolvedValue([]),
     findDroppedIds: vi.fn().mockResolvedValue([]),
+    findByIds: vi.fn().mockResolvedValue([]),
   } as unknown as CompanyRepository;
 
   const companyLogRepo = {
@@ -287,7 +288,7 @@ describe("CompanyService.createFromDTO — Pending Confirmation arrival", () => 
 
     await service.createFromDTO({ target: "Acme", pipeline_stage: "unreviewed" } as any);
 
-    expect(handler).toHaveBeenCalledWith("c-pending");
+    expect(handler).toHaveBeenCalledWith(["c-pending"]);
   });
 
   it("leaves the arrival to the caller when it defers it", async () => {
@@ -333,6 +334,105 @@ describe("CompanyService.createFromDTO — Pending Confirmation arrival", () => 
       service.createFromDTO({ target: "Acme" } as any),
     ).resolves.toBeDefined();
     errorSpy.mockRestore();
+  });
+});
+
+describe("CompanyService — moving into Pending Confirmation", () => {
+  let repos: ReturnType<typeof makeRepos>;
+  let service: CompanyService;
+  let handler: ReturnType<typeof vi.fn<(companyIds: string[]) => Promise<unknown>>>;
+
+  beforeEach(() => {
+    repos = makeRepos();
+    service = buildService(repos);
+    vi.mocked(repos.companyRepo.update).mockResolvedValue([makeCompany()]);
+    handler = vi.fn<(companyIds: string[]) => Promise<unknown>>().mockResolvedValue(1);
+    service.setPendingArrivalHandler(handler);
+  });
+
+  it("hands a Market Scanning company promoted to Pending Confirmation to the arrival handler", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+
+    await service.promote("c-1", "discovered", "unreviewed");
+
+    expect(handler).toHaveBeenCalledWith(["c-1"]);
+  });
+
+  it("does not rescan a company that is already in Pending Confirmation", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "unreviewed" }),
+    );
+
+    await service.promote("c-1", "unreviewed", "unreviewed");
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does not call the handler for a move to any other stage", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "L1" }),
+    );
+
+    await service.promote("c-1", "L1", "L2");
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("still completes the promote when the arrival handler fails", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+    handler.mockRejectedValue(new Error("db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(service.promote("c-1", "discovered", "unreviewed")).resolves.toBeUndefined();
+    expect(repos.companyRepo.update).toHaveBeenCalledWith(
+      "c-1",
+      expect.objectContaining({ pipeline_stage: "unreviewed" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("hands every bulk-moved company to the arrival handler in one call", async () => {
+    vi.mocked(repos.companyRepo.findByIds).mockResolvedValue([
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+      makeCompany({ id: "c-2", pipeline_stage: "discovered" }),
+      makeCompany({ id: "c-3", pipeline_stage: "unreviewed" }),
+    ]);
+
+    await service.promoteMany(
+      [
+        { id: "c-1", currentStage: "discovered" },
+        { id: "c-2", currentStage: "discovered" },
+        { id: "c-3", currentStage: "unreviewed" },
+      ],
+      "unreviewed",
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(["c-1", "c-2"]);
+  });
+
+  it("does not rescan bulk moves when the stored stage is already Pending Confirmation", async () => {
+    vi.mocked(repos.companyRepo.findByIds).mockResolvedValue([
+      makeCompany({ id: "c-1", pipeline_stage: "unreviewed" }),
+    ]);
+
+    await service.promoteMany([{ id: "c-1", currentStage: "discovered" }], "unreviewed");
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("hands a company moved via the Current Stage dropdown to the arrival handler", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+
+    await service.updateFromDTO("c-1", { pipeline_stage: "unreviewed" } as never);
+
+    expect(handler).toHaveBeenCalledWith(["c-1"]);
   });
 });
 
