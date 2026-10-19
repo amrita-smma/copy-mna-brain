@@ -829,8 +829,6 @@ describe('WorkspaceService.getPendingAutomation', () => {
       pending_auto_scan: true,
       pending_auto_promote: true,
       pending_auto_drop: false,
-      // The retired combined column is ignored.
-      pending_auto_drop_promote: true,
     });
     const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
 

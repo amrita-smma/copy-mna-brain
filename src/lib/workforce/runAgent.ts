@@ -373,6 +373,10 @@ export async function invokeAgent(
     run_id: runId,
     origin_routine_id: refresh.originRoutineId,
     refresh_insight_id: refresh.refreshInsightId,
+    // The queue row's agent_name. promote_to_l0 / drop_company refuse inside an
+    // `ai_screening` task, whose promote/drop is run_ai_screening's alone
+    // (src/lib/screening/screeningRunGuard.ts).
+    agent_name: agentName,
     // Read by the insight tools' readConfiguredAgentStamp (MB-549). Only set
     // for a sector run; a general run stamps nothing, as before.
     ...(agentKey ? { agent_key: agentKey } : {}),

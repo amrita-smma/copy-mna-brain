@@ -19,9 +19,8 @@ step 2 below).
 
 Settings live on `workspaces.pending_auto_scan` / `pending_auto_promote` /
 `pending_auto_drop` (`GET/PUT /api/pending-automation`, body
-`{ autoScan, autoPromote, autoDrop }`). `pending_auto_drop_promote` is the
-retired combined toggle — both new columns were backfilled from it, and it is no
-longer read. Scan now is `POST /api/pending-automation/scan`.
+`{ autoScan, autoPromote, autoDrop }`). Scan now is
+`POST /api/pending-automation/scan`.
 
 ## AI screening runs on the AI Workforce
 
@@ -69,6 +68,13 @@ tab reads.
      or, for an Auto-scan arrival, whoever moved the company in (Market
      Scanning, bulk move, Current Stage dropdown) or whose Smart File created
      it. An existing Entered By is never overwritten.
+
+     The task runs on the general Workforce agent, which also holds
+     `promote_to_l0` and `drop_company`. Those tools refuse inside an
+     `ai_screening` task (`runAgent` puts the row's `agent_name` on the tool
+     config; `src/lib/screening/screeningRunGuard.ts`), so the toggles cannot
+     be bypassed by the model promoting or dropping a company the scan left
+     pending.
    - `tracks` → `AIScreeningService.screenCompanyTracks`: screen the matched
      tracks only and report each track's verdict; never moves the deal (Smart
      Files' fallback for a company outside Pending Confirmation).

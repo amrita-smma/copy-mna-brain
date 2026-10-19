@@ -19,7 +19,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 161 | `drizzle/migrations/` |
+| Migrations (app) | 162 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -486,7 +486,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 75 | 68/75 | ✅ |
+| `analysis` | 75 | 69/75 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 6 | 6/6 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |

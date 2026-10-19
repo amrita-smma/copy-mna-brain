@@ -1021,6 +1021,14 @@ describe('runAgent — attachments, effort tiers, and user attribution', () => {
 
     expect(configOf(invokeMock).configurable.triggered_by_user_id).toBe('user-789');
   });
+
+  it('threads the row agent_name into toolConfig so promote/drop tools can refuse in an AI Screening task', async () => {
+    findById.mockResolvedValueOnce(makeRow({ agent_name: 'ai_screening' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).configurable.agent_name).toBe('ai_screening');
+  });
 });
 
 describe('invokeAgent', () => {

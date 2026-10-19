@@ -367,9 +367,6 @@ export const workspaces = pgTable(
     pending_auto_scan: boolean().default(false).notNull(),
     pending_auto_promote: boolean().default(false).notNull(),
     pending_auto_drop: boolean().default(false).notNull(),
-    // Deprecated: the combined toggle the two above replaced. No longer read
-    // or written; kept until a follow-up migration drops it.
-    pending_auto_drop_promote: boolean().default(false).notNull(),
     // Soft delete. Non-null = the workspace is archived: it disappears from
     // the workspace picker/switcher, from every membership listing, and from
     // background sweeps (cron, graph sync), and `/w/<slug>/...` bounces back

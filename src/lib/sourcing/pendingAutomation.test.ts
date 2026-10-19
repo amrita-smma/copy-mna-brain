@@ -35,8 +35,6 @@ describe('parsePendingAutomationInput', () => {
     {},
     { autoScan: 'yes', autoPromote: false, autoDrop: false },
     { autoScan: true },
-    // The retired combined field is not accepted in place of the split ones.
-    { autoScan: true, autoDropPromote: true },
     { autoScan: true, autoPromote: true },
   ])('rejects %j', (body) => {
     expect(() => parsePendingAutomationInput(body)).toThrow(InvalidPendingAutomationError);

@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
+import { screeningRunWriteRefusal } from "@/lib/screening/screeningRunGuard";
 import { isInPipelineStage } from "@/lib/pipeline/stages";
 import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
 
@@ -31,10 +32,15 @@ export const promoteToL0 = tool(
     source?: string;
     banker?: string;
     banker_source?: string;
-  }) => {
+  }, runtime?: { configurable?: Record<string, unknown> }) => {
     logger.debug(
       `🔧 TOOL CALLED: promote_to_l0(company_name='${company_name}')`,
     );
+
+    // Pending Confirmation promote/drop follows the Auto promote / Auto drop
+    // toggles via run_ai_screening; a screening task may not do it itself.
+    const refusal = screeningRunWriteRefusal(runtime, "Promoting to L0");
+    if (refusal) return refusal;
 
     const trimmedName = company_name?.trim() ?? "";
     if (trimmedName.length === 0) {

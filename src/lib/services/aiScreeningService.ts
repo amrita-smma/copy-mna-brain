@@ -8,6 +8,7 @@ import type {
   Tables,
 } from '@/lib/repositories';
 import { runAIScreening } from '@/lib/jobs/handlers/aiScreening';
+import { AI_SCREENING_AGENT_NAME } from '@/lib/screening/screeningRunGuard';
 import {
   buildTrackScreeningGroups,
   type TrackScreeningGroup,
@@ -32,7 +33,7 @@ import type { ScreeningService } from './screeningService';
  * `agent_name` of the AI Workforce task that screens one company. Kept in sync
  * with the literal in `src/lib/workforce/failScreeningsOnFailure.ts`.
  */
-export const AI_SCREENING_AGENT_NAME = 'ai_screening';
+export { AI_SCREENING_AGENT_NAME };
 
 /**
  * - `pending_scan` — the Pending Confirmation auto-scan (Scan now / Auto-scan):
@@ -447,7 +448,8 @@ export class AIScreeningService {
       `Call the run_ai_screening tool exactly once with company_id "${company.id}", ` +
       `mode "${opts.mode}" and force ${opts.force}. ${scope} ` +
       'After it returns, report the verdict per track and what happened to the company in one or ' +
-      'two sentences. Do not re-screen, edit, promote or drop the company yourself.';
+      'two sentences. Do not re-screen, edit, promote or drop the company yourself — if the ' +
+      'tool left it pending (for example because auto promote or auto drop is off), it stays pending.';
     return {
       agentName: AI_SCREENING_AGENT_NAME,
       triggerSource: 'api' as const,

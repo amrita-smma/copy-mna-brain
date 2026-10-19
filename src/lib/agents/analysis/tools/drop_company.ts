@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
+import { screeningRunWriteRefusal } from "@/lib/screening/screeningRunGuard";
 
 /**
  * Drop a company from the pipeline.
@@ -21,10 +22,15 @@ export const dropCompany = tool(
   }: {
     company_name: string;
     reason: string;
-  }) => {
+  }, runtime?: { configurable?: Record<string, unknown> }) => {
     logger.debug(
       `🔧 TOOL CALLED: drop_company(company_name='${company_name}')`,
     );
+
+    // Pending Confirmation promote/drop follows the Auto promote / Auto drop
+    // toggles via run_ai_screening; a screening task may not do it itself.
+    const refusal = screeningRunWriteRefusal(runtime, "Dropping a company");
+    if (refusal) return refusal;
 
     const trimmedName = company_name?.trim() ?? "";
     if (trimmedName.length === 0) {

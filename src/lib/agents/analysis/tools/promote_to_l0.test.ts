@@ -100,3 +100,34 @@ describe('promote_to_l0 deal_type handling', () => {
     expect(patch).toMatchObject({ segment: 'Semis' });
   });
 });
+
+describe('promote_to_l0 inside an AI Screening task', () => {
+  beforeEach(() => {
+    findByNameFuzzy.mockReset().mockResolvedValue({ ...DISCOVERED, pipeline_stage: 'unreviewed' });
+    update.mockReset().mockResolvedValue({});
+    promote.mockReset().mockResolvedValue({});
+    createDb.mockReset().mockReturnValue({});
+    getActiveWorkspaceId.mockReset().mockResolvedValue('ws-1');
+    createContainer.mockReset().mockReturnValue({ companyService: { update, promote } });
+  });
+
+  it('refuses without promoting, so the Auto promote toggle cannot be bypassed', async () => {
+    const result = await promoteToL0.invoke(
+      { company_name: 'Acme', reason: 'Passed AI screening' },
+      { configurable: { agent_name: 'ai_screening' } },
+    );
+
+    expect(String(result)).toMatch(/not allowed in an AI Screening task/);
+    expect(findByNameFuzzy).not.toHaveBeenCalled();
+    expect(promote).not.toHaveBeenCalled();
+  });
+
+  it('still promotes for any other workforce task', async () => {
+    await promoteToL0.invoke(
+      { company_name: 'Acme', reason: 'Fits the thesis' },
+      { configurable: { agent_name: 'workforce' } },
+    );
+
+    expect(promote).toHaveBeenCalledTimes(1);
+  });
+});
