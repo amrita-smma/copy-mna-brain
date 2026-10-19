@@ -120,6 +120,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "e1458c731b9bf40e0aeca3f27f0da8848a2b0c6a",
+    "date": "2026-10-19",
+    "subject": "Renamed AI Workspace to AI Workforce throughout the platform",
+    "category": "improvement"
+  },
+  {
+    "hash": "1b8a55c8d20c39328051a9e11b71ede7fe89d231",
+    "date": "2026-10-19",
+    "subject": "Fund Management adds full-width portfolio view, search, asset deletion, and fund update uploads",
+    "category": "improvement"
+  },
+  {
+    "hash": "44c2762185f787e5e146468415345c66837253e7",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
