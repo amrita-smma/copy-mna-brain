@@ -148,6 +148,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "928b423250f1528bd69dab0660e443363e0f4832",
+    "date": "2026-10-19",
+    "subject": "Fix Vercel build OOM: decouple services barrel from container and make createContainer lazy",
+    "category": "fix",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4cb3f380093d81decbe60f447c7eaf1b9eeec2f9",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
