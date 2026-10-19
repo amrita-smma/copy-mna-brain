@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Rendered by terraform/redis. Runs on first boot of a given instance
+# (user_data_replace_on_change = true means any edit here replaces the box).
+#
+# Everything below is idempotent: the same script runs again whenever the
+# instance is re-created.
+set -euxo pipefail
+
+exec > >(tee /var/log/redis-bootstrap.log | logger -t redis-bootstrap -s 2>/dev/console) 2>&1
+
+APP_DIR=/srv/redis
+SSM_PREFIX="${ssm_prefix}"
+REGION="${aws_region}"
+
+install -d -m 0750 "$APP_DIR"
+
+# ---------------------------------------------------------------- packages ---
+dnf -y install docker
+
+# AL2023 ships the Docker engine but not the Compose v2 CLI plugin, so install
+# it into the plugin directory by hand. Pinned by checksum, not just by tag: a
+# GitHub release asset is mutable and this binary runs as root on every boot.
+# Update both values together (the release publishes a .sha256 alongside).
+COMPOSE_VERSION=v2.32.4
+COMPOSE_SHA256=ed1917fb54db184192ea9d0717bcd59e3662ea79db48bff36d3475516c480a6b
+install -d /usr/libexec/docker/cli-plugins
+curl -fsSL \
+  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-x86_64" \
+  -o /tmp/docker-compose
+echo "$COMPOSE_SHA256  /tmp/docker-compose" | sha256sum -c -
+install -m 0755 /tmp/docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+rm -f /tmp/docker-compose
+
+systemctl enable --now docker
+
+# ------------------------------------------------------------------ config ---
+cat > "$APP_DIR/docker-compose.yml" <<'COMPOSE_EOF'
+${compose_file}
+COMPOSE_EOF
+
+# Secrets are pulled from SSM at boot rather than baked into user_data, which
+# any process on the instance can read back from the metadata endpoint. The
+# TLS_* parameters become files under ./tls (owned by the container's redis
+# user, uid 999); REDIS_AUTH goes into the compose .env.
+cat > /usr/local/bin/redis-refresh-env <<REFRESH_EOF
+#!/usr/bin/env bash
+# Rewrites /srv/redis/.env and /srv/redis/tls/* from SSM Parameter Store.
+# After rotating a parameter, run this and then \`systemctl restart redis\`.
+set -euo pipefail
+
+TLS_DIR=/srv/redis/tls
+install -d -m 0750 -o root -g 999 "\$TLS_DIR"
+
+get() {
+  aws ssm get-parameter --region "$REGION" --name "$SSM_PREFIX/\$1" \
+    --with-decryption --query Parameter.Value --output text
+}
+
+TMP=\$(mktemp)
+chmod 600 "\$TMP"
+printf 'REDIS_AUTH=%s\n' "\$(get REDIS_AUTH)" > "\$TMP"
+install -m 600 -o root -g root "\$TMP" /srv/redis/.env
+rm -f "\$TMP"
+
+get TLS_CA_CERT     > "\$TLS_DIR/ca.crt.new"
+get TLS_SERVER_CERT > "\$TLS_DIR/server.crt.new"
+get TLS_SERVER_KEY  > "\$TLS_DIR/server.key.new"
+install -m 0644 -o root -g 999 "\$TLS_DIR/ca.crt.new"     "\$TLS_DIR/ca.crt"
+install -m 0644 -o root -g 999 "\$TLS_DIR/server.crt.new" "\$TLS_DIR/server.crt"
+install -m 0640 -o root -g 999 "\$TLS_DIR/server.key.new" "\$TLS_DIR/server.key"
+rm -f "\$TLS_DIR"/*.new
+REFRESH_EOF
+chmod 700 /usr/local/bin/redis-refresh-env
+/usr/local/bin/redis-refresh-env
+
+# ----------------------------------------------------------------- service ---
+cat > /etc/systemd/system/redis.service <<'UNIT_EOF'
+[Unit]
+Description=App Redis (TLS, Docker Compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/redis
+# Re-read secrets and certificates on every start so an SSM rotation takes
+# effect with a plain `systemctl restart redis`.
+ExecStartPre=/usr/local/bin/redis-refresh-env
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable --now redis.service
+
+echo "redis bootstrap complete (${environment})"

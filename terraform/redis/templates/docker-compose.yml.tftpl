@@ -1,0 +1,44 @@
+# Rendered by terraform/redis. Do not edit on the instance.
+#
+# One container. TLS only: the plaintext port is off (--port 0), the server
+# presents the certificate Terraform issued for the Elastic IP, and clients
+# authenticate with the password (--tls-auth-clients no: no client
+# certificates, the app pins the CA and sends REDIS_AUTH). Persistence is off
+# on purpose — the app keeps only live, expiring state here.
+services:
+  redis:
+    image: ${redis_image}
+    restart: unless-stopped
+    command: >
+      redis-server
+      --port 0
+      --tls-port 6379
+      --tls-cert-file /tls/server.crt
+      --tls-key-file /tls/server.key
+      --tls-ca-cert-file /tls/ca.crt
+      --tls-auth-clients no
+      --requirepass $${REDIS_AUTH}
+      --maxmemory ${redis_maxmemory}
+      --maxmemory-policy noeviction
+      --save ""
+      --appendonly no
+      --tcp-keepalive 60
+    # Also exported into the container: the healthcheck below runs inside it and
+    # reads REDIS_AUTH from the container's own environment, not from compose's.
+    environment:
+      REDIS_AUTH: $${REDIS_AUTH}
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./tls:/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 --tls --cacert /tls/ca.crt -a \"$$REDIS_AUTH\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
