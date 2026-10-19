@@ -1363,12 +1363,12 @@ describe('AiWorkforceQueueRepository.findLatestPerCompanyAtStages', () => {
 });
 
 describe('AiWorkforceQueueRepository.countNavSummary', () => {
-  it("counts the user's unseen failures and the workspace queue in one query", async () => {
+  it("counts the workspace's unseen failures and its queue in one query", async () => {
     const { db, selectChain } = makeMockDb();
     selectChain.where.mockResolvedValueOnce([{ unseenFailures: 2, queued: 3, running: 1 }]);
 
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.countNavSummary('u1')).resolves.toEqual({
+    await expect(repo.countNavSummary()).resolves.toEqual({
       unseenFailures: 2,
       queued: 3,
       running: 1,
@@ -1379,10 +1379,9 @@ describe('AiWorkforceQueueRepository.countNavSummary', () => {
     const unseen = new PgDialect().sqlToQuery(fields.unseenFailures);
     expect(unseen.sql).toContain('"failure_seen_at" is null');
     expect(unseen.sql).toContain("cancelled_by_user");
-    // Owner = triggerer, or the routine's creator for a run with no triggerer.
-    expect(unseen.sql).toContain('"triggered_by_user_id" = $');
-    expect(unseen.sql).toContain('from "routines" where "routines"."created_by" = $');
-    expect(unseen.params).toEqual(expect.arrayContaining(['failed', 'timed_out', 'u1']));
+    // Workspace-wide: not scoped to the caller's own runs.
+    expect(unseen.sql).not.toContain('triggered_by_user_id');
+    expect(unseen.params).toEqual(expect.arrayContaining(['failed', 'timed_out']));
 
     const where = new PgDialect().sqlToQuery(selectChain.where.mock.calls[0][0] as SQL);
     expect(where.params).toContain('workspace-1');
@@ -1392,7 +1391,7 @@ describe('AiWorkforceQueueRepository.countNavSummary', () => {
     const { db, selectChain } = makeMockDb();
     selectChain.where.mockResolvedValueOnce([]);
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.countNavSummary('u1')).resolves.toEqual({
+    await expect(repo.countNavSummary()).resolves.toEqual({
       unseenFailures: 0,
       queued: 0,
       running: 0,
@@ -1401,23 +1400,24 @@ describe('AiWorkforceQueueRepository.countNavSummary', () => {
 });
 
 describe('AiWorkforceQueueRepository.markFailureSeen', () => {
-  it("stamps failure_seen_at only on the owner's unseen failure", async () => {
+  it('stamps failure_seen_at on an unseen failure in the workspace', async () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
 
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.markFailureSeen('r1', 'u1')).resolves.toBe(true);
+    await expect(repo.markFailureSeen('r1')).resolves.toBe(true);
 
     expect(updateChain.set).toHaveBeenCalledWith({ failure_seen_at: expect.any(String) });
     const where = new PgDialect().sqlToQuery(updateChain.where.mock.calls[0][0] as SQL);
     expect(where.sql).toContain('"failure_seen_at" is null');
-    expect(where.params).toEqual(expect.arrayContaining(['r1', 'workspace-1', 'failed', 'timed_out', 'u1']));
+    expect(where.sql).not.toContain('triggered_by_user_id');
+    expect(where.params).toEqual(expect.arrayContaining(['r1', 'workspace-1', 'failed', 'timed_out']));
   });
 
-  it('returns false when nothing matched (not the owner, not failed, or already seen)', async () => {
+  it('returns false when nothing matched (not failed, another workspace, or already seen)', async () => {
     const { db, updateChain } = makeMockDb();
     updateChain.returning.mockResolvedValueOnce([]);
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.markFailureSeen('r1', 'u2')).resolves.toBe(false);
+    await expect(repo.markFailureSeen('r1')).resolves.toBe(false);
   });
 });

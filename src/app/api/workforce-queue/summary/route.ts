@@ -5,9 +5,9 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 
 /**
- * The Workforce nav item's badges: the caller's unseen failed runs (red), the
- * workspace's queue (yellow) and whether anything is running (the blinking
- * dot). Polled by the sidebar, so it is one aggregate query.
+ * The Workforce nav item's badges: the workspace's unseen failed runs (red),
+ * its queue (yellow) and whether anything is running. Polled by the sidebar,
+ * so it is one aggregate query.
  */
 export async function GET() {
   const session = await auth();
@@ -17,7 +17,7 @@ export async function GET() {
   try {
     const db = createDb();
     const { aiWorkforceService } = createContainer(db, await getActiveWorkspaceId());
-    const data = await aiWorkforceService.getNavSummary(session.user.id);
+    const data = await aiWorkforceService.getNavSummary();
     return NextResponse.json({ data });
   } catch (err) {
     console.error(err);

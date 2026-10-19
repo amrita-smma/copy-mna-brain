@@ -56,13 +56,19 @@ Notifications toggle; a user's own cancellation stays behind it.
 ## Workforce nav badges
 
 `GET /api/workforce-queue/summary` (`AiWorkforceService.getNavSummary`, one
-aggregate query) feeds the sidebar's AI Workforce item:
+aggregate query, workspace-wide) feeds the sidebar's AI Workforce item. The
+chips are derived in `src/components/layout/navBadges.ts`:
 
-- **red** — the caller's unseen failures: `failed` / `timed_out` runs they own,
-  not cancellations, with `failure_seen_at` NULL;
-- **amber** — the workspace queue: pending + resume-ready + running;
-- **blinking amber dot** — shown while the queue is non-empty.
+- **red cross + count** — the workspace's unseen failures: `failed` /
+  `timed_out` runs, not cancellations, with `failure_seen_at` NULL;
+- **yellow chip with a blinking dot + count** — the queue: pending +
+  resume-ready + running. Hidden when the queue is empty.
 
-Opening a failed task (`GET /api/workforce-queue/[id]`) stamps
-`failure_seen_at` when the viewer owns it, and `TaskCanvas` refetches the badge.
-The migration that added the column marked every earlier failure as seen.
+On the collapsed icon rail the item gets one corner dot instead (red if
+anything failed, otherwise yellow), blinking while the queue has work.
+
+The sidebar polls the summary every 5 seconds and on window focus. Opening a
+failed task (`GET /api/workforce-queue/[id]`) stamps `failure_seen_at` for
+anyone in the workspace, and `TaskCanvas` refetches the badge so the red count
+drops at once. The migration that added the column marked every earlier
+failure as seen, so the red chip only reports failures since then.

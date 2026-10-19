@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
-import { aiWorkforceQueue, companies, routines, workforceStatus } from '@/lib/db/schema';
+import { aiWorkforceQueue, companies, workforceStatus } from '@/lib/db/schema';
 import type {
   HumanDecision,
   PendingIntervention,
@@ -187,21 +187,19 @@ export class AiWorkforceQueueRepository {
   }
 
   /**
-   * The Workforce nav item's counts in one query: this user's unseen failures
-   * (a failed / timed-out run they own that they haven't opened since — not a
-   * cancellation, which they did themselves) and the workspace's queue (runs
-   * waiting to start or resume, plus the ones running now).
+   * The Workforce nav item's counts in one query: the workspace's unseen
+   * failures (a failed / timed-out run nobody has opened since it failed —
+   * not a cancellation, which someone did on purpose) and its queue (runs
+   * waiting to start or resume, plus the ones running now). Both are
+   * workspace-wide: the nav item reports the workforce, not one user's runs.
    */
-  async countNavSummary(
-    userId: string,
-  ): Promise<{ unseenFailures: number; queued: number; running: number }> {
+  async countNavSummary(): Promise<{ unseenFailures: number; queued: number; running: number }> {
     const [row] = await this.db
       .select({
         unseenFailures: sql<number>`count(*) filter (where ${and(
           inArray(aiWorkforceQueue.status, UNSEEN_FAILURE_STATUSES),
           isNull(aiWorkforceQueue.failure_seen_at),
           this.notCancelled(),
-          this.ownedBy(userId),
         )})::int`,
         queued: sql<number>`count(*) filter (where ${inArray(aiWorkforceQueue.status, QUEUED_STATUSES)})::int`,
         running: sql<number>`count(*) filter (where ${inArray(aiWorkforceQueue.status, RUNNING_STATUSES)})::int`,
@@ -225,11 +223,11 @@ export class AiWorkforceQueueRepository {
   }
 
   /**
-   * Record that the run's owner has seen its failure. A no-op (returns false)
-   * for anyone else, for a run that didn't fail, and once already seen — so
-   * the task view can call it on every load.
+   * Record that someone in the workspace has opened the failed run. A no-op
+   * (returns false) for a run that didn't fail and once already seen — so the
+   * task view can call it on every load.
    */
-  async markFailureSeen(id: string, userId: string): Promise<boolean> {
+  async markFailureSeen(id: string): Promise<boolean> {
     const rows = await this.db
       .update(aiWorkforceQueue)
       .set({ failure_seen_at: new Date().toISOString() })
@@ -239,25 +237,10 @@ export class AiWorkforceQueueRepository {
           eq(aiWorkforceQueue.workspace_id, this.workspaceId),
           inArray(aiWorkforceQueue.status, UNSEEN_FAILURE_STATUSES),
           isNull(aiWorkforceQueue.failure_seen_at),
-          this.ownedBy(userId),
         ),
       )
       .returning({ id: aiWorkforceQueue.id });
     return rows.length > 0;
-  }
-
-  /**
-   * Who a run belongs to — the same person its emails go to: the user who
-   * triggered it, or for a run with no triggerer (cron), its routine's creator.
-   */
-  private ownedBy(userId: string) {
-    return or(
-      eq(aiWorkforceQueue.triggered_by_user_id, userId),
-      and(
-        isNull(aiWorkforceQueue.triggered_by_user_id),
-        sql`${aiWorkforceQueue.origin_routine_id} in (select ${routines.id} from ${routines} where ${routines.created_by} = ${userId})`,
-      ),
-    );
   }
 
   private notCancelled() {

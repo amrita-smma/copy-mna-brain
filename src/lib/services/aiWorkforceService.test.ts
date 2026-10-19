@@ -473,12 +473,12 @@ describe('AiWorkforceService.getNavSummary', () => {
   it('folds running runs into the queue count and keeps running for the dot', async () => {
     const countNavSummary = vi.fn().mockResolvedValue({ unseenFailures: 1, queued: 2, running: 1 });
     const service = makeServiceWith({ countNavSummary });
-    await expect(service.getNavSummary('u1')).resolves.toEqual({
+    await expect(service.getNavSummary()).resolves.toEqual({
       unseen_failures: 1,
       queue: 3,
       running: 1,
     });
-    expect(countNavSummary).toHaveBeenCalledWith('u1');
+    expect(countNavSummary).toHaveBeenCalledWith();
   });
 });
 
@@ -489,16 +489,16 @@ describe('AiWorkforceService.markFailureSeen', () => {
   it('marks an unseen failure seen', async () => {
     const markFailureSeen = vi.fn().mockResolvedValue(true);
     const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({}), 'u1')).resolves.toBe(true);
-    expect(markFailureSeen).toHaveBeenCalledWith('r1', 'u1');
+    await expect(service.markFailureSeen(run({}))).resolves.toBe(true);
+    expect(markFailureSeen).toHaveBeenCalledWith('r1');
   });
 
   it('skips the write for a run that did not fail or was already seen', async () => {
     const markFailureSeen = vi.fn();
     const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({ status: 'succeeded' }), 'u1')).resolves.toBe(false);
+    await expect(service.markFailureSeen(run({ status: 'succeeded' }))).resolves.toBe(false);
     await expect(
-      service.markFailureSeen(run({ failure_seen_at: '2026-10-19T00:00:00Z' }), 'u1'),
+      service.markFailureSeen(run({ failure_seen_at: '2026-10-19T00:00:00Z' })),
     ).resolves.toBe(false);
     expect(markFailureSeen).not.toHaveBeenCalled();
   });

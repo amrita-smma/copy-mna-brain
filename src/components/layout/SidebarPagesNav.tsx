@@ -15,6 +15,7 @@ import {
   Receipt,
   Sparkles,
   Users,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
@@ -22,6 +23,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { useSourcingPendingCount } from '@/hooks/useSourcingPendingCount';
 import { useWorkforceNavSummary } from '@/hooks/useWorkforceNavSummary';
+import {
+  formatBadgeCount,
+  sourcingNavBadges,
+  workforceNavBadges,
+  type NavBadge,
+  type NavBadges,
+} from './navBadges';
 import {
   findTabByPath,
   groupedConsoleTabs,
@@ -53,28 +61,6 @@ const TAB_ICONS: Record<string, LucideIcon> = {
   graph: Network,
 };
 
-/** Caps a badge count so a large backlog can't stretch the nav row. */
-function formatBadgeCount(count: number): string {
-  return count > 99 ? '99+' : String(count);
-}
-
-/** One count chip on a nav item. */
-interface NavBadge {
-  count: number;
-  /** red = needs attention, amber = work in progress. */
-  tone: 'red' | 'amber';
-  /** Screen-reader / tooltip wording, e.g. "3 pending". */
-  label: string;
-  testId: string;
-}
-
-/** What a nav item shows beside its label. */
-interface NavBadges {
-  badges: NavBadge[];
-  /** A blinking amber dot: something is running there right now. */
-  live?: boolean;
-}
-
 const BADGE_TONE_CLASS: Record<NavBadge['tone'], string> = {
   red: 'bg-red-600 text-white',
   amber: 'bg-amber-400 text-amber-950',
@@ -88,52 +74,49 @@ const DOT_TONE_CLASS: Record<NavBadge['tone'], string> = {
 /**
  * Per-slug badges on the nav items:
  *   - Sourcing — its Pending Confirmation backlog (red).
- *   - AI Workforce — the user's unseen failed tasks (red), the workspace's
- *     queue (amber), and a blinking amber dot while the queue has work in it.
+ *   - AI Workforce — the workspace's unseen failed runs (a red cross) and its
+ *     queue (yellow, with a blinking dot while work is in it).
  * Each is fetched only while its page is in the nav, so a workspace with the
  * page flagged off makes no request.
  */
 function useNavBadges(tabs: ConsoleTab[]): Record<string, NavBadges> {
   const pending = useSourcingPendingCount(tabs.some((tab) => tab.slug === 'sourcing'));
   const workforce = useWorkforceNavSummary(tabs.some((tab) => tab.slug === 'ai-workforce'));
-
-  const workforceBadges: NavBadge[] = [];
-  if (workforce.unseen_failures > 0) {
-    workforceBadges.push({
-      count: workforce.unseen_failures,
-      tone: 'red',
-      label: `${workforce.unseen_failures} failed`,
-      testId: 'nav-badge-ai-workforce-failures',
-    });
-  }
-  if (workforce.queue > 0) {
-    workforceBadges.push({
-      count: workforce.queue,
-      tone: 'amber',
-      label: `${workforce.queue} in queue`,
-      testId: 'nav-badge-ai-workforce-queue',
-    });
-  }
-
   return {
-    sourcing: {
-      badges:
-        pending > 0
-          ? [{ count: pending, tone: 'red', label: `${pending} pending`, testId: 'nav-badge-sourcing' }]
-          : [],
-    },
-    'ai-workforce': { badges: workforceBadges, live: workforce.queue > 0 },
+    sourcing: sourcingNavBadges(pending),
+    'ai-workforce': workforceNavBadges(workforce),
   };
 }
 
-/** The blinking "work in progress" dot. */
+/** The blinking "work in progress" dot, sized to sit inside a chip. */
 function LiveDot({ slug, className }: { slug: string; className?: string }) {
   return (
     <span
       data-testid={`nav-live-${slug}`}
       aria-hidden="true"
-      className={cn('h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-amber-400', className)}
-    />
+      className={cn('relative flex h-1.5 w-1.5 flex-shrink-0', className)}
+    >
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+    </span>
+  );
+}
+
+/** One count chip: an optional glyph (cross / live dot) and the count. */
+function BadgeChip({ chip, slug }: { chip: NavBadge; slug: string }) {
+  return (
+    <span
+      data-testid={chip.testId}
+      aria-label={chip.label}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none tabular-nums',
+        BADGE_TONE_CLASS[chip.tone],
+      )}
+    >
+      {chip.icon === 'cross' && <X className="h-3 w-3" strokeWidth={3} aria-hidden="true" />}
+      {chip.icon === 'live' && <LiveDot slug={slug} />}
+      {formatBadgeCount(chip.count)}
+    </span>
   );
 }
 
@@ -194,35 +177,26 @@ function PageLink({
         ? (railTone || live) && (
             <>
               {/* No room for counts on the rail — a dot on the icon's corner
-                  flags it, and the counts go to screen readers and the tooltip. */}
+                  flags it (red if anything failed, else yellow) and blinks
+                  while the queue has work; the counts go to screen readers
+                  and the tooltip. */}
               <span
                 data-testid={`nav-badge-${tab.slug}`}
                 aria-hidden="true"
                 className={cn(
                   'absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-sidebar',
                   DOT_TONE_CLASS[railTone ?? 'amber'],
-                  !railTone && 'animate-pulse',
+                  live && 'animate-pulse',
                 )}
               />
               {badgeLabel && <span className="sr-only">{badgeLabel}</span>}
             </>
           )
-        : (chips.length > 0 || live) && (
+        : chips.length > 0 && (
             <span className="ml-auto flex flex-shrink-0 items-center gap-1">
               {chips.map((chip) => (
-                <span
-                  key={chip.testId}
-                  data-testid={chip.testId}
-                  aria-label={chip.label}
-                  className={cn(
-                    'rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none tabular-nums',
-                    BADGE_TONE_CLASS[chip.tone],
-                  )}
-                >
-                  {formatBadgeCount(chip.count)}
-                </span>
+                <BadgeChip key={chip.testId} chip={chip} slug={tab.slug} />
               ))}
-              {live && <LiveDot slug={tab.slug} />}
             </span>
           )}
     </WorkspaceLink>

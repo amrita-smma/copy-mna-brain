@@ -146,14 +146,12 @@ export class AiWorkforceService {
   }
 
   /**
-   * The Workforce nav item's badges for one user: their unseen failures (red),
-   * and the workspace's queue (yellow) — `queue` counts runs waiting to start
-   * or resume plus the ones running, `running` alone drives the blinking dot.
+   * The Workforce nav item's badges: the workspace's unseen failures (red)
+   * and its queue (yellow) — `queue` counts runs waiting to start or resume
+   * plus the ones running, `running` alone says whether work is in flight.
    */
-  async getNavSummary(
-    userId: string,
-  ): Promise<{ unseen_failures: number; queue: number; running: number }> {
-    const counts = await this.queueRepo.countNavSummary(userId);
+  async getNavSummary(): Promise<{ unseen_failures: number; queue: number; running: number }> {
+    const counts = await this.queueRepo.countNavSummary();
     return {
       unseen_failures: counts.unseenFailures,
       queue: counts.queued + counts.running,
@@ -162,13 +160,13 @@ export class AiWorkforceService {
   }
 
   /**
-   * The owner opened a failed run: it no longer counts as an unseen failure.
+   * Someone opened a failed run: it no longer counts as an unseen failure.
    * Skips the write unless the row is a failure still marked unseen.
    */
-  async markFailureSeen(run: WorkforceQueueRow, userId: string): Promise<boolean> {
+  async markFailureSeen(run: WorkforceQueueRow): Promise<boolean> {
     if (run.failure_seen_at) return false;
     if (run.status !== 'failed' && run.status !== 'timed_out') return false;
-    return this.queueRepo.markFailureSeen(run.id, userId);
+    return this.queueRepo.markFailureSeen(run.id);
   }
 
   /**

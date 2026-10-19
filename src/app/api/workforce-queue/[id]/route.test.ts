@@ -43,7 +43,7 @@ describe('GET /api/workforce-queue/[id]', () => {
     const res = await call();
 
     expect(res.status).toBe(200);
-    expect(markFailureSeenMock).toHaveBeenCalledWith(item, 'u1');
+    expect(markFailureSeenMock).toHaveBeenCalledWith(item);
   });
 
   it('does not mark anything seen for a run in another workspace', async () => {
