@@ -18,6 +18,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "228a4647bdef6cbb7b4180ec9e372fa91040dbe2",
+    "date": "2026-10-19",
+    "subject": "Default Entered By to the promoting user; add Pending Confirmation to Market Scanning Move menu",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "0b92a559d10d398a2ce4e41b956af8f582bd475f",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
