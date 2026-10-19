@@ -505,3 +505,53 @@ or the GET showing up in slow-query logs.
 
 **Fix:** rank in SQL with `LIMIT 5` plus a separate `COUNT(*)`, generating the
 `CASE` from `PARTNERSHIP_TITLE_TIERS` so there is one source of truth.
+
+---
+
+## Live updates are four separate server-polling SSE streams, plus client pollers
+
+**Area:** `src/lib/server/sse.ts` (`changeStream`), `src/hooks/useEventStream.ts`,
+the routes `/api/screenings/stream`, `/api/companies/stream` and
+`/api/ai-screening/tasks/stream`, and the react-query pollers
+`useWorkforceNavSummary` (5s) and `useSourcingPendingCount` (60s).
+
+**What it is:** each live view opens its own `EventSource`, and each stream is
+its own function invocation re-running a full snapshot query every 3s for up to
+240s, only to tell the client nothing changed. The Pipeline page holds three
+streams at once (four with a company dialog open). The sidebar's nav badges,
+mounted on every page, are still plain HTTP polling. So SSE here saves
+requests, not database work: every open tab costs one query per stream per
+tick whether or not anything moved.
+
+**Why we took it:** `changeStream` dropped onto an existing service method with
+no new infrastructure, and each stream was added for one view at a time.
+
+**Trigger to revisit:** a fifth live surface (the nav badges are the obvious
+next one), stream routes showing up in function-duration or slow-query
+dashboards, or tabs hitting the per-origin connection limit on HTTP/1.1.
+
+**Fix:** one workspace-scoped stream driven by Redis, not by polling.
+
+- **Publish on write.** Each service that changes live state (workforce queue
+  status transitions and `markFailureSeen`, screening state/result writes, AI
+  Opinion status, sourcing confirmations) publishes `{ topic, ids? }` to the
+  Redis channel `ws:<workspaceId>:events` after its write commits. Publishing
+  is a service concern; repositories stay pure data access. The workforce
+  dispatcher's status changes need publishing too, because they run outside
+  any request.
+- **One route, `GET /api/events`.** It subscribes to the workspace channel and
+  forwards each message as `event: invalidate`. There are no query params, so
+  one connection serves every page and never reconnects on navigation. Clients
+  filter by `ids` themselves. Keep the lifetime cap and heartbeat from
+  `changeEvents`. On reconnect, send a `resync` frame so the client refetches
+  whatever it missed while disconnected, since pub/sub doesn't replay (or use a
+  Redis Stream with `Last-Event-ID` if gaps matter).
+- **One client, `<EventStreamProvider>` in `AppShell`.** It maps each topic to
+  `queryClient.invalidateQueries({ queryKey: [topic] })`. Live views become
+  ordinary `useQuery` hooks with a slow fallback `refetchInterval`. Delete the
+  three stream routes, `changeStream`, `useEventStream`, and the per-feature
+  polling cadences.
+- **Fold in the remaining `setInterval` pollers** where they watch server state
+  (`CompanyVotingTab`, `CompanyDetail` / `CompanyDetailDialog` in the same PR
+  per the parity rule, `WorkforceTasks`, `DocumentInsightsPanel`,
+  `InsightEditApprovalCard`), and update `docs/features/live-updates-sse.md`.
