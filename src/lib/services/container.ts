@@ -377,8 +377,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     trackMatchingService,
   );
   // Setters, not constructor args: PendingAutoScanService depends on both.
-  companyService.setPendingArrivalHandler((companyIds) =>
-    pendingAutoScanService.onCompaniesEnteredPending(companyIds),
+  companyService.setPendingArrivalHandler((companyIds, triggeredByUserId) =>
+    pendingAutoScanService.onCompaniesEnteredPending(companyIds, triggeredByUserId),
   );
   fileService.setPendingAutoScanService(pendingAutoScanService);
 

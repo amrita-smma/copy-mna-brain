@@ -50,7 +50,12 @@ tab reads.
      current criteria (`companyScreeningVerdict`); re-read the toggle and
      re-check the company is still pending; then `promote(…, 'unreviewed',
      'L0', …)` or `dropDeal(…, 'unreviewed', …)`. A promote blocked by missing
-     L0 fields leaves the company pending.
+     L0 fields leaves the company pending. A blank **Entered By** does not
+     block it: the promote defaults it to the task's user
+     (`triggered_by_user_id`) — whoever pressed Scan now / Run AI Screening,
+     or, for an Auto-scan arrival, whoever moved the company in (Market
+     Scanning, bulk move, Current Stage dropdown) or whose Smart File created
+     it. An existing Entered By is never overwritten.
    - `tracks` → `AIScreeningService.screenCompanyTracks`: screen the matched
      tracks only and report each track's verdict; never moves the deal (Smart
      Files' fallback for a company outside Pending Confirmation).

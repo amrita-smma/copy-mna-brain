@@ -944,7 +944,12 @@ export class FileService {
         // A newly minted Pending Confirmation company goes to the workspace's
         // auto-scan (match + screen + drop/promote) when it is on; otherwise
         // it is screened against its suggested tracks as before.
-        if (createdIds.has(company.id) && (await this.queuePendingAutoScan(company.id))) continue;
+        if (
+          createdIds.has(company.id) &&
+          (await this.queuePendingAutoScan(company.id, company.entered_by ?? uploaderUserId ?? null))
+        ) {
+          continue;
+        }
         void this.dispatchScreeningJobs(company.id);
       }
     } catch (processError) {
@@ -3324,10 +3329,16 @@ function isEntityDecisionRemapped(
    * workspace's auto-scan. Returns whether it was queued (auto-scan on), in
    * which case the caller skips its own screening.
    */
-  private async queuePendingAutoScan(companyId: string): Promise<boolean> {
+  private async queuePendingAutoScan(
+    companyId: string,
+    triggeredByUserId: string | null,
+  ): Promise<boolean> {
     if (!this.pendingAutoScanService) return false;
     try {
-      return await this.pendingAutoScanService.onCompanyEnteredPending(companyId);
+      return await this.pendingAutoScanService.onCompanyEnteredPending(
+        companyId,
+        triggeredByUserId,
+      );
     } catch (err) {
       console.error('[fileService] pending auto-scan request failed:', err);
       return false;
@@ -3999,7 +4010,7 @@ function isEntityDecisionRemapped(
     await this.companyAnalysisService
       .dispatch({ companyId, source: file.file_type ?? 'other' })
       .catch((err) => console.error('Error dispatching company analysis:', err));
-    if (!(await this.queuePendingAutoScan(companyId))) {
+    if (!(await this.queuePendingAutoScan(companyId, company.entered_by ?? opts.enteredBy ?? null))) {
       void this.dispatchScreeningJobs(companyId);
     }
 

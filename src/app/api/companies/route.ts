@@ -180,7 +180,12 @@ export async function PATCH(req: NextRequest) {
 
     if (id) {
       // Single-target patch accepts a flat CompanyDTOInput and splits writes.
-      const data = await companyService.updateFromDTO(id, updates, logAction);
+      // A stage change via the Current Stage dropdown credits the session
+      // user with a move into Pending Confirmation (auto-scan attribution).
+      const session = updates.pipeline_stage ? await auth() : null;
+      const data = await companyService.updateFromDTO(id, updates, logAction, {
+        triggeredByUserId: session?.user?.id ?? null,
+      });
       return NextResponse.json({ data });
     }
     // Bulk patches only touch the slim `companies` row (wide-column bulk edits

@@ -17,15 +17,18 @@ import { createContainer } from "@/lib/services";
  * - `tracks` — screen the matched tracks only; never moves the deal.
  */
 export const runAiScreening = tool(
-  async ({
-    company_id,
-    mode,
-    force,
-  }: {
-    company_id: string;
-    mode: "pending_scan" | "tracks";
-    force: boolean;
-  }) => {
+  async (
+    {
+      company_id,
+      mode,
+      force,
+    }: {
+      company_id: string;
+      mode: "pending_scan" | "tracks";
+      force: boolean;
+    },
+    runtime?: { configurable?: Record<string, unknown> },
+  ) => {
     const id = company_id?.trim();
     if (!id) return `**Error:** company_id is required.`;
 
@@ -39,7 +42,14 @@ export const runAiScreening = tool(
       );
 
       if (mode === "pending_scan") {
-        const result = await pendingAutoScanService.processCompany(id, { force });
+        // The task's user (Scan now, Run AI Screening, or whoever moved the
+        // company into Pending Confirmation) fills a blank Entered By on promote.
+        const triggeredByUserId =
+          (runtime?.configurable?.triggered_by_user_id as string | undefined) ?? null;
+        const result = await pendingAutoScanService.processCompany(id, {
+          force,
+          triggeredByUserId,
+        });
         return [
           `Pending Confirmation scan for company ${id}: outcome **${result.outcome}**` +
             (result.verdict ? `, verdict **${result.verdict}**` : "") +

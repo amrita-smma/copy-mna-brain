@@ -149,7 +149,10 @@ function ratio(
 }
 
 export class CompanyService {
-  private pendingArrivalHandler?: (companyIds: string[]) => Promise<unknown>;
+  private pendingArrivalHandler?: (
+    companyIds: string[],
+    triggeredByUserId: string | null,
+  ) => Promise<unknown>;
 
   constructor(
     // First rather than alongside the other scalars at the end: the trailing
@@ -311,15 +314,23 @@ export class CompanyService {
    * Confirmation"). Wired by the container to
    * `PendingAutoScanService.onCompaniesEnteredPending` (a setter, not a
    * constructor argument: that service depends on this one).
+   *
+   * `triggeredByUserId` is the user who moved them in. Their scan task carries
+   * it, so an auto-promote can default a blank Entered By to them.
    */
-  setPendingArrivalHandler(handler: (companyIds: string[]) => Promise<unknown>) {
+  setPendingArrivalHandler(
+    handler: (companyIds: string[], triggeredByUserId: string | null) => Promise<unknown>,
+  ) {
     this.pendingArrivalHandler = handler;
   }
 
-  private async notifyPendingArrival(companyIds: string[]): Promise<void> {
+  private async notifyPendingArrival(
+    companyIds: string[],
+    triggeredByUserId: string | null = null,
+  ): Promise<void> {
     if (!this.pendingArrivalHandler || companyIds.length === 0) return;
     try {
-      await this.pendingArrivalHandler(companyIds);
+      await this.pendingArrivalHandler(companyIds, triggeredByUserId);
     } catch (err) {
       console.error('[CompanyService] pending auto-scan request failed:', err);
     }
@@ -570,7 +581,7 @@ export class CompanyService {
       await this.dispatchTrackMatching(inserted.id);
     }
     if (inserted.pipeline_stage === UNREVIEWED_STAGE && !opts?.deferPendingArrival) {
-      await this.notifyPendingArrival([inserted.id]);
+      await this.notifyPendingArrival([inserted.id], inserted.entered_by ?? null);
     }
     return this.findByIdDTO(inserted.id);
   }
@@ -579,6 +590,11 @@ export class CompanyService {
     id: string,
     input: CompanyDTOInput,
     logAction?: string,
+    opts?: {
+      /** Session user behind the save — credited with a move into Pending
+       *  Confirmation (see `notifyPendingArrival`). */
+      triggeredByUserId?: string | null;
+    },
   ): Promise<CompanyDTO> {
     const split = splitCompanyDTO(input);
 
@@ -634,7 +650,7 @@ export class CompanyService {
         nextStage,
       );
       if (nextStage === UNREVIEWED_STAGE) {
-        await this.notifyPendingArrival([id]);
+        await this.notifyPendingArrival([id], opts?.triggeredByUserId ?? null);
       }
     }
     return this.findByIdDTO(id);
@@ -846,7 +862,7 @@ export class CompanyService {
     // company created there. Keyed on the stored stage, not the caller's
     // `currentStage`, so a no-op re-move of a pending company doesn't rescan.
     if (nextStage === UNREVIEWED_STAGE && existing.pipeline_stage !== UNREVIEWED_STAGE) {
-      await this.notifyPendingArrival([id]);
+      await this.notifyPendingArrival([id], opts?.triggeredByUserId ?? null);
     }
 
     // Captured here rather than in `PromoteDialog` so an ad blocker can't drop
@@ -1000,7 +1016,7 @@ export class CompanyService {
     );
     await this.regenerateCompanyCardsForBulkStageMove(deals, nextStage);
     if (pendingArrivalIds && pendingArrivalIds.length > 0) {
-      await this.notifyPendingArrival(pendingArrivalIds);
+      await this.notifyPendingArrival(pendingArrivalIds, triggeredByUserId ?? null);
     }
 
     // One event per deal, matching `promote`'s shape, so a bulk move and a

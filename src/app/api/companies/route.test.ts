@@ -45,7 +45,7 @@ vi.mock('@/lib/services', async (importOriginal) => {
 });
 
 import { NextRequest } from 'next/server';
-import { GET, POST } from './route';
+import { GET, PATCH, POST } from './route';
 
 function makePostRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/companies', {
@@ -249,5 +249,49 @@ describe('GET /api/companies route (countOnly)', () => {
     await get('source=bogus');
 
     expect(countMock).toHaveBeenCalledWith(expect.objectContaining({ source: undefined }));
+  });
+});
+
+describe('PATCH /api/companies route', () => {
+  beforeEach(() => {
+    authMock.mockReset();
+    createDbMock.mockReset().mockReturnValue({ sentinel: 'mockDb' });
+    getActiveWorkspaceIdMock.mockReset().mockResolvedValue('ws-1');
+    updateFromDTOMock.mockReset().mockResolvedValue({ id: 'c-1' });
+    createContainerMock.mockReset().mockReturnValue({
+      companyService: { updateFromDTO: updateFromDTOMock },
+    });
+  });
+
+  function patch(body: unknown) {
+    return PATCH(
+      new NextRequest('http://localhost/api/companies', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  it('credits the session user with a stage change so auto-scan can attribute the move', async () => {
+    authMock.mockResolvedValueOnce({ user: { id: 'user-7' } });
+
+    await patch({ id: 'c-1', updates: { pipeline_stage: 'unreviewed' } });
+
+    expect(updateFromDTOMock).toHaveBeenCalledWith(
+      'c-1',
+      { pipeline_stage: 'unreviewed' },
+      undefined,
+      { triggeredByUserId: 'user-7' },
+    );
+  });
+
+  it('skips the session lookup for a save that does not change the stage', async () => {
+    await patch({ id: 'c-1', updates: { geography: 'Indonesia' } });
+
+    expect(authMock).not.toHaveBeenCalled();
+    expect(updateFromDTOMock).toHaveBeenCalledWith('c-1', { geography: 'Indonesia' }, undefined, {
+      triggeredByUserId: null,
+    });
   });
 });

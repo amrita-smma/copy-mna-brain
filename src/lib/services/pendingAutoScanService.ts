@@ -63,9 +63,16 @@ export class PendingAutoScanService {
    * A company just landed in Pending Confirmation. Queues its scan when the
    * workspace has auto-scan on; returns whether it did, so a caller with its
    * own screening fallback (Smart Files) can skip that.
+   *
+   * `triggeredByUserId` — who brought it in (moved it from Market Scanning,
+   * uploaded its Smart File) — goes on the scan task, so an auto-promote can
+   * default a blank Entered By to them.
    */
-  async onCompanyEnteredPending(companyId: string): Promise<boolean> {
-    return (await this.onCompaniesEnteredPending([companyId])) > 0;
+  async onCompanyEnteredPending(
+    companyId: string,
+    triggeredByUserId: string | null = null,
+  ): Promise<boolean> {
+    return (await this.onCompaniesEnteredPending([companyId], triggeredByUserId)) > 0;
   }
 
   /**
@@ -73,13 +80,17 @@ export class PendingAutoScanService {
    * several companies in Pending Confirmation at once: one settings read and
    * one enqueue. Returns how many are queued (or already were).
    */
-  async onCompaniesEnteredPending(companyIds: string[]): Promise<number> {
+  async onCompaniesEnteredPending(
+    companyIds: string[],
+    triggeredByUserId: string | null = null,
+  ): Promise<number> {
     if (companyIds.length === 0) return 0;
     const { autoScan } = await this.workspaceService.getPendingAutomation(this.workspaceId);
     if (!autoScan) return 0;
     const { queued, alreadyQueued } = await this.aiScreeningService.enqueue(companyIds, {
       mode: 'pending_scan',
       force: false,
+      triggeredByUserId,
     });
     return queued.length + alreadyQueued.length;
   }
@@ -101,10 +112,16 @@ export class PendingAutoScanService {
     return { queued: queued.length, alreadyQueued: alreadyQueued.length };
   }
 
-  /** Match → screen → (optionally) drop/promote one company. Runs inside its AI Workforce task. */
+  /**
+   * Match → screen → (optionally) drop/promote one company. Runs inside its AI
+   * Workforce task. `triggeredByUserId` is the task's user — who pressed Scan
+   * now / Run AI Screening, or who moved the company into Pending Confirmation
+   * — and fills a blank Entered By on auto-promote, exactly as a manual
+   * promote by that user would.
+   */
   async processCompany(
     companyId: string,
-    opts: { force: boolean },
+    opts: { force: boolean; triggeredByUserId?: string | null },
   ): Promise<PendingAutoScanResult> {
     const steps: string[] = [];
     const done = (r: Omit<PendingAutoScanResult, 'companyId' | 'steps'>): PendingAutoScanResult => ({
@@ -182,6 +199,7 @@ export class PendingAutoScanService {
           undefined,
           undefined,
           `Auto-promoted: passed AI screening (${trackNames})`,
+          { triggeredByUserId: opts.triggeredByUserId ?? null },
         );
       } catch (err) {
         if (err instanceof CompanyL0RequirementsError) {

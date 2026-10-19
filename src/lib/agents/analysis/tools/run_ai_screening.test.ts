@@ -44,11 +44,14 @@ describe("run_ai_screening (workforce tool)", () => {
     });
 
     const result = String(
-      await runAiScreening.invoke({ company_id: "c1", mode: "pending_scan", force: true }),
+      await runAiScreening.invoke(
+        { company_id: "c1", mode: "pending_scan", force: true },
+        { configurable: { triggered_by_user_id: "user-7" } },
+      ),
     );
 
     expect(createContainer).toHaveBeenCalledWith({ db: true }, "ws-1");
-    expect(processCompany).toHaveBeenCalledWith("c1", { force: true });
+    expect(processCompany).toHaveBeenCalledWith("c1", { force: true, triggeredByUserId: "user-7" });
     expect(result).toContain("outcome **promoted**");
     expect(result).toContain("verdict **pass**");
     expect(result).toContain("- Promoted to L0");

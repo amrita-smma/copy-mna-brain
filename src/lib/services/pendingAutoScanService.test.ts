@@ -89,10 +89,11 @@ describe('PendingAutoScanService.onCompanyEnteredPending', () => {
   it('queues a non-forced pending scan task when auto-scan is on', async () => {
     t.aiScreeningService.enqueue.mockResolvedValue({ queued: [COMPANY_ID], alreadyQueued: [] });
 
-    await expect(t.service.onCompanyEnteredPending(COMPANY_ID)).resolves.toBe(true);
+    await expect(t.service.onCompanyEnteredPending(COMPANY_ID, 'user-7')).resolves.toBe(true);
     expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith([COMPANY_ID], {
       mode: 'pending_scan',
       force: false,
+      triggeredByUserId: 'user-7',
     });
   });
 });
@@ -112,6 +113,7 @@ describe('PendingAutoScanService.onCompaniesEnteredPending', () => {
     expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['a', 'b'], {
       mode: 'pending_scan',
       force: false,
+      triggeredByUserId: null,
     });
   });
 
@@ -188,7 +190,10 @@ describe('PendingAutoScanService.processCompany', () => {
       screening('k3', 'pass'),
     ]);
 
-    const result = await t.service.processCompany(COMPANY_ID, { force: true });
+    const result = await t.service.processCompany(COMPANY_ID, {
+      force: true,
+      triggeredByUserId: 'user-7',
+    });
 
     expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalledWith(
       expect.objectContaining({ id: COMPANY_ID }),
@@ -203,6 +208,8 @@ describe('PendingAutoScanService.processCompany', () => {
       undefined,
       undefined,
       'Auto-promoted: passed AI screening (Healthcare)',
+      // The task's user fills a blank Entered By, so the L0 gate doesn't block it.
+      { triggeredByUserId: 'user-7' },
     );
     expect(result).toMatchObject({ outcome: 'promoted', verdict: 'pass', screened: 3 });
     expect(result.steps).toContain('Promoted to L0');

@@ -288,7 +288,7 @@ describe("CompanyService.createFromDTO — Pending Confirmation arrival", () => 
 
     await service.createFromDTO({ target: "Acme", pipeline_stage: "unreviewed" } as any);
 
-    expect(handler).toHaveBeenCalledWith(["c-pending"]);
+    expect(handler).toHaveBeenCalledWith(["c-pending"], null);
   });
 
   it("leaves the arrival to the caller when it defers it", async () => {
@@ -357,7 +357,19 @@ describe("CompanyService — moving into Pending Confirmation", () => {
 
     await service.promote("c-1", "discovered", "unreviewed");
 
-    expect(handler).toHaveBeenCalledWith(["c-1"]);
+    expect(handler).toHaveBeenCalledWith(["c-1"], null);
+  });
+
+  it("credits the user who moved it in, so an auto-promote can default Entered By to them", async () => {
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+
+    await service.promote("c-1", "discovered", "unreviewed", undefined, undefined, undefined, undefined, undefined, {
+      triggeredByUserId: "user-7",
+    });
+
+    expect(handler).toHaveBeenCalledWith(["c-1"], "user-7");
   });
 
   it("does not rescan a company that is already in Pending Confirmation", async () => {
@@ -409,10 +421,11 @@ describe("CompanyService — moving into Pending Confirmation", () => {
         { id: "c-3", currentStage: "unreviewed" },
       ],
       "unreviewed",
+      "user-7",
     );
 
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith(["c-1", "c-2"]);
+    expect(handler).toHaveBeenCalledWith(["c-1", "c-2"], "user-7");
   });
 
   it("does not rescan bulk moves when the stored stage is already Pending Confirmation", async () => {
@@ -430,9 +443,11 @@ describe("CompanyService — moving into Pending Confirmation", () => {
       makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
     );
 
-    await service.updateFromDTO("c-1", { pipeline_stage: "unreviewed" } as never);
+    await service.updateFromDTO("c-1", { pipeline_stage: "unreviewed" } as never, undefined, {
+      triggeredByUserId: "user-7",
+    });
 
-    expect(handler).toHaveBeenCalledWith(["c-1"]);
+    expect(handler).toHaveBeenCalledWith(["c-1"], "user-7");
   });
 });
 

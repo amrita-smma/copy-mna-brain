@@ -1496,7 +1496,7 @@ describe('FileService.processUpload', () => {
 
     await service.processUpload('uploads/teaser.pdf', 'teaser.pdf', 'application/pdf');
 
-    expect(onCompanyEnteredPending).toHaveBeenCalledWith('company-b');
+    expect(onCompanyEnteredPending).toHaveBeenCalledWith('company-b', null);
     // Screening is fire-and-forget; let it run before asserting it didn't.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(aiScreeningService.enqueue).not.toHaveBeenCalled();
