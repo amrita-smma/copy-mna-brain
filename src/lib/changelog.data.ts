@@ -92,6 +92,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "225e233c771af32e9e1f88f2c8527b0fd8a62b14",
+    "date": "2026-10-19",
+    "subject": "Screening now supports must-pass criteria and a minimum number of optional criteria to pass",
+    "category": "improvement"
+  },
+  {
+    "hash": "38afa6115ffc1d6ef8dee26e1358e888ba3bf2c8",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
