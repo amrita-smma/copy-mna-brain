@@ -164,6 +164,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "0816aa79b1ef0d6f94080acded3d9fd73b0b1fdc",
+    "date": "2026-10-19",
+    "subject": "Added a Present button to export the quarterly valuation report for fund management",
+    "category": "improvement"
+  },
+  {
+    "hash": "734e6073605776fcf0c26dc40a8b1115ac2614a3",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
