@@ -34,6 +34,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "cffd2879c171d4dc9a78b4e354d9fd80a5956e46",
+    "date": "2026-10-19",
+    "subject": "Page blurs during workspace switches to prevent stale data from showing",
+    "category": "improvement"
+  },
+  {
+    "hash": "32ae8ad5bfe9dd811ae745ac8b52808aa2bd8c66",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
