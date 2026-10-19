@@ -6,6 +6,34 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
+    "date": "2026-10-20",
+    "subject": "Slide thumbnails are now hidden by default in Presentation view",
+    "category": "improvement"
+  },
+  {
+    "hash": "b4605808dd1c79d47442b360828b6cf03f8a7db5",
+    "date": "2026-10-20",
+    "subject": "Remove MLflow terraform module; Langfuse handles AI observability",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "a41dae9b3034ed6d69f46f8bd2d63d68d6a286d3",
+    "date": "2026-10-20",
+    "subject": "Add terraform/redis: TLS-only Redis on EC2 for the app's live state",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7a1cc7c430cf60c1b471edfb8ab905f7a994bdeb",
+    "date": "2026-10-20",
+    "subject": "Added PDF slideshow viewer for presentations",
+    "category": "improvement"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
@@ -235,6 +263,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "24593a083a0eb44e6b8445c0a8623cbe496e7989",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "3c544dc2133228041df277d195e3b912cc64ed7f",
     "date": "2026-10-19",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
