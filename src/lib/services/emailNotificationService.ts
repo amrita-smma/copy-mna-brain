@@ -7,7 +7,11 @@ import {
 import type { WorkforceQueueRow } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
 import type { SendEmailPayload } from '@/lib/jobs/handlers/sendEmail';
-import { ASK_OWNER_TOOL_NAME, readAskOwnerArgs } from '@/lib/agents/analysis/hitl';
+import {
+  ASK_OWNER_TOOL_NAME,
+  MOVE_STAGE_TOOL_NAME,
+  readAskOwnerArgs,
+} from '@/lib/agents/analysis/hitl';
 
 /**
  * Task lifecycle and insight refresh email notifications (MB-90, MB-558).
@@ -19,7 +23,10 @@ import { ASK_OWNER_TOOL_NAME, readAskOwnerArgs } from '@/lib/agents/analysis/hit
  * them, so failures are caught and logged and the method resolves to `false`.
  *
  * Gated by `TASK_NOTIFICATIONS_ENABLED` (matching the `taskNotificationsEnabled`
- * flag in `src/lib/flags.ts`). The env var is read directly rather than via the
+ * flag in `src/lib/flags.ts`) — except a run that FAILED on its own (not a
+ * user cancellation), whose email always goes out: a failure is the one
+ * lifecycle event the user cannot otherwise learn about without watching the
+ * queue. The env var is read directly rather than via the
  * Flags SDK `flag()` because most triggers fire from WDK workflow steps and
  * cron routes that have no request context for the SDK.
  */
@@ -56,7 +63,7 @@ export interface InsightRefreshedNotice {
 }
 
 export interface ApprovalDetails {
-  /** Headline action, e.g. "Promote NovaSpec Materials to L1". */
+  /** Headline action, e.g. "Move NovaSpec Materials to L1 · Screening". */
   action?: string;
   company?: string;
   proposedAction?: string;
@@ -78,29 +85,27 @@ export function deriveApprovalDetails(
   args: Record<string, unknown> | undefined,
 ): ApprovalDetails {
   const a = args && typeof args === 'object' ? args : {};
-  if (toolName === 'promote_to_l1') {
-    const company =
-      typeof a.company_name === 'string' && a.company_name.trim()
-        ? a.company_name.trim()
-        : undefined;
-    const reasonRaw = typeof a.reason === 'string' ? a.reason.trim() : '';
-    const note = typeof a.note === 'string' ? a.note.trim() : '';
+  if (toolName === MOVE_STAGE_TOOL_NAME) {
+    const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const company = text(a.company_name);
+    const reasonRaw = text(a.reason) ?? '';
+    const note = text(a.note) ?? '';
     const reason =
       reasonRaw && note
         ? `${reasonRaw}\n\nNote: ${note}`
         : reasonRaw || (note ? `Note: ${note}` : undefined);
-    // The tool promotes into whichever stage follows L0 in the workspace, and
-    // the call args don't carry it, so the card names it by position.
+    // move_stage adds the stages' display labels to the interrupt args; fall
+    // back to the raw keys the agent passed.
+    const from = text(a.from_label) ?? text(a.from_stage) ?? 'current stage';
+    const to = text(a.to_label) ?? text(a.to_stage) ?? 'next stage';
     return {
-      action: company
-        ? `Promote ${company} to the next stage`
-        : 'Promote company to the next stage',
+      action: company ? `Move ${company} to ${to}` : `Move company to ${to}`,
       company,
-      proposedAction: 'Move to the stage after L0',
+      proposedAction: `Move from ${from} to ${to}`,
       reason,
       changeField: 'Pipeline Stage',
-      beforeValue: 'L0',
-      afterValue: 'Next stage',
+      beforeValue: from,
+      afterValue: to,
     };
   }
   if (toolName === ASK_OWNER_TOOL_NAME) {
@@ -322,11 +327,16 @@ export class EmailNotificationService {
     }, opts.recipientUserId);
   }
 
-  /** Task reached terminal `failed` — agent error or user cancellation. */
+  /**
+   * Task reached terminal `failed` — agent error, stuck-run reaper, or user
+   * cancellation. Only a cancellation (`cancelled: true`) is subject to the
+   * notifications flag; every other failure is always emailed.
+   */
   async notifyTaskFailed(
     runId: string,
     opts: { cancelled?: boolean; reason?: string } = {},
   ): Promise<boolean> {
+    const alwaysSend = opts.cancelled !== true;
     return this.dispatch(runId, 'task_failed', async (run, recipient) => {
       const error =
         run.error && typeof run.error === 'object'
@@ -349,7 +359,7 @@ export class EmailNotificationService {
         cancelled,
         taskUrl: await this.taskUrl(runId, run.workspace_id),
       };
-    });
+    }, undefined, { alwaysSend });
   }
 
   /** Mid-run progress milestone (driven by the agent's notify_progress tool). */
@@ -448,9 +458,10 @@ export class EmailNotificationService {
       recipient: Recipient,
     ) => Promise<SendEmailPayload | null>,
     recipientUserId?: string | null,
+    opts: { alwaysSend?: boolean } = {},
   ): Promise<boolean> {
     const tag = `[EmailNotificationService][${label}] run=${runId}`;
-    if (!(await this.isEnabled())) {
+    if (!opts.alwaysSend && !(await this.isEnabled())) {
       console.info(`${tag} skipped: notifications feature flag is off`);
       return false;
     }

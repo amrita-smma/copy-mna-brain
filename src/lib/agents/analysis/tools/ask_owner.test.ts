@@ -30,9 +30,9 @@ describe('ask_owner schema', () => {
     await expect(askOwner.invoke(args as never)).rejects.toThrow();
   });
 
-  it('is named ask_owner and kept out of a promote_to_l1 turn', () => {
+  it('is named ask_owner and kept out of a move_stage turn', () => {
     expect(askOwner.name).toBe('ask_owner');
-    expect(askOwner.description).toMatch(/never in the same turn as promote_to_l1/i);
+    expect(askOwner.description).toMatch(/never in the same turn as a gated move_stage/i);
   });
 });
 

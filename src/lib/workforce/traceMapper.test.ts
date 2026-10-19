@@ -177,7 +177,7 @@ describe("buildTrace", () => {
     });
   });
 
-  it("surfaces promote_to_l1.reason as intervention.proposal on a pending interrupt", () => {
+  it("surfaces move_stage.reason as intervention.proposal on a pending interrupt", () => {
     const pendingWrites: CheckpointPendingWrite[] = [
       [
         "task-1",
@@ -186,7 +186,7 @@ describe("buildTrace", () => {
           value: {
             actionRequests: [
               {
-                name: "promote_to_l1",
+                name: "move_stage",
                 args: {
                   company_name: "Acme",
                   reason: "Revenue $42M FY2024, EBITDA margin 18%; thesis fit.",
@@ -203,7 +203,7 @@ describe("buildTrace", () => {
         ai("about to call", [
           {
             id: "c-1",
-            name: "promote_to_l1",
+            name: "move_stage",
             args: { company_name: "Acme" },
           },
         ]),
@@ -218,11 +218,11 @@ describe("buildTrace", () => {
       question: "Promote Acme from L0 to L1?",
       proposal: "Revenue $42M FY2024, EBITDA margin 18%; thesis fit.",
       tool_call_id: "c-1",
-      tool_name: "promote_to_l1",
+      tool_name: "move_stage",
     });
   });
 
-  it("appends promote_to_l1.note after the reason in intervention.proposal", () => {
+  it("appends move_stage.note after the reason in intervention.proposal", () => {
     const pendingWrites: CheckpointPendingWrite[] = [
       [
         "task-1",
@@ -231,7 +231,7 @@ describe("buildTrace", () => {
           value: {
             actionRequests: [
               {
-                name: "promote_to_l1",
+                name: "move_stage",
                 args: {
                   company_name: "Cinder Foods",
                   reason: "Strong revenue growth.",
@@ -249,7 +249,7 @@ describe("buildTrace", () => {
         ai("about to call", [
           {
             id: "c-1",
-            name: "promote_to_l1",
+            name: "move_stage",
             args: { company_name: "Cinder Foods" },
           },
         ]),
@@ -280,7 +280,7 @@ describe("buildTrace", () => {
           value: {
             actionRequests: [
               {
-                name: "promote_to_l1",
+                name: "move_stage",
                 args: { id: "halcyon" },
                 description: "Promote Halcyon Media to L1?",
               },
@@ -292,7 +292,7 @@ describe("buildTrace", () => {
     const steps = buildTrace({
       messages: [
         ai("about to call", [
-          { id: "c-1", name: "promote_to_l1", args: { id: "halcyon" } },
+          { id: "c-1", name: "move_stage", args: { id: "halcyon" } },
         ]),
       ],
       pendingWrites,
@@ -565,7 +565,7 @@ describe("buildTrace", () => {
           },
           {
             id: "c-1",
-            name: "promote_to_l1",
+            name: "move_stage",
             args: { company_name: "Acme" },
           },
         ]),
@@ -585,14 +585,14 @@ describe("buildTrace", () => {
   it("falls back to derived title when no narrate_step is present", () => {
     const steps = buildTrace({
       messages: [
-        ai("calling tool", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
+        ai("calling tool", [{ id: "c-1", name: "move_stage", args: {} }]),
       ],
       pendingWrites: [],
       humanDecisions: [],
       actor: ACTOR,
       startedAt: STARTED,
     });
-    expect(steps[0].title).toBe("Tool promote_to_l1");
+    expect(steps[0].title).toBe("Tool move_stage");
   });
 
   describe("final-report fallback parsing", () => {
@@ -602,7 +602,7 @@ describe("buildTrace", () => {
           ai(
             [
               "✓ Done: Promoted Acme Corp from L0 to L1",
-              "- Action: promote_to_l1(company_name=\"Acme Corp\")",
+              "- Action: move_stage(company_name=\"Acme Corp\")",
               "- Result: success",
               "- Notes: (none)",
             ].join("\n"),
@@ -615,7 +615,7 @@ describe("buildTrace", () => {
       });
       expect(steps).toHaveLength(1);
       expect(steps[0].title).toBe("✓ Promoted Acme Corp from L0 to L1");
-      expect(steps[0].description).toContain("promote_to_l1");
+      expect(steps[0].description).toContain("move_stage");
     });
 
     it('lifts "✗ Could not complete:" reason as a failure title', () => {
@@ -679,27 +679,27 @@ describe("buildTrace", () => {
   });
 
   describe("status badge derivation", () => {
-    it("emits 'promoted' with pass tone for a successful promote_to_l1", () => {
+    it("emits 'moved' with pass tone for a successful move_stage", () => {
       const steps = buildTrace({
         messages: [
-          ai("doing it", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
-          tool('Promoted "Acme" from L0 to L1.', "c-1"),
+          ai("doing it", [{ id: "c-1", name: "move_stage", args: {} }]),
+          tool('Moved "Acme" from L0 to L1.', "c-1"),
         ],
         pendingWrites: [],
         humanDecisions: [],
         actor: ACTOR,
         startedAt: STARTED,
       });
-      expect(steps[0].toolCalls?.[0].status).toBe("promoted");
+      expect(steps[0].toolCalls?.[0].status).toBe("moved");
       expect(steps[0].toolCalls?.[0].tone).toBe("pass");
     });
 
-    it("emits 'refused' with fail tone when promote_to_l1 rejects due to stage mismatch", () => {
+    it("emits 'refused' with fail tone when move_stage rejects due to stage mismatch", () => {
       const steps = buildTrace({
         messages: [
-          ai("doing it", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
+          ai("doing it", [{ id: "c-1", name: "move_stage", args: {} }]),
           tool(
-            'Cannot promote "Acme" to L1: current pipeline stage is L2, expected L0.',
+            'Cannot move "Acme": it is at L2 (key "L2"), not "L0". Call lookup_pipeline_stage again and use the stage it reports.',
             "c-1",
           ),
         ],
@@ -827,7 +827,7 @@ describe("buildTrace", () => {
     it("emits no status while the tool is still running", () => {
       const steps = buildTrace({
         messages: [
-          ai("calling", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
+          ai("calling", [{ id: "c-1", name: "move_stage", args: {} }]),
         ],
         pendingWrites: [],
         humanDecisions: [],
@@ -840,15 +840,57 @@ describe("buildTrace", () => {
     });
   });
 
+  describe("company chips", () => {
+    const manifest = (rows: Array<{ id: string; name: string }>) =>
+      `<!-- COMPANY_MENTIONS_JSON:${JSON.stringify(rows)} -->`;
+
+    it("chips the companies a step acts on, from the tool's manifest", () => {
+      const steps = trace([
+        ai("", [{ id: "c-1", name: "lookup_pipeline_stage", args: { company_name: "Acme Corp" } }]),
+        tool(`**Acme Corp** — current stage: L0\n${manifest([{ id: "co-1", name: "Acme Corp" }])}`, "c-1"),
+      ]);
+      expect(steps[0].companies).toEqual([{ id: "co-1", name: "Acme Corp" }]);
+    });
+
+    it("keeps the manifest out of the rendered tool output", () => {
+      const steps = trace([
+        ai("", [{ id: "c-1", name: "get_company_details", args: { company_name: "Acme Corp" } }]),
+        tool(`details\n${manifest([{ id: "co-1", name: "Acme Corp" }])}`, "c-1"),
+      ]);
+      expect(steps[0].toolCalls?.[0].output?.rows[0].value).toBe("details");
+    });
+
+    it("only chips the rows of a large result that the step actually names", () => {
+      const steps = trace([
+        ai("", [{ id: "c-1", name: "query_companies", args: { stage: "L0" } }]),
+        tool(
+          `**Query Results (2 companies):**\n${manifest([
+            { id: "co-1", name: "Acme Corp" },
+            { id: "co-2", name: "Toyo Materials" },
+          ])}`,
+          "c-1",
+        ),
+        ai("Toyo Materials is the strongest fit.", []),
+      ]);
+      expect(steps[0].companies).toBeUndefined();
+      expect(steps[1].companies).toEqual([{ id: "co-2", name: "Toyo Materials" }]);
+    });
+
+    it("leaves steps that name no known company without chips", () => {
+      const steps = trace([ai("Thinking about the market.", [])]);
+      expect(steps[0].companies).toBeUndefined();
+    });
+  });
+
   describe("outcome chips", () => {
     it("emits an outcome chip per resolved, toned tool call", () => {
       const steps = buildTrace({
         messages: [
           ai("doing it", [
-            { id: "c-1", name: "promote_to_l1", args: {} },
+            { id: "c-1", name: "move_stage", args: {} },
             { id: "c-2", name: "query_companies", args: {} },
           ]),
-          tool('Promoted "Acme" to L1.', "c-1"),
+          tool('Moved "Acme" from L0 to L1.', "c-1"),
           tool("**Query Results (3 companies):**\n\n...", "c-2"),
         ],
         pendingWrites: [],
@@ -857,7 +899,7 @@ describe("buildTrace", () => {
         startedAt: STARTED,
       });
       expect(steps[0].outcomeChips).toEqual([
-        { label: "promoted", tone: "pass" },
+        { label: "moved", tone: "pass" },
         { label: "3 matches", tone: "pass" },
       ]);
     });
@@ -865,7 +907,7 @@ describe("buildTrace", () => {
     it("omits outcomeChips when nothing has resolved yet", () => {
       const steps = buildTrace({
         messages: [
-          ai("calling", [{ id: "c-1", name: "promote_to_l1", args: {} }]),
+          ai("calling", [{ id: "c-1", name: "move_stage", args: {} }]),
         ],
         pendingWrites: [],
         humanDecisions: [],

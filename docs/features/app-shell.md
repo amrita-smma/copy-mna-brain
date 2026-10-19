@@ -296,8 +296,8 @@ Implementation notes (`src/lib/agents/analysis/tools/update_company_details.ts`)
   `FinancialUpsertInput` gained `ev_usd_mn` for this — an omitted key still
   keeps the stored value, which is what the FE editor relies on. Those two
   service calls are two commits, so the error path reports which half landed
-  rather than implying a rollback (same shape as `promote_to_l0`'s
-  update-then-promote).
+  rather than implying a rollback (same shape as `move_stage`'s
+  update-then-move into L0).
 - **Derived figures are recomputed, not carried over.** `updateFinancials` now
   recalculates `ebitda_margin` and `ev_ebitda` from the merged revenue / EBITDA
   / EV, and nulls them when an input is missing or the denominator is zero.
@@ -314,7 +314,8 @@ Implementation notes (`src/lib/agents/analysis/tools/update_company_details.ts`)
 - **Pipeline state is out of scope, loudly.** `pipeline_stage`, `status` /
   `dropped_*`, `ai_opinion_*` and the user-reference columns are *rejected with
   a pointer to the owning tool* rather than silently stripped — a stage move
-  belongs to `promote_to_l0` / the HITL-gated `promote_to_l1`, a drop to
+  belongs to `lookup_pipeline_stage` + `move_stage` (gated for any move
+  touching L1+), a drop to
   `drop_company`, the verdict to `save_ai_opinion`. Silently dropping them
   would let the agent report a change that never happened, and accepting
   `pipeline_stage` would route around the promotion approval gate.

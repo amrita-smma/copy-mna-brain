@@ -24,6 +24,9 @@ export async function GET(
     if (!item || item.workspace_id !== workspaceId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
+    // Opening a failed task is what clears it from the owner's red "unseen
+    // failures" count on the Workforce nav item.
+    await aiWorkforceService.markFailureSeen(item, session.user.id);
     // The insight version this run produced, for the task header's link to
     // it. A field on this response (one indexed lookup by source_run_id)
     // rather than a new endpoint: TaskCanvas already fetches and polls it.

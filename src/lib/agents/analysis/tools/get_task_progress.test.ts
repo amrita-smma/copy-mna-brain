@@ -146,14 +146,14 @@ describe('getTaskProgress', () => {
         started_at: '2026-06-08T09:00:01Z',
         ended_at: null,
         last_heartbeat_at: null,
-        resume_reason: 'HITL: approve promote_to_l1',
+        resume_reason: 'HITL: approve move_stage',
         error: null,
       },
     ]);
 
     const result = (await getTaskProgress.invoke({})) as string;
 
-    expect(result).toContain('**Waiting reason:** HITL: approve promote_to_l1');
+    expect(result).toContain('**Waiting reason:** HITL: approve move_stage');
   });
 
   it('summarises a structured error payload for failed rows', async () => {

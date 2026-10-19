@@ -12,7 +12,7 @@
  */
 
 export const ASK_OWNER_TOOL_NAME = 'ask_owner';
-export const PROMOTE_TO_L1_TOOL_NAME = 'promote_to_l1';
+export const MOVE_STAGE_TOOL_NAME = 'move_stage';
 
 /** The decision types langchain's humanInTheLoopMiddleware understands. */
 export type MiddlewareDecisionType = 'approve' | 'edit' | 'reject';
@@ -31,31 +31,19 @@ type ToolCallLike = { name?: string; args?: unknown };
  *     `discovered`) — AUTO. The agent executes without human approval; these
  *     are triage/intake stages, not commitments. The `add_company` tool covers
  *     both (it cannot write to L0) and must NOT be listed here.
- *   - Promoting a company to L1 or higher — GATED. The agent must hand off
- *     to a human via this middleware; the human approves or rejects in the
- *     routine/task canvas before the tool runs.
+ *   - Moving a company between stages — `move_stage`. Moves among the intake
+ *     buckets, Pending Confirmation and L0 are AUTO; a move into or out of any
+ *     stage after L0 is GATED. The middleware can only gate a tool name as a
+ *     whole, so `move_stage` is NOT listed here: it raises the same HITLRequest
+ *     interrupt itself, only for the gated moves (see move_stage.ts and
+ *     `stageMoveRequiresApproval`). Its UI decisions are in
+ *     API_DECISIONS_BY_TOOL below.
  *   - ask_owner — GATED by construction: the tool exists to pause the run
  *     until the owner answers (MB-561).
  *
- * Today only `promote_to_l1` is stage-changing; when additional stage-changing
- * tools land (e.g. promote_to_l2), add them here so the L1+ rule keeps
- * holding. Read-only tools and L0 entry tools must NEVER appear here.
+ * Read-only tools and L0 entry moves must NEVER appear here.
  */
 export const WORKFORCE_HITL_INTERRUPT_ON = {
-  [PROMOTE_TO_L1_TOOL_NAME]: {
-    allowedDecisions: ['approve', 'reject'] as MiddlewareDecisionType[],
-    // The description is what the human reviewer reads in the HITL card
-    // (mapped to `intervention.question`). The args.reason carries the
-    // longer rationale and is rendered separately as `intervention.proposal`
-    // in the trace UI — see traceMapper.ts.
-    description: (toolCall: ToolCallLike): string => {
-      const args = (toolCall.args ?? {}) as { company_name?: string };
-      const co = args.company_name ?? '(unknown)';
-      // The tool promotes into whichever stage follows L0 in the workspace;
-      // the call args don't carry it, so the question doesn't name it.
-      return `Promote ${co} from L0 to the next stage?`;
-    },
-  },
   [ASK_OWNER_TOOL_NAME]: {
     // Only `edit`. Every owner decision — accept, answer differently, decline —
     // is an edit the decision route builds from the stored args
@@ -74,7 +62,7 @@ export const WORKFORCE_HITL_INTERRUPT_ON = {
 };
 
 const API_DECISIONS_BY_TOOL: Record<string, readonly ApiDecision[]> = {
-  [PROMOTE_TO_L1_TOOL_NAME]: ['approve', 'reject'],
+  [MOVE_STAGE_TOOL_NAME]: ['approve', 'reject'],
   [ASK_OWNER_TOOL_NAME]: ['approve', 'answer', 'reject'],
 };
 
@@ -154,8 +142,8 @@ export type BuildResumeDecisionResult =
  * `toolName` and `storedArgs` come from the row's pending_intervention (server
  * state), never from the request body.
  *
- * promote_to_l1 (and any unknown tool): approve → approve, reject → reject with
- * the optional message — unchanged from before MB-561.
+ * move_stage (and any unknown tool): approve → approve, reject → reject with
+ * the optional message.
  *
  * ask_owner: every decision is an edit (see WORKFORCE_HITL_INTERRUPT_ON) —
  * approve (accept recommendation) carries the recommendation as the owner's

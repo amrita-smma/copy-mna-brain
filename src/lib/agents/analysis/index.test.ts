@@ -138,11 +138,10 @@ const workforceHitlConfig = (mocks.humanInTheLoopMiddleware.mock.calls as unknow
   | undefined;
 
 describe('workforce HITL middleware', () => {
-  it('gates exactly ask_owner and promote_to_l1 with the shared interrupt config', () => {
+  it('gates exactly ask_owner with the shared interrupt config (move_stage gates itself)', () => {
     expect(workforceHitlConfig?.interruptOn).toBe(WORKFORCE_HITL_INTERRUPT_ON);
     expect(Object.keys(workforceHitlConfig?.interruptOn ?? {}).sort()).toEqual([
       'ask_owner',
-      'promote_to_l1',
     ]);
   });
 });
@@ -284,7 +283,7 @@ describe('getAgentGraph flavor selection', () => {
     expect(prompt).toContain('**update_company_details**');
     // Its boundaries must stay explicit: the HITL-gated promotion path and the
     // drop path must not be reachable through a detail edit.
-    expect(prompt).toMatch(/promote_to_l0[^\n]*promote_to_l1/);
+    expect(prompt).toMatch(/lookup_pipeline_stage[^\n]*move_stage/);
     expect(prompt).toMatch(/dropping goes through `drop_company`/);
     expect(prompt).toMatch(/Never invent a number/i);
   });

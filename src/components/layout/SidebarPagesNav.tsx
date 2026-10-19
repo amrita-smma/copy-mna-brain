@@ -21,6 +21,7 @@ import { WorkspaceLink } from '@/components/WorkspaceLink';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useSourcingPendingCount } from '@/hooks/useSourcingPendingCount';
+import { useWorkforceNavSummary } from '@/hooks/useWorkforceNavSummary';
 import {
   findTabByPath,
   groupedConsoleTabs,
@@ -57,14 +58,83 @@ function formatBadgeCount(count: number): string {
   return count > 99 ? '99+' : String(count);
 }
 
+/** One count chip on a nav item. */
+interface NavBadge {
+  count: number;
+  /** red = needs attention, amber = work in progress. */
+  tone: 'red' | 'amber';
+  /** Screen-reader / tooltip wording, e.g. "3 pending". */
+  label: string;
+  testId: string;
+}
+
+/** What a nav item shows beside its label. */
+interface NavBadges {
+  badges: NavBadge[];
+  /** A blinking amber dot: something is running there right now. */
+  live?: boolean;
+}
+
+const BADGE_TONE_CLASS: Record<NavBadge['tone'], string> = {
+  red: 'bg-red-600 text-white',
+  amber: 'bg-amber-400 text-amber-950',
+};
+
+const DOT_TONE_CLASS: Record<NavBadge['tone'], string> = {
+  red: 'bg-red-600',
+  amber: 'bg-amber-400',
+};
+
 /**
- * Per-slug attention counts shown as a red badge on the nav item — today just
- * Sourcing's Pending Confirmation backlog. Fetched only while Sourcing is in the
- * nav, so a workspace with the pipeline flagged off makes no request.
+ * Per-slug badges on the nav items:
+ *   - Sourcing — its Pending Confirmation backlog (red).
+ *   - AI Workforce — the user's unseen failed tasks (red), the workspace's
+ *     queue (amber), and a blinking amber dot while the queue has work in it.
+ * Each is fetched only while its page is in the nav, so a workspace with the
+ * page flagged off makes no request.
  */
-function useNavBadgeCounts(tabs: ConsoleTab[]): Record<string, number> {
+function useNavBadges(tabs: ConsoleTab[]): Record<string, NavBadges> {
   const pending = useSourcingPendingCount(tabs.some((tab) => tab.slug === 'sourcing'));
-  return { sourcing: pending };
+  const workforce = useWorkforceNavSummary(tabs.some((tab) => tab.slug === 'ai-workforce'));
+
+  const workforceBadges: NavBadge[] = [];
+  if (workforce.unseen_failures > 0) {
+    workforceBadges.push({
+      count: workforce.unseen_failures,
+      tone: 'red',
+      label: `${workforce.unseen_failures} failed`,
+      testId: 'nav-badge-ai-workforce-failures',
+    });
+  }
+  if (workforce.queue > 0) {
+    workforceBadges.push({
+      count: workforce.queue,
+      tone: 'amber',
+      label: `${workforce.queue} in queue`,
+      testId: 'nav-badge-ai-workforce-queue',
+    });
+  }
+
+  return {
+    sourcing: {
+      badges:
+        pending > 0
+          ? [{ count: pending, tone: 'red', label: `${pending} pending`, testId: 'nav-badge-sourcing' }]
+          : [],
+    },
+    'ai-workforce': { badges: workforceBadges, live: workforce.queue > 0 },
+  };
+}
+
+/** The blinking "work in progress" dot. */
+function LiveDot({ slug, className }: { slug: string; className?: string }) {
+  return (
+    <span
+      data-testid={`nav-live-${slug}`}
+      aria-hidden="true"
+      className={cn('h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-amber-400', className)}
+    />
+  );
 }
 
 /**
@@ -77,22 +147,25 @@ function PageLink({
   tab,
   isActive,
   iconOnly,
-  badgeCount = 0,
+  badges,
   onNavigate,
 }: {
   tab: ConsoleTab;
   isActive: boolean;
   iconOnly: boolean;
-  /** Items needing attention; a red badge is shown when above zero. */
-  badgeCount?: number;
+  /** Count chips and the live dot for this item, if any. */
+  badges?: NavBadges;
   onNavigate?: () => void;
 }) {
   const { revealConsole } = useLayoutControl();
   // Fall back rather than render `undefined` as a component: a new tab added to
   // the registry without an icon here must not take the whole list down with it.
   const Icon = TAB_ICONS[tab.slug] ?? Circle;
-  const badge = badgeCount > 0 ? formatBadgeCount(badgeCount) : null;
-  const badgeLabel = badge ? `${badgeCount} pending` : null;
+  const chips = badges?.badges ?? [];
+  const live = Boolean(badges?.live);
+  const badgeLabel = chips.length > 0 ? chips.map((b) => b.label).join(', ') : null;
+  // The rail has room for one corner dot: the most urgent badge's tone.
+  const railTone = chips[0]?.tone;
 
   const link = (
     <WorkspaceLink
@@ -117,27 +190,41 @@ function PageLink({
       {/* Kept in the DOM when collapsed so the link still has an accessible
           name — the tooltip alone would not give it one. */}
       <span className={cn('min-w-0 flex-1 truncate', iconOnly && 'sr-only')}>{tab.label}</span>
-      {badge &&
-        (iconOnly ? (
-          <>
-            {/* No room for a count on the rail — a dot on the icon's corner
-                flags it, and the count goes to screen readers and the tooltip. */}
-            <span
-              data-testid={`nav-badge-${tab.slug}`}
-              aria-hidden="true"
-              className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-600 ring-2 ring-sidebar"
-            />
-            <span className="sr-only">{badgeLabel}</span>
-          </>
-        ) : (
-          <span
-            data-testid={`nav-badge-${tab.slug}`}
-            aria-label={badgeLabel ?? undefined}
-            className="ml-auto flex-shrink-0 rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white tabular-nums"
-          >
-            {badge}
-          </span>
-        ))}
+      {iconOnly
+        ? (railTone || live) && (
+            <>
+              {/* No room for counts on the rail — a dot on the icon's corner
+                  flags it, and the counts go to screen readers and the tooltip. */}
+              <span
+                data-testid={`nav-badge-${tab.slug}`}
+                aria-hidden="true"
+                className={cn(
+                  'absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-sidebar',
+                  DOT_TONE_CLASS[railTone ?? 'amber'],
+                  !railTone && 'animate-pulse',
+                )}
+              />
+              {badgeLabel && <span className="sr-only">{badgeLabel}</span>}
+            </>
+          )
+        : (chips.length > 0 || live) && (
+            <span className="ml-auto flex flex-shrink-0 items-center gap-1">
+              {chips.map((chip) => (
+                <span
+                  key={chip.testId}
+                  data-testid={chip.testId}
+                  aria-label={chip.label}
+                  className={cn(
+                    'rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none tabular-nums',
+                    BADGE_TONE_CLASS[chip.tone],
+                  )}
+                >
+                  {formatBadgeCount(chip.count)}
+                </span>
+              ))}
+              {live && <LiveDot slug={tab.slug} />}
+            </span>
+          )}
     </WorkspaceLink>
   );
 
@@ -183,7 +270,7 @@ export function SidebarPagesNav({
 
   const activeSlug = findTabByPath(toLogicalPath(pathname))?.slug;
   const visibleTabs = visibleConsoleTabs(featureFlags);
-  const badgeCounts = useNavBadgeCounts(visibleTabs);
+  const navBadges = useNavBadges(visibleTabs);
 
   if (iconOnly) {
     return (
@@ -195,7 +282,7 @@ export function SidebarPagesNav({
                 tab={tab}
                 isActive={tab.slug === activeSlug}
                 iconOnly
-                badgeCount={badgeCounts[tab.slug]}
+                badges={navBadges[tab.slug]}
                 onNavigate={onNavigate}
               />
             </li>
@@ -216,7 +303,7 @@ export function SidebarPagesNav({
                   tab={tab}
                   isActive={tab.slug === activeSlug}
                   iconOnly={false}
-                  badgeCount={badgeCounts[tab.slug]}
+                  badges={navBadges[tab.slug]}
                   onNavigate={onNavigate}
                 />
               </li>

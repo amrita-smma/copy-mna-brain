@@ -104,12 +104,12 @@ const ALL_TOOL_NAMES = [
 /**
  * Tool names a reused workforce fragment mentions only to say "don't":
  * WORKFORCE_QUESTION_TOOL_GUIDE says ask_owner is never called alongside
- * promote_to_l1. The fragment is shared byte-for-byte with the general
+ * move_stage. The fragment is shared byte-for-byte with the general
  * workforce prompt, so it is allowed rather than forked.
  */
 const NEGATIVE_MENTIONS: Record<SectorAgentRole, string[]> = {
   chat: [],
-  workforce: ['promote_to_l1'],
+  workforce: ['move_stage'],
 };
 
 function lastCreateAgentConfig() {

@@ -1,7 +1,7 @@
 /**
  * Local dev seeder for L0 companies with clearly bad EBITDA profiles — the
  * kind a reviewer should REJECT when the workforce agent proposes a promotion
- * to L1. Used to manually test the HITL "Why" block (see promote_to_l1 tool
+ * to L1. Used to manually test the HITL "Why" block (see move_stage tool
  * + traceMapper.deriveInterventionProposal).
  *
  * Each profile is intentionally distinct so a single test session can exercise

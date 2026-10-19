@@ -48,6 +48,7 @@ import { readRefreshInsightId, readRunAgentKey } from '@/lib/routines/refreshAge
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
+import { notifyRunFailed } from './notifyFailure';
 
 function isRateLimitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -373,7 +374,7 @@ export async function invokeAgent(
     run_id: runId,
     origin_routine_id: refresh.originRoutineId,
     refresh_insight_id: refresh.refreshInsightId,
-    // The queue row's agent_name. promote_to_l0 / drop_company refuse inside an
+    // The queue row's agent_name. move_stage / drop_company refuse inside an
     // `ai_screening` task, whose promote/drop is run_ai_screening's alone
     // (src/lib/screening/screeningRunGuard.ts).
     agent_name: agentName,
@@ -745,7 +746,7 @@ async function markWaitingStep(
   });
   await kickDispatcher(db);
   // The reason is the human-readable fallback; toolName/toolArgs let the email
-  // render the structured proposal card (e.g. promote_to_l1 → L0 to the next stage).
+  // render the structured proposal card (e.g. a gated move_stage → from/to stage).
   await makeNotifier(db, workspaceId).notifyTaskWaitingApproval(runId, {
     action: reason,
     toolName,
@@ -844,6 +845,9 @@ async function markFailedPreload(
   if (!row || row.status !== 'running') return;
   await repo.markFailed(runId, errorPayload);
   await kickDispatcher(db);
+  const reason =
+    typeof errorPayload.message === 'string' ? errorPayload.message : undefined;
+  await notifyRunFailed(db, row.workspace_id, runId, reason);
 }
 
 export async function runAgent({ runId }: { runId: string }): Promise<void> {

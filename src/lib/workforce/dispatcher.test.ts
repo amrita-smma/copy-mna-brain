@@ -26,6 +26,9 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
 
 vi.mock('./workflowTrigger', () => ({ triggerWorkflowForRun }));
 
+const { notifyRunFailed } = vi.hoisted(() => ({ notifyRunFailed: vi.fn() }));
+vi.mock('./notifyFailure', () => ({ notifyRunFailed }));
+
 vi.mock('./clearAiOpinionOnFailure', () => ({
   failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessing,
 }));
@@ -126,6 +129,7 @@ describe('reapStuckRuns', () => {
     markFailed.mockReset();
     markFailed.mockResolvedValue({});
     failAiOpinionIfStillProcessing.mockReset().mockResolvedValue(undefined);
+    notifyRunFailed.mockReset().mockResolvedValue(true);
   });
 
   afterEach(() => vi.useRealTimers());
@@ -180,6 +184,32 @@ describe('reapStuckRuns', () => {
       {},
       'company_card',
     );
+  });
+
+  it('emails the owner of each reaped run, scoped to the run\'s workspace', async () => {
+    findStuckRunning.mockResolvedValueOnce([
+      { id: 'r-1', last_heartbeat_at: '2026-05-12T00:00:00Z', workspace_id: 'ws-1' },
+    ]);
+
+    await reapStuckRuns(fakeDb, { stalenessSeconds: 60 });
+
+    expect(notifyRunFailed).toHaveBeenCalledWith(
+      fakeDb,
+      'ws-1',
+      'r-1',
+      expect.stringMatching(/stopped responding/),
+    );
+  });
+
+  it('does not email a run whose failure could not be recorded', async () => {
+    findStuckRunning.mockResolvedValueOnce([
+      { id: 'r-1', last_heartbeat_at: '2026-05-12T00:00:00Z', workspace_id: 'ws-1' },
+    ]);
+    markFailed.mockRejectedValueOnce(new Error('boom'));
+
+    await reapStuckRuns(fakeDb, { stalenessSeconds: 60 });
+
+    expect(notifyRunFailed).not.toHaveBeenCalled();
   });
 
   it('uses now() - stalenessSeconds as the heartbeat cutoff', async () => {

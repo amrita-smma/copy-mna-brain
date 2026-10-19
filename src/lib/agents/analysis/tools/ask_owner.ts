@@ -94,7 +94,7 @@ In a scheduled refresh of an insight, use this instead of guessing: the owner is
 
 Rules:
 - Always state your recommended answer in \`recommendation\` and why in \`rationale\`. A question without a recommendation is not allowed.
-- One question per call. Never call ask_owner twice in the same turn, and never in the same turn as promote_to_l1 (narrate_step alongside it is fine).
+- One question per call. Never call ask_owner twice in the same turn, and never in the same turn as a gated move_stage (narrate_step alongside it is fine).
 - Leave \`owner_decision\` and \`owner_answer\` unset — the system fills them in.
 
 Returns the owner's answer. If the owner declines, you are told not to guess: finish without changes or end with "✗ Could not complete: …".`,

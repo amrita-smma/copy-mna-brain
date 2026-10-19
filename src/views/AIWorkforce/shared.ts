@@ -157,6 +157,9 @@ export type TraceData = {
   // `report_progress` tool. Rendered as the "Live · partial output" block.
   liveRows?: LiveRow[];
   intervention?: InterventionData;
+  // Companies the step names that a tool resolved to an id, in first-mention
+  // order. Rendered as "Open <company>" chips under the step.
+  companies?: { id: string; name: string }[];
 };
 
 export type Routine = {

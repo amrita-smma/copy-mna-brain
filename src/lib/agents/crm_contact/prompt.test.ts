@@ -24,7 +24,7 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
   it('names no tool the agent does not have — a named absent tool invites a hallucinated call', () => {
     for (const absent of [
       'add_company',
-      'promote_to_l1',
+      'move_stage',
       'send_email',
       'create_insight',
       'report_progress',

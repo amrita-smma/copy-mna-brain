@@ -15,17 +15,10 @@ const ASK_ARGS = {
 };
 
 describe('WORKFORCE_HITL_INTERRUPT_ON', () => {
-  it('keeps promote_to_l1 approve/reject only', () => {
-    expect(WORKFORCE_HITL_INTERRUPT_ON.promote_to_l1.allowedDecisions).toEqual([
-      'approve',
-      'reject',
-    ]);
-    expect(
-      WORKFORCE_HITL_INTERRUPT_ON.promote_to_l1.description({
-        name: 'promote_to_l1',
-        args: { company_name: 'Acme' },
-      }),
-    ).toBe('Promote Acme from L0 to the next stage?');
+  it('leaves move_stage to gate itself — the middleware only gates ask_owner', () => {
+    // move_stage raises its own interrupt, and only for moves touching L1+;
+    // listing it here would also gate the unattended intake/Pending/L0 moves.
+    expect(Object.keys(WORKFORCE_HITL_INTERRUPT_ON)).toEqual(['ask_owner']);
   });
 
   it('gates ask_owner with edit only (approve would run on agent-written args; reject orphans parallel calls)', () => {
@@ -45,7 +38,7 @@ describe('WORKFORCE_HITL_INTERRUPT_ON', () => {
 describe('allowedApiDecisions', () => {
   it('allows accept/answer/reject for ask_owner and approve/reject otherwise', () => {
     expect(allowedApiDecisions('ask_owner')).toEqual(['approve', 'answer', 'reject']);
-    expect(allowedApiDecisions('promote_to_l1')).toEqual(['approve', 'reject']);
+    expect(allowedApiDecisions('move_stage')).toEqual(['approve', 'reject']);
     expect(allowedApiDecisions('something_else')).toEqual(['approve', 'reject']);
   });
 });
@@ -83,14 +76,14 @@ describe('buildAskOwnerDeclinedMessage', () => {
 });
 
 describe('buildResumeDecision', () => {
-  describe('promote_to_l1 (unchanged)', () => {
+  describe('move_stage (unchanged)', () => {
     it('maps approve to approve and reject to reject carrying the reviewer message', () => {
       expect(
-        buildResumeDecision({ toolName: 'promote_to_l1', decision: 'approve', storedArgs: {} }),
+        buildResumeDecision({ toolName: 'move_stage', decision: 'approve', storedArgs: {} }),
       ).toEqual({ ok: true, decision: { type: 'approve' } });
       expect(
         buildResumeDecision({
-          toolName: 'promote_to_l1',
+          toolName: 'move_stage',
           decision: 'reject',
           storedArgs: {},
           rejectionMessage: 'EBITDA too thin',
@@ -100,7 +93,7 @@ describe('buildResumeDecision', () => {
 
     it('refuses answer', () => {
       expect(
-        buildResumeDecision({ toolName: 'promote_to_l1', decision: 'answer', storedArgs: {}, answer: 'yes' }).ok,
+        buildResumeDecision({ toolName: 'move_stage', decision: 'answer', storedArgs: {}, answer: 'yes' }).ok,
       ).toBe(false);
     });
   });

@@ -43,6 +43,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [CoPilot memory (mem0, pgvector)](copilot-memory.md) — 20KB
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB
 - [Async jobs](async-jobs.md) — 38KB
+- [AI Workforce: stage moves, company chips, failure signals](ai-workforce-stages-and-signals.md) — 4KB
 
 ## App shell & UI
 

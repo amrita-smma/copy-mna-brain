@@ -23,6 +23,12 @@ import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 import type { HumanDecision } from "@/lib/db/schema";
 import { ASK_OWNER_TOOL_NAME, readAskOwnerArgs } from "@/lib/agents/analysis/hitl";
 import type { CheckpointMessageWrite } from "@/lib/repositories";
+import {
+  parseCompanyMentions,
+  selectMentionedCompanies,
+  stripCompanyMentionMarkers,
+  type CompanyMention,
+} from "@/lib/navigation/companyMentions";
 import type {
   AvatarTone,
   InterventionAsk,
@@ -223,10 +229,17 @@ function deriveToolStatus(
         return { label: "not found", tone: "warn" };
       return { label: "found", tone: "pass" };
     }
-    case "promote_to_l1": {
-      if (/^Promoted /i.test(content)) return { label: "promoted", tone: "pass" };
-      if (/^Cannot promote/i.test(content))
+    case "move_stage": {
+      if (/^Moved /i.test(content)) return { label: "moved", tone: "pass" };
+      if (/^The reviewer rejected/i.test(content))
+        return { label: "rejected", tone: "warn" };
+      if (/^Cannot move/i.test(content))
         return { label: "refused", tone: "fail" };
+      if (/^No company found/i.test(content))
+        return { label: "not found", tone: "warn" };
+      return undefined;
+    }
+    case "lookup_pipeline_stage": {
       if (/^No company found/i.test(content))
         return { label: "not found", tone: "warn" };
       return undefined;
@@ -371,7 +384,7 @@ function deriveInterventionAsk(
 
 /**
  * Pull a free-text rationale out of a HITL action request's args. Per-tool
- * because the field name varies by tool: `promote_to_l1` uses `reason`, and
+ * because the field name varies by tool: `move_stage` uses `reason`, and
  * its optional `note` (caveats acknowledged by the user) is appended when
  * present so the reviewer sees both in the proposal block. Returns undefined
  * when the tool has no rationale-style arg, leaving `proposal` unset and the
@@ -383,7 +396,7 @@ function deriveInterventionProposal(
 ): string | undefined {
   if (!args || typeof args !== "object") return undefined;
   const a = args as Record<string, unknown>;
-  if (toolName === "promote_to_l1") {
+  if (toolName === "move_stage") {
     const reason = typeof a.reason === "string" ? a.reason.trim() : "";
     const note = typeof a.note === "string" ? a.note.trim() : "";
     if (!reason && !note) return undefined;
@@ -511,6 +524,10 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     }
   }
 
+  // Every company a tool has resolved to an id so far in the run. A step can
+  // name a company found several steps earlier, so this accumulates.
+  const knownCompanies: CompanyMention[] = [];
+
   // First pass: emit a step per AIMessage, fold ToolMessages into the
   // matching tool call's `output`.
   let aiIndex = 0;
@@ -579,7 +596,10 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
     const desc = truncate(aiContent, DESCRIPTION_MAX);
 
     let anyRunning = false;
+    // Full (untruncated) args, for matching company names the step acted on.
+    const argsText: string[] = [];
     const mappedToolCalls: ToolCall[] = realToolCalls.map((tc): ToolCall => {
+      argsText.push(coerceContent(tc?.args ?? {}));
       const name = typeof tc?.name === "string" ? tc.name : "(unnamed)";
       const argsStr = truncate(coerceContent(tc?.args ?? {}), ARGS_MAX);
       // Find the matching ToolMessage downstream of this AIMessage.
@@ -607,7 +627,11 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
         return { name, args: argsStr, running: true };
       }
       const tm = readTool(result);
-      const rawContent = coerceContent(tm.content ?? "");
+      const toolText = coerceContent(tm.content ?? "");
+      // Company-returning tools append a hidden id↔name manifest; collect it
+      // for the step's "Open <company>" chips and keep it out of the panel.
+      knownCompanies.push(...parseCompanyMentions(toolText));
+      const rawContent = stripCompanyMentionMarkers(toolText);
       // The expanded panel renders this as markdown when there's no `key`,
       // so we keep enough content for tables and profiles to render whole.
       // Long contents get a scrollbar in the UI; truncation here is just a
@@ -699,6 +723,14 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       status = "failed";
     }
 
+    // Companies this step is about: any company a tool has resolved so far
+    // whose name appears in what the step says or acted on. Same matcher as
+    // the copilot's chips, so a step that names nobody gets none.
+    const companies = selectMentionedCompanies(
+      knownCompanies,
+      [title, description, aiContent, ...argsText].join("\n"),
+    );
+
     steps.push({
       id: ai.id ?? `step-${aiIndex}`,
       status,
@@ -707,6 +739,7 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       description,
       timestamp: formatTime(messageTimestamps?.[i] ?? startedAt),
       ...(fullReport ? { fullReport } : {}),
+      ...(companies.length > 0 ? { companies } : {}),
       toolCalls: mappedToolCalls.length > 0 ? mappedToolCalls : undefined,
       ...(outcomeChips.length > 0 ? { outcomeChips } : {}),
       ...(liveRows ? { liveRows } : {}),

@@ -9,7 +9,7 @@
  * it from `workspaces.copilot_agent`; an explicit `deal_type` argument always
  * wins.
  *
- * `promote_to_l0` deliberately does NOT apply it: the L0 gate asks for the
+ * `move_stage` deliberately does NOT apply it on L0 entry: the L0 gate asks for the
  * deal's shape precisely so somebody states it, and a silent default there
  * would answer the question the gate is posing.
  *

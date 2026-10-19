@@ -1156,6 +1156,13 @@
       "when": 1792368006000,
       "tag": "20261019000006_add_workspaces_pipeline_required_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1792368007000,
+      "tag": "20261019000007_workforce_failure_seen_at",
+      "breakpoints": true
     }
   ]
 }

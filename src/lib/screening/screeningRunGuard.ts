@@ -2,7 +2,7 @@
  * Keeps an AI Screening Workforce task from moving the deal itself.
  *
  * An `ai_screening` task runs on the general Workforce agent, which also holds
- * `promote_to_l0` and `drop_company`. Whether a screened
+ * `move_stage` and `drop_company`. Whether a screened
  * Pending Confirmation company is promoted or dropped is decided only by
  * `run_ai_screening` (`PendingAutoScanService.processCompany`), which honours
  * the workspace's Auto promote / Auto drop toggles. Without this guard the

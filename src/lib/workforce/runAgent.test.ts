@@ -174,6 +174,11 @@ vi.mock('@/lib/agents/crm_contact', () => ({
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
+const { notifyRunFailedMock } = vi.hoisted(() => ({
+  notifyRunFailedMock: vi.fn().mockResolvedValue(true),
+}));
+vi.mock('./notifyFailure', () => ({ notifyRunFailed: notifyRunFailedMock }));
+
 vi.mock('./clearAiOpinionOnFailure', () => ({
   failAiOpinionIfStillProcessing: failAiOpinionIfStillProcessingMock,
 }));
@@ -682,7 +687,7 @@ describe('runAgent — HITL interrupt path', () => {
     findById.mockResolvedValueOnce(makeRow({ triggered_by_user_id: 'requester' }));
     resolveRecipientMock.mockResolvedValueOnce('requester');
     invokeMock.mockResolvedValueOnce(
-      interruptResult('promote_to_l1', { company_name: 'Acme' }, 'Promote Acme from L0 to L1?'),
+      interruptResult('move_stage', { company_name: 'Acme' }, 'Promote Acme from L0 to L1?'),
     );
 
     await runAgent({ runId: RUN_ID });
@@ -694,7 +699,7 @@ describe('runAgent — HITL interrupt path', () => {
     expect(markWaitingForHumanInput.mock.calls[0][2]).toMatchObject({ asked_user_id: 'requester' });
     expect(notifyTaskWaitingApprovalMock).toHaveBeenCalledWith(RUN_ID, {
       action: 'Promote Acme from L0 to L1?',
-      toolName: 'promote_to_l1',
+      toolName: 'move_stage',
       toolArgs: { company_name: 'Acme' },
       recipientUserId: 'requester',
     });
@@ -1099,6 +1104,8 @@ describe('invokeAgent', () => {
 });
 
 describe('runAgent — pre-step crash handling', () => {
+  beforeEach(() => notifyRunFailedMock.mockClear());
+
   it('marks row failed with agent_load_failed code and re-throws when loadAndHeartbeat throws and row is still running', async () => {
     findById.mockResolvedValue(makeRow({ status: 'running' }));
     heartbeat.mockRejectedValueOnce(new Error('Database connectivity error'));
@@ -1111,6 +1118,12 @@ describe('runAgent — pre-step crash handling', () => {
       message: 'Database connectivity error',
     });
     expect(dispatcherTick).toHaveBeenCalledTimes(1);
+    expect(notifyRunFailedMock).toHaveBeenCalledWith(
+      expect.anything(),
+      makeRow({ status: 'running' }).workspace_id,
+      RUN_ID,
+      'Database connectivity error',
+    );
   });
 
   it.each([
@@ -1126,6 +1139,7 @@ describe('runAgent — pre-step crash handling', () => {
 
       expect(markFailed).not.toHaveBeenCalled();
       expect(dispatcherTick).not.toHaveBeenCalled();
+      expect(notifyRunFailedMock).not.toHaveBeenCalled();
     },
   );
 });

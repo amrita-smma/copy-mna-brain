@@ -26,7 +26,7 @@
  * No HITL middleware: there is no gated tool in the list to interrupt on. The
  * write is bounded to one correspondent's overlay columns, it cannot touch the
  * name or email, and it fills empty fields rather than replacing filled ones
- * — so the approval a `promote_to_l1` needs would be ceremony here.
+ * — so the approval a gated `move_stage` needs would be ceremony here.
  */
 import {
   buildAgentGraph,

@@ -121,14 +121,14 @@ describe("update_company_details (workforce tool)", () => {
 
     // A silently-stripped field would make the agent report a change that
     // never happened, so unsupported keys fail loudly and name the owning tool.
-    it("rejects pipeline_stage and points at the promote tools", async () => {
+    it("rejects pipeline_stage and points at the stage tools", async () => {
       const result = await call({
         company_id: "c-acme",
         fields: { pipeline_stage: "L1" },
       });
 
       expect(result).toMatch(/cannot be set with update_company_details/);
-      expect(result).toMatch(/promote_to_l0 or promote_to_l1/);
+      expect(result).toMatch(/lookup_pipeline_stage then move_stage/);
       expect(findByIdOrNull).not.toHaveBeenCalled();
       expect(updateFromDTO).not.toHaveBeenCalled();
     });

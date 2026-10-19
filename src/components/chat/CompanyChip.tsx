@@ -7,7 +7,11 @@ import { companyDisplayName } from '@/lib/companyDisplay';
 import { companyDetailPath, companyLinkId, type CompanyRef } from '@/lib/navigation/companyPath';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import posthog from 'posthog-js';
-import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from '@/lib/posthog-chat';
+import {
+  CHAT_NAVIGATION_CLICKED,
+  chatNavigationProperties,
+  type ChatNavigationSource,
+} from '@/lib/posthog-chat';
 import { cn } from '@/lib/utils';
 
 /**
@@ -24,6 +28,7 @@ import { cn } from '@/lib/utils';
 export function CompanyChip({
   company,
   prefix,
+  source = 'company_chip',
   className,
 }: {
   /** A company row, a `matched_companies` entry, or a bare name. */
@@ -34,6 +39,8 @@ export function CompanyChip({
    * companies, where repeating the verb on every row is just noise.
    */
   prefix?: string;
+  /** Where the chip sits, for click telemetry. Defaults to a chat message. */
+  source?: ChatNavigationSource;
   className?: string;
 }) {
   const { revealConsole } = useLayoutControl();
@@ -59,7 +66,7 @@ export function CompanyChip({
         posthog.capture(
           CHAT_NAVIGATION_CLICKED,
           chatNavigationProperties({
-            source: 'company_chip',
+            source,
             path: href,
             companyId,
             label,

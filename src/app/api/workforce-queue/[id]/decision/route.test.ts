@@ -417,9 +417,9 @@ describe('POST /api/workforce-queue/[id]/decision — ask_owner (MB-561)', () =>
     );
   });
 
-  it('refuses an answer claimed for ask_owner when the run is paused on promote_to_l1', async () => {
+  it('refuses an answer claimed for ask_owner when the run is paused on move_stage', async () => {
     findByIdMock.mockResolvedValueOnce(
-      askRow({ pending_intervention: { tool_name: 'promote_to_l1', tool_args: {}, asked_user_id: OWNER_ID } }),
+      askRow({ pending_intervention: { tool_name: 'move_stage', tool_args: {}, asked_user_id: OWNER_ID } }),
     );
 
     const res = await decide({ decision: 'answer', answer: 'yes' });

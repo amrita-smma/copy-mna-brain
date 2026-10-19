@@ -4,6 +4,7 @@ import type { DbClient } from '@/lib/repositories';
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { triggerWorkflowForRun } from './workflowTrigger';
+import { notifyRunFailed } from './notifyFailure';
 
 export type DispatchResult =
   | { outcome: 'lock_contended' }
@@ -94,9 +95,10 @@ export async function reapStuckRuns(
   const reaped: string[] = [];
   for (const row of stuck) {
     try {
+      const message = `last_heartbeat_at older than ${stalenessSeconds}s`;
       await queueRepo.markFailed(row.id, {
         code: 'stuck_no_heartbeat',
-        message: `last_heartbeat_at older than ${stalenessSeconds}s`,
+        message,
         last_heartbeat_at: row.last_heartbeat_at,
       });
       await failAiOpinionIfStillProcessing(
@@ -111,6 +113,13 @@ export async function reapStuckRuns(
         row.trigger_meta,
         row.agent_name,
         row.input,
+      );
+      // Same failure email runAgent sends; best-effort, never throws.
+      await notifyRunFailed(
+        db,
+        row.workspace_id,
+        row.id,
+        'The task stopped responding and was stopped automatically.',
       );
       reaped.push(row.id);
     } catch (err) {

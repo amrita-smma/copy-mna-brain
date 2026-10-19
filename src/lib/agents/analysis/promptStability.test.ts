@@ -144,15 +144,11 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   // base, regime and window.
   capital_markets: '2dcb98fc483e44d3f31e70d358be7eb6d4d8804c77ae47637a117eb672a5df29',
 };
-// The Workforce prompt changed on purpose: search_news is removed — web_search
-// (run aggressively, several calls per turn) is the one news tool — "Evidence
-// and freshness" now owes a latest-news search on EVERY company the run touches
-// (instruction, record read, file queried, or report about to be written), and
-// the
-// mandate-fit step of "Forming an AI Opinion" says what to do when the
-// workspace has no active mandate: drop the dimension, don't flag its absence,
-// and judge the company on the data that does exist.
-const EXPECTED_WORKFORCE_HASH = '1be0db9d1c503fb348ec58813bb3f9a44ffd11aa97d0bb672af6d3e4ce5d691f';
+// The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
+// promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which
+// walk the workspace's stage ladder (Pending Confirmation, then its live
+// stages) one step at a time and gate any move touching L1+.
+const EXPECTED_WORKFORCE_HASH = '8458ff786747bf83c2aed0f4a69135ffde5c0832b7e0df073ced6a4d5a90a1a3';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

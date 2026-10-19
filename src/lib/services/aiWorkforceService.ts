@@ -146,6 +146,32 @@ export class AiWorkforceService {
   }
 
   /**
+   * The Workforce nav item's badges for one user: their unseen failures (red),
+   * and the workspace's queue (yellow) — `queue` counts runs waiting to start
+   * or resume plus the ones running, `running` alone drives the blinking dot.
+   */
+  async getNavSummary(
+    userId: string,
+  ): Promise<{ unseen_failures: number; queue: number; running: number }> {
+    const counts = await this.queueRepo.countNavSummary(userId);
+    return {
+      unseen_failures: counts.unseenFailures,
+      queue: counts.queued + counts.running,
+      running: counts.running,
+    };
+  }
+
+  /**
+   * The owner opened a failed run: it no longer counts as an unseen failure.
+   * Skips the write unless the row is a failure still marked unseen.
+   */
+  async markFailureSeen(run: WorkforceQueueRow, userId: string): Promise<boolean> {
+    if (run.failure_seen_at) return false;
+    if (run.status !== 'failed' && run.status !== 'timed_out') return false;
+    return this.queueRepo.markFailureSeen(run.id, userId);
+  }
+
+  /**
    * An insight's refresh runs that failed or were cancelled (newest 50), with
    * their failure reason, for the insight's version history. A failed run
    * never writes a version, so this is the only place it shows there.

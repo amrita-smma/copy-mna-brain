@@ -214,7 +214,7 @@ test.describe('AI Workforce', () => {
         question: 'Promote Phoenix Paper to L1?',
         proposal: 'L1 screening passed: EBITDA and EV within thesis.',
         tool_call_id: 'tc-1',
-        tool_name: 'promote_to_l1',
+        tool_name: 'move_stage',
       },
     });
 
@@ -298,7 +298,7 @@ test.describe('AI Workforce', () => {
     ]);
     expect(decisionReq.postDataJSON()).toMatchObject({
       decision: 'approve',
-      tool_name: 'promote_to_l1',
+      tool_name: 'move_stage',
       tool_call_id: 'tc-1',
     });
 
@@ -338,7 +338,7 @@ test.describe('AI Workforce', () => {
     ]);
     expect(decisionReq.postDataJSON()).toMatchObject({
       decision: 'reject',
-      tool_name: 'promote_to_l1',
+      tool_name: 'move_stage',
       rejection_message: 'EBITDA too thin for L1.',
     });
   });

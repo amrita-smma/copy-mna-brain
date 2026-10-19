@@ -481,7 +481,7 @@ describe('AiWorkforceQueueRepository.appendDecision', () => {
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     const decision = {
       tool_call_id: 'c-1',
-      tool_name: 'promote_to_l1',
+      tool_name: 'move_stage',
       decision: 'approve' as const,
       decided_at: '2026-05-15T10:00:00Z',
     };
@@ -503,7 +503,7 @@ describe('AiWorkforceQueueRepository.appendDecision', () => {
     await expect(
       repo.appendDecision('missing', {
         tool_call_id: 'c-1',
-        tool_name: 'promote_to_l1',
+        tool_name: 'move_stage',
         decision: 'approve',
         decided_at: '2026-05-15T10:00:00Z',
       }),
@@ -1359,5 +1359,65 @@ describe('AiWorkforceQueueRepository.findLatestPerCompanyAtStages', () => {
     const [first, second] = chain.orderBy.mock.calls[0] as SQL[];
     expect(new PgDialect().sqlToQuery(first).sql).toMatch(/COALESCE[\s\S]*company_id[\s\S]*asc/i);
     expect(new PgDialect().sqlToQuery(second).sql).toMatch(/created_at.*desc/i);
+  });
+});
+
+describe('AiWorkforceQueueRepository.countNavSummary', () => {
+  it("counts the user's unseen failures and the workspace queue in one query", async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.where.mockResolvedValueOnce([{ unseenFailures: 2, queued: 3, running: 1 }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.countNavSummary('u1')).resolves.toEqual({
+      unseenFailures: 2,
+      queued: 3,
+      running: 1,
+    });
+
+    expect(db.select).toHaveBeenCalledTimes(1);
+    const fields = db.select.mock.calls[0][0] as Record<string, SQL>;
+    const unseen = new PgDialect().sqlToQuery(fields.unseenFailures);
+    expect(unseen.sql).toContain('"failure_seen_at" is null');
+    expect(unseen.sql).toContain("cancelled_by_user");
+    // Owner = triggerer, or the routine's creator for a run with no triggerer.
+    expect(unseen.sql).toContain('"triggered_by_user_id" = $');
+    expect(unseen.sql).toContain('from "routines" where "routines"."created_by" = $');
+    expect(unseen.params).toEqual(expect.arrayContaining(['failed', 'timed_out', 'u1']));
+
+    const where = new PgDialect().sqlToQuery(selectChain.where.mock.calls[0][0] as SQL);
+    expect(where.params).toContain('workspace-1');
+  });
+
+  it('returns zeros for an empty workspace', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.where.mockResolvedValueOnce([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.countNavSummary('u1')).resolves.toEqual({
+      unseenFailures: 0,
+      queued: 0,
+      running: 0,
+    });
+  });
+});
+
+describe('AiWorkforceQueueRepository.markFailureSeen', () => {
+  it("stamps failure_seen_at only on the owner's unseen failure", async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.markFailureSeen('r1', 'u1')).resolves.toBe(true);
+
+    expect(updateChain.set).toHaveBeenCalledWith({ failure_seen_at: expect.any(String) });
+    const where = new PgDialect().sqlToQuery(updateChain.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toContain('"failure_seen_at" is null');
+    expect(where.params).toEqual(expect.arrayContaining(['r1', 'workspace-1', 'failed', 'timed_out', 'u1']));
+  });
+
+  it('returns false when nothing matched (not the owner, not failed, or already seen)', async () => {
+    const { db, updateChain } = makeMockDb();
+    updateChain.returning.mockResolvedValueOnce([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.markFailureSeen('r1', 'u2')).resolves.toBe(false);
   });
 });

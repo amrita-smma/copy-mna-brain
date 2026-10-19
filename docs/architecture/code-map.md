@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 210 | `src/app/api/**/route.ts` |
+| API routes | 211 | `src/app/api/**/route.ts` |
 | Services | 83 | `src/lib/services/` |
 | Repositories | 76 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 165 | `drizzle/migrations/` |
+| Migrations (app) | 166 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -300,6 +300,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/workforce-queue/[id]/retry` | POST | — |
 | `/api/workforce-queue/[id]/trace` | GET | `aiWorkforceService`, `notificationService` |
 | `/api/workforce-queue/reorder` | POST | — |
+| `/api/workforce-queue/summary` | GET | `aiWorkforceService` |
 | `/api/workspaces` | GET, POST | `workspaceService` |
 | `/api/workspaces/[id]` | PATCH, DELETE | `workspaceService` |
 | `/api/workspaces/[id]/features` | GET, PUT | `featureFlagsService`, `workspaceService` |

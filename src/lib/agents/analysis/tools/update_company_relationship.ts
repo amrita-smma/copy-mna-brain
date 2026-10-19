@@ -17,7 +17,7 @@ import { DISCOVERED_STAGE } from "@/lib/constants";
  * Workforce-only write tool. AUTO-EXECUTES (no HITL gate) — recording a
  * relationship is a low-stakes annotation, not a pipeline commitment, so it
  * runs immediately (mirrors `add_company`). Pipeline stage moves still
- * go through the gated `promote_to_l1`.
+ * go through `move_stage`.
  *
  * Resolution: each side is fuzzy-matched against existing companies by name
  * (`target` / `project_name`). If a side has no match, a new companies row is

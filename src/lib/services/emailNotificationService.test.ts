@@ -55,6 +55,36 @@ describe('EmailNotificationService', () => {
     expect(findById).not.toHaveBeenCalled();
   });
 
+  it('still emails a failed task when the feature flag env var is off', async () => {
+    delete process.env.TASK_NOTIFICATIONS_ENABLED;
+    const { deps, enqueue } = makeDeps({
+      run: { id: 'r1', trigger_source: 'cron', triggered_by_user_id: 'u1', title: 'Weekly scan' },
+      users: [{ id: 'u1', name: 'A', email: 'a@e.com' }],
+    });
+    const svc = new EmailNotificationService(deps);
+    expect(await svc.notifyTaskFailed('r1', { reason: 'model timed out' })).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'task_failed',
+        to: 'a@e.com',
+        taskName: 'Weekly scan',
+        reason: 'model timed out',
+        cancelled: false,
+      }),
+    );
+  });
+
+  it('keeps a user cancellation behind the feature flag', async () => {
+    delete process.env.TASK_NOTIFICATIONS_ENABLED;
+    const { deps, enqueue } = makeDeps({
+      run: { id: 'r1', trigger_source: 'chat', triggered_by_user_id: 'u1', title: 'T' },
+      users: [{ id: 'u1', name: 'A', email: 'a@e.com' }],
+    });
+    const svc = new EmailNotificationService(deps);
+    expect(await svc.notifyTaskFailed('r1', { cancelled: true })).toBe(false);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('enqueues task_completed to the triggering user with a workspace-scoped deep link', async () => {
     const { deps, enqueue, findWorkspace } = makeDeps({
       run: {
@@ -221,27 +251,34 @@ describe('EmailNotificationService', () => {
     );
   });
 
-  it('builds the structured proposal card from a promote_to_l1 interrupt', async () => {
+  it('builds the structured proposal card from a move_stage interrupt', async () => {
     const { deps, enqueue } = makeDeps({
       run: { id: 'r1', trigger_source: 'chat', triggered_by_user_id: 'u1', title: 'Project Maple screening' },
       users: [{ id: 'u1', name: 'A', email: 'a@e.com' }],
     });
     const svc = new EmailNotificationService(deps);
     await svc.notifyTaskWaitingApproval('r1', {
-      action: 'Promote NovaSpec Materials from L0 to the next stage?',
-      toolName: 'promote_to_l1',
-      toolArgs: { company_name: 'NovaSpec Materials', reason: 'Passes all L1 criteria' },
+      action: 'Move NovaSpec Materials from L0 · Initial Review to L1 · Screening?',
+      toolName: 'move_stage',
+      toolArgs: {
+        company_name: 'NovaSpec Materials',
+        from_stage: 'L0',
+        to_stage: 'L1',
+        from_label: 'L0 · Initial Review',
+        to_label: 'L1 · Screening',
+        reason: 'Passes all L1 criteria',
+      },
     });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'task_waiting_approval',
-        action: 'Promote NovaSpec Materials to the next stage',
+        action: 'Move NovaSpec Materials to L1 · Screening',
         company: 'NovaSpec Materials',
-        proposedAction: 'Move to the stage after L0',
+        proposedAction: 'Move from L0 · Initial Review to L1 · Screening',
         reason: 'Passes all L1 criteria',
         changeField: 'Pipeline Stage',
-        beforeValue: 'L0',
-        afterValue: 'Next stage',
+        beforeValue: 'L0 · Initial Review',
+        afterValue: 'L1 · Screening',
       }),
     );
   });
@@ -368,25 +405,40 @@ describe('EmailNotificationService', () => {
 });
 
 describe('deriveApprovalDetails', () => {
-  it('maps a promote_to_l1 call to the L0 → next-stage proposal card', () => {
+  it('maps a move_stage call to a from → to proposal card using the stage labels', () => {
     expect(
-      deriveApprovalDetails('promote_to_l1', {
+      deriveApprovalDetails('move_stage', {
         company_name: 'NovaSpec Materials',
-        reason: 'Passes all L1 criteria',
+        from_stage: 'L2',
+        to_stage: 'L1',
+        from_label: 'L2 · Diligence',
+        to_label: 'L1 · Screening',
+        reason: 'Diligence stalled',
       }),
     ).toEqual({
-      action: 'Promote NovaSpec Materials to the next stage',
+      action: 'Move NovaSpec Materials to L1 · Screening',
       company: 'NovaSpec Materials',
-      proposedAction: 'Move to the stage after L0',
-      reason: 'Passes all L1 criteria',
+      proposedAction: 'Move from L2 · Diligence to L1 · Screening',
+      reason: 'Diligence stalled',
       changeField: 'Pipeline Stage',
-      beforeValue: 'L0',
-      afterValue: 'Next stage',
+      beforeValue: 'L2 · Diligence',
+      afterValue: 'L1 · Screening',
     });
   });
 
+  it('falls back to the raw stage keys when the labels are missing', () => {
+    const d = deriveApprovalDetails('move_stage', {
+      company_name: 'X',
+      from_stage: 'L0',
+      to_stage: 'L1',
+      reason: 'strong',
+    });
+    expect(d.beforeValue).toBe('L0');
+    expect(d.afterValue).toBe('L1');
+  });
+
   it('appends an optional note to the reason', () => {
-    const d = deriveApprovalDetails('promote_to_l1', {
+    const d = deriveApprovalDetails('move_stage', {
       company_name: 'X',
       reason: 'strong',
       note: 'weak FY24',

@@ -70,7 +70,7 @@ tab reads.
      it. An existing Entered By is never overwritten.
 
      The task runs on the general Workforce agent, which also holds
-     `promote_to_l0` and `drop_company`. Those tools refuse inside an
+     `move_stage` and `drop_company`. Those tools refuse inside an
      `ai_screening` task (`runAgent` puts the row's `agent_name` on the tool
      config; `src/lib/screening/screeningRunGuard.ts`), so the toggles cannot
      be bypassed by the model promoting or dropping a company the scan left

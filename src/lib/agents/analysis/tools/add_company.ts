@@ -167,9 +167,9 @@ function logActionFor(stage: AddableStage): string {
  * Workforce-only write tool. AUTO-EXECUTES (no HITL gate) — every stage this
  * tool can write to (`market_screening`, `discovered`, `unreviewed`) sits below
  * L1, so it is triage/intake, not a commitment. The tool CANNOT write to L0 or
- * any committed pipeline stage; entry into L0+ goes through the gated
- * `promote_to_l1` / HITL middleware or human action. See the gating policy in
- * `src/lib/agents/analysis/index.ts`.
+ * any committed pipeline stage; entry into L0+ goes through `move_stage`
+ * (gated for any move touching L1+) or human action. See the gating policy in
+ * `src/lib/agents/analysis/hitl.ts`.
  *
  * Stage policy:
  *   - Default is `market_screening` ("AI Screened Companies"). Any company the
@@ -384,7 +384,7 @@ export const addCompany = tool(
     name: "add_company",
     description: `Add a newly surfaced company to the database at an intake stage.
 
-This is the workforce-side execution of a company intake. Every stage this tool writes to sits below L1, so no human approval is required and the tool executes immediately. The tool CANNOT add to L0 or any committed pipeline stage — to move a company into the pipeline (→ L0/L1+), use \`promote_to_l1\` (which is gated by human approval).
+This is the workforce-side execution of a company intake. Every stage this tool writes to sits below L1, so no human approval is required and the tool executes immediately. The tool CANNOT add to L0 or any committed pipeline stage — to move a company into the pipeline (→ L0/L1+), use \`lookup_pipeline_stage\` then \`move_stage\` (moves into or out of L1+ are gated by human approval).
 
 ## Choosing the stage (IMPORTANT)
 

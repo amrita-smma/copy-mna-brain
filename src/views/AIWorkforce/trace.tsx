@@ -11,6 +11,7 @@ import {
   Database,
   FileSearch,
   FileText,
+  GitBranch,
   GitCompare,
   Globe,
   Loader2,
@@ -30,6 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
+import { CompanyChip } from '@/components/chat/CompanyChip';
 import { avatarToneClass } from './shared';
 import type {
   InterventionData,
@@ -61,7 +63,8 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   web_search: Globe,
   add_company: Plus,
   generate_relationship_graph: GitCompare,
-  promote_to_l1: ArrowUp,
+  move_stage: ArrowUp,
+  lookup_pipeline_stage: GitBranch,
   inven_paid_data_source_search: Search,
   inven_paid_data_source_enrichment: Sparkles,
 };
@@ -261,6 +264,25 @@ export function TraceLine({
           </div>
         )}
       </div>
+
+      {/* "Open <company>" chips between this step and the next, one per
+          company the step names — the same chips the copilot puts under an
+          answer. Only companies a tool resolved to an id appear. */}
+      {step.companies && step.companies.length > 0 && (
+        <div
+          data-testid="trace-step-companies"
+          className="col-start-2 -mt-1 flex flex-wrap gap-1.5"
+        >
+          {step.companies.map((company) => (
+            <CompanyChip
+              key={company.id}
+              company={company}
+              prefix="Open"
+              source="workforce_trace"
+            />
+          ))}
+        </div>
+      )}
 
       {step.fullReport && (
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>

@@ -28,10 +28,11 @@ export type ChatSurface = 'copilot' | 'widget';
  * Which affordance the user pressed.
  *
  * `company_chip` is the inline chip in a message, `bulk_card` the arrow button
- * on a row of the bulk drop/promote approval cards, and `workforce_handoff` the
- * "view in Workforce" button on the handoff card.
+ * on a row of the bulk drop/promote approval cards, `workforce_handoff` the
+ * "view in Workforce" button on the handoff card, and `workforce_trace` an
+ * "Open <company>" chip between the steps of a Workforce task's trace.
  */
-export type ChatNavigationSource = 'company_chip' | 'bulk_card' | 'workforce_handoff';
+export type ChatNavigationSource = 'company_chip' | 'bulk_card' | 'workforce_handoff' | 'workforce_trace';
 
 export type LinkKind = 'internal' | 'external' | 'anchor' | 'mailto' | 'tel' | 'unknown';
 
