@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Building2, Layers, Search, Wallet } from 'lucide-react';
+import { Building2, Layers, Presentation, Search, Wallet } from 'lucide-react';
 import type { Tables } from '@/lib/repositories';
 import * as fundLedgerApi from '@/lib/api/fundLedger';
 import type { AssetKind, FlPortfolioReadModel } from '@/lib/api/fundLedger';
@@ -60,6 +60,8 @@ import { FundSummaryTable } from './fundManagement/FundSummaryTable';
 import { EntitySummaryTable } from './fundManagement/EntitySummaryTable';
 import { CommitmentLedgerDialog } from './fundManagement/CommitmentLedgerDialog';
 import { Combobox } from './fundManagement/Combobox';
+import { PresentationDialog } from './fundManagement/PresentationDialog';
+import { buildCommitmentByTarget, buildPresentationReport } from './fundManagement/presentation';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { GlossaryTerm } from './fundManagement/parts';
@@ -1108,6 +1110,22 @@ export default function FundManagement() {
     return [...tabInvestors, ...fundLps];
   }, [tabInvestors, portfolioReadModel]);
 
+  const [presentOpen, setPresentOpen] = useState(false);
+  // Built only while open: it walks every holding's ledger for IRR.
+  const presentationReport = useMemo(
+    () =>
+      presentOpen
+        ? buildPresentationReport({
+            funds: displayFunds ?? [],
+            investors: tabInvestors,
+            investmentTypes,
+            commitmentByTarget: buildCommitmentByTarget(portfolioReadModel?.positions ?? []),
+            excludeFundTargets: fundVehicleViewEnabled,
+          })
+        : null,
+    [presentOpen, displayFunds, tabInvestors, investmentTypes, portfolioReadModel, fundVehicleViewEnabled],
+  );
+
   return (
     <>
       <FundDataContext.Provider value={dataCtx}>
@@ -1121,6 +1139,18 @@ export default function FundManagement() {
                   <GlossaryTerm term="dotted">dotted term</GlossaryTerm> for a plain-English
                   explanation.
                 </>
+              }
+              actions={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={funds == null || displayFunds == null}
+                  onClick={() => setPresentOpen(true)}
+                >
+                  <Presentation className="h-4 w-4" />
+                  Present
+                </Button>
               }
             />
 
@@ -1276,6 +1306,14 @@ export default function FundManagement() {
             </div>
           </div>
         </TooltipProvider>
+        {presentationReport && (
+          <PresentationDialog
+            open={presentOpen}
+            onOpenChange={setPresentOpen}
+            report={presentationReport}
+            asOfDate={asOfDate}
+          />
+        )}
       </FundDataContext.Provider>
 
       <AddFundDialog open={addFundOpen} onOpenChange={setAddFundOpen} onCreated={reloadOne} />

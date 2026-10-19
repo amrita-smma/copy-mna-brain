@@ -49,6 +49,37 @@ unique ignoring case). Each asset may point at one through
   `PATCH/DELETE /api/fund-ledger/investment-types/:id`, all through
   `FlInvestmentTypeService`.
 
+## Present (quarterly valuation report)
+
+The **Present** button in the page header opens `PresentationDialog`: the Asset
+tab's whole-asset rows laid out as a quarterly valuation report, one banded
+section per investment type (same order as "by Investment Type", Unassigned
+last), each with a Total row, then a Grand Total. It honours the As-of date;
+with none set, the period is the last quarter end. **Print / PDF** prints only
+the report: a hidden copy portaled under `<body>` is the only thing printed
+(the on-screen copy sits in a clipped dialog), so it paginates in A4 landscape
+with the header rows repeated per page. **Full screen** presents it.
+
+`scripts/seed.ts` → `seedFofPortfolio` seeds "Meridian Fund of Funds" with 34
+fictional fund interests across every default investment type, each with
+calls, distributions and Q1/Q2 2026 marks, so the report has data locally.
+
+Columns (money in workspace-currency millions), built by
+`buildPresentationReport` in `src/views/fundManagement/presentation.ts`:
+
+- **Entry Date**: first actual (not generated or estimated) Buy / paid-in, else the position open date.
+- **Maturity Date**: the loan's maturity, else entry + the fund's life in years, else "-".
+- **Investment Commitment**: summed position commitments, else the fund
+  interest's `instrument_terms.commitmentAmount` (set by fund-update imports),
+  else Invested Capital, since direct investments have no separate commitment.
+- **Invested Capital / Net Distribution / Unrealized Market Value**: the row's cost,
+  realized value, and FMV.
+- **MOIC** (FMV + distributions) / invested, **DPI** distributions / invested.
+- **IRR**: the holding's XIRR. Totals leave IRR blank.
+
+Cash and disclosure-only rows are left out. With Fund Vehicle View on, fund
+targets are left out too, as on the Asset tab.
+
 ## Action Items
 
 `fl_assets.action_items` is free text, nullable. It is edited inline in the

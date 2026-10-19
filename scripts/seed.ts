@@ -5147,6 +5147,7 @@ async function main() {
 
     await seedRssFeeds(db as unknown as DbClient);
     await seedFundLedger(db as unknown as DbClient, MNA_WORKSPACE_ID);
+    await seedFofPortfolio(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedInsightTemplates(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedInsights(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
 
@@ -5687,6 +5688,297 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     );
 
     console.log('  ✓ Fund Ledger v2 fixtures seeded successfully');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fund-of-funds portfolio for the Fund Management "Present" report: a managed
+// fund holding 34 fund interests across every default investment type, each
+// with capital calls, distributions and two quarterly marks, so the report has
+// realistic commitment / MOIC / IRR / DPI figures in every section.
+// ---------------------------------------------------------------------------
+
+export const SEED_FL_FOF_FUND_ID = '00000000-0000-0000-0001-00000000f001';
+export const SEED_FL_FOF_LP_POS_ID = '00000000-0000-0000-0001-00000000f002';
+export const SEED_FL_FOF_LP_EVENT_ID = '00000000-0000-0000-0001-00000000f003';
+
+/** Deterministic id `00000000-0000-0000-00<kind>-<n>` for the FoF seed rows. */
+function fofSeedId(kind: number, n: number): string {
+  return `00000000-0000-0000-00${kind.toString(16).padStart(2, '0')}-${n.toString(16).padStart(12, '0')}`;
+}
+
+interface FofSeedInterest {
+  name: string;
+  type: (typeof DEFAULT_INVESTMENT_TYPES)[number];
+  entryDate: string;
+  fundLifeYears: number;
+  /** Amounts in USD millions. */
+  commitment: number;
+  invested: number;
+  distributed: number;
+  marketValue: number;
+}
+
+/** Fictional fund interests. Realized funds are fully distributed and marked at zero. */
+export const SEED_FOF_INTERESTS: FofSeedInterest[] = [
+  // Realized Funds
+  { name: 'Ideo Harbor Fund I', type: 'Realized Funds', entryDate: '2017-12-15', fundLifeYears: 4, commitment: 2.0, invested: 2.0, distributed: 2.4, marketValue: 0 },
+  { name: 'Lumen Growth Partners I', type: 'Realized Funds', entryDate: '2015-06-01', fundLifeYears: 7, commitment: 3.0, invested: 3.0, distributed: 4.6, marketValue: 0 },
+  { name: 'Cobalt Seed Fund I', type: 'Realized Funds', entryDate: '2014-03-10', fundLifeYears: 8, commitment: 1.5, invested: 1.5, distributed: 1.1, marketValue: 0 },
+  { name: 'Northwind Opportunities I', type: 'Realized Funds', entryDate: '2016-09-01', fundLifeYears: 6, commitment: 2.5, invested: 2.5, distributed: 3.9, marketValue: 0 },
+  // Venture Capital
+  { name: 'Alpha Orchard Fund I', type: 'Venture Capital', entryDate: '2016-05-02', fundLifeYears: 12, commitment: 5.0, invested: 5.0, distributed: 2.3, marketValue: 13.8 },
+  { name: 'Alpha Orchard Fund II', type: 'Venture Capital', entryDate: '2018-08-01', fundLifeYears: 10, commitment: 5.0, invested: 4.9, distributed: 1.6, marketValue: 12.0 },
+  { name: 'Nusantara Digital Fund II', type: 'Venture Capital', entryDate: '2019-07-01', fundLifeYears: 10, commitment: 4.0, invested: 3.8, distributed: 1.0, marketValue: 5.6 },
+  { name: 'Archipelago Tech Fund I', type: 'Venture Capital', entryDate: '2021-08-02', fundLifeYears: 8, commitment: 3.4, invested: 1.7, distributed: 0, marketValue: 1.2 },
+  { name: 'Archipelago Tech Fund II', type: 'Venture Capital', entryDate: '2021-08-16', fundLifeYears: 10, commitment: 2.0, invested: 1.7, distributed: 0, marketValue: 1.2 },
+  { name: 'Alpha Orchard Fund III', type: 'Venture Capital', entryDate: '2021-09-01', fundLifeYears: 10, commitment: 5.0, invested: 4.6, distributed: 0, marketValue: 4.1 },
+  { name: 'Kestrel Fund I', type: 'Venture Capital', entryDate: '2021-12-01', fundLifeYears: 10, commitment: 2.0, invested: 2.0, distributed: 0, marketValue: 3.3 },
+  { name: 'Banyan Ventures Fund II', type: 'Venture Capital', entryDate: '2022-09-01', fundLifeYears: 10, commitment: 2.0, invested: 1.4, distributed: 0, marketValue: 1.6 },
+  { name: 'Monsoon Ventures Fund V', type: 'Venture Capital', entryDate: '2022-11-01', fundLifeYears: 10, commitment: 2.0, invested: 1.0, distributed: 0, marketValue: 1.2 },
+  { name: 'Ledgerline Fintech Fund', type: 'Venture Capital', entryDate: '2023-12-01', fundLifeYears: 10, commitment: 5.0, invested: 3.0, distributed: 0, marketValue: 3.0 },
+  { name: 'Tidewater Climate Fund I', type: 'Venture Capital', entryDate: '2024-03-01', fundLifeYears: 10, commitment: 3.0, invested: 1.2, distributed: 0, marketValue: 1.1 },
+  { name: 'Fortress Bay Seed Fund', type: 'Venture Capital', entryDate: '2025-04-01', fundLifeYears: 10, commitment: 1.0, invested: 0.4, distributed: 0, marketValue: 0.5 },
+  // Private Equity
+  { name: 'Harbor Point Consumer Fund', type: 'Private Equity', entryDate: '2018-04-02', fundLifeYears: 10, commitment: 2.5, invested: 2.5, distributed: 1.9, marketValue: 1.8 },
+  { name: 'Granite Peak Capital III', type: 'Private Equity', entryDate: '2019-02-01', fundLifeYears: 10, commitment: 6.0, invested: 5.6, distributed: 2.1, marketValue: 6.4 },
+  { name: 'Equator Mid-Market Fund II', type: 'Private Equity', entryDate: '2020-10-01', fundLifeYears: 10, commitment: 4.0, invested: 3.2, distributed: 0.8, marketValue: 3.6 },
+  { name: 'Sylvanus Buyout Fund', type: 'Private Equity', entryDate: '2021-08-02', fundLifeYears: 10, commitment: 5.0, invested: 4.5, distributed: 0, marketValue: 5.7 },
+  { name: 'Cedar Ridge Growth Equity', type: 'Private Equity', entryDate: '2023-05-02', fundLifeYears: 10, commitment: 3.0, invested: 1.5, distributed: 0, marketValue: 1.7 },
+  // Private Credit
+  { name: 'Indus Special Opportunity II', type: 'Private Credit', entryDate: '2018-05-02', fundLifeYears: 13, commitment: 5.0, invested: 4.4, distributed: 5.1, marketValue: 1.2 },
+  { name: 'Meranti Senior Debt Fund', type: 'Private Credit', entryDate: '2020-06-01', fundLifeYears: 7, commitment: 3.0, invested: 2.8, distributed: 1.4, marketValue: 1.9 },
+  { name: 'Keystone Venture Debt I', type: 'Private Credit', entryDate: '2022-02-01', fundLifeYears: 6, commitment: 2.0, invested: 1.6, distributed: 0.5, marketValue: 1.3 },
+  { name: 'Pinnacle Asia Credit Fund', type: 'Private Credit', entryDate: '2024-01-02', fundLifeYears: 6, commitment: 4.0, invested: 2.2, distributed: 0.3, marketValue: 2.1 },
+  // Others
+  { name: 'Orchid Real Estate Fund', type: 'Others', entryDate: '2019-11-01', fundLifeYears: 8, commitment: 1.5, invested: 1.5, distributed: 0.6, marketValue: 1.2 },
+  { name: 'Jarvis Fund I', type: 'Others', entryDate: '2021-08-02', fundLifeYears: 10, commitment: 0.7, invested: 0.7, distributed: 0, marketValue: 0.6 },
+  { name: 'Jarvis Fund II', type: 'Others', entryDate: '2021-08-16', fundLifeYears: 10, commitment: 1.1, invested: 1.1, distributed: 0.9, marketValue: 0.05 },
+  { name: 'Gan Samudra Infrastructure', type: 'Others', entryDate: '2021-09-01', fundLifeYears: 10, commitment: 0.4, invested: 0.4, distributed: 0, marketValue: 0.3 },
+  { name: 'Coral Reef Secondaries', type: 'Others', entryDate: '2023-03-01', fundLifeYears: 8, commitment: 1.2, invested: 0.9, distributed: 0.2, marketValue: 0.9 },
+  // Realized and Partially Realized
+  { name: 'Bluewater Partners IV', type: 'Realized and Partially Realized', entryDate: '2016-02-01', fundLifeYears: 10, commitment: 2.0, invested: 2.0, distributed: 1.8, marketValue: 0.9 },
+  { name: 'Silverline Growth Fund II', type: 'Realized and Partially Realized', entryDate: '2017-03-01', fundLifeYears: 10, commitment: 3.0, invested: 3.0, distributed: 3.4, marketValue: 1.5 },
+  // Unrealized
+  { name: 'Horizon Frontier Fund I', type: 'Unrealized', entryDate: '2025-01-15', fundLifeYears: 10, commitment: 2.0, invested: 0.6, distributed: 0, marketValue: 0.6 },
+  { name: 'Quantum Seed Fund', type: 'Unrealized', entryDate: '2025-06-02', fundLifeYears: 10, commitment: 1.0, invested: 0.3, distributed: 0, marketValue: 0.3 },
+];
+
+/** Last date a seeded call or distribution may fall on (before the Q2'26 mark). */
+const FOF_SEED_LAST_FLOW_DATE = '2026-06-15';
+
+function addYearsIso(iso: string, years: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+const minIso = (a: string, b: string) => (a < b ? a : b);
+
+/** USD millions → ledger decimal string. */
+const fofUsd = (m: number) => Math.round(m * 1_000_000).toFixed(8);
+
+export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promise<void> {
+  const container = createContainer(db, workspaceId);
+
+  await (db as any).transaction(async (tx: any) => {
+    const txDb = tx as unknown as DbClient;
+
+    const existing = await container.flLedgerService.getEventById(
+      workspaceId,
+      SEED_FL_FOF_LP_EVENT_ID,
+      txDb,
+    );
+    if (existing) {
+      console.log('  ✓ fund-of-funds portfolio already seeded — skipping');
+      return;
+    }
+
+    await tx
+      .insert(flInvestmentTypes)
+      .values(
+        DEFAULT_INVESTMENT_TYPES.map((name, sort_order) => ({
+          workspace_id: workspaceId,
+          name,
+          sort_order,
+        })),
+      )
+      .onConflictDoNothing();
+    const typeRows: { id: string; name: string }[] = await tx
+      .select({ id: flInvestmentTypes.id, name: flInvestmentTypes.name })
+      .from(flInvestmentTypes)
+      .where(eq(flInvestmentTypes.workspace_id, workspaceId));
+    const typeIdByName = new Map(typeRows.map((t) => [t.name.toLowerCase(), t.id]));
+
+    await tx
+      .insert(flFunds)
+      .values({
+        id: SEED_FL_FOF_FUND_ID,
+        workspace_id: workspaceId,
+        name: 'Meridian Fund of Funds',
+        canonical_name: normalizeCanonicalName('Meridian Fund of Funds'),
+        legal_name: 'Meridian Fund of Funds LP',
+        managed: true,
+        ownership_basis: 'commitment',
+        base_currency: 'USD',
+        vintage_year: 2014,
+        status: 'investing',
+      })
+      .onConflictDoNothing();
+
+    // The LP side: one anchor LP commits and pays in enough to fund every call,
+    // so the fund's cash never goes negative.
+    const totalCommitment = SEED_FOF_INTERESTS.reduce((sum, a) => sum + a.commitment, 0);
+    const totalInvested = SEED_FOF_INTERESTS.reduce((sum, a) => sum + a.invested, 0);
+    await container.flPositionService.getOrOpenPosition(
+      workspaceId,
+      {
+        id: SEED_FL_FOF_LP_POS_ID,
+        holder_investor_id: SEED_FL_INVESTOR_1_ID,
+        fund_id: SEED_FL_FOF_FUND_ID,
+        opened_at: '2014-01-02',
+      },
+      txDb,
+    );
+    await container.flLedgerService.postEvent(
+      workspaceId,
+      {
+        business_event_id: SEED_FL_FOF_LP_EVENT_ID,
+        event_date: '2014-01-02',
+        description: 'Anchor LP commitment to Meridian Fund of Funds',
+        entries: [
+          {
+            position_id: SEED_FL_FOF_LP_POS_ID,
+            entry_type: 'commitment',
+            commitment_delta: fofUsd(totalCommitment),
+            currency: 'USD',
+          },
+        ],
+      },
+      txDb,
+    );
+    await container.flLedgerService.postEvent(
+      workspaceId,
+      {
+        business_event_id: fofSeedId(1, 0xf004),
+        event_date: '2014-01-03',
+        description: 'Anchor LP paid-in capital',
+        entries: [
+          {
+            position_id: SEED_FL_FOF_LP_POS_ID,
+            entry_type: 'paid_in',
+            cash_delta: `-${fofUsd(totalInvested)}`,
+            currency: 'USD',
+          },
+        ],
+      },
+      txDb,
+    );
+
+    for (const [i, a] of SEED_FOF_INTERESTS.entries()) {
+      const n = i + 1;
+      const assetId = fofSeedId(2, n);
+      const positionId = fofSeedId(3, n);
+
+      await tx
+        .insert(flAssets)
+        .values({
+          id: assetId,
+          workspace_id: workspaceId,
+          name: a.name,
+          canonical_name: normalizeCanonicalName(a.name),
+          legal_name: `${a.name} LP`,
+          asset_kind: 'equity',
+          country: 'Indonesia',
+          investment_type_id: typeIdByName.get(a.type.toLowerCase()) ?? null,
+          instrument_terms: {
+            investmentTypeLabel: 'Fund of funds',
+            commitmentAmount: fofUsd(a.commitment),
+            fundLifeYears: a.fundLifeYears,
+            entryDate: a.entryDate,
+            currency: 'USD',
+          },
+        })
+        .onConflictDoNothing();
+
+      await container.flPositionService.getOrOpenPosition(
+        workspaceId,
+        {
+          id: positionId,
+          holder_fund_id: SEED_FL_FOF_FUND_ID,
+          asset_id: assetId,
+          opened_at: a.entryDate,
+        },
+        txDb,
+      );
+
+      // Capital calls: 60% at entry, the rest a year later (capped).
+      const secondCallDate = minIso(addYearsIso(a.entryDate, 1), FOF_SEED_LAST_FLOW_DATE);
+      const firstCall = Math.round(a.invested * 0.6 * 100) / 100;
+      const calls: [string, number][] =
+        a.invested <= 0
+          ? []
+          : secondCallDate > a.entryDate && a.invested - firstCall > 0
+            ? [[a.entryDate, firstCall], [secondCallDate, a.invested - firstCall]]
+            : [[a.entryDate, a.invested]];
+
+      // Distributions: half three years in, the rest five years in (capped).
+      const lastCallDate = calls.length ? calls[calls.length - 1][0] : a.entryDate;
+      const firstDistDate = minIso(addYearsIso(a.entryDate, 3), FOF_SEED_LAST_FLOW_DATE);
+      const secondDistDate = minIso(addYearsIso(a.entryDate, 5), FOF_SEED_LAST_FLOW_DATE);
+      const halfDist = Math.round(a.distributed * 0.5 * 100) / 100;
+      const distributions: [string, number][] =
+        a.distributed <= 0 || firstDistDate <= lastCallDate
+          ? []
+          : secondDistDate > firstDistDate
+            ? [[firstDistDate, halfDist], [secondDistDate, a.distributed - halfDist]]
+            : [[firstDistDate, a.distributed]];
+
+      const flows = [
+        ...calls.map(([date, m]) => ({ date, entry_type: 'paid_in' as const, cash_delta: `-${fofUsd(m)}` })),
+        ...distributions.map(([date, m]) => ({ date, entry_type: 'distribution' as const, cash_delta: fofUsd(m) })),
+      ];
+      for (const [j, flow] of flows.entries()) {
+        await container.flLedgerService.postEvent(
+          workspaceId,
+          {
+            business_event_id: fofSeedId(4, n * 16 + j),
+            event_date: flow.date,
+            description: `${a.name} — ${flow.entry_type === 'paid_in' ? 'capital call' : 'distribution'}`,
+            entries: [
+              {
+                position_id: positionId,
+                entry_type: flow.entry_type,
+                cash_delta: flow.cash_delta,
+                currency: 'USD',
+              },
+            ],
+          },
+          txDb,
+        );
+      }
+
+      // Two quarterly marks so the asset shows a trend; the latest is the report's FMV.
+      const marks: [string, number][] = [
+        ['2026-03-31', Math.round(a.marketValue * 0.96 * 100) / 100],
+        ['2026-06-30', a.marketValue],
+      ];
+      for (const [j, [asOf, mv]] of marks.entries()) {
+        await container.flValuationService.record(
+          workspaceId,
+          {
+            id: fofSeedId(5, n * 16 + j),
+            asset_id: assetId,
+            as_of_date: asOf,
+            valuation_method: 'capital_account_statement',
+            market_value: fofUsd(mv),
+          },
+          txDb,
+        );
+      }
+    }
+
+    console.log(`  ✓ seeded ${SEED_FOF_INTERESTS.length} fund-of-funds interests`);
   });
 }
 

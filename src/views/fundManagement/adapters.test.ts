@@ -991,6 +991,16 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
     }, [], []);
     expect(assetFof.tp).toBe('Fund of funds');
     expect(assetFof.targetKind).toBe('asset');
+
+    const termsHolding = flPositionToHolding({
+      ...loanPos,
+      asset: {
+        ...loanPos.asset,
+        instrument_terms: { maturity: '2031-08-31', commitmentAmount: '5000000.00000000' },
+      },
+    }, [], []);
+    expect(termsHolding.d?.maturity).toBe('2031-08-31');
+    expect(termsHolding.d?.commitmentAmount).toBe('5000000.00000000');
     expect(fofHolding.targetKind).toBe('fund');
 
     expect(fofHolding.n).toBe('Target Fund I');

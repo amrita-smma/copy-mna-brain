@@ -333,6 +333,8 @@ function typeDetailsToFacts(td: Record<string, unknown> | null | undefined): Hol
   if (d.shareClass != null) facts.shareClass = String(d.shareClass);
   if (d.fundManagerName != null) facts.fundManagerName = String(d.fundManagerName);
   if (d.fundLifeYears != null) facts.fundLifeYears = Number(d.fundLifeYears);
+  if (d.maturity != null) facts.maturity = String(d.maturity);
+  if (d.commitmentAmount != null) facts.commitmentAmount = String(d.commitmentAmount);
   if (d.reportDate != null) facts.reportDate = String(d.reportDate);
   if (d.prefReturnRatePct != null) facts.prefReturnRatePct = Number(d.prefReturnRatePct);
   if (d.stakePct != null) facts.stakePct = Number(d.stakePct);

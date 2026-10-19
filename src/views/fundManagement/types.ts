@@ -176,6 +176,10 @@ export interface HoldingFacts {
   nav?: number;
   fundManagerName?: string;
   fundLifeYears?: number;
+  /** Total commitment to a fund interest, as the exact raw decimal string stored
+   * in `instrument_terms.commitmentAmount` (kept raw so an asset save writes it
+   * back unchanged). */
+  commitmentAmount?: string;
 }
 
 // 'Direct Investments' is the current Add-Asset picker option; it persists as
