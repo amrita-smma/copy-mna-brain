@@ -7,13 +7,19 @@ import remarkGfm from 'remark-gfm';
 import { Loader2, FileText, AlertCircle, Download } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import PdfViewer from '@/components/Files/LazyPdfViewer';
+import PdfViewer, { LazyPdfSlideViewer } from '@/components/Files/LazyPdfViewer';
 import { detectFileKind } from '@/lib/fileType';
 
 interface FileBodyProps {
   url: string;
   fileName: string;
   onDownload?: () => Promise<void>;
+  /**
+   * How a PDF is laid out: `scroll` (default) is the continuous, searchable
+   * reader; `slides` shows one page at a time like a PowerPoint deck, which
+   * is what the Presentation page uses.
+   */
+  pdfLayout?: 'scroll' | 'slides';
 }
 
 /**
@@ -24,7 +30,7 @@ interface FileBodyProps {
  * exactly the same set of "presentable" file kinds — a file that previews
  * fine in a dialog can't dead-end into "not supported" once presented.
  */
-export default function FileBody({ url, fileName, onDownload }: FileBodyProps) {
+export default function FileBody({ url, fileName, onDownload, pdfLayout = 'scroll' }: FileBodyProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
@@ -106,7 +112,12 @@ export default function FileBody({ url, fileName, onDownload }: FileBodyProps) {
   if (fileType === 'pdf') {
     return (
       <div className="h-full w-full rounded-md border overflow-hidden">
-        <PdfViewer url={url} />
+        {pdfLayout === 'slides' ? (
+          // Keyed on `url` so a newly presented file always starts on slide 1.
+          <LazyPdfSlideViewer key={url} url={url} />
+        ) : (
+          <PdfViewer url={url} />
+        )}
       </div>
     );
   }

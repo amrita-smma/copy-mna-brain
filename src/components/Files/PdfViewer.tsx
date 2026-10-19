@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Document, Page, pdfjs, type DocumentProps, type PageProps } from 'react-pdf';
+import { Document, Page, type DocumentProps, type PageProps } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import {
   AlertCircle,
@@ -18,22 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-
-// Bundler-resolved worker asset (Turbopack/Webpack statically detect this
-// `new URL(..., import.meta.url)` pattern) instead of pointing at a CDN, so
-// the viewer keeps working offline/behind a firewall.
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
-
-// cMaps are needed to render embedded CJK/complex-script fonts correctly;
-// they're not bundled by default to keep the base package small. Only
-// fetched by pdfjs when a document actually needs them.
-const PDF_OPTIONS = {
-  cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
-  cMapPacked: true,
-};
+import { PDF_OPTIONS } from '@/components/Files/pdfjsSetup';
 
 type PdfDocumentProxy = NonNullable<Parameters<NonNullable<DocumentProps['onLoadSuccess']>>[0]>;
 type PdfPageProxy = Parameters<NonNullable<PageProps['onLoadSuccess']>>[0];

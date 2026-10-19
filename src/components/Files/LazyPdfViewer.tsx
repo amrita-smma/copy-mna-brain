@@ -7,13 +7,23 @@ import { Loader2 } from 'lucide-react';
 // which crashes Next's server-side prerendering — load it client-only.
 // Centralized here so every consumer gets `ssr: false` for free instead of
 // having to remember to wrap the import themselves.
-const LazyPdfViewer = dynamic(() => import('@/components/Files/PdfViewer'), {
-  ssr: false,
-  loading: () => (
+function PdfLoading() {
+  return (
     <div className="flex h-full w-full items-center justify-center">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
-  ),
+  );
+}
+
+const LazyPdfViewer = dynamic(() => import('@/components/Files/PdfViewer'), {
+  ssr: false,
+  loading: PdfLoading,
+});
+
+/** Slide-by-slide variant used by the Presentation page. */
+export const LazyPdfSlideViewer = dynamic(() => import('@/components/Files/PdfSlideViewer'), {
+  ssr: false,
+  loading: PdfLoading,
 });
 
 export default LazyPdfViewer;

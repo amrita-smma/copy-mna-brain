@@ -266,7 +266,12 @@ export function PresentationViewerProvider({ children }: { children: ReactNode }
             <p>{error}</p>
           </div>
         ) : signedUrl ? (
-          <FileBody url={signedUrl} fileName={currentFile?.name || ''} onDownload={triggerDownload} />
+          <FileBody
+            url={signedUrl}
+            fileName={currentFile?.name || ''}
+            onDownload={triggerDownload}
+            pdfLayout="slides"
+          />
         ) : null}
       </div>
     </PresentationViewerContext.Provider>
