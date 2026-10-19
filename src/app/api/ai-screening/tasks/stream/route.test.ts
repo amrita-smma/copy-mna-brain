@@ -11,7 +11,7 @@ const { createDbMock, createContainerMock, getActiveWorkspaceIdMock, changeStrea
   }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: getActiveWorkspaceIdMock }));
 vi.mock('@/lib/server/sse', () => ({
   changeStream: changeStreamMock,

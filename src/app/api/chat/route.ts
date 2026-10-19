@@ -10,7 +10,7 @@ import {
 } from '@/lib/agents/analysis';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { isCacheableResponse } from '@/lib/services/copilotChatsService';
 import {
   CopilotChatNotFoundError,

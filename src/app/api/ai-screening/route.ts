@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 import { getStatelessAgentGraph } from '@/lib/agents/analysis';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { NotPendingConfirmationError } from '@/lib/services/aiScreeningService';
 
 /**

@@ -22,7 +22,7 @@ vi.mock('@/lib/workspace', () => {
     getActiveWorkspaceIdOrThrow: mocks.getActiveWorkspaceIdOrThrow,
   };
 });
-vi.mock('@/lib/services', () => ({ createContainer: mocks.createContainer }));
+vi.mock('@/lib/services/container', () => ({ createContainer: mocks.createContainer }));
 vi.mock('@/lib/queue', () => ({ enqueueSendEmail: vi.fn() }));
 
 import { DELETE, PATCH } from './route';

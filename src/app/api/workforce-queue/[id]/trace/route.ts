@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { UserRepository } from '@/lib/repositories';
 import { getWorkforceAgentGraph } from '@/lib/agents/analysis';
 import { buildTrace, type TraceActor } from '@/lib/workforce/traceMapper';

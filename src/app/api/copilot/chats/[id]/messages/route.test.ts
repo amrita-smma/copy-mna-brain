@@ -13,7 +13,7 @@ const { authMock, createContainerMock, assertOwnedByMock, getChatAgentGraphMock,
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: vi.fn(async () => 'ws-1') }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/chat/chatAgent', () => ({ getChatAgentGraph: getChatAgentGraphMock }));
 
 import { GET } from './route';

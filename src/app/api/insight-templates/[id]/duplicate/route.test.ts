@@ -11,7 +11,7 @@ const { authMock, createContainerMock, isWorkspaceAdminMock, duplicateTemplateMo
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceIdOrThrow: vi.fn(async () => 'ws-test-1') }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 

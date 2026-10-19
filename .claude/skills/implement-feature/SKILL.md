@@ -193,13 +193,15 @@ zero business logic. Admin routes additionally require an `ADMIN_ROUTES` entry i
 
 1. Add `DealTagRepository` to the existing `@/lib/repositories` import list.
 2. Add `import { DealTagService } from './dealTagService';`.
-3. Inside `createContainer(db, workspaceId)`, after the other instantiations:
+3. Inside `createContainer(db, workspaceId)`, after the other factories (every
+   repo/service is a memoized `lazy(...)` thunk; dependencies are *called*,
+   never passed bare):
    ```ts
-   const dealTagRepo = new DealTagRepository(db, workspaceId);
-   const dealTagService = new DealTagService(dealTagRepo);
+   const dealTagRepo = lazy(() => new DealTagRepository(db, workspaceId));
+   const dealTagService = lazy(() => new DealTagService(dealTagRepo()));
    ```
    then add `dealTagService: DealTagService;` to the `Container` interface and
-   `dealTagService,` to the returned object.
+   `get dealTagService() { return dealTagService(); },` to the returned object.
 
 Pre-check each of the five insertion points for an existing occurrence; skip any that's
 already there.
@@ -485,7 +487,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { MAX_DEAL_TAG_LABEL_LENGTH } from '@/lib/services/dealTagService';
 
 export async function POST(request: NextRequest) {
@@ -554,7 +556,7 @@ Callers send `X-Api-Secret: <ADMIN_SECRET>`; server-side calls via `apiRequest` 
 
 ### Route test
 
-Mock `@/lib/services` (`createContainer`) and `@/auth`, then exercise every status code the
+Mock `@/lib/services/container` (`createContainer`) and `@/auth`, then exercise every status code the
 handler can return — 200, 400 (bad JSON, each missing/oversized field), 401, 403
 (`NoActiveWorkspaceError`), 500. Mirror `src/app/api/feedback/route.test.ts`.
 

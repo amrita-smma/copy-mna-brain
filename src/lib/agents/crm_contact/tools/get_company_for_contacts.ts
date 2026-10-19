@@ -2,7 +2,6 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
 import { CompanyRepository } from '@/lib/repositories';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { logger } from '../../logger';
@@ -33,6 +32,9 @@ export const getCompanyForContacts = tool(
       if (!company) {
         return `**Error:** No company with id ${company_id} is visible in this workspace. Do not look anyone up — stop and report this.`;
       }
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import('@/lib/services/container');
       const { companyContactDiscoveryService } = createContainer(db, workspaceId);
       const state = await companyContactDiscoveryService.getState(company_id, CRM_CONTACTS_SHOWN);
 

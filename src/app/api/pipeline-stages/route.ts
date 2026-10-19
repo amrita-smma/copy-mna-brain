@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { pipelineStageErrorResponse } from './errorResponse';
 
 /** The workspace's pipeline stages in order, deleted ones included (flagged). */

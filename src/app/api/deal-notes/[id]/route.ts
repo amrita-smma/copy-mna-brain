@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { EmptyNoteError, NoteNotFoundError } from '@/lib/services/dealNoteService';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

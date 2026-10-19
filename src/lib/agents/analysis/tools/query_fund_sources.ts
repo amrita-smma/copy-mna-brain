@@ -1,7 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import {
   flAdd,
   flDiv,
@@ -56,6 +55,9 @@ export const queryFundSources = tool(
 
     try {
       const workspaceId = await getActiveWorkspaceId();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { flPortfolioService } = createContainer(createDb(), workspaceId);
       const portfolio = await flPortfolioService.getPortfolio(workspaceId);
       const sources = portfolio.funding_sources ?? [];

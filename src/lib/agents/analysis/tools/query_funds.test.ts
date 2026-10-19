@@ -19,7 +19,7 @@ vi.mock('@/lib/repositories', () => ({
   }),
 }));
 
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({
     flPortfolioService: { getPortfolio: getPortfolioMock },
   })),

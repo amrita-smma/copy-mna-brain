@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { getSession } from '@/lib/server/session';
 import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { normalizeCopilotAgent } from '@/lib/services/workspaceService';
 import { normalizeCurrency } from '@/lib/currency';
 import { resolvePipelineHeading } from '@/lib/pipeline/heading';

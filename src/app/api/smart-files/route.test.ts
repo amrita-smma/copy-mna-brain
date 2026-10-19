@@ -13,7 +13,7 @@ vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
 vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceId: getActiveWorkspaceIdMock,
 }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: () => ({
     fileService: { processUpload: processUploadMock },
   }),

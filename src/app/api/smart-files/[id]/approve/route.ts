@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import type { ApproveFileInput } from '@/lib/services/fileService';
 import { CompanyL0RequirementsError } from '@/lib/services/companyService';
 import { FundUpdateValidationError } from '@/lib/services/flErrors';

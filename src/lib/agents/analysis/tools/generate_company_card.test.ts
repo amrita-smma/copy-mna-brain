@@ -10,7 +10,7 @@ const { runGenerateCompanyCard, linkByName, createDb, createContainer } =
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
-vi.mock("@/lib/services", () => ({ createContainer }));
+vi.mock("@/lib/services/container", () => ({ createContainer }));
 
 vi.mock("@/lib/jobs/handlers/companyAnalysis", () => ({
   generateCompanyCard: runGenerateCompanyCard,

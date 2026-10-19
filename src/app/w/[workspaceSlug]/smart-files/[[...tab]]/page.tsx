@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import SmartFiles from '@/views/SmartFiles';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import {
   type SmartFilesTab,

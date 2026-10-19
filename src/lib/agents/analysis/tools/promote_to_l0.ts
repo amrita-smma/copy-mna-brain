@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 import { screeningRunWriteRefusal } from "@/lib/screening/screeningRunGuard";
 import { isInPipelineStage } from "@/lib/pipeline/stages";
@@ -66,6 +65,9 @@ export const promoteToL0 = tool(
         return `Cannot promote "${company.target}" to ${NEXT_STAGE}: it is already in the pipeline (stage: ${stage}).`;
       }
 
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyService } = createContainer(db, workspaceId);
       
       // Update missing L0 fields if provided

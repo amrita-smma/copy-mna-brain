@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { corporateActionsEnabled } from '@/lib/flags';
+import { createContainer } from '@/lib/services/container';
 import {
-  createContainer,
   FL_DOMAIN_ERRORS,
   type OwnershipChangeRequest,
 } from '@/lib/services';

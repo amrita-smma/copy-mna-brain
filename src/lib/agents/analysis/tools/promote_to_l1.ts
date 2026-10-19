@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 import { PipelineStageUnavailableError } from "@/lib/services/companyService";
 import {
@@ -68,6 +67,9 @@ export const promoteToL1 = tool(
         return `Cannot promote "${company.target}": this company is dropped and is read-only.`;
       }
 
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyService, pipelineStageService } = createContainer(db, workspaceId);
       const stages = await pipelineStageService.list();
       const fromLabel = stageCode(stages, FIRST_STAGE_KEY);

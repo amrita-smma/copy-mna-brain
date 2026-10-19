@@ -3,7 +3,6 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { z } from 'zod';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
 import { CorrespondentRepository } from '@/lib/repositories';
 import { logger } from '../../logger';
 import {
@@ -188,6 +187,9 @@ Report what you found and why you did not overwrite it.`;
 
       const editedBy =
         (runtime?.configurable?.triggered_by_user_id as string | undefined) ?? null;
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import('@/lib/services/container');
       const { crmService } = createContainer(db, workspaceId);
       await crmService.updateContact(correspondent_id, {
         ...patch,

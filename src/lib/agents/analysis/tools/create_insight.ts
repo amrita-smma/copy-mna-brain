@@ -3,7 +3,6 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
-import { createContainer } from '@/lib/services/container';
 import { readConfiguredAgentStamp } from '@/lib/insights/agentStamp';
 import type { InsightKind } from '@/lib/insights/types';
 import {
@@ -59,6 +58,9 @@ export const createInsight = tool(
     try {
       const workspaceId = await getActiveWorkspaceIdOrThrow();
       const db = createDb();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import('@/lib/services/container');
       const { insightService } = createContainer(db, workspaceId);
 
       const created = await insightService.createFromDocument({

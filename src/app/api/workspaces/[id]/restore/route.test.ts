@@ -9,7 +9,7 @@ const { authMock, createDbMock, createContainerMock, restoreWorkspaceMock } = vi
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 import { NotSuperadminError, WorkspaceNotFoundError } from '@/lib/services/workspaceService';

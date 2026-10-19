@@ -29,7 +29,7 @@ vi.mock('@/lib/workspace', async (importOriginal) => {
     getActiveWorkspaceIdOrThrow: getActiveWorkspaceIdOrThrowMock,
   };
 });
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 

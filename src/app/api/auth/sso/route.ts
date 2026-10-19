@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { signIn } from "@/auth";
 import { MNA_WORKSPACE_ID } from "@/lib/constants";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
+import { createContainer } from "@/lib/services/container";
 import { CALLBACK_URL_PARAM, sanitizeCallbackUrl } from "@/lib/callbackUrl";
 import { isWorkspaceScopedPath, resolveSsoLandingPath } from "@/lib/ssoLanding";
 

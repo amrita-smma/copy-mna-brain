@@ -4,7 +4,6 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services/container';
 import { resolveInsightId } from '@/lib/insights/toolValidation';
 import { readInsightRunContext } from '@/lib/insights/refreshRun';
 import { isTooLargeForChat } from '@/lib/insights/templateAttachment';
@@ -37,6 +36,9 @@ export const getInsight = tool(
 
     const workspaceId = await getActiveWorkspaceId();
     const db = createDb();
+    // Resolved lazily to keep this tool off the container's static import
+    // cycle (see TECH_DEBT.md "Runtime import cycle").
+    const { createContainer } = await import('@/lib/services/container');
     const { insightService } = createContainer(db, workspaceId);
 
     try {

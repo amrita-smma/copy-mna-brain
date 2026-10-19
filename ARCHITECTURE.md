@@ -126,17 +126,21 @@ Add a `findByXIds(ids: string[])` counterpart using `inArray`, guard the empty
 array, `orderBy` the grouping key, and group in memory with a `Map`.
 `FundPortfolioService` is the reference implementation.
 
-**`createContainer` is eager.** One 454-line function constructs every
-repository and all 62 `Container` service keys on every request, for all 190
-routes. Importing it — or the `@/lib/services` barrel that re-exports it —
-pulls in ~414 modules. Prefer importing a service module directly over the
-barrel in new non-route code.
+**`createContainer` is lazy, and the barrel does not re-export it.** Import it
+from `@/lib/services/container` (routes do; the `@/lib/services` barrel
+deliberately excludes it, because the container's import closure is the whole
+service + agent graph). Each `Container` key is a memoized getter, so a route
+pays only for the services it touches — don't "fix" that by hoisting
+construction, and don't spread/iterate a container unless you mean to build
+everything. Agent tools must never import the container at module scope:
+resolve it inside the tool with
+`await import('@/lib/services/container')` (every existing tool does this).
 
-**There is a runtime import cycle** spanning ~72 modules:
-`container → services → jobs/handlers → agents/analysis/tools → container`.
-It is why `src/lib/agents/analysis/flavors/lazyToolList.ts` exists — a
-module-scope `[...tools]` throws `ReferenceError` at Next build time. Read that
-file's header before touching agent tool lists.
+**A residual import cycle remains** (~18 modules: services that import agents
+that import services). It is why
+`src/lib/agents/analysis/flavors/lazyToolList.ts` exists — a module-scope
+`[...tools]` throws `ReferenceError` at Next build time. Read that file's
+header before touching agent tool lists.
 
 **Record-scoped dialogs must derive `open` from the selected record.** A
 separate `open` boolean leaves the dialog mounted holding the previous record's

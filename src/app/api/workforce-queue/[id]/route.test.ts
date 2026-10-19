@@ -20,7 +20,7 @@ const {
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: getActiveWorkspaceIdMock }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { GET } from './route';
 

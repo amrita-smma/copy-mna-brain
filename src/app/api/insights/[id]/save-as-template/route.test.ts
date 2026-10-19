@@ -17,7 +17,7 @@ vi.mock('@/lib/workspace', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/workspace')>()),
   getActiveWorkspaceIdOrThrow: vi.fn(async () => WORKSPACE_ID),
 }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 import { InsightNotFoundError } from '@/lib/services/insightService';

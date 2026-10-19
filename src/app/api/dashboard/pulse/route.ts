@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 
 // `?refresh=1` runs the Analyst agent inline (tool calls + LLM), so allow room
 // under the 60s cap. A plain read is a cheap cache lookup.

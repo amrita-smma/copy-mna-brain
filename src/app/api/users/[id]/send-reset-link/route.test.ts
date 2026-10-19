@@ -11,7 +11,7 @@ const { authMock, createDbMock, createContainerMock, isSuperadminMock, sendReset
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 import { UserNotFoundError } from '@/lib/services/userService';

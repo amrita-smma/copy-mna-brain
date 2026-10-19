@@ -1,7 +1,7 @@
 import CompanyGraph from '@/views/CompanyGraph';
 import { getSession } from '@/lib/server/session';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 
 // The graph's filters (including the `?connectedTo=<companyId>` deep link behind

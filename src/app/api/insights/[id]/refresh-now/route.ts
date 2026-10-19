@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { isUuid } from '@/lib/uuid';
 import { routineErrorResponse } from '@/app/api/routines/errorResponse';
 

@@ -25,7 +25,7 @@ vi.mock('@/lib/alphasense', async () => {
 
 vi.mock('@/lib/server/db', () => ({ createDb: mocks.createDb }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: mocks.getActiveWorkspaceId }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({ alphasenseToolCallService: { recordCall: mocks.recordCall } })),
 }));
 

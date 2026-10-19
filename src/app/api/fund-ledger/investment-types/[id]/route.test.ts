@@ -14,10 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/server/db', () => ({ createDb: mocks.createDb }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: mocks.getActiveWorkspaceId }));
-vi.mock('@/lib/services', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/services')>();
-  return { ...actual, createContainer: mocks.createContainer };
-});
+vi.mock('@/lib/services/container', () => ({ createContainer: mocks.createContainer }));
 
 function reset() {
   Object.values(mocks).forEach((m) => m.mockReset());

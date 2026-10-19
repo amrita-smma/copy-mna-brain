@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer, FL_DOMAIN_ERRORS } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
+import { FL_DOMAIN_ERRORS } from '@/lib/services';
 
 function handleRouteError(error: unknown) {
   if (

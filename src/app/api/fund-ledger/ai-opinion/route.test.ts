@@ -14,18 +14,14 @@ vi.mock("@/lib/workspace", () => ({
 const mockDispatch = vi.fn();
 const mockClear = vi.fn();
 
-vi.mock("@/lib/services", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/services")>();
-  return {
-    ...actual,
-    createContainer: vi.fn().mockReturnValue({
-      fundAiOpinionService: {
-        dispatch: (...args: unknown[]) => mockDispatch(...args),
-        clear: (...args: unknown[]) => mockClear(...args),
-      },
-    }),
-  };
-});
+vi.mock("@/lib/services/container", () => ({
+  createContainer: vi.fn().mockReturnValue({
+    fundAiOpinionService: {
+      dispatch: (...args: unknown[]) => mockDispatch(...args),
+      clear: (...args: unknown[]) => mockClear(...args),
+    },
+  }),
+}));
 
 describe("API /api/fund-ledger/ai-opinion", () => {
   beforeEach(() => {

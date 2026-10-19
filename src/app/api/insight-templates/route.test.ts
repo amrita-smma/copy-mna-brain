@@ -26,7 +26,7 @@ vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceIdOrThrow: vi.fn(async () => 'ws-test-1'),
   NoActiveWorkspaceError: class NoActiveWorkspaceError extends Error {},
 }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { GET, POST } from './route';
 import { InsightTemplateTooLargeError } from '@/lib/services/insightTemplateService';

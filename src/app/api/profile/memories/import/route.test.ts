@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/server/session', () => ({ getSession: mocks.getSession }));
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: mocks.getActiveWorkspaceId }));
-vi.mock('@/lib/services', () => ({ createContainer: mocks.createContainer }));
+vi.mock('@/lib/services/container', () => ({ createContainer: mocks.createContainer }));
 vi.mock('@/lib/flags', () => ({ copilotMemoryEnabled: mocks.copilotMemoryEnabled }));
 vi.mock('@/lib/langfuse', () => ({ flushLangfuse: vi.fn() }));
 

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
-vi.mock('@/lib/services', () => ({ createContainer: mocks.createContainer }));
+vi.mock('@/lib/services/container', () => ({ createContainer: mocks.createContainer }));
 
 import { GET } from './route';
 

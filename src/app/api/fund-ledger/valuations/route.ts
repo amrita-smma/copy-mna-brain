@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
+import { createContainer } from '@/lib/services/container';
 import {
-  createContainer,
   FL_DOMAIN_ERRORS,
   type RecordValuationInput,
 } from '@/lib/services';

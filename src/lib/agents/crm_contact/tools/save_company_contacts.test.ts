@@ -6,7 +6,7 @@ vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceId: vi.fn(async () => 'ws-1'),
 }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({
     companyContactDiscoveryService: { saveContacts: mocks.saveContacts },
   })),

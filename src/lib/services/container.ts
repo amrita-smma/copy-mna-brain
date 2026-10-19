@@ -227,524 +227,645 @@ export interface Container {
   routineService: RoutineService;
 }
 
+/** Build on first call, then hand back the same instance forever. */
+function lazy<T>(build: () => T): () => T {
+  let built = false;
+  let value: T;
+  return () => {
+    if (!built) {
+      value = build();
+      built = true;
+    }
+    return value;
+  };
+}
+
+/**
+ * Every repository and service below is wrapped in `lazy(...)`, and the
+ * returned object exposes them through memoized getters. A route handler that
+ * destructures one service (`const { jobService } = createContainer(db, ws)`)
+ * therefore constructs that service's dependency chain and nothing else —
+ * previously every one of the ~74 repositories and 62 services was newed up
+ * on every request regardless of which single one the handler used (see
+ * TECH_DEBT.md "createContainer eagerly constructs every service").
+ *
+ * Inside a factory, a dependency is another `lazy` thunk, so it is always
+ * *called* (`companyRepo()`), never passed bare. Construction order follows
+ * first access instead of source order; the thunks close over `const`
+ * bindings, so a factory may freely reference one declared later in the file.
+ */
 export function createContainer(db: DbClient, workspaceId: string): Container {
-  const jobDispatcher = new JobDispatcher(db, createDb, workspaceId);
+  const jobDispatcher = lazy(() => new JobDispatcher(db, createDb, workspaceId));
 
   // Neo4j mirror: the relationship-graph repo doubles as the write-through
-  // mirror for company writes. The driver is a cached global singleton and is
-  // only touched when a company is actually written, so wiring it in adds no
-  // cost to graph-less requests. Postgres stays the source of truth — Neo4j
+  // mirror for company writes. The driver is a cached global singleton, and
+  // with the lazy container it is only created once a request actually touches
+  // a company or the graph. Postgres stays the source of truth — Neo4j
   // follows every insert/update/delete that flows through CompanyRepository.
-  const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
+  const companyGraphRepo = lazy(() => new CompanyRelationRepository(createNeo4jDriver()));
 
-  const companyRepo = new CompanyRepository(db, workspaceId, companyGraphRepo);
-  const companyLogRepo = new CompanyLogRepository(db, workspaceId);
-  const screeningRepo = new ScreeningRepository(db, workspaceId);
-  const criteriaRepo = new CriteriaRepository(db, workspaceId);
-  const dealDocRepo = new DealDocumentRepository(db, workspaceId);
-  const dealNoteRepo = new DealNoteRepository(db, workspaceId);
-  const dealLinkRepo = new DealLinkRepository(db, workspaceId);
-  const companyAnalysisRepo = new CompanyAnalysisRepository(db, workspaceId);
-  const companySlidesRepo = new CompanySlidesRepository(db, workspaceId);
-  const fileRepo = new FileRepository(db, workspaceId);
-  const thesisRepo = new InvestmentThesisRepository(db, workspaceId);
-  const trackVariableRepo = new TrackVariableRepository(db, workspaceId);
-  const pipelineStageRepo = new PipelineStageRepository(db, workspaceId);
-  const jobRepo = new JobRepository(db);
-  const userRepo = new UserRepository(db);
-  const resetTokenRepo = new ResetPasswordTokenRepository(db);
-  const recentFileRepo = new RecentFileRepository(db, workspaceId);
-  const companyFinancialRepo = new CompanyFinancialRepository(db, workspaceId);
-  const companyFxAdjustmentRepo = new CompanyFxAdjustmentRepository(db, workspaceId);
-  const companyScreeningDerivedRepo = new CompanyScreeningDerivedRepository(db, workspaceId);
-  const userWorkspaceRepo = new UserWorkspaceRepository(db);
-  const workspaceRepo = new WorkspaceRepository(db);
-  const roleRepo = new RoleRepository(db);
+  const companyRepo = lazy(() => new CompanyRepository(db, workspaceId, companyGraphRepo()));
+  const companyLogRepo = lazy(() => new CompanyLogRepository(db, workspaceId));
+  const screeningRepo = lazy(() => new ScreeningRepository(db, workspaceId));
+  const criteriaRepo = lazy(() => new CriteriaRepository(db, workspaceId));
+  const dealDocRepo = lazy(() => new DealDocumentRepository(db, workspaceId));
+  const dealNoteRepo = lazy(() => new DealNoteRepository(db, workspaceId));
+  const dealLinkRepo = lazy(() => new DealLinkRepository(db, workspaceId));
+  const companyAnalysisRepo = lazy(() => new CompanyAnalysisRepository(db, workspaceId));
+  const companySlidesRepo = lazy(() => new CompanySlidesRepository(db, workspaceId));
+  const fileRepo = lazy(() => new FileRepository(db, workspaceId));
+  const thesisRepo = lazy(() => new InvestmentThesisRepository(db, workspaceId));
+  const trackVariableRepo = lazy(() => new TrackVariableRepository(db, workspaceId));
+  const pipelineStageRepo = lazy(() => new PipelineStageRepository(db, workspaceId));
+  const jobRepo = lazy(() => new JobRepository(db));
+  const userRepo = lazy(() => new UserRepository(db));
+  const resetTokenRepo = lazy(() => new ResetPasswordTokenRepository(db));
+  const recentFileRepo = lazy(() => new RecentFileRepository(db, workspaceId));
+  const companyFinancialRepo = lazy(() => new CompanyFinancialRepository(db, workspaceId));
+  const companyFxAdjustmentRepo = lazy(() => new CompanyFxAdjustmentRepository(db, workspaceId));
+  const companyScreeningDerivedRepo = lazy(
+    () => new CompanyScreeningDerivedRepository(db, workspaceId),
+  );
+  const userWorkspaceRepo = lazy(() => new UserWorkspaceRepository(db));
+  const workspaceRepo = lazy(() => new WorkspaceRepository(db));
+  const roleRepo = lazy(() => new RoleRepository(db));
 
-  const criteriaService = new CriteriaService(criteriaRepo);
-  const screeningService = new ScreeningService(screeningRepo, workspaceId);
-  const clientHealthService = new ClientHealthService(workspaceId);
-  const routinesRepo = new RoutinesRepository(db, workspaceId);
-  const marketScanningRoutineService = new MarketScanningRoutineService(routinesRepo);
-  const investmentThesisService = new InvestmentThesisService(
-    thesisRepo,
-    marketScanningRoutineService,
+  const criteriaService = lazy(() => new CriteriaService(criteriaRepo()));
+  const screeningService = lazy(() => new ScreeningService(screeningRepo(), workspaceId));
+  const clientHealthService = lazy(() => new ClientHealthService(workspaceId));
+  const routinesRepo = lazy(() => new RoutinesRepository(db, workspaceId));
+  const marketScanningRoutineService = lazy(
+    () => new MarketScanningRoutineService(routinesRepo()),
   );
-  const trackVariableService = new TrackVariableService(trackVariableRepo);
-  const dealNoteService = new DealNoteService(dealNoteRepo);
-  const dealLinkService = new DealLinkService(dealLinkRepo);
-  const jobService = new JobService(jobRepo, db);
-  const authService = new AuthService(userRepo, resetTokenRepo);
-  const userService = new UserService(userRepo, workspaceId, authService);
-  const chatService = new ChatService(thesisRepo, criteriaRepo);
-  const workspaceService = new WorkspaceService(workspaceRepo, userWorkspaceRepo, roleRepo, userRepo);
-
-  const companyAnalysisService = new CompanyAnalysisService(companyAnalysisRepo, companyRepo, db, workspaceId);
-  const aiWorkforceQueueRepo = new AiWorkforceQueueRepository(db, workspaceId);
-  const aiScreeningService = new AIScreeningService(
-    db,
-    workspaceId,
-    companyRepo,
-    screeningRepo,
-    criteriaRepo,
-    thesisRepo,
-    screeningService,
-    aiWorkforceQueueRepo,
+  const investmentThesisService = lazy(
+    () => new InvestmentThesisService(thesisRepo(), marketScanningRoutineService()),
   );
-  const aiOpinionService = new AiOpinionService(companyRepo, db, workspaceId, aiScreeningService);
-  const marketScreeningService = new MarketScreeningService(jobDispatcher);
-  const trackMatchingService = new TrackMatchingService(jobDispatcher, db, workspaceId);
-  const slideService = new SlideService(companySlidesRepo, jobDispatcher);
-
-  const companyService = new CompanyService(
-    workspaceId,
-    companyRepo,
-    companyLogRepo,
-    dealDocRepo,
-    dealNoteRepo,
-    dealLinkRepo,
-    companyFinancialRepo,
-    companyFxAdjustmentRepo,
-    companyScreeningDerivedRepo,
-    trackMatchingService,
-    userRepo,
-    fileRepo,
-    // A pipeline stage move regenerates the AI Company Card against the latest
-    // information (see CompanyService.promote / promoteMany / updateFromDTO).
-    companyAnalysisService,
-    pipelineStageRepo,
-  );
-  const pipelineStageService = new PipelineStageService(
-    pipelineStageRepo,
-    companyRepo,
-    companyService,
-  );
-  const companyCardSlideService = new CompanyCardSlideService(
-    companyService,
-    companyAnalysisService,
-    investmentThesisService,
-    trackVariableService,
-    workspaceService,
-    workspaceId,
-    pipelineStageRepo,
-  );
-  const companyVoteRepo = new CompanyVoteRepository(db, workspaceId);
-  const companyVoteService = new CompanyVoteService(
-    companyVoteRepo,
-    userRepo,
-    companyRepo,
-    workspaceRepo,
-    companyCardSlideService,
-    aiOpinionService,
-    jobDispatcher,
-    workspaceId,
-  );
-  const companyGraphService = new CompanyGraphService(companyGraphRepo, jobDispatcher);
-  const companyRelationshipService = new CompanyRelationshipService(
-    companyRepo,
-    companyService,
-    companyGraphService,
-  );
-  const dealDocumentService = new DealDocumentService(dealDocRepo, jobDispatcher, workspaceId);
-  const recentFileService = new RecentFileService(recentFileRepo);
-  const userTaskService = new UserTaskService(
-    new UserTaskRepository(db, workspaceId),
-    userRepo,
-    workspaceRepo,
-    workspaceId,
-  );
-  const fileService = new FileService(
-    db,
-    workspaceId,
-    fileRepo,
-    companyAnalysisService,
-    aiScreeningService,
-    criteriaRepo,
-    screeningRepo,
-    companyFinancialRepo,
-    companyService,
-    companyFxAdjustmentRepo,
-    userWorkspaceRepo,
-    trackMatchingService,
-    userRepo,
-  );
-  fileService.setWorkspaceRepo(workspaceRepo);
-
-  const pendingAutoScanService = new PendingAutoScanService(
-    workspaceId,
-    companyRepo,
-    screeningRepo,
-    workspaceService,
-    companyService,
-    aiScreeningService,
-    trackMatchingService,
-    companyAnalysisService,
-  );
-  // Setters, not constructor args: PendingAutoScanService depends on both.
-  companyService.setPendingArrivalHandler((companyIds, triggeredByUserId) =>
-    pendingAutoScanService.onCompaniesEnteredPending(companyIds, triggeredByUserId),
-  );
-  fileService.setPendingAutoScanService(pendingAutoScanService);
-
-  const employerRepo = new EmployerRepository(db);
-  const correspondentRepo = new CorrespondentRepository(db);
-  const employerNoteRepo = new EmployerNoteRepository(db);
-  const topicRepo = new TopicRepository(db);
-  const emailRepo = new EmailRepository(db);
-  const employerTeamRepo = new EmployerTeamRepository(db);
-  const employerCurationRepo = new EmployerCurationRepository(db);
-  const correspondentCurationRepo = new CorrespondentCurationRepository(db);
-  const employerRelatedCompanyRepo = new EmployerRelatedCompanyRepository(db);
-  const workspaceCorrespondentRepo = new WorkspaceCorrespondentRepository(db);
-  const crmService = new CRMService(
-    employerRepo,
-    correspondentRepo,
-    employerNoteRepo,
-    topicRepo,
-    emailRepo,
-    employerTeamRepo,
-    employerCurationRepo,
-    correspondentCurationRepo,
-    employerRelatedCompanyRepo,
-    companyRepo,
-    workspaceCorrespondentRepo,
-    workspaceId,
-  );
-  const crmContactEnrichmentService = new CrmContactEnrichmentService(
-    correspondentRepo,
-    employerRepo,
-    db,
-    workspaceId,
-  );
-  const companyContactDiscoveryService = new CompanyContactDiscoveryService(
-    companyRepo,
-    employerRepo,
-    new EmployerDomainRepository(db),
-    correspondentRepo,
-    crmService,
-    db,
-    workspaceId,
+  const trackVariableService = lazy(() => new TrackVariableService(trackVariableRepo()));
+  const dealNoteService = lazy(() => new DealNoteService(dealNoteRepo()));
+  const dealLinkService = lazy(() => new DealLinkService(dealLinkRepo()));
+  const jobService = lazy(() => new JobService(jobRepo(), db));
+  const authService = lazy(() => new AuthService(userRepo(), resetTokenRepo()));
+  const userService = lazy(() => new UserService(userRepo(), workspaceId, authService()));
+  const chatService = lazy(() => new ChatService(thesisRepo(), criteriaRepo()));
+  const workspaceService = lazy(
+    () => new WorkspaceService(workspaceRepo(), userWorkspaceRepo(), roleRepo(), userRepo()),
   );
 
-  const aiWorkforceService = new AiWorkforceService(aiWorkforceQueueRepo, db, new AgentCheckpointRepository(db));
-  const notificationService = new NotificationService(aiWorkforceQueueRepo);
+  const companyAnalysisService = lazy(
+    () => new CompanyAnalysisService(companyAnalysisRepo(), companyRepo(), db, workspaceId),
+  );
+  const aiOpinionService = lazy(
+    () => new AiOpinionService(companyRepo(), db, workspaceId, aiScreeningService()),
+  );
+  const aiScreeningService = lazy(
+    () =>
+      new AIScreeningService(
+        db,
+        workspaceId,
+        companyRepo(),
+        screeningRepo(),
+        criteriaRepo(),
+        thesisRepo(),
+        screeningService(),
+        aiWorkforceQueueRepo(),
+      ),
+  );
+  const marketScreeningService = lazy(() => new MarketScreeningService(jobDispatcher()));
+  const trackMatchingService = lazy(
+    () => new TrackMatchingService(jobDispatcher(), db, workspaceId),
+  );
+  const slideService = lazy(() => new SlideService(companySlidesRepo(), jobDispatcher()));
 
-  const copilotChatsRepo = new CopilotChatsRepository(db, workspaceId);
-  const copilotChatsService = new CopilotChatsService(copilotChatsRepo);
+  const companyService = lazy(() => {
+    const service = new CompanyService(
+      workspaceId,
+      companyRepo(),
+      companyLogRepo(),
+      dealDocRepo(),
+      dealNoteRepo(),
+      dealLinkRepo(),
+      companyFinancialRepo(),
+      companyFxAdjustmentRepo(),
+      companyScreeningDerivedRepo(),
+      trackMatchingService(),
+      userRepo(),
+      fileRepo(),
+      // A pipeline stage move regenerates the AI Company Card against the latest
+      // information (see CompanyService.promote / promoteMany / updateFromDTO).
+      companyAnalysisService(),
+      pipelineStageRepo(),
+    );
+    // A company entering Pending triggers the auto-scan. The handler is unset-
+    // tolerant (notifyPendingArrival no-ops without it), so it must be wired on
+    // every CompanyService — and the scan service is resolved only when the
+    // handler fires, because its constructor takes companyService back.
+    service.setPendingArrivalHandler((companyIds, triggeredByUserId) =>
+      pendingAutoScanService().onCompaniesEnteredPending(companyIds, triggeredByUserId),
+    );
+    return service;
+  });
+  const pipelineStageService = lazy(
+    () => new PipelineStageService(pipelineStageRepo(), companyRepo(), companyService()),
+  );
+  const companyCardSlideService = lazy(
+    () =>
+      new CompanyCardSlideService(
+        companyService(),
+        companyAnalysisService(),
+        investmentThesisService(),
+        trackVariableService(),
+        workspaceService(),
+        workspaceId,
+        pipelineStageRepo(),
+      ),
+  );
+  const companyVoteRepo = lazy(() => new CompanyVoteRepository(db, workspaceId));
+  const companyVoteService = lazy(
+    () =>
+      new CompanyVoteService(
+        companyVoteRepo(),
+        userRepo(),
+        companyRepo(),
+        workspaceRepo(),
+        companyCardSlideService(),
+        aiOpinionService(),
+        jobDispatcher(),
+        workspaceId,
+      ),
+  );
+  const companyGraphService = lazy(
+    () => new CompanyGraphService(companyGraphRepo(), jobDispatcher()),
+  );
+  const companyRelationshipService = lazy(
+    () =>
+      new CompanyRelationshipService(companyRepo(), companyService(), companyGraphService()),
+  );
+  const dealDocumentService = lazy(
+    () => new DealDocumentService(dealDocRepo(), jobDispatcher(), workspaceId),
+  );
+  const recentFileService = lazy(() => new RecentFileService(recentFileRepo()));
+  const userTaskService = lazy(
+    () =>
+      new UserTaskService(
+        new UserTaskRepository(db, workspaceId),
+        userRepo(),
+        workspaceRepo(),
+        workspaceId,
+      ),
+  );
+  const pendingAutoScanService = lazy(
+    () =>
+      new PendingAutoScanService(
+        workspaceId,
+        companyRepo(),
+        screeningRepo(),
+        workspaceService(),
+        companyService(),
+        aiScreeningService(),
+        trackMatchingService(),
+        companyAnalysisService(),
+      ),
+  );
+  const fileService = lazy(() => {
+    const service = new FileService(
+      db,
+      workspaceId,
+      fileRepo(),
+      companyAnalysisService(),
+      aiScreeningService(),
+      criteriaRepo(),
+      screeningRepo(),
+      companyFinancialRepo(),
+      companyService(),
+      companyFxAdjustmentRepo(),
+      userWorkspaceRepo(),
+      trackMatchingService(),
+      userRepo(),
+    );
+    // Setter-injected collaborators (they would otherwise be constructor
+    // cycles). Applied inside the factory so a fully-wired FileService is
+    // still the only FileService anyone can observe.
+    service.setWorkspaceRepo(workspaceRepo());
+    service.setCRMService(crmService());
+    service.setJobDispatcher(jobDispatcher());
+    service.setFundUpdateApplyService(fundUpdateApplyService());
+    service.setFundCatalogCheckService(fundCatalogCheckService());
+    service.setPendingAutoScanService(pendingAutoScanService());
+    return service;
+  });
 
-  const alphasenseToolCallRepo = new AlphasenseToolCallRepository(db, workspaceId);
-  const alphasenseToolCallService = new AlphasenseToolCallService(alphasenseToolCallRepo);
-
-  const dashboardActivityRepo = new DashboardActivityRepository(db, workspaceId);
-  const dashboardActivityService = new DashboardActivityService(dashboardActivityRepo, pipelineStageRepo);
-
-  const dashboardInsightsRepo = new DashboardInsightsRepository(db, workspaceId);
-  const appSettingsRepo = new AppSettingsRepository(db);
-  const dashboardInsightsService = new DashboardInsightsService(
-    dashboardInsightsRepo,
-    appSettingsRepo,
-    thesisRepo,
-    pipelineStageRepo,
+  const employerRepo = lazy(() => new EmployerRepository(db));
+  const correspondentRepo = lazy(() => new CorrespondentRepository(db));
+  const employerNoteRepo = lazy(() => new EmployerNoteRepository(db));
+  const topicRepo = lazy(() => new TopicRepository(db));
+  const emailRepo = lazy(() => new EmailRepository(db));
+  const employerTeamRepo = lazy(() => new EmployerTeamRepository(db));
+  const employerCurationRepo = lazy(() => new EmployerCurationRepository(db));
+  const correspondentCurationRepo = lazy(() => new CorrespondentCurationRepository(db));
+  const employerRelatedCompanyRepo = lazy(() => new EmployerRelatedCompanyRepository(db));
+  const workspaceCorrespondentRepo = lazy(() => new WorkspaceCorrespondentRepository(db));
+  const crmService = lazy(
+    () =>
+      new CRMService(
+        employerRepo(),
+        correspondentRepo(),
+        employerNoteRepo(),
+        topicRepo(),
+        emailRepo(),
+        employerTeamRepo(),
+        employerCurationRepo(),
+        correspondentCurationRepo(),
+        employerRelatedCompanyRepo(),
+        companyRepo(),
+        workspaceCorrespondentRepo(),
+        workspaceId,
+      ),
   );
 
-  const apiKeyRepo = new ApiKeyRepository(db);
-  const apiKeyService = new ApiKeyService(apiKeyRepo);
-
-  const apiChatConversationRepo = new ApiChatConversationRepository(db, workspaceId);
-  const apiChatConversationService = new ApiChatConversationService(apiChatConversationRepo);
-
-  const dealResurfaceService = new DealResurfaceService(
-    companyRepo,
-    companyLogRepo,
-    dealNoteRepo,
-    userRepo,
-    thesisRepo,
-    undefined,
-    undefined,
-    pipelineStageRepo,
+  const crmContactEnrichmentService = lazy(
+    () =>
+      new CrmContactEnrichmentService(correspondentRepo(), employerRepo(), db, workspaceId),
   );
 
-  fileService.setCRMService(crmService);
-  fileService.setJobDispatcher(jobDispatcher);
+  const companyContactDiscoveryService = lazy(
+    () =>
+      new CompanyContactDiscoveryService(
+        companyRepo(),
+        employerRepo(),
+        new EmployerDomainRepository(db),
+        correspondentRepo(),
+        crmService(),
+        db,
+        workspaceId,
+      ),
+  );
 
-  const chatAttachmentService = new ChatAttachmentService(workspaceId);
+  const aiWorkforceQueueRepo = lazy(() => new AiWorkforceQueueRepository(db, workspaceId));
+  const aiWorkforceService = lazy(
+    () => new AiWorkforceService(aiWorkforceQueueRepo(), db, new AgentCheckpointRepository(db)),
+  );
+  const notificationService = lazy(() => new NotificationService(aiWorkforceQueueRepo()));
 
+  const copilotChatsRepo = lazy(() => new CopilotChatsRepository(db, workspaceId));
+  const copilotChatsService = lazy(() => new CopilotChatsService(copilotChatsRepo()));
 
+  const alphasenseToolCallRepo = lazy(() => new AlphasenseToolCallRepository(db, workspaceId));
+  const alphasenseToolCallService = lazy(
+    () => new AlphasenseToolCallService(alphasenseToolCallRepo()),
+  );
 
-  const stalledDealService = new StalledDealService(companyRepo, companyLogRepo, pipelineStageRepo);
+  const dashboardActivityRepo = lazy(() => new DashboardActivityRepository(db, workspaceId));
+  const dashboardActivityService = lazy(
+    () => new DashboardActivityService(dashboardActivityRepo(), pipelineStageRepo()),
+  );
 
-  const dailyPulseRepo = new DailyPulseRepository(db, workspaceId);
-  const dailyPulseService = new DailyPulseService(workspaceId, dailyPulseRepo);
+  const dashboardInsightsRepo = lazy(() => new DashboardInsightsRepository(db, workspaceId));
+  const appSettingsRepo = lazy(() => new AppSettingsRepository(db));
+  const dashboardInsightsService = lazy(
+    () =>
+      new DashboardInsightsService(
+        dashboardInsightsRepo(),
+        appSettingsRepo(),
+        thesisRepo(),
+        pipelineStageRepo(),
+      ),
+  );
 
-  const featureFlagRepo = new FeatureFlagRepository(db);
-  const featureFlagsService = new FeatureFlagsService(featureFlagRepo);
+  const apiKeyRepo = lazy(() => new ApiKeyRepository(db));
+  const apiKeyService = lazy(() => new ApiKeyService(apiKeyRepo()));
 
-  const tableLayoutRepo = new WorkspaceTableLayoutRepository(db, workspaceId);
-  const tableLayoutService = new TableLayoutService(tableLayoutRepo);
+  const apiChatConversationRepo = lazy(() => new ApiChatConversationRepository(db, workspaceId));
+  const apiChatConversationService = lazy(
+    () => new ApiChatConversationService(apiChatConversationRepo()),
+  );
 
-  const feedbackRepo = new FeedbackRepository(db, workspaceId);
-  const feedbackService = new FeedbackService(feedbackRepo, userRepo, workspaceRepo, workspaceId);
+  const dealResurfaceService = lazy(
+    () =>
+      new DealResurfaceService(
+        companyRepo(),
+        companyLogRepo(),
+        dealNoteRepo(),
+        userRepo(),
+        thesisRepo(),
+        undefined,
+        undefined,
+        pipelineStageRepo(),
+      ),
+  );
+
+  const chatAttachmentService = lazy(() => new ChatAttachmentService(workspaceId));
+
+  const stalledDealService = lazy(
+    () => new StalledDealService(companyRepo(), companyLogRepo(), pipelineStageRepo()),
+  );
+
+  const dailyPulseRepo = lazy(() => new DailyPulseRepository(db, workspaceId));
+  const dailyPulseService = lazy(() => new DailyPulseService(workspaceId, dailyPulseRepo()));
+
+  const featureFlagRepo = lazy(() => new FeatureFlagRepository(db));
+  const featureFlagsService = lazy(() => new FeatureFlagsService(featureFlagRepo()));
+
+  const tableLayoutRepo = lazy(() => new WorkspaceTableLayoutRepository(db, workspaceId));
+  const tableLayoutService = lazy(() => new TableLayoutService(tableLayoutRepo()));
+
+  const feedbackRepo = lazy(() => new FeedbackRepository(db, workspaceId));
+  const feedbackService = lazy(
+    () => new FeedbackService(feedbackRepo(), userRepo(), workspaceRepo(), workspaceId),
+  );
 
   // Global (non-workspace-scoped): the RSS feed catalog is shared by every
   // workspace, so the repo takes no workspaceId.
-  const rssFeedRepo = new RssFeedRepository(db);
-  const rssFeedService = new RssFeedService(rssFeedRepo);
+  const rssFeedRepo = lazy(() => new RssFeedRepository(db));
+  const rssFeedService = lazy(() => new RssFeedService(rssFeedRepo()));
 
-  const rssItemRepo = new RssItemRepository(db);
-  const rssItemChunkRepo = new RssItemChunkRepository(db);
-  const dataNavigatorService = new DataNavigatorService(
-    rssItemRepo,
-    rssItemChunkRepo,
-    new BedrockEmbeddingClient(),
-  );
-
-  const userConsentRepo = new UserConsentRepository(db);
-  const consentService = new ConsentService(userConsentRepo, userRepo, userWorkspaceRepo);
-  const flInvestorRepo = new FlInvestorRepository(db);
-  const flFundRepo = new FlFundRepository(db);
-  const flAssetRepo = new FlAssetRepository(db);
-  const flFundingSourceRepo = new FlFundingSourceRepository(db);
-  const flPositionRepo = new FlPositionRepository(db);
-  const flBusinessEventRepo = new FlBusinessEventRepository(db);
-  const flBusinessEventRevisionRepo = new FlBusinessEventRevisionRepository(db);
-  const flLedgerEntryRepo = new FlLedgerEntryRepository(db);
-  const flAllocationRepo = new FlAllocationRepository(db);
-  const flValuationRepo = new FlValuationRepository(db);
-  const flSourceRecordRepo = new FlSourceRecordRepository(db);
-  const flCorporateActionRepo = new FlCorporateActionRepository(db);
-
-  const flMasterDataService = new FlMasterDataService(
-    db,
-    flInvestorRepo,
-    flFundRepo,
-    flAssetRepo,
-    flFundingSourceRepo,
-  );
-  const flInvestmentTypeService = new FlInvestmentTypeService(
-    db,
-    new FlInvestmentTypeRepository(db),
-    flAssetRepo,
-  );
-  const flPositionService = new FlPositionService(
-    db,
-    flPositionRepo,
-    flInvestorRepo,
-    flFundRepo,
-    flAssetRepo,
-    flLedgerEntryRepo,
-    flFundingSourceRepo,
-    flMasterDataService,
-  );
-  const flLedgerService = new FlLedgerService(
-    db,
-    flLedgerEntryRepo,
-    flBusinessEventRepo,
-    flAllocationRepo,
-    flPositionRepo,
-    flFundingSourceRepo,
-    flSourceRecordRepo,
-    flAssetRepo,
-    flFundRepo,
-    flMasterDataService,
-    flPositionService,
-    flInvestorRepo,
-    flBusinessEventRevisionRepo,
-  );
-  const flValuationService = new FlValuationService(
-    db,
-    flValuationRepo,
-    flAssetRepo,
-    flFundRepo,
-    flPositionRepo,
-    flSourceRecordRepo,
-  );
-  const flCorporateActionService = new FlCorporateActionService(
-    db,
-    flCorporateActionRepo,
-    flValuationRepo,
-    flPositionRepo,
-    flAssetRepo,
-    flFundRepo,
-    flInvestorRepo,
-    flLedgerEntryRepo,
-  );
-  const flBalanceService = new FlBalanceService(
-    db,
-    flLedgerEntryRepo,
-    flPositionRepo,
-    flFundRepo,
-    flAssetRepo,
-    flValuationRepo,
-  );
-  const flPortfolioService = new FlPortfolioService(
-    db,
-    flFundRepo,
-    flAssetRepo,
-    flPositionRepo,
-    flInvestorRepo,
-    flFundingSourceRepo,
-    flBusinessEventRepo,
-    flLedgerEntryRepo,
-    flAllocationRepo,
-    flValuationRepo,
-    flBalanceService,
+  const rssItemRepo = lazy(() => new RssItemRepository(db));
+  const rssItemChunkRepo = lazy(() => new RssItemChunkRepository(db));
+  const dataNavigatorService = lazy(
+    () =>
+      new DataNavigatorService(rssItemRepo(), rssItemChunkRepo(), new BedrockEmbeddingClient()),
   );
 
-  const fundUpdateApplyService = new FundUpdateApplyService(
-    db,
-    workspaceId,
-    flFundRepo,
-    flAssetRepo,
-    flPositionRepo,
-    flInvestorRepo,
-    flFundingSourceRepo,
-    flMasterDataService,
-    flPositionService,
-    flLedgerService,
-    flValuationService,
-    flValuationRepo,
-    flLedgerEntryRepo,
-    flSourceRecordRepo,
-    flAllocationRepo,
+  const userConsentRepo = lazy(() => new UserConsentRepository(db));
+  const consentService = lazy(
+    () => new ConsentService(userConsentRepo(), userRepo(), userWorkspaceRepo()),
   );
-  fileService.setFundUpdateApplyService(fundUpdateApplyService);
-  const fundCatalogCheckService = new FundCatalogCheckService(
-    workspaceId,
-    flFundRepo,
-    flPositionRepo,
-    flAssetRepo,
-    flBalanceService,
+  const flInvestorRepo = lazy(() => new FlInvestorRepository(db));
+  const flFundRepo = lazy(() => new FlFundRepository(db));
+  const flAssetRepo = lazy(() => new FlAssetRepository(db));
+  const flFundingSourceRepo = lazy(() => new FlFundingSourceRepository(db));
+  const flPositionRepo = lazy(() => new FlPositionRepository(db));
+  const flBusinessEventRepo = lazy(() => new FlBusinessEventRepository(db));
+  const flBusinessEventRevisionRepo = lazy(() => new FlBusinessEventRevisionRepository(db));
+  const flLedgerEntryRepo = lazy(() => new FlLedgerEntryRepository(db));
+  const flAllocationRepo = lazy(() => new FlAllocationRepository(db));
+  const flValuationRepo = lazy(() => new FlValuationRepository(db));
+  const flSourceRecordRepo = lazy(() => new FlSourceRecordRepository(db));
+  const flCorporateActionRepo = lazy(() => new FlCorporateActionRepository(db));
+
+  const flMasterDataService = lazy(
+    () =>
+      new FlMasterDataService(
+        db,
+        flInvestorRepo(),
+        flFundRepo(),
+        flAssetRepo(),
+        flFundingSourceRepo(),
+      ),
   );
-  fileService.setFundCatalogCheckService(fundCatalogCheckService);
-  const fundAiOpinionService = new FundAiOpinionService(
-    flAssetRepo,
-    flValuationRepo,
-    db,
-    workspaceId,
-    flPositionRepo,
-    flBalanceService,
+  const flInvestmentTypeService = lazy(
+    () => new FlInvestmentTypeService(db, new FlInvestmentTypeRepository(db), flAssetRepo()),
+  );
+  const flPositionService = lazy(
+    () =>
+      new FlPositionService(
+        db,
+        flPositionRepo(),
+        flInvestorRepo(),
+        flFundRepo(),
+        flAssetRepo(),
+        flLedgerEntryRepo(),
+        flFundingSourceRepo(),
+        flMasterDataService(),
+      ),
+  );
+  const flLedgerService = lazy(
+    () =>
+      new FlLedgerService(
+        db,
+        flLedgerEntryRepo(),
+        flBusinessEventRepo(),
+        flAllocationRepo(),
+        flPositionRepo(),
+        flFundingSourceRepo(),
+        flSourceRecordRepo(),
+        flAssetRepo(),
+        flFundRepo(),
+        flMasterDataService(),
+        flPositionService(),
+        flInvestorRepo(),
+        flBusinessEventRevisionRepo(),
+      ),
+  );
+  const flValuationService = lazy(
+    () =>
+      new FlValuationService(
+        db,
+        flValuationRepo(),
+        flAssetRepo(),
+        flFundRepo(),
+        flPositionRepo(),
+        flSourceRecordRepo(),
+      ),
+  );
+  const flCorporateActionService = lazy(
+    () =>
+      new FlCorporateActionService(
+        db,
+        flCorporateActionRepo(),
+        flValuationRepo(),
+        flPositionRepo(),
+        flAssetRepo(),
+        flFundRepo(),
+        flInvestorRepo(),
+        flLedgerEntryRepo(),
+      ),
+  );
+  const flBalanceService = lazy(
+    () =>
+      new FlBalanceService(
+        db,
+        flLedgerEntryRepo(),
+        flPositionRepo(),
+        flFundRepo(),
+        flAssetRepo(),
+        flValuationRepo(),
+      ),
+  );
+  const flPortfolioService = lazy(
+    () =>
+      new FlPortfolioService(
+        db,
+        flFundRepo(),
+        flAssetRepo(),
+        flPositionRepo(),
+        flInvestorRepo(),
+        flFundingSourceRepo(),
+        flBusinessEventRepo(),
+        flLedgerEntryRepo(),
+        flAllocationRepo(),
+        flValuationRepo(),
+        flBalanceService(),
+      ),
   );
 
-  const insightRepo = new InsightRepository(db);
-  const insightVersionRepo = new InsightVersionRepository(db);
-  const insightRunDraftRepo = new InsightRunDraftRepository(db);
-  const insightTemplateRepo = new InsightTemplateRepository(db, workspaceId);
-  const insightService = new InsightService(
-    insightRepo,
-    insightVersionRepo,
-    insightRunDraftRepo,
-    db,
-    undefined, // the shipped sector registry (the default)
-    routinesRepo,
-    insightTemplateRepo,
+  const fundUpdateApplyService = lazy(
+    () =>
+      new FundUpdateApplyService(
+        db,
+        workspaceId,
+        flFundRepo(),
+        flAssetRepo(),
+        flPositionRepo(),
+        flInvestorRepo(),
+        flFundingSourceRepo(),
+        flMasterDataService(),
+        flPositionService(),
+        flLedgerService(),
+        flValuationService(),
+        flValuationRepo(),
+        flLedgerEntryRepo(),
+        flSourceRecordRepo(),
+        flAllocationRepo(),
+      ),
+  );
+  const fundCatalogCheckService = lazy(
+    () =>
+      new FundCatalogCheckService(
+        workspaceId,
+        flFundRepo(),
+        flPositionRepo(),
+        flAssetRepo(),
+        flBalanceService(),
+      ),
+  );
+  const fundAiOpinionService = lazy(
+    () =>
+      new FundAiOpinionService(
+        flAssetRepo(),
+        flValuationRepo(),
+        db,
+        workspaceId,
+        flPositionRepo(),
+        flBalanceService(),
+      ),
   );
 
-  const insightTemplateService = new InsightTemplateService(
-    insightTemplateRepo,
-    insightRepo,
-    workspaceId,
+  const insightRepo = lazy(() => new InsightRepository(db));
+  const insightVersionRepo = lazy(() => new InsightVersionRepository(db));
+  const insightRunDraftRepo = lazy(() => new InsightRunDraftRepository(db));
+  const insightTemplateRepo = lazy(() => new InsightTemplateRepository(db, workspaceId));
+  const insightService = lazy(
+    () =>
+      new InsightService(
+        insightRepo(),
+        insightVersionRepo(),
+        insightRunDraftRepo(),
+        db,
+        undefined, // the shipped sector registry (the default)
+        routinesRepo(),
+        insightTemplateRepo(),
+      ),
   );
 
-  const profileService = new ProfileService(
-    companyRepo,
-    insightRepo,
-    companyVoteRepo,
-    aiWorkforceQueueRepo,
-    workspaceId,
+  const insightTemplateService = lazy(
+    () => new InsightTemplateService(insightTemplateRepo(), insightRepo(), workspaceId),
+  );
+
+  const profileService = lazy(
+    () =>
+      new ProfileService(
+        companyRepo(),
+        insightRepo(),
+        companyVoteRepo(),
+        aiWorkforceQueueRepo(),
+        workspaceId,
+      ),
   );
 
   // The one repository here that is NOT workspace-scoped: a memory belongs to
   // a person and follows them across workspaces. The workspace is passed only
   // so a new memory records where it was formed.
-  const userMemoryRepo = new UserMemoryRepository(db, workspaceId);
+  const userMemoryRepo = lazy(() => new UserMemoryRepository(db, workspaceId));
   const userMemoryService = (userId: string) =>
-    new UserMemoryService(userMemoryRepo, userRepo, userId);
+    new UserMemoryService(userMemoryRepo(), userRepo(), userId);
 
-  const userProfileService = new UserProfileService(userRepo);
+  const userProfileService = lazy(() => new UserProfileService(userRepo()));
 
-  const routineService = new RoutineService(
-    routinesRepo,
-    insightRepo,
-    workspaceId,
-    undefined, // the shipped sector registry (the default)
-    (input) => enqueueAgentRun(db, input),
+  const routineService = lazy(
+    () =>
+      new RoutineService(
+        routinesRepo(),
+        insightRepo(),
+        workspaceId,
+        undefined, // the shipped sector registry (the default)
+        (input) => enqueueAgentRun(db, input),
+      ),
   );
 
-  const interventionRecipientService = new InterventionRecipientService(
-    insightRepo,
-    routinesRepo,
-    userWorkspaceRepo,
+  const interventionRecipientService = lazy(
+    () =>
+      new InterventionRecipientService(insightRepo(), routinesRepo(), userWorkspaceRepo()),
   );
 
   return {
-    companyService,
-    companyGraphService,
-    companyRelationshipService,
-    screeningService,
-    clientHealthService,
-    criteriaService,
-    investmentThesisService,
-    trackVariableService,
-    pipelineStageService,
-    marketScanningRoutineService,
-    dealDocumentService,
-    recentFileService,
-    userTaskService,
-    dealNoteService,
-    dealLinkService,
-    companyAnalysisService,
-    aiOpinionService,
-    aiScreeningService,
-    marketScreeningService,
-    trackMatchingService,
-    pendingAutoScanService,
-    slideService,
-    companyCardSlideService,
-    companyVoteService,
-    fileService,
-    chatService,
-    jobService,
-    authService,
-    userService,
-    crmService,
-    crmContactEnrichmentService,
-    companyContactDiscoveryService,
-    aiWorkforceService,
-    copilotChatsService,
-    alphasenseToolCallService,
-    dashboardActivityService,
-    dashboardInsightsService,
-    dailyPulseService,
-    apiKeyService,
-    apiChatConversationService,
-    notificationService,
-    workspaceService,
-    dealResurfaceService,
-    chatAttachmentService,
-    fundUpdateApplyService,
-    fundCatalogCheckService,
-    fundAiOpinionService,
-    stalledDealService,
-    featureFlagsService,
-    feedbackService,
-    tableLayoutService,
-    rssFeedService,
-    dataNavigatorService,
-    consentService,
-    flMasterDataService,
-    flInvestmentTypeService,
-    flPositionService,
-    flLedgerService,
-    flValuationService,
-    flCorporateActionService,
-    flBalanceService,
-    flPortfolioService,
-    insightService,
-    profileService,
+    get companyService() { return companyService(); },
+    get companyGraphService() { return companyGraphService(); },
+    get companyRelationshipService() { return companyRelationshipService(); },
+    get screeningService() { return screeningService(); },
+    get clientHealthService() { return clientHealthService(); },
+    get criteriaService() { return criteriaService(); },
+    get investmentThesisService() { return investmentThesisService(); },
+    get trackVariableService() { return trackVariableService(); },
+    get pipelineStageService() { return pipelineStageService(); },
+    get marketScanningRoutineService() { return marketScanningRoutineService(); },
+    get dealDocumentService() { return dealDocumentService(); },
+    get recentFileService() { return recentFileService(); },
+    get userTaskService() { return userTaskService(); },
+    get dealNoteService() { return dealNoteService(); },
+    get dealLinkService() { return dealLinkService(); },
+    get companyAnalysisService() { return companyAnalysisService(); },
+    get aiOpinionService() { return aiOpinionService(); },
+    get aiScreeningService() { return aiScreeningService(); },
+    get marketScreeningService() { return marketScreeningService(); },
+    get trackMatchingService() { return trackMatchingService(); },
+    get pendingAutoScanService() { return pendingAutoScanService(); },
+    get slideService() { return slideService(); },
+    get companyCardSlideService() { return companyCardSlideService(); },
+    get companyVoteService() { return companyVoteService(); },
+    get fileService() { return fileService(); },
+    get chatService() { return chatService(); },
+    get jobService() { return jobService(); },
+    get authService() { return authService(); },
+    get userService() { return userService(); },
+    get crmService() { return crmService(); },
+    get crmContactEnrichmentService() { return crmContactEnrichmentService(); },
+    get companyContactDiscoveryService() { return companyContactDiscoveryService(); },
+    get aiWorkforceService() { return aiWorkforceService(); },
+    get copilotChatsService() { return copilotChatsService(); },
+    get alphasenseToolCallService() { return alphasenseToolCallService(); },
+    get dashboardActivityService() { return dashboardActivityService(); },
+    get dashboardInsightsService() { return dashboardInsightsService(); },
+    get dailyPulseService() { return dailyPulseService(); },
+    get apiKeyService() { return apiKeyService(); },
+    get apiChatConversationService() { return apiChatConversationService(); },
+    get notificationService() { return notificationService(); },
+    get workspaceService() { return workspaceService(); },
+    get dealResurfaceService() { return dealResurfaceService(); },
+    get chatAttachmentService() { return chatAttachmentService(); },
+    get fundUpdateApplyService() { return fundUpdateApplyService(); },
+    get fundCatalogCheckService() { return fundCatalogCheckService(); },
+    get fundAiOpinionService() { return fundAiOpinionService(); },
+    get stalledDealService() { return stalledDealService(); },
+    get featureFlagsService() { return featureFlagsService(); },
+    get feedbackService() { return feedbackService(); },
+    get tableLayoutService() { return tableLayoutService(); },
+    get rssFeedService() { return rssFeedService(); },
+    get dataNavigatorService() { return dataNavigatorService(); },
+    get consentService() { return consentService(); },
+    get flMasterDataService() { return flMasterDataService(); },
+    get flInvestmentTypeService() { return flInvestmentTypeService(); },
+    get flPositionService() { return flPositionService(); },
+    get flLedgerService() { return flLedgerService(); },
+    get flValuationService() { return flValuationService(); },
+    get flCorporateActionService() { return flCorporateActionService(); },
+    get flBalanceService() { return flBalanceService(); },
+    get flPortfolioService() { return flPortfolioService(); },
+    get insightService() { return insightService(); },
+    get profileService() { return profileService(); },
     userMemoryService,
-    userProfileService,
-    interventionRecipientService,
-    insightTemplateService,
-    routineService,
+    get userProfileService() { return userProfileService(); },
+    get interventionRecipientService() { return interventionRecipientService(); },
+    get insightTemplateService() { return insightTemplateService(); },
+    get routineService() { return routineService(); },
   };
 }

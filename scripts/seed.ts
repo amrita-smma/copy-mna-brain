@@ -49,7 +49,8 @@ import {
 } from '../src/lib/db/schema';
 import { RSS_CATEGORIES, type RssCategory } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
-import { createContainer, DEFAULT_INVESTMENT_TYPES } from '../src/lib/services';
+import { createContainer } from '../src/lib/services/container';
+import { DEFAULT_INVESTMENT_TYPES } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
 import type { DealType } from '../src/lib/companies/dealTypes';
 // Type-only: keeps the (heavy, LangChain-pulling) agent module out of the

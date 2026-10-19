@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { CompanyRepository, UserRepository } from "@/lib/repositories";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
 import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
@@ -302,6 +301,9 @@ export const addCompany = tool(
       });
       if (people.error) return people.error;
 
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyService, dealNoteService, workspaceService } = createContainer(
         db,
         workspaceId,

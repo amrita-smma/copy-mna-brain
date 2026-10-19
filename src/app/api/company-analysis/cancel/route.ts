@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@/auth';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { dispatcherTick } from '@/lib/workforce';
 
 interface CancelBody {

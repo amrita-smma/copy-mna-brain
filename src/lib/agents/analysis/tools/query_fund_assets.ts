@@ -2,7 +2,6 @@ import { tool } from "@langchain/core/tools";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { FlInvestorRepository, type Tables } from "@/lib/repositories";
 import { logger } from "../../logger";
 import { fuzzySearch } from "./fuzzySearch";
@@ -35,6 +34,9 @@ export const queryFundAssets = tool(
     try {
       const workspaceId = await getActiveWorkspaceId();
       const db = createDb();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { flPortfolioService } = createContainer(db, workspaceId);
       const portfolio = await flPortfolioService.getPortfolio(workspaceId);
       const funds = portfolio.managed_funds;

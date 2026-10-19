@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import type { FeedFilter } from '@/lib/services/dashboardActivityService';
 
 const VALID_FILTERS: FeedFilter[] = ['all', 'new_deal', 'stage_move', 'dropped', 'note_updated', 'ai_discovered'];

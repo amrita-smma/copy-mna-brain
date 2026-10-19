@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 
 /** Cap on one batch, so a crafted `ids` list can't turn into an unbounded scan. */

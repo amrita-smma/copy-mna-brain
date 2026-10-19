@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { DuplicateEmployerError } from '@/lib/services/crmService';
 import { UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
 import { sql } from 'drizzle-orm';

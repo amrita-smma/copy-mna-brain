@@ -3,7 +3,7 @@ import { flushLangfuse } from '@/lib/langfuse';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import {
   AIMessage,
   extractMessageText,

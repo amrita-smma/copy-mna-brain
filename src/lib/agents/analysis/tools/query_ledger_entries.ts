@@ -2,7 +2,6 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import type { FlPortfolioLedgerEntry } from "@/lib/services/flPortfolioService";
 import {
   ENTRY_TYPE_KEYS,
@@ -102,6 +101,9 @@ export const queryLedgerEntries = tool(
 
     try {
       const workspaceId = await getActiveWorkspaceId();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { flPortfolioService, workspaceService } = createContainer(createDb(), workspaceId);
       // The Ledger relabels every figure to the workspace display currency, so
       // a total quoted in chat has to carry the same symbol the page shows.

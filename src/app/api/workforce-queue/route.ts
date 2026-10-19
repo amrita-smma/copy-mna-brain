@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 import { CompanyRepository, UserRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { asWorkforceEffort, type EffortChoice } from '@/lib/chat/effortTiers';
 import { chatAttachmentPrefix } from '@/lib/s3';
 import { isChatAttachmentRef, type ChatAttachmentRef } from '@/lib/services/chatAttachmentService';

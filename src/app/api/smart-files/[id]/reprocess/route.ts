@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { asyncJobId } from '@/lib/services/fileService';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 

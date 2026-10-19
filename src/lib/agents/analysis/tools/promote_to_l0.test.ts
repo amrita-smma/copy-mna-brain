@@ -12,7 +12,7 @@ const { findByNameFuzzy, update, promote, createDb, createContainer, getActiveWo
 
 vi.mock('@/lib/server/db', () => ({ createDb }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId }));
-vi.mock('@/lib/services', () => ({ createContainer }));
+vi.mock('@/lib/services/container', () => ({ createContainer }));
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
   class MockCompanyRepository {

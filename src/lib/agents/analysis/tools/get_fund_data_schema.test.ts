@@ -10,7 +10,7 @@ vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceId: vi.fn(async () => 'ws-1'),
 }));
 
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({
     flMasterDataService: { listFunds: listFundsMock },
   })),

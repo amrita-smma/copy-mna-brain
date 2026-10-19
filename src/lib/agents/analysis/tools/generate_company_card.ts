@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { generateCompanyCard as runGenerateCompanyCard } from "@/lib/jobs/handlers/companyAnalysis";
 
 /**
@@ -36,6 +35,9 @@ export const generateCompanyCard = tool(
       const { analysis, relatedCompanies, companyName } =
         await runGenerateCompanyCard({ companyId: id }, { db });
 
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyRelationshipService } = createContainer(db, await getActiveWorkspaceId());
 
       const linked: string[] = [];

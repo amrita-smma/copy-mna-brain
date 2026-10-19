@@ -1,7 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { logger } from "../../logger";
 
 /**
@@ -15,6 +14,9 @@ export const getFundDataSchema = tool(
     let fundCount = 0;
     try {
       const workspaceId = await getActiveWorkspaceId();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { flMasterDataService } = createContainer(createDb(), workspaceId);
       fundCount = (await flMasterDataService.listFunds(workspaceId)).length;
     } catch (error) {

@@ -24,7 +24,7 @@ const {
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
-vi.mock("@/lib/services", () => ({ createContainer }));
+vi.mock("@/lib/services/container", () => ({ createContainer }));
 
 vi.mock("@/lib/repositories", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/repositories")>();

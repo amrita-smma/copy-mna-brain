@@ -111,9 +111,10 @@ export function stripThinking(text: string): string {
  * caches nothing on throw.
  */
 export const generateDailyPulse: DailyPulseGenerator = async (now, workspaceId) => {
-  // Dynamic import: a static one would close a require cycle, since the Analyst
-  // agent's tools import `@/lib/services` (createContainer) and this module is
-  // reached from that same container. Deferring to call-time breaks the cycle.
+  // Dynamic import: a static one would close a require cycle — the Analyst
+  // agent graph still imports service modules, and this module is reached from
+  // the service container. Deferring to call-time keeps this file off that
+  // residual services ↔ agents knot (see TECH_DEBT.md "Runtime import cycle").
   const { getStatelessAgentGraph, extractFirstTurn, HumanMessage } = await import(
     '@/lib/agents/analysis'
   );

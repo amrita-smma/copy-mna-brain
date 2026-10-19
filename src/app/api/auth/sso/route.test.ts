@@ -14,7 +14,7 @@ const {
 
 vi.mock('@/auth', () => ({ signIn: signInMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: () => ({
     authService: { signInWithLauncherToken: signInWithLauncherTokenMock },
     workspaceService: {

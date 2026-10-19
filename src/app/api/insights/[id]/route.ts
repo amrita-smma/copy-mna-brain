@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { auth } from '@/auth';
 import { toSummary } from '@/lib/services/insightService';
 import { insightErrorResponse } from '@/app/api/insights/errorResponse';

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
 
 /**

@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import {
   RELATION_TYPES,
   type RelationType,
@@ -56,6 +55,9 @@ export const generateRelationshipGraph = tool(
 
     try {
       const db = createDb();
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyRelationshipService } = createContainer(db, await getActiveWorkspaceId());
 
       const linked: string[] = [];

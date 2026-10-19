@@ -26,7 +26,7 @@ const {
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock, withBackgroundDb: vi.fn(async (cb) => cb(createDbMock())) }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/workforce', () => ({ dispatcherTick: dispatcherTickMock }));
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();

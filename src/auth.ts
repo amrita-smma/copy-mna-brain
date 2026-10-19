@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import { MNA_WORKSPACE_ID } from "@/lib/constants";
 import Credentials from "next-auth/providers/credentials";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
+import { createContainer } from "@/lib/services/container";
 import { authConfig } from "@/auth.config";
 import { captureUserEvent } from "@/lib/posthog-server";
 import type { WorkspaceService } from "@/lib/services/workspaceService";

@@ -3,7 +3,6 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { z } from 'zod';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
 import { CompanyNotFoundError } from '@/lib/services/companyContactDiscoveryService';
 import { logger } from '../../logger';
 import { MAX_COMPANY_CONTACTS } from '../constants';
@@ -80,6 +79,9 @@ export const saveCompanyContacts = tool(
       const workspaceId = await getActiveWorkspaceId();
       const editedBy =
         (runtime?.configurable?.triggered_by_user_id as string | undefined) ?? null;
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import('@/lib/services/container');
       const { companyContactDiscoveryService } = createContainer(db, workspaceId);
       const { employer, createdIds, mergedIds, mergedElsewhere } =
         await companyContactDiscoveryService.saveContacts(

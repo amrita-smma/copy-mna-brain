@@ -13,7 +13,7 @@ vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceIdOrThrow: vi.fn(async () => 'ws-test-1'),
   NoActiveWorkspaceError: class NoActiveWorkspaceError extends Error {},
 }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { POST } from './route';
 import { InsightTemplateNotFoundError } from '@/lib/services/insightTemplateService';

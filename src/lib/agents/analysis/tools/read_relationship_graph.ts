@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import { CompanyRepository } from "@/lib/repositories";
 
 const MAX_COMPANIES = 25;
@@ -48,6 +47,9 @@ export const readRelationshipGraph = tool(
       const db = createDb();
       const workspaceId = await getActiveWorkspaceId();
       const companyRepo = new CompanyRepository(db, workspaceId);
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyGraphService } = createContainer(db, workspaceId);
 
       // Resolve names → companies, deduping repeats and names that collapse to

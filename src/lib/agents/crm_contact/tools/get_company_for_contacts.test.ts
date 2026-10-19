@@ -14,7 +14,7 @@ vi.mock('@/lib/repositories', () => ({
     findByIdOrNull = mocks.findCompany;
   },
 }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({
     companyContactDiscoveryService: { getState: mocks.getState },
   })),

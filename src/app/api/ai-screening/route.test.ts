@@ -12,7 +12,7 @@ const { authMock, createDbMock, createContainerMock, getActiveWorkspaceIdOrThrow
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/agents/analysis', () => ({ getStatelessAgentGraph: vi.fn() }));
 vi.mock('@/lib/workspace', async () => {
   const actual = await vi.importActual<typeof import('@/lib/workspace')>('@/lib/workspace');

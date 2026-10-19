@@ -21,10 +21,7 @@ const {
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
 vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: getActiveWorkspaceIdMock }));
 vi.mock('@/lib/flags', () => ({ corporateActionsEnabled: flagMock }));
-vi.mock('@/lib/services', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/services')>();
-  return { ...actual, createContainer: createContainerMock };
-});
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { DELETE, PUT } from './route';
 

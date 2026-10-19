@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import type { DbClient } from '@/lib/repositories';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 import {
   CannotDeactivateSelfError,
   UserNotFoundError,

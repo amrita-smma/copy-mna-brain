@@ -8,7 +8,7 @@ const { linkByName, createDb, createContainer } = vi.hoisted(() => ({
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 
-vi.mock("@/lib/services", () => ({ createContainer }));
+vi.mock("@/lib/services/container", () => ({ createContainer }));
 
 import { updateCompanyRelationship } from "./update_company_relationship";
 

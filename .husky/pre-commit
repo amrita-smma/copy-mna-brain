@@ -1,1 +1,2 @@
+pnpm --silent run arch:map:check &&
 pnpm --silent run test --silent --reporter=dot

@@ -7,7 +7,7 @@ const { createDbMock, signInWithGoogleTokenMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: () => ({
     authService: { signInWithGoogleToken: signInWithGoogleTokenMock },
   }),

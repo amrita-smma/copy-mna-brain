@@ -10,7 +10,7 @@ const { createDb, createContainer, getActiveWorkspaceId, processCompany, screenC
   }));
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
-vi.mock("@/lib/services", () => ({ createContainer }));
+vi.mock("@/lib/services/container", () => ({ createContainer }));
 vi.mock("@/lib/workspace", () => ({ getActiveWorkspaceId }));
 
 import { runAiScreening } from "./run_ai_screening";

@@ -3,7 +3,6 @@ import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
-import { createContainer } from "@/lib/services";
 import {
   CompanyFinancialRepository,
   CompanyRepository,
@@ -515,6 +514,9 @@ export const updateCompanyDetails = tool(
         return `No changes made to "${label}" (id: ${company.id}) — every value provided already matches what's on record.`;
       }
 
+      // Resolved lazily to keep this tool off the container's static import
+      // cycle (see TECH_DEBT.md "Runtime import cycle").
+      const { createContainer } = await import("@/lib/services/container");
       const { companyService } = createContainer(db, workspaceId);
 
       if (Object.keys(patch).length > 0) {

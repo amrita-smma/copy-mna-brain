@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services/container';
 import type { InsightTemplate } from '@/lib/repositories';
 import { isUuid } from '@/lib/uuid';
 import { fuzzySearch, matchLabel } from './fuzzySearch';
@@ -44,6 +43,9 @@ export const getInsightTemplate = tool(
 
     const workspaceId = await getActiveWorkspaceId();
     const db = createDb();
+    // Resolved lazily to keep this tool off the container's static import
+    // cycle (see TECH_DEBT.md "Runtime import cycle").
+    const { createContainer } = await import('@/lib/services/container');
     const { insightTemplateService } = createContainer(db, workspaceId);
 
     let templates: InsightTemplate[];

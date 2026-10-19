@@ -1,4 +1,9 @@
-export * from './container';
+// `./container` is deliberately NOT re-exported here. The container's import
+// closure is the entire service + agent graph; re-exporting it from the barrel
+// made every barrel consumer (and every test that mocks the barrel) pay for
+// that closure, and it created the module cycle documented in TECH_DEBT.md
+// ("Runtime import cycle"). Import `createContainer` / `Container` from
+// `@/lib/services/container` directly.
 export * from './jobDispatcher';
 export * from './companyService';
 export * from './companyRelationshipService';

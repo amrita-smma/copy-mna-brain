@@ -54,7 +54,7 @@ vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceId: vi.fn(async () => 'ws-1'),
   workspaceSlugFromClaims: vi.fn(() => 'ws-slug'),
 }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 vi.mock('@/lib/services/chatAttachmentService', () => ({
   ChatAttachmentForbiddenError: class extends Error {},
 }));

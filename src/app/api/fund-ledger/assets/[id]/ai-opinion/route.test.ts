@@ -15,19 +15,15 @@ const mockDispatch = vi.fn();
 const mockClear = vi.fn();
 const mockGetOpinion = vi.fn();
 
-vi.mock("@/lib/services", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/services")>();
-  return {
-    ...actual,
-    createContainer: vi.fn().mockReturnValue({
-      fundAiOpinionService: {
-        dispatch: (...args: unknown[]) => mockDispatch(...args),
-        clear: (...args: unknown[]) => mockClear(...args),
-        getOpinion: (...args: unknown[]) => mockGetOpinion(...args),
-      },
-    }),
-  };
-});
+vi.mock("@/lib/services/container", () => ({
+  createContainer: vi.fn().mockReturnValue({
+    fundAiOpinionService: {
+      dispatch: (...args: unknown[]) => mockDispatch(...args),
+      clear: (...args: unknown[]) => mockClear(...args),
+      getOpinion: (...args: unknown[]) => mockGetOpinion(...args),
+    },
+  }),
+}));
 
 describe("API /api/fund-ledger/assets/[id]/ai-opinion", () => {
   beforeEach(() => {

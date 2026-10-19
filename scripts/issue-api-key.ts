@@ -24,7 +24,7 @@ async function main() {
   }
 
   const { createDb } = await import('../src/lib/server/db');
-  const { createContainer } = await import('../src/lib/services');
+  const { createContainer } = await import('../src/lib/services/container');
   const { getActiveWorkspaceId } = await import('../src/lib/workspace');
 
   const scopes = scopesArg

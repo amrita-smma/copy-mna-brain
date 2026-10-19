@@ -36,13 +36,7 @@ vi.mock('@/lib/repositories/userRepository', () => ({
     findByEmail = findByEmailMock;
   },
 }));
-vi.mock('@/lib/services', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/services')>();
-  return {
-    ...actual,
-    createContainer: createContainerMock,
-  };
-});
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { NextRequest } from 'next/server';
 import { GET, PATCH, POST } from './route';

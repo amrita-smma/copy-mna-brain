@@ -188,7 +188,7 @@ Ratchet per-directory rather than flipping the root flag. Enable
 
 ---
 
-## Runtime import cycle spanning 72 modules
+## Runtime import cycle spanning 72 modules — largely resolved
 
 **Area:** `src/lib/services/container.ts`, `src/lib/services/index.ts`,
 `src/lib/jobs/handlers/*`, `src/lib/agents/analysis/tools/*`.
@@ -233,37 +233,46 @@ Read that file's header before touching agent tool lists.
 | agents stop importing the `services` barrel | 55 | 108 |
 | agents stop importing barrel **and** `container` | **18** | **74** |
 
-**Trigger to revisit:** when vitest or the TS language server becomes
-noticeably slow, or at the next change to agent tool registration.
+**Paid down (2026-10-12).** Fixes 1 and 2 below landed:
 
-**Intended fix, in order:**
-1. Have the 18 agent tools resolve the container lazily inside `invoke()`
-   (`await import('@/lib/services/container')`) rather than at module scope.
-2. Stop re-exporting `./container` from `src/lib/services/index.ts`; make routes
-   import `createContainer` from `@/lib/services/container` explicitly.
-3. Prefer direct module imports over the `@/lib/services` barrel in new code.
+- Every agent tool now resolves the container lazily inside its handler
+  (`await import('@/lib/services/container')`); none imports `createContainer`
+  at module scope.
+- `src/lib/services/index.ts` no longer re-exports `./container`; routes (and
+  `src/auth.ts`, server pages, scripts) import `createContainer` from
+  `@/lib/services/container` directly, and tests mock that module instead of
+  the barrel.
+
+Re-measured with the same value-import method: largest SCC **60 → 18**
+(the residual knot is services that import agents that import services, e.g.
+`companyAnalysisService → agents/analysis → tools`), barrel closure
+**424 → 377** modules. `lazyToolList.ts` and its header stay — the residual
+cycle still makes a module-scope `[...tools]` unsafe at Next build time.
+
+**Trigger to revisit (what's left):** at the next change to agent tool
+registration, consider breaking the `services → agents` edges (an injected
+agent-runner boundary) to dissolve the residual 18-module SCC.
+
+**Remaining guidance:** prefer direct module imports over the `@/lib/services`
+barrel in new code.
 
 ---
 
-## `createContainer` eagerly constructs every service on every request
+## `createContainer` eagerly constructs every service on every request — resolved
 
 **Area:** `src/lib/services/container.ts`.
 
-**What it is:**
-`createContainer` is a single 454-line function (in a 659-line file) that news
-up ~74 repositories and all 62 `Container` service keys on every call, for all
-190 routes, regardless of which one the handler uses. It is also the reason the
-barrel's import closure is 414 modules (above).
+**Resolved (2026-10-12).** The intended fix landed as written: every repository
+and service inside `createContainer` is wrapped in a memoizing `lazy(...)`
+thunk and the returned object exposes them through getters, so a service (and
+its dependency chain — including the Neo4j driver, which used to be created on
+every call) is constructed on first property access. The `Container` interface
+is unchanged and no call site moved; `container.test.ts` pins the laziness,
+memoization, enumerable-keys and `fileService` setter-wiring behavior.
 
-**Why we took it:** a flat eager factory is simple to read and trivially
-type-safe; at current traffic the per-request allocation is not the bottleneck.
-
-**Trigger to revisit:** when per-request CPU shows up in profiling, or once the
-import-cycle work above lands (the two are coupled).
-
-**Intended fix:** convert the returned object to lazy getters so a service is
-constructed on first property access. The `Container` interface is unchanged,
-so no call site moves.
+Watch for the one behavioral edge: spreading or iterating a container
+(`{ ...container }`, `Object.values`) constructs everything — identical to the
+old eager cost, but no longer free to do casually.
 
 ---
 

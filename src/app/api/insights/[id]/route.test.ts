@@ -24,7 +24,7 @@ vi.mock('@/lib/workspace', () => ({
   // insightErrorResponse checks this first, so the mock must provide it.
   NoActiveWorkspaceError: class NoActiveWorkspaceError extends Error {},
 }));
-vi.mock('@/lib/services', () => ({ createContainer: createContainerMock }));
+vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
 import { DELETE, PATCH, POST } from './route';
 import {

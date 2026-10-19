@@ -9,7 +9,7 @@ vi.mock('@/lib/workspace', () => ({
   getActiveWorkspaceIdOrThrow: vi.fn(async () => 'ws-test-1'),
   NoActiveWorkspaceError: class NoActiveWorkspaceError extends Error {},
 }));
-vi.mock('@/lib/services', () => ({
+vi.mock('@/lib/services/container', () => ({
   createContainer: vi.fn(() => ({ insightService: { rollback: rollbackMock } })),
 }));
 

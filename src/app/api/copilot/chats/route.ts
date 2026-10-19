@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { createContainer } from '@/lib/services';
+import { createContainer } from '@/lib/services/container';
 
 /** Parse a non-negative integer query param, falling back when absent/garbage. */
 function intParam(value: string | null, fallback: number | undefined) {

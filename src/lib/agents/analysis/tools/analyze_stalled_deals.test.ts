@@ -11,10 +11,7 @@ const { getStalledDeals, listStages, createDb, createContainer, getActiveWorkspa
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
 vi.mock("@/lib/workspace", () => ({ getActiveWorkspaceId }));
-vi.mock("@/lib/services", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/services")>();
-  return { ...actual, createContainer };
-});
+vi.mock("@/lib/services/container", () => ({ createContainer }));
 
 import { analyzeStalledDeals } from "./analyze_stalled_deals";
 
