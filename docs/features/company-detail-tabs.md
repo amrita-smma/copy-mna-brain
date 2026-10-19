@@ -11,7 +11,7 @@ A company is read in two places: the full page `CompanyDetail.tsx`
 | Timeline | Every dated event on the deal, plus all manual entry. |
 | Details | Company Information, contact details ([company-contacts](company-contacts.md)), track variables, AI card, stage history. |
 | Pre-pipeline Filters | AI screening results against each matched track's criteria — run in Pending Confirmation (Scan now, Auto-scan, or a row's Run AI Screening); results stay with the company after it moves to L0. Pipeline's AI Screening tab opens the dialog here. |
-| Voting | The Investment-Committee round. |
+| Voting | The Investment-Committee round, beside a half-width Featured Slide preview (rules in a "How voting works" tooltip). |
 
 The page mirrors its tab in `?tab=`, so each switch is a history entry and Back
 returns to the tab you came from. `resolveTab()` in `CompanyDetail.tsx` also maps
@@ -40,7 +40,9 @@ half so neither pushes the other off screen:
 page and the dialog so the two cannot drift apart. It is a composer above two
 panes: a narrow **vertical rail** of entries, newest at the top, beside a reading
 pane for whichever entry is selected. Everything on the rail is built in the
-browser from data the parents already hold — it adds no request of its own:
+browser from data the parents already hold — the only request it makes is the
+signed preview URL for a selected attachment (through the parent's
+`getDocumentPreviewUrl` / `getMatchedFilePreviewUrl`):
 
 | Entry | Source |
 |---|---|
@@ -53,9 +55,10 @@ browser from data the parents already hold — it adds no request of its own:
 Each rail card shows its kind, its date, and a paperclip or link glyph when the
 entry carries one; the rail renders `PAGE_SIZE` entries and **Load more…**
 extends the window. Selecting a card fills the reading pane: a note's full body,
-a document's processing status, tags, AI insights and preview / download, a
-link's URL, a Smart File's preview / download / open-in-Smart-Files, or a stage
-change's label. **Close** clears the selection and the pane returns to its empty
+a document's processing status, tags and AI insights, a link's URL, a Smart
+File's AI insights and open-in-Smart-Files, or a stage change's label. A
+document or Smart File previews **inline** below that, in a `FilePreview` with
+its Present / Download toolbar — there is no Preview button or preview dialog. **Close** clears the selection and the pane returns to its empty
 state. A selection that scrolls past the window after a refetch extends the
 window rather than disappearing.
 

@@ -5,7 +5,6 @@ import { format, formatDistanceToNow } from 'date-fns';
 import {
   Download,
   ExternalLink,
-  Eye,
   FileText,
   Flag,
   History,
@@ -26,6 +25,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import FilePreview from '@/components/Files/FilePreview';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +62,8 @@ export interface TimelineDocumentItem {
   tags: string[] | null;
   processing_status: string | null;
   is_featured: boolean;
+  /** S3 key — lets the inline preview open the file in the Presentation tab. */
+  file_path?: string;
 }
 
 /** A URL attached to the deal. */
@@ -79,6 +81,10 @@ export interface TimelineFileItem {
   file_name: string;
   file_date: string | null;
   created_at: string;
+  /** S3 key — lets the inline preview open the file in the Presentation tab. */
+  file_link?: string;
+  /** The Smart Files AI extraction, shown behind "Show insights". */
+  structured_notes?: string | null;
 }
 
 /** One stage entry derived from `company_logs`. */
@@ -128,11 +134,13 @@ interface CompanyTimelineProps<D extends TimelineDocumentItem, F extends Timelin
   onEditNote: (id: string, content: string) => Promise<void> | void;
   onDeleteNote: (id: string) => void;
   onDeleteLink: (id: string) => void;
-  onDownloadDocument: (doc: D) => void;
-  onPreviewDocument: (doc: D) => void;
+  onDownloadDocument: (doc: D) => Promise<void> | void;
+  /** Resolves a signed preview URL — the selected attachment previews inline. */
+  getDocumentPreviewUrl: (doc: D) => Promise<string>;
   onDeleteDocument: (doc: D) => void;
-  onDownloadMatchedFile: (file: F) => void;
-  onPreviewMatchedFile: (file: F) => void;
+  onDownloadMatchedFile: (file: F) => Promise<void> | void;
+  /** Resolves a signed preview URL — the selected Smart File previews inline. */
+  getMatchedFilePreviewUrl: (file: F) => Promise<string>;
   onOpenMatchedFile: (file: F) => void;
 
   /** `dialog` tightens the panes for the pipeline company dialog. */
@@ -262,10 +270,10 @@ export function CompanyTimeline<
   onDeleteNote,
   onDeleteLink,
   onDownloadDocument,
-  onPreviewDocument,
+  getDocumentPreviewUrl,
   onDeleteDocument,
   onDownloadMatchedFile,
-  onPreviewMatchedFile,
+  getMatchedFilePreviewUrl,
   onOpenMatchedFile,
   variant = 'page',
 }: CompanyTimelineProps<D, F>) {
@@ -744,9 +752,9 @@ export function CompanyTimeline<
               onSaveEdit={saveEdit}
               onRequestDelete={() => setPendingDelete(selected)}
               onDownloadDocument={onDownloadDocument}
-              onPreviewDocument={onPreviewDocument}
+              getDocumentPreviewUrl={getDocumentPreviewUrl}
               onDownloadMatchedFile={onDownloadMatchedFile}
-              onPreviewMatchedFile={onPreviewMatchedFile}
+              getMatchedFilePreviewUrl={getMatchedFilePreviewUrl}
               onOpenMatchedFile={onOpenMatchedFile}
             />
           ) : (
@@ -811,10 +819,10 @@ interface EventDetailProps<D extends TimelineDocumentItem, F extends TimelineFil
   onCancelEdit: () => void;
   onSaveEdit: () => void;
   onRequestDelete: () => void;
-  onDownloadDocument: (doc: D) => void;
-  onPreviewDocument: (doc: D) => void;
-  onDownloadMatchedFile: (file: F) => void;
-  onPreviewMatchedFile: (file: F) => void;
+  onDownloadDocument: (doc: D) => Promise<void> | void;
+  getDocumentPreviewUrl: (doc: D) => Promise<string>;
+  onDownloadMatchedFile: (file: F) => Promise<void> | void;
+  getMatchedFilePreviewUrl: (file: F) => Promise<string>;
   onOpenMatchedFile: (file: F) => void;
 }
 
@@ -836,9 +844,9 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
   onSaveEdit,
   onRequestDelete,
   onDownloadDocument,
-  onPreviewDocument,
+  getDocumentPreviewUrl,
   onDownloadMatchedFile,
-  onPreviewMatchedFile,
+  getMatchedFilePreviewUrl,
   onOpenMatchedFile,
 }: EventDetailProps<D, F>) {
   const meta = KIND_META[event.kind];
@@ -951,28 +959,27 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
               onToggleExpand={onToggleTags}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onPreviewDocument(event.item)}>
-              <Eye className="h-4 w-4 mr-2" />
-              Preview
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => onDownloadDocument(event.item)}>
-              <Download className="h-4 w-4 mr-2" />
-              Download
-            </Button>
-            {hasDocumentInsights(event.item) && (
+          {hasDocumentInsights(event.item) && (
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={onToggleInsights}>
                 <FileText className="h-4 w-4 mr-2" />
                 {insightsOpen ? 'Hide insights' : 'Show insights'}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
           {insightsOpen && (
             <DocumentInsightsPanel
               structuredNotes={event.item.structured_notes}
               status={event.item.processing_status}
             />
           )}
+          <InlineFilePreview
+            key={event.key}
+            fileName={event.item.file_name}
+            fileKey={event.item.file_path}
+            loadUrl={() => getDocumentPreviewUrl(event.item)}
+            onDownload={() => onDownloadDocument(event.item)}
+          />
         </div>
       )}
 
@@ -988,19 +995,85 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
             Referenced from Smart Files — this file mentions the company.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onPreviewMatchedFile(event.item)}>
-              <Eye className="h-4 w-4 mr-2" />
-              Preview
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => onDownloadMatchedFile(event.item)}>
-              <Download className="h-4 w-4 mr-2" />
-              Download
-            </Button>
+            {event.item.structured_notes && (
+              <Button variant="outline" size="sm" onClick={onToggleInsights}>
+                <FileText className="h-4 w-4 mr-2" />
+                {insightsOpen ? 'Hide insights' : 'Show insights'}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => onOpenMatchedFile(event.item)}>
               <ExternalLink className="h-4 w-4 mr-2" />
               Open in Smart Files
             </Button>
           </div>
+          {insightsOpen && event.item.structured_notes && (
+            <DocumentInsightsPanel structuredNotes={event.item.structured_notes} status="completed" />
+          )}
+          <InlineFilePreview
+            key={event.key}
+            fileName={event.item.file_name}
+            fileKey={event.item.file_link}
+            loadUrl={() => getMatchedFilePreviewUrl(event.item)}
+            onDownload={() => onDownloadMatchedFile(event.item)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The selected attachment, previewed in place (with its Present / Download
+ * toolbar) instead of behind a Preview button. Keyed by the timeline entry, so
+ * selecting another entry remounts it and a slow URL for the previous one can
+ * never land on the new one.
+ */
+function InlineFilePreview({
+  fileName,
+  fileKey,
+  loadUrl,
+  onDownload,
+}: {
+  fileName: string;
+  fileKey?: string;
+  loadUrl: () => Promise<string>;
+  onDownload: () => Promise<void> | void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadUrl()
+      .then((next) => {
+        if (!cancelled) setUrl(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Load once per mount — the parent keys this by entry, and `loadUrl` is a
+    // fresh closure every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="h-[60vh] w-full overflow-hidden rounded-md border bg-card">
+      {url ? (
+        <FilePreview url={url} fileName={fileName} fileKey={fileKey} onDownload={onDownload} />
+      ) : failed ? (
+        <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted text-sm text-muted-foreground">
+          <p>Preview not available</p>
+          <Button variant="outline" size="sm" onClick={() => void onDownload()}>
+            <Download className="h-4 w-4 mr-2" />
+            Download
+          </Button>
+        </div>
+      ) : (
+        <div className="flex h-full items-center justify-center bg-muted">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       )}
     </div>

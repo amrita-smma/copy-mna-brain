@@ -267,7 +267,7 @@ is what guarantees at most one open round per company — two racing "Start Vote
 clicks cannot both win.
 
 **Lifecycle** (all rules enforced in `CompanyVoteService`, and restated for
-users by `VotingRules.tsx`):
+users by the "How voting works" tooltip in `VotingRules.tsx`):
 
 1. **Start.** The initiator multi-selects voters (workspace members only) and
    picks the **date and time** the round closes — a calendar popover plus a time

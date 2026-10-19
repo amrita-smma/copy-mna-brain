@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -27,6 +27,7 @@ import {
   type VoteTabState,
 } from '@/lib/api/votes';
 import BallotPanel from './BallotPanel';
+import FeaturedSlidePanel, { type FeaturedSlideState } from './FeaturedSlidePanel';
 import { browserDraftStorage } from './ballotDraftStore';
 import { clearStartVoteDraft, hasStartVoteDraft } from './startVoteDraftStore';
 import StartVotePanel from './StartVotePanel';
@@ -40,6 +41,11 @@ export interface CompanyVotingTabProps {
   companyId: string;
   /** Compact spacing for the dialog; roomier on the full-page view. */
   variant?: 'page' | 'dialog';
+  /**
+   * The company's Featured Slide, previewed beside the start flow and the
+   * ballot. Supplied by the parent, which already loads it for Overview.
+   */
+  featuredSlide?: FeaturedSlideState;
 }
 
 /**
@@ -53,6 +59,7 @@ export interface CompanyVotingTabProps {
 export default function CompanyVotingTab({
   companyId,
   variant = 'page',
+  featuredSlide,
 }: CompanyVotingTabProps) {
   const [state, setState] = useState<VoteTabState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,6 +226,26 @@ export default function CompanyVotingTab({
     session.status === 'cancelled' ||
     (session.status === 'completed' && (startingNew || resumableWizard));
 
+  // The flow takes the left half; the featured slide the right, so a voter can
+  // read the deal while voting. The rules live in a tooltip above the flow.
+  const withFeaturedSlide = (main: ReactNode) => (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="min-w-0 space-y-3">
+        <div className="flex justify-end">
+          <VotingRules />
+        </div>
+        {main}
+      </div>
+      <FeaturedSlidePanel
+        slide={featuredSlide}
+        className={cn(
+          'lg:sticky lg:top-0 lg:self-start',
+          variant === 'dialog' ? 'h-[65vh]' : 'h-[75vh]',
+        )}
+      />
+    </div>
+  );
+
   const startPanel = (
     <StartVotePanel
       key={companyId}
@@ -261,10 +288,7 @@ export default function CompanyVotingTab({
               </span>
             </div>
           )}
-          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-            <div>{startPanel}</div>
-            <VotingRules />
-          </div>
+          {withFeaturedSlide(startPanel)}
         </>
       ) : session.status === 'completed' ? (
         <VoteResults
@@ -274,7 +298,7 @@ export default function CompanyVotingTab({
         />
       ) : (
         <>
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        {withFeaturedSlide(
           <div className="space-y-5">
             <ActiveRoundHeader
               session={session}
@@ -345,9 +369,8 @@ export default function CompanyVotingTab({
                 </div>
               </div>
             )}
-          </div>
-          <VotingRules />
-        </div>
+          </div>,
+        )}
 
         {/* The initiator watches their own round come in, in the same card the
             whole workspace will see once it closes — full width, outside the

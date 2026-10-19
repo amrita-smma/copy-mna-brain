@@ -72,7 +72,6 @@ import CompanyOverviewSlide, {
   type EditSectionRequest,
 } from "@/components/pipeline/CompanyOverviewSlide";
 import FilePreview from "@/components/Files/FilePreview";
-import FileBody from "@/components/Files/FileBody";
 import { detectFileKind } from "@/lib/fileType";
 import ExistingAttachmentPicker from "@/components/pipeline/ExistingAttachmentPicker";
 import { cn } from "@/lib/utils";
@@ -456,7 +455,6 @@ export default function CompanyDetailDialog({
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const smartFilesHref = useWorkspaceHref("/smart-files");
-  const presentationHref = useWorkspaceHref("/presentation");
   const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const [company, setCompany] = useState<CompanyData>(companyProp);
@@ -779,13 +777,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [newLinkTitle, setNewLinkTitle] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Document preview (deal doc or matched file from files table)
-  const [previewDoc, setPreviewDoc] = useState<DealDocument | null>(null);
-  const [previewMatchedFile, setPreviewMatchedFile] =
-    useState<MatchedFile | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // Featured Slide — a single highlighted PDF/PPTX (e.g. an external company
   // one-pager) shown full-width in its own tab. Backed by the same
@@ -1289,13 +1280,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const openFeaturedSlideInPresentation = () => {
-    if (!featuredDocument) return;
-    const params = new URLSearchParams();
-    params.set("key", featuredDocument.file_path);
-    params.set("name", featuredDocument.file_name);
-    router.push(`${presentationHref}?${params.toString()}`);
-  };
 
   const editNote = async (noteId: string, content: string) => {
     try {
@@ -1360,72 +1344,13 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const handleOpenPreview = async (doc: DealDocument) => {
-    setPreviewDoc(doc);
-    setLoadingPreview(true);
-    setPreviewUrl(null);
-    try {
-      const data = await apiRequest<{ url: string }>(
-        `/api/deal-documents/download-url?id=${encodeURIComponent(doc.id)}&preview=true`,
-      );
-      setPreviewUrl(data.url);
-    } catch (error) {
-      toast.error((error as Error)?.message || "Failed to load preview");
-      setPreviewDoc(null);
-    } finally {
-      setLoadingPreview(false);
-    }
-  };
-
-  const handleClosePreview = () => {
-    setPreviewDoc(null);
-    setPreviewMatchedFile(null);
-    setPreviewUrl(null);
-  };
-
-  // Mirrors the "AI Structured Notes" rendering in the Smart Files view so
-  // the same file's notes read identically whether opened from Smart Files
-  // or from a company's Attachments tab.
-  const renderMatchedFileStructuredNotes = (file: MatchedFile) => {
-    if (!file.structured_notes) {
-      return (
-        <p className="text-sm text-muted-foreground italic p-4">
-          Processing not complete or structure extraction failed.
-        </p>
-      );
-    }
-
-    try {
-      const structured = JSON.parse(file.structured_notes);
-      return (
-        <>
-          <div>
-            <h4 className="font-medium text-primary mb-1">Summary</h4>
-            <p>{structured.summary}</p>
-          </div>
-          <div>
-            <h4 className="font-medium text-primary mb-1">Key Points</h4>
-            <ul className="list-disc pl-4 space-y-1">
-              {structured.key_points?.map((p: string, i: number) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-medium text-primary mb-1">Action Items</h4>
-            <ul className="list-disc pl-4 space-y-1">
-              {structured.action_items?.map((p: string, i: number) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </div>
-        </>
-      );
-    } catch {
-      return (
-        <pre className="text-xs whitespace-pre-wrap">{file.structured_notes}</pre>
-      );
-    }
+  // Signed preview URL for the timeline's inline preview. Errors propagate so
+  // the preview can show its own "not available" state.
+  const getDocumentPreviewUrl = async (doc: DealDocument) => {
+    const data = await apiRequest<{ url: string }>(
+      `/api/deal-documents/download-url?id=${encodeURIComponent(doc.id)}&preview=true`,
+    );
+    return data.url;
   };
 
   const downloadMatchedFile = async (file: MatchedFile) => {
@@ -1444,22 +1369,11 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
   };
 
-  const handleOpenMatchedFilePreview = async (file: MatchedFile) => {
-    setPreviewDoc(null);
-    setPreviewMatchedFile(file);
-    setLoadingPreview(true);
-    setPreviewUrl(null);
-    try {
-      const data = await apiRequest<{ url: string }>(
-        `/api/smart-files/${encodeURIComponent(file.id)}/download-url`,
-      );
-      setPreviewUrl(data.url);
-    } catch (error) {
-      toast.error((error as Error)?.message || "Failed to load preview");
-      setPreviewMatchedFile(null);
-    } finally {
-      setLoadingPreview(false);
-    }
+  const getMatchedFilePreviewUrl = async (file: MatchedFile) => {
+    const data = await apiRequest<{ url: string }>(
+      `/api/smart-files/${encodeURIComponent(file.id)}/download-url`,
+    );
+    return data.url;
   };
 
   const displayName = companyDisplayName(company, "Unknown Company");
@@ -1799,17 +1713,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   onDrop={handleFeaturedSlideDrop}
                 >
                   <div className="flex items-center justify-end gap-1 flex-wrap">
-                    {featuredDocument && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={openFeaturedSlideInPresentation}
-                      >
-                        <Presentation className="h-3.5 w-3.5" />
-                        Present
-                      </Button>
-                    )}
                     {eligibleExistingAttachments.length > 0 && (
                       <ExistingAttachmentPicker
                         documents={eligibleExistingAttachments}
@@ -1862,14 +1765,19 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                           <Loader2 className="h-8 w-8 animate-spin text-primary" />
                         </div>
                       ) : featuredSlideUrl ? (
-                        <FileBody
+                        <FilePreview
                           url={featuredSlideUrl}
                           fileName={featuredDocument.file_name}
+                          fileKey={featuredDocument.file_path}
                           onDownload={() => downloadDocument(featuredDocument)}
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-muted rounded-md border text-sm text-muted-foreground">
-                          Preview not available
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-muted rounded-md border text-sm text-muted-foreground">
+                          <p>Preview not available</p>
+                          <Button variant="outline" size="sm" onClick={() => void downloadDocument(featuredDocument)}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -1933,10 +1841,10 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 onDeleteNote={deleteNote}
                 onDeleteLink={deleteLink}
                 onDownloadDocument={downloadDocument}
-                onPreviewDocument={handleOpenPreview}
+                getDocumentPreviewUrl={getDocumentPreviewUrl}
                 onDeleteDocument={deleteDocument}
                 onDownloadMatchedFile={downloadMatchedFile}
-                onPreviewMatchedFile={handleOpenMatchedFilePreview}
+                getMatchedFilePreviewUrl={getMatchedFilePreviewUrl}
                 onOpenMatchedFile={(file) =>
                   router.push(
                     `${smartFilesHref}?highlight=${encodeURIComponent(file.id)}`,
@@ -2840,78 +2748,22 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
             {/* Voting — Investment-Committee round on this company. */}
             <TabsContent value="voting" className="pb-4">
-              <CompanyVotingTab companyId={company.id} variant="dialog" />
+              <CompanyVotingTab
+                companyId={company.id}
+                variant="dialog"
+                featuredSlide={{
+                  document: featuredDocument,
+                  url: featuredSlideUrl,
+                  loading: loadingFeaturedSlide,
+                  onDownload: async () => {
+                    if (featuredDocument) await downloadDocument(featuredDocument);
+                  },
+                }}
+              />
             </TabsContent>
 
             </div>{/* end scrollable content */}
           </Tabs>
-        </DialogContent>
-      </Dialog>
-
-      {/* Document preview dialog */}
-      <Dialog
-        open={!!(previewDoc || previewMatchedFile)}
-        onOpenChange={(open) => !open && handleClosePreview()}
-      >
-        <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0 overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              <span className="truncate">
-                {previewDoc?.file_name ??
-                  previewMatchedFile?.file_name ??
-                  "Preview"}
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {loadingPreview ? (
-              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : previewUrl && previewMatchedFile ? (
-              // Smart Files carry AI-extracted structured notes — show them
-              // side-by-side with the preview, consistent with Smart Files.
-              <div className="grid md:grid-cols-2 gap-6 h-full min-h-0">
-                <div className="flex flex-col gap-2 min-h-0">
-                  <FilePreview
-                    title={
-                      <>
-                        <FileText className="h-4 w-4" />
-                        File Preview
-                      </>
-                    }
-                    url={previewUrl}
-                    fileName={previewMatchedFile.file_name}
-                    fileKey={previewMatchedFile.file_link}
-                    onDownload={() => downloadMatchedFile(previewMatchedFile)}
-                  />
-                </div>
-                <div className="flex flex-col gap-2 min-h-0">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    AI Structured Notes
-                  </h3>
-                  <ScrollArea className="flex-1 min-h-0 w-full rounded-md border p-4 bg-muted/30">
-                    <div className="space-y-4 text-sm">
-                      {renderMatchedFileStructuredNotes(previewMatchedFile)}
-                    </div>
-                  </ScrollArea>
-                </div>
-              </div>
-            ) : previewUrl && previewDoc ? (
-              <FilePreview
-                url={previewUrl}
-                fileName={previewDoc.file_name}
-                fileKey={previewDoc.file_path}
-                onDownload={() => downloadDocument(previewDoc)}
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
-                Preview not available
-              </div>
-            )}
-          </div>
         </DialogContent>
       </Dialog>
 

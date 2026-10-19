@@ -121,6 +121,30 @@ The backend layers as: **repositories** (`src/lib/repositories/*`, workspace-sco
 
 **Never track a record-scoped dialog's `open` as a boolean separate from the selected record.** Derive it: `{selected && <Dialog key={selected.id} open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }} />}`. A separate boolean leaves the dialog mounted after close, holding the previous record's fetched state, so the next open flashes the previously-viewed record — the "opening a company card blips to the older card" bug. Any open handler that fetches before setting state also needs an `activeRequestIdRef` guard so a slow earlier response can't beat a newer click. Full rule, rationale and review checklist: `.claude/rules/dialog-open-state.md`.
 
+## Company Detail Parity (Dialog ↔ Page)
+
+**`CompanyDetailDialog` (`src/components/pipeline/CompanyDetailDialog.tsx`) and the
+`CompanyDetail` page (`src/views/CompanyDetail.tsx`) must give an identical
+experience.** They are two shells around the same company card: same tabs, same
+order, same components, same behaviour inside each tab. A change to a tab or a
+component in one of them must be made in the other in the same PR. Only
+spacing/density may differ (e.g. the `variant="dialog"` prop).
+
+- Prefer putting tab content in a shared component (`CompanyVotingTab`,
+  `CompanyTimeline`, …) that both shells render, and pass data both already
+  load as props, instead of duplicating JSX in each file.
+- Reviewing a diff: reject one that touches a tab, section, or the
+  handlers/state behind it in only one of the two files.
+
+## File Previews
+
+**Every file preview has a Download button attached to it.** Render previews
+with `FilePreview` (`src/components/Files/FilePreview.tsx`) — its toolbar carries
+Present and Download — and pass `onDownload`. Don't render a bare `FileBody`
+for a preview unless the surrounding toolbar already has a Download button (the
+Presentation page is the one such case). Show the preview inline where the file
+lives (e.g. the selected timeline entry) rather than behind a "Preview" button.
+
 ## Card & Surface Backgrounds
 
 **Never ship a card or panel with a transparent (or partially transparent) background.** Anything that reads as a raised surface — a bordered/rounded container, a panel, a popover, an empty-state box, a summary tile — must paint an opaque background so whatever sits behind it (page background, another card, a sticky header scrolling underneath) cannot show through.

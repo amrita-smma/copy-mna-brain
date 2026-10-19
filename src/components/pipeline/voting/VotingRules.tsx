@@ -1,6 +1,8 @@
 'use client';
 
 import { Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 /**
  * The voting rules, restated for users next to the flow they govern. Kept in
@@ -22,21 +24,35 @@ const RULES: string[] = [
   'When the round ends, the initiator and every voter get a recap email, and the results — with an AI synthesis — become visible to the whole workspace.',
 ];
 
+/** A "How voting works" hint whose tooltip lists the rules. */
 export default function VotingRules({ className }: { className?: string }) {
   return (
-    <div
-      className={`rounded-lg border bg-card p-4 ${className ?? ''}`}
-      data-testid="voting-rules"
-    >
-      <div className="flex items-center gap-2 mb-3">
-        <Info className="h-4 w-4 text-muted-foreground" />
-        <h4 className="text-sm font-semibold">How voting works</h4>
-      </div>
-      <ul className="space-y-2 text-xs leading-relaxed text-muted-foreground list-disc pl-4">
-        {RULES.map((rule) => (
-          <li key={rule}>{rule}</li>
-        ))}
-      </ul>
-    </div>
+    <Tooltip delayDuration={150}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            className,
+          )}
+          data-testid="voting-rules"
+        >
+          <Info className="h-3.5 w-3.5" />
+          How voting works
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="end"
+        className="max-w-md p-4"
+        data-testid="voting-rules-content"
+      >
+        <ul className="list-disc space-y-2 pl-4 text-xs leading-relaxed text-muted-foreground">
+          {RULES.map((rule) => (
+            <li key={rule}>{rule}</li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
   );
 }
