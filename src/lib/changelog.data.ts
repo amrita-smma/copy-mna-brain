@@ -106,6 +106,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "0fb78f74a752160ab4345edd3747ae4228f62ef8",
+    "date": "2026-10-19",
+    "subject": "Pending auto-promote and auto-drop toggles now apply to AI Screening tasks",
+    "category": "improvement"
+  },
+  {
+    "hash": "cf902f0706d3b7835cbcf5937671020348567683",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
