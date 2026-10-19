@@ -76,6 +76,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "ff54924763382a67c5589c4bdb12ad7bb384e38a",
+    "date": "2026-10-19",
+    "subject": "Split Pending Confirmation auto promote / auto drop; scan generates missing Company Card",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e0eca420705a566dc35f66627fa9cef77b914f75",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
