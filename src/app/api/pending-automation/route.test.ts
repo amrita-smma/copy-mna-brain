@@ -36,7 +36,7 @@ import { GET, PUT } from './route';
 import { NoActiveWorkspaceError } from '@/lib/workspace';
 
 const WORKSPACE_ID = 'w1';
-const OFF = { autoScan: false, autoDropPromote: false };
+const OFF = { autoScan: false, autoPromote: false, autoDrop: false };
 
 function makeRequest(body: unknown): never {
   return { json: async () => body } as never;
@@ -76,18 +76,21 @@ describe('GET /api/pending-automation', () => {
 
 describe('PUT /api/pending-automation', () => {
   it('saves the toggles and returns what was stored', async () => {
-    const res = await PUT(makeRequest({ autoScan: true, autoDropPromote: true }));
+    const res = await PUT(makeRequest({ autoScan: true, autoPromote: true, autoDrop: false }));
 
     expect(res.status).toBe(200);
     expect(updatePendingAutomationMock).toHaveBeenCalledWith(WORKSPACE_ID, {
       autoScan: true,
-      autoDropPromote: true,
+      autoPromote: true,
+      autoDrop: false,
     });
-    expect(await res.json()).toEqual({ data: { autoScan: true, autoDropPromote: true } });
+    expect(await res.json()).toEqual({
+      data: { autoScan: true, autoPromote: true, autoDrop: false },
+    });
   });
 
   it('does not queue the companies already waiting when auto-scan is switched on', async () => {
-    const res = await PUT(makeRequest({ autoScan: true, autoDropPromote: false }));
+    const res = await PUT(makeRequest({ autoScan: true, autoPromote: false, autoDrop: false }));
 
     expect(res.status).toBe(200);
     expect(scanNowMock).not.toHaveBeenCalled();

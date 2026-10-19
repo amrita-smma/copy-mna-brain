@@ -19,7 +19,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 159 | `drizzle/migrations/` |
+| Migrations (app) | 160 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags

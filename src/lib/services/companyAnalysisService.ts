@@ -273,6 +273,34 @@ export class CompanyAnalysisService {
   }
 
   /**
+   * Generate the Company Card only when the company has never had a completed
+   * one — the Pending Confirmation scan's "make sure there is a card" step.
+   *
+   * Unlike {@link dispatch} it also skips a company whose card run is already
+   * queued or executing (e.g. the regeneration a stage move into Pending
+   * Confirmation just enqueued), so a scan never stacks a duplicate run.
+   */
+  async generateIfMissing(
+    companyId: string,
+    opts?: { source?: string | null; triggeredByUserId?: string | null },
+  ): Promise<
+    { status: 'exists' } | { status: 'already_running' } | { status: 'queued'; runId: string }
+  > {
+    const existing = await this.companyAnalysisRepo.findCompletedByCompanyId(companyId);
+    if (existing) return { status: 'exists' };
+
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
+    const active = await queueRepo.findActiveByCompanyId(COMPANY_CARD_AGENT_NAME, companyId);
+    if (active) return { status: 'already_running' };
+
+    const { runId } = await this.enqueueCardRun(companyId, {
+      source: opts?.source ?? null,
+      triggeredByUserId: opts?.triggeredByUserId ?? null,
+    });
+    return { status: 'queued', runId };
+  }
+
+  /**
    * Cancel an in-flight Company Card generation for a company.
    *
    * Finds the non-terminal AI Workforce run for this company (matched on

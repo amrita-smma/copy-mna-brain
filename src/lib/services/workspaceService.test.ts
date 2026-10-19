@@ -822,49 +822,76 @@ describe('WorkspaceService.getAccessibleWorkspacesForUser (soft-deleted workspac
 });
 
 describe('WorkspaceService.getPendingAutomation', () => {
-  it('reads both toggles off the workspace row', async () => {
+  it('reads the three toggles off the workspace row', async () => {
     const repos = makeRepoStubs();
     (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'w1',
       pending_auto_scan: true,
+      pending_auto_promote: true,
+      pending_auto_drop: false,
+      // The retired combined column is ignored.
       pending_auto_drop_promote: true,
     });
     const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
 
     await expect(service.getPendingAutomation('w1')).resolves.toEqual({
       autoScan: true,
-      autoDropPromote: true,
+      autoPromote: true,
+      autoDrop: false,
     });
   });
 
-  it('defaults both off for an unknown workspace', async () => {
+  it('defaults every toggle off for an unknown workspace', async () => {
     const repos = makeRepoStubs();
     (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
     const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
 
     await expect(service.getPendingAutomation('w1')).resolves.toEqual({
       autoScan: false,
-      autoDropPromote: false,
+      autoPromote: false,
+      autoDrop: false,
     });
   });
 });
 
 describe('WorkspaceService.updatePendingAutomation', () => {
-  it('never stores auto drop/promote on without auto-scan', async () => {
+  it('never stores auto promote or auto drop on without auto-scan', async () => {
     const repos = makeRepoStubs();
     (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'w1',
       pending_auto_scan: false,
-      pending_auto_drop_promote: false,
+      pending_auto_promote: false,
+      pending_auto_drop: false,
     });
     const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
 
     await expect(
-      service.updatePendingAutomation('w1', { autoScan: false, autoDropPromote: true }),
-    ).resolves.toEqual({ autoScan: false, autoDropPromote: false });
+      service.updatePendingAutomation('w1', { autoScan: false, autoPromote: true, autoDrop: true }),
+    ).resolves.toEqual({ autoScan: false, autoPromote: false, autoDrop: false });
     expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
       pending_auto_scan: false,
-      pending_auto_drop_promote: false,
+      pending_auto_promote: false,
+      pending_auto_drop: false,
+    });
+  });
+
+  it('stores auto promote and auto drop independently', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pending_auto_scan: true,
+      pending_auto_promote: true,
+      pending_auto_drop: false,
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    await expect(
+      service.updatePendingAutomation('w1', { autoScan: true, autoPromote: true, autoDrop: false }),
+    ).resolves.toEqual({ autoScan: true, autoPromote: true, autoDrop: false });
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
+      pending_auto_scan: true,
+      pending_auto_promote: true,
+      pending_auto_drop: false,
     });
   });
 
@@ -874,7 +901,7 @@ describe('WorkspaceService.updatePendingAutomation', () => {
     const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
 
     await expect(
-      service.updatePendingAutomation('w1', { autoScan: true, autoDropPromote: true }),
+      service.updatePendingAutomation('w1', { autoScan: true, autoPromote: true, autoDrop: true }),
     ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
   });
 });

@@ -375,6 +375,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     companyService,
     aiScreeningService,
     trackMatchingService,
+    companyAnalysisService,
   );
   // Setters, not constructor args: PendingAutoScanService depends on both.
   companyService.setPendingArrivalHandler((companyIds, triggeredByUserId) =>

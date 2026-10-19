@@ -27,8 +27,9 @@ export const AI_SCREENING_AGENT_NAME = 'ai_screening';
 
 /**
  * - `pending_scan` — the Pending Confirmation auto-scan (Scan now / Auto-scan):
- *   match tracks when none are matched, screen, then auto drop/promote when
- *   the workspace has it on (`PendingAutoScanService.processCompany`).
+ *   queue the Company Card when none exists, match tracks when none are matched,
+ *   screen, then auto promote / auto drop per the workspace toggles
+ *   (`PendingAutoScanService.processCompany`).
  * - `tracks` — screen against the company's matched tracks only, no stage
  *   change (Smart Files' fallback for companies outside Pending Confirmation).
  */
@@ -334,9 +335,10 @@ export class AIScreeningService {
     const name = displayName(company);
     const scope =
       opts.mode === 'pending_scan'
-        ? 'It matches the company to tracks if it has none, screens it against each matched ' +
-          "track's criteria, and — when the workspace has auto drop/promote on — promotes it to L0 " +
-          'on a pass or drops it on a fail.'
+        ? 'It queues the Company Card if the company has none, matches the company to tracks if ' +
+          "it has none, screens it against each matched track's criteria, and promotes it to L0 on " +
+          'a pass (when the workspace has auto promote on) or drops it on a fail (when it has auto ' +
+          'drop on).'
         : "It screens the company against each matched track's criteria. It does not move the deal.";
     const instruction =
       `Run AI screening for "${name}" (company_id: ${company.id}). ` +

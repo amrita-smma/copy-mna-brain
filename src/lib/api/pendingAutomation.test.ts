@@ -17,10 +17,10 @@ describe('pending automation client', () => {
   });
 
   it('saves both toggles in one PUT', async () => {
-    await savePendingAutomation({ autoScan: true, autoDropPromote: false });
+    await savePendingAutomation({ autoScan: true, autoPromote: false, autoDrop: true });
     expect(apiRequestMock).toHaveBeenCalledWith('/api/pending-automation', {
       method: 'PUT',
-      body: JSON.stringify({ autoScan: true, autoDropPromote: false }),
+      body: JSON.stringify({ autoScan: true, autoPromote: false, autoDrop: true }),
     });
   });
 

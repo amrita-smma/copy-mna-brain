@@ -127,6 +127,54 @@ describe('CompanyAnalysisService.dispatch', () => {
   });
 });
 
+describe('CompanyAnalysisService.generateIfMissing', () => {
+  let service: CompanyAnalysisService;
+
+  beforeEach(() => {
+    findCompletedByCompanyId.mockReset();
+    findById.mockReset().mockResolvedValue({ id: 'company-1', target: 'Acme Corp' });
+    findActiveByCompanyId.mockReset().mockResolvedValue(null);
+    enqueueAgentRun.mockReset();
+    service = makeService();
+  });
+
+  it('does nothing when a completed card already exists', async () => {
+    findCompletedByCompanyId.mockResolvedValue(makeAnalysis({ status: 'completed' }));
+
+    await expect(service.generateIfMissing('company-1')).resolves.toEqual({ status: 'exists' });
+    expect(findActiveByCompanyId).not.toHaveBeenCalled();
+    expect(enqueueAgentRun).not.toHaveBeenCalled();
+  });
+
+  it('does not stack a run on one already in flight', async () => {
+    findCompletedByCompanyId.mockResolvedValue(null);
+    findActiveByCompanyId.mockResolvedValue({ id: 'queue-1', status: 'running' });
+
+    await expect(service.generateIfMissing('company-1')).resolves.toEqual({
+      status: 'already_running',
+    });
+    expect(findActiveByCompanyId).toHaveBeenCalledWith(COMPANY_CARD_AGENT_NAME, 'company-1');
+    expect(enqueueAgentRun).not.toHaveBeenCalled();
+  });
+
+  it('queues a first-time card run owned by the given user', async () => {
+    findCompletedByCompanyId.mockResolvedValue(null);
+    enqueueAgentRun.mockResolvedValue({ runId: 'run-1', created: true });
+
+    await expect(
+      service.generateIfMissing('company-1', { source: 'pending_scan', triggeredByUserId: 'user-7' }),
+    ).resolves.toEqual({ status: 'queued', runId: 'run-1' });
+    const [, input] = enqueueAgentRun.mock.calls[0];
+    expect(input).toMatchObject({
+      agentName: COMPANY_CARD_AGENT_NAME,
+      triggerMeta: { company_id: 'company-1', source: 'pending_scan', reason: null },
+      triggeredByUserId: 'user-7',
+    });
+    // A first generation, not a refresh.
+    expect(input.input.prompt).not.toMatch(/REGENERATION/);
+  });
+});
+
 describe('CompanyAnalysisService.regenerate', () => {
   let service: CompanyAnalysisService;
 

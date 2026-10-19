@@ -12,8 +12,9 @@ import { createContainer } from "@/lib/services";
  * `screenings` row, which the Pipeline's AI Screening tab reads.
  *
  * - `pending_scan` — the Pending Confirmation auto-scan: match tracks when
- *   none are matched, screen, then auto drop/promote when the workspace has
- *   it on (`PendingAutoScanService.processCompany`).
+ *   none are matched, screen, then auto promote / auto drop per the
+ *   workspace's toggles (`PendingAutoScanService.processCompany`). Also
+ *   queues the Company Card when the company has none.
  * - `tracks` — screen the matched tracks only; never moves the deal.
  */
 export const runAiScreening = tool(
@@ -78,7 +79,7 @@ export const runAiScreening = tool(
 
 Args:
     company_id: The company's UUID. Required.
-    mode: "pending_scan" for a Pending Confirmation company — matches it to tracks if it has none, screens it, then promotes it to L0 on a pass or drops it on a fail when the workspace has auto drop/promote on. "tracks" screens the company's matched tracks only and never moves the deal.
+    mode: "pending_scan" for a Pending Confirmation company — queues its Company Card if it has none, matches it to tracks if it has none, screens it, then promotes it to L0 on a pass (when the workspace has auto promote on) or drops it on a fail (when it has auto drop on). "tracks" screens the company's matched tracks only and never moves the deal.
     force: true re-screens criteria that already have a result; false screens only the ones without one.
 
 Returns:

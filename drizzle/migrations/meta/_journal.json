@@ -1114,6 +1114,13 @@
       "when": 1792108801000,
       "tag": "20261016000001_link_company_crm_employer",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1792368000000,
+      "tag": "20261019000000_split_pending_auto_drop_promote",
+      "breakpoints": true
     }
   ]
 }

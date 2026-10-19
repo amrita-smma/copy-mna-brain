@@ -33,8 +33,8 @@ const queuedMessage = (queued: number, alreadyQueued: number) =>
 
 /**
  * Pending Confirmation automation (Sourcing's Pending tab and Pipeline's
- * Pending Confirmation chip): the workspace's Auto-scan and Auto
- * drop/promote toggles, and a Scan now button that re-screens every company
+ * Pending Confirmation chip): the workspace's Auto-scan, Auto promote and
+ * Auto drop toggles, and a Scan now button that re-screens every company
  * waiting in the bucket.
  */
 export default function PendingAutomationToggles({
@@ -71,7 +71,11 @@ export default function PendingAutomationToggles({
     setSaving(true);
     try {
       const saved = await savePendingAutomation(normalized);
-      setSettings({ autoScan: saved.autoScan, autoDropPromote: saved.autoDropPromote });
+      setSettings({
+        autoScan: saved.autoScan,
+        autoPromote: saved.autoPromote,
+        autoDrop: saved.autoDrop,
+      });
     } catch (err) {
       console.error("Failed to save pending automation:", err);
       setSettings(previous);
@@ -123,19 +127,37 @@ export default function PendingAutomationToggles({
         className="flex items-center gap-2 text-sm font-medium"
         title={
           settings.autoScan
-            ? "After a scan: promote to L0 when screening passes, drop when it fails"
+            ? "After a scan: promote to L0 when screening passes"
             : "Turn on Auto-scan first"
         }
       >
         <Switch
-          data-testid={`${testIdPrefix}-auto-drop-promote-toggle`}
-          checked={settings.autoDropPromote}
+          data-testid={`${testIdPrefix}-auto-promote-toggle`}
+          checked={settings.autoPromote}
           disabled={disabled || !settings.autoScan}
           onCheckedChange={(checked) =>
-            save({ ...settings, autoDropPromote: checked })
+            save({ ...settings, autoPromote: checked })
           }
         />
-        Auto drop / promote
+        Auto promote
+      </label>
+      <label
+        className="flex items-center gap-2 text-sm font-medium"
+        title={
+          settings.autoScan
+            ? "After a scan: drop when screening fails"
+            : "Turn on Auto-scan first"
+        }
+      >
+        <Switch
+          data-testid={`${testIdPrefix}-auto-drop-toggle`}
+          checked={settings.autoDrop}
+          disabled={disabled || !settings.autoScan}
+          onCheckedChange={(checked) =>
+            save({ ...settings, autoDrop: checked })
+          }
+        />
+        Auto drop
       </label>
       <Button
         type="button"
@@ -145,7 +167,7 @@ export default function PendingAutomationToggles({
         className="gap-2"
         disabled={scanning || pendingCount === 0}
         onClick={handleScanNow}
-        title="Match and AI-screen every company in Pending Confirmation now"
+        title="Match and AI-screen every company in Pending Confirmation now, generating any missing Company Card"
       >
         {scanning ? (
           <Loader2 className="h-4 w-4 animate-spin" />

@@ -1,18 +1,27 @@
-# Pending Confirmation auto-scan, auto drop/promote, and Scan now
+# Pending Confirmation auto-scan, auto promote / auto drop, and Scan now
 
 The Pending Confirmation bucket (companies at `pipeline_stage = 'unreviewed'`)
-carries two workspace-wide toggles and a button (`PendingAutomationToggles`), in
+carries three workspace-wide toggles and a button (`PendingAutomationToggles`), in
 two places: the Pending Confirmation card on Sourcing (`/sourcing`), and a bar
 above the table on Pipeline while its Pending Confirmation chip is active:
 
 | Control | Effect |
 |---|---|
 | **Auto-scan** | A company entering Pending Confirmation is matched to tracks (investment theses) and AI-screened against each matched track's criteria. Only companies that arrive after it is switched on — the ones already waiting are left alone (use Scan now for those). |
-| **Auto drop / promote** | After a scan: an overall **pass** promotes the company to L0, a **fail** drops it. **Inconclusive** (or no matched track with criteria) leaves it pending for a human. Requires Auto-scan. |
-| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto drop/promote still applies afterwards when it is on. |
+| **Auto promote** | After a scan: an overall **pass** promotes the company to L0. Off → a pass is left pending. Requires Auto-scan. |
+| **Auto drop** | After a scan: an overall **fail** drops the company. Off → a fail is left pending. Requires Auto-scan. |
+| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto promote / auto drop still apply afterwards when they are on. |
 
-Settings live on `workspaces.pending_auto_scan` / `pending_auto_drop_promote`
-(`GET/PUT /api/pending-automation`). Scan now is `POST /api/pending-automation/scan`.
+**Inconclusive** (or no matched track with criteria) always leaves the company
+pending for a human. Every scan also makes sure the company has a **Company
+Card**: one that has never had a completed card gets a generation queued (see
+step 2 below).
+
+Settings live on `workspaces.pending_auto_scan` / `pending_auto_promote` /
+`pending_auto_drop` (`GET/PUT /api/pending-automation`, body
+`{ autoScan, autoPromote, autoDrop }`). `pending_auto_drop_promote` is the
+retired combined toggle — both new columns were backfilled from it, and it is no
+longer read. Scan now is `POST /api/pending-automation/scan`.
 
 ## AI screening runs on the AI Workforce
 
@@ -45,11 +54,15 @@ tab reads.
    other Workforce tasks. The task's instruction tells the agent to call the
    `run_ai_screening` tool once with `mode`:
    - `pending_scan` → `PendingAutoScanService.processCompany`: skip unless
-     still active in Pending Confirmation; match tracks inline when nothing is
+     still active in Pending Confirmation; queue the Company Card when the
+     company has no completed card and no card run in flight
+     (`CompanyAnalysisService.generateIfMissing` — a separate `company_card`
+     Workforce task, best-effort, never blocks the scan); match tracks inline when nothing is
      matched; screen; compute the verdict over the current matched tracks'
-     current criteria (`companyScreeningVerdict`); re-read the toggle and
+     current criteria (`companyScreeningVerdict`); re-read the toggles and
      re-check the company is still pending; then `promote(…, 'unreviewed',
-     'L0', …)` or `dropDeal(…, 'unreviewed', …)`. A promote blocked by missing
+     'L0', …)` on a pass when Auto promote is on, or `dropDeal(…,
+     'unreviewed', …)` on a fail when Auto drop is on. A promote blocked by missing
      L0 fields leaves the company pending. A blank **Entered By** does not
      block it: the promote defaults it to the task's user
      (`triggered_by_user_id`) — whoever pressed Scan now / Run AI Screening,

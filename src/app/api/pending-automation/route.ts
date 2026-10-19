@@ -15,7 +15,7 @@ import { WorkspaceNotFoundError } from '@/lib/services/workspaceService';
 
 /**
  * Sourcing → Pending Confirmation automation toggles (auto-scan, auto
- * drop/promote). A workspace-wide setting any member can change.
+ * promote, auto drop). A workspace-wide setting any member can change.
  *
  * GET → the current toggles for the active workspace.
  * PUT → save them. Auto-scan only applies to companies that enter Pending

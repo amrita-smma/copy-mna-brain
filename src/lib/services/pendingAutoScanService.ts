@@ -6,6 +6,7 @@ import {
   type ScreeningVerdict,
 } from '@/lib/screening/verdict';
 import type { AIScreeningService } from './aiScreeningService';
+import type { CompanyAnalysisService } from './companyAnalysisService';
 import { CompanyL0RequirementsError, type CompanyService } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 import type { WorkspaceService } from './workspaceService';
@@ -15,7 +16,7 @@ export type PendingAutoScanOutcome =
   | 'skipped'
   /** No matched track has screening criteria, so there was nothing to screen. */
   | 'no_screenable_tracks'
-  /** Screened; auto drop/promote is off or the verdict was inconclusive. */
+  /** Screened; the verdict was inconclusive, or the matching auto promote / auto drop toggle is off. */
   | 'scanned'
   | 'promoted'
   | 'dropped'
@@ -43,10 +44,11 @@ const isActivePending = (c: Company | null): c is Company =>
  * Every scan is an `ai_screening` AI Workforce task, one per company
  * (`AIScreeningService.enqueue`), so it shows up — and can be followed,
  * retried or cancelled — in AI Workforce. The task's `run_ai_screening` tool
- * calls {@link processCompany}: match the company to tracks (when it has
- * none), screen it against each matched track's criteria, then — when the
- * workspace has auto drop/promote on — promote it to L0 on an overall `pass`
- * or drop it on a `fail`.
+ * calls {@link processCompany}: queue its Company Card when it has none, match
+ * the company to tracks (when it has none), screen it against each matched
+ * track's criteria, then promote it to L0 on an overall `pass` (when the
+ * workspace has auto promote on) or drop it on a `fail` (when it has auto drop
+ * on).
  */
 export class PendingAutoScanService {
   constructor(
@@ -57,6 +59,7 @@ export class PendingAutoScanService {
     private readonly companyService: CompanyService,
     private readonly aiScreeningService: AIScreeningService,
     private readonly trackMatchingService: TrackMatchingService,
+    private readonly companyAnalysisService: CompanyAnalysisService,
   ) {}
 
   /**
@@ -113,8 +116,8 @@ export class PendingAutoScanService {
   }
 
   /**
-   * Match → screen → (optionally) drop/promote one company. Runs inside its AI
-   * Workforce task. `triggeredByUserId` is the task's user — who pressed Scan
+   * Card → match → screen → (optionally) drop/promote one company. Runs inside
+   * its AI Workforce task. `triggeredByUserId` is the task's user — who pressed Scan
    * now / Run AI Screening, or who moved the company into Pending Confirmation
    * — and fills a blank Entered By on auto-promote, exactly as a manual
    * promote by that user would.
@@ -135,6 +138,11 @@ export class PendingAutoScanService {
       steps.push('Skipped: no longer an active Pending Confirmation company');
       return done({ outcome: 'skipped' });
     }
+
+    // 0. Company Card — a company that never had one gets it queued as its own
+    //    AI Workforce task, so the scan leaves the row fully worked up.
+    //    Best-effort: a failed enqueue must not cost the screening.
+    await this.ensureCompanyCard(companyId, opts.triggeredByUserId ?? null, steps);
 
     // 1. Match — only when nothing is matched yet (a Smart Files row arrives
     //    with the extraction agent's suggested tracks already persisted).
@@ -165,14 +173,20 @@ export class PendingAutoScanService {
     const verdict = companyScreeningVerdict(rows);
     steps.push(`Verdict: ${verdict}`);
 
-    // 4. Drop / promote — the setting is re-read now, since a scan takes minutes.
-    const { autoDropPromote } = await this.workspaceService.getPendingAutomation(
+    // 4. Drop / promote — the settings are re-read now, since a scan takes minutes.
+    if (verdict !== 'pass' && verdict !== 'fail') {
+      steps.push('Inconclusive; left pending');
+      return done({ outcome: 'scanned', verdict, screened });
+    }
+    const { autoPromote, autoDrop } = await this.workspaceService.getPendingAutomation(
       this.workspaceId,
     );
-    if (!autoDropPromote || (verdict !== 'pass' && verdict !== 'fail')) {
-      steps.push(
-        autoDropPromote ? 'Inconclusive; left pending' : 'Auto drop / promote is off; left pending',
-      );
+    if (verdict === 'pass' && !autoPromote) {
+      steps.push('Passed; auto promote is off, left pending');
+      return done({ outcome: 'scanned', verdict, screened });
+    }
+    if (verdict === 'fail' && !autoDrop) {
+      steps.push('Failed; auto drop is off, left pending');
       return done({ outcome: 'scanned', verdict, screened });
     }
 
@@ -219,5 +233,28 @@ export class PendingAutoScanService {
     );
     steps.push('Dropped');
     return done({ outcome: 'dropped', verdict, screened });
+  }
+
+  /**
+   * Queue the Company Card for a company that has never had one generated.
+   * Leaves an existing card alone (a stage move already refreshes those) and
+   * doesn't stack a second run on one already in flight.
+   */
+  private async ensureCompanyCard(
+    companyId: string,
+    triggeredByUserId: string | null,
+    steps: string[],
+  ): Promise<void> {
+    try {
+      const result = await this.companyAnalysisService.generateIfMissing(companyId, {
+        source: 'pending_scan',
+        triggeredByUserId,
+      });
+      if (result.status === 'queued') steps.push('Company Card was missing; queued its generation');
+      else if (result.status === 'already_running') steps.push('Company Card generation already in progress');
+    } catch (err) {
+      console.error('Error queueing company card during pending scan:', err);
+      steps.push(`Could not queue Company Card generation: ${(err as Error).message}`);
+    }
   }
 }

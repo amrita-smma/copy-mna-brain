@@ -6,33 +6,39 @@ import {
 } from './pendingAutomation';
 
 describe('normalizePendingAutomation', () => {
-  it('turns auto drop/promote off when auto-scan is off', () => {
-    expect(normalizePendingAutomation({ autoScan: false, autoDropPromote: true })).toEqual({
-      autoScan: false,
-      autoDropPromote: false,
-    });
+  it('turns auto promote and auto drop off when auto-scan is off', () => {
+    expect(
+      normalizePendingAutomation({ autoScan: false, autoPromote: true, autoDrop: true }),
+    ).toEqual({ autoScan: false, autoPromote: false, autoDrop: false });
   });
 
-  it('keeps both on together', () => {
-    expect(normalizePendingAutomation({ autoScan: true, autoDropPromote: true })).toEqual({
-      autoScan: true,
-      autoDropPromote: true,
-    });
+  it('keeps auto promote and auto drop independent while auto-scan is on', () => {
+    expect(
+      normalizePendingAutomation({ autoScan: true, autoPromote: true, autoDrop: false }),
+    ).toEqual({ autoScan: true, autoPromote: true, autoDrop: false });
+    expect(
+      normalizePendingAutomation({ autoScan: true, autoPromote: false, autoDrop: true }),
+    ).toEqual({ autoScan: true, autoPromote: false, autoDrop: true });
   });
 });
 
 describe('parsePendingAutomationInput', () => {
-  it('accepts two booleans and normalizes them', () => {
-    expect(parsePendingAutomationInput({ autoScan: false, autoDropPromote: true })).toEqual({
-      autoScan: false,
-      autoDropPromote: false,
-    });
+  it('accepts three booleans and normalizes them', () => {
+    expect(
+      parsePendingAutomationInput({ autoScan: false, autoPromote: true, autoDrop: true }),
+    ).toEqual({ autoScan: false, autoPromote: false, autoDrop: false });
   });
 
-  it.each([null, 'x', {}, { autoScan: 'yes', autoDropPromote: false }, { autoScan: true }])(
-    'rejects %j',
-    (body) => {
-      expect(() => parsePendingAutomationInput(body)).toThrow(InvalidPendingAutomationError);
-    },
-  );
+  it.each([
+    null,
+    'x',
+    {},
+    { autoScan: 'yes', autoPromote: false, autoDrop: false },
+    { autoScan: true },
+    // The retired combined field is not accepted in place of the split ones.
+    { autoScan: true, autoDropPromote: true },
+    { autoScan: true, autoPromote: true },
+  ])('rejects %j', (body) => {
+    expect(() => parsePendingAutomationInput(body)).toThrow(InvalidPendingAutomationError);
+  });
 });

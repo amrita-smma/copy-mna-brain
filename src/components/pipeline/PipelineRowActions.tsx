@@ -189,7 +189,7 @@ export function screeningMoveItem(screening: RowScreening): PipelineMoveItem {
         iconClassName: "text-blue-600",
         onSelect: screening.onRun,
         title:
-          "Same as Scan now for this company: match tracks, AI-screen, then auto drop or promote to L0 when your workspace has that enabled",
+          "Same as Scan now for this company: generate the Company Card if missing, match tracks, AI-screen, then auto promote to L0 / auto drop when your workspace has those enabled",
         separatorBefore: true,
       };
 }

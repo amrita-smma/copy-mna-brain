@@ -8,8 +8,8 @@ import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/works
  * Sourcing → Pending Confirmation "Scan now": queue an AI screening task on
  * the AI Workforce for every active company in Pending Confirmation — a fresh
  * match + screen, re-running criteria that already have a result — whatever
- * the auto-scan toggle says. Auto drop/promote still applies afterwards when
- * it is on. Companies already queued or scanning are skipped.
+ * the auto-scan toggle says. Auto promote / auto drop still apply afterwards
+ * when they are on. Companies already queued or scanning are skipped.
  *
  * POST → 202 `{ data: { queued, alreadyQueued } }`.
  */

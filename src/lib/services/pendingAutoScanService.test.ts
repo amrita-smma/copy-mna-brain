@@ -42,6 +42,9 @@ function build() {
     screenMatchedTracks: vi.fn().mockResolvedValue({ groups: GROUPS, screened: 3, tracks: TRACKS }),
   };
   const trackMatchingService = { runSync: vi.fn() };
+  const companyAnalysisService = {
+    generateIfMissing: vi.fn().mockResolvedValue({ status: 'exists' }),
+  };
 
   const service = new PendingAutoScanService(
     WS,
@@ -51,6 +54,7 @@ function build() {
     companyService as never,
     aiScreeningService as never,
     trackMatchingService as never,
+    companyAnalysisService as never,
   );
   return {
     service,
@@ -60,6 +64,7 @@ function build() {
     companyService,
     aiScreeningService,
     trackMatchingService,
+    companyAnalysisService,
   };
 }
 
@@ -71,7 +76,8 @@ beforeEach(() => {
   t.companyRepo.findById.mockResolvedValue(pendingCompany());
   t.workspaceService.getPendingAutomation.mockResolvedValue({
     autoScan: true,
-    autoDropPromote: true,
+    autoPromote: true,
+    autoDrop: true,
   });
 });
 
@@ -79,7 +85,8 @@ describe('PendingAutoScanService.onCompanyEnteredPending', () => {
   it('does nothing when auto-scan is off', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({
       autoScan: false,
-      autoDropPromote: false,
+      autoPromote: false,
+      autoDrop: false,
     });
 
     await expect(t.service.onCompanyEnteredPending(COMPANY_ID)).resolves.toBe(false);
@@ -120,7 +127,8 @@ describe('PendingAutoScanService.onCompaniesEnteredPending', () => {
   it('queues nothing when auto-scan is off', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({
       autoScan: false,
-      autoDropPromote: false,
+      autoPromote: false,
+      autoDrop: false,
     });
 
     await expect(t.service.onCompaniesEnteredPending(['a'])).resolves.toBe(0);
@@ -132,7 +140,8 @@ describe('PendingAutoScanService.scanNow', () => {
   it('queues a forced scan task per active pending company, ignoring the auto-scan toggle', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({
       autoScan: false,
-      autoDropPromote: false,
+      autoPromote: false,
+      autoDrop: false,
     });
     t.companyRepo.findActiveIdsByStage.mockResolvedValue(['c1', 'c2', 'c3']);
     t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['c1', 'c3'], alreadyQueued: ['c2'] });
@@ -246,10 +255,11 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(t.companyService.dropDeal).not.toHaveBeenCalled();
   });
 
-  it('only scans when auto drop/promote is off', async () => {
+  it('leaves a failing company pending when auto drop is off, even with auto promote on', async () => {
     t.workspaceService.getPendingAutomation.mockResolvedValue({
       autoScan: true,
-      autoDropPromote: false,
+      autoPromote: true,
+      autoDrop: false,
     });
     t.screeningRepo.findByCompanyIds.mockResolvedValue([
       screening('k1', 'fail'),
@@ -260,7 +270,113 @@ describe('PendingAutoScanService.processCompany', () => {
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
     expect(result).toMatchObject({ outcome: 'scanned', verdict: 'fail' });
+    expect(result.steps).toContain('Failed; auto drop is off, left pending');
     expect(t.companyService.dropDeal).not.toHaveBeenCalled();
+  });
+
+  it('leaves a passing company pending when auto promote is off, even with auto drop on', async () => {
+    t.workspaceService.getPendingAutomation.mockResolvedValue({
+      autoScan: true,
+      autoPromote: false,
+      autoDrop: true,
+    });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result).toMatchObject({ outcome: 'scanned', verdict: 'pass' });
+    expect(result.steps).toContain('Passed; auto promote is off, left pending');
+    expect(t.companyService.promote).not.toHaveBeenCalled();
+  });
+
+  it('drops a failing company with only auto drop on', async () => {
+    t.workspaceService.getPendingAutomation.mockResolvedValue({
+      autoScan: true,
+      autoPromote: false,
+      autoDrop: true,
+    });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'fail'),
+      screening('k2', 'fail'),
+      screening('k3', 'fail'),
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.outcome).toBe('dropped');
+    expect(t.companyService.dropDeal).toHaveBeenCalled();
+  });
+
+  it('promotes a passing company with only auto promote on', async () => {
+    t.workspaceService.getPendingAutomation.mockResolvedValue({
+      autoScan: true,
+      autoPromote: true,
+      autoDrop: false,
+    });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.outcome).toBe('promoted');
+    expect(t.companyService.promote).toHaveBeenCalled();
+  });
+
+  it('queues the Company Card for a company that has none, as the task user', async () => {
+    t.companyAnalysisService.generateIfMissing.mockResolvedValue({ status: 'queued', runId: 'run-1' });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    const result = await t.service.processCompany(COMPANY_ID, {
+      force: true,
+      triggeredByUserId: 'user-7',
+    });
+
+    expect(t.companyAnalysisService.generateIfMissing).toHaveBeenCalledWith(COMPANY_ID, {
+      source: 'pending_scan',
+      triggeredByUserId: 'user-7',
+    });
+    expect(result.steps).toContain('Company Card was missing; queued its generation');
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalled();
+  });
+
+  it('adds no card step when the company already has a Company Card', async () => {
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(t.companyAnalysisService.generateIfMissing).toHaveBeenCalledTimes(1);
+    expect(result.steps.some((s) => s.includes('Company Card'))).toBe(false);
+  });
+
+  it('still screens when queueing the Company Card fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    t.companyAnalysisService.generateIfMissing.mockRejectedValue(new Error('queue down'));
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'pass'),
+      screening('k2', 'pass'),
+      screening('k3', 'pass'),
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.outcome).toBe('promoted');
+    expect(result.steps).toContain('Could not queue Company Card generation: queue down');
+    errSpy.mockRestore();
+  });
+
+  it('does not queue a Company Card for a company no longer pending', async () => {
+    t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany({ status: 'dropped' }));
+
+    await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(t.companyAnalysisService.generateIfMissing).not.toHaveBeenCalled();
   });
 
   it('judges only the current matched tracks’ criteria', async () => {

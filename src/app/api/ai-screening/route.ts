@@ -9,8 +9,8 @@ import { NotPendingConfirmationError } from '@/lib/services/aiScreeningService';
 /**
  * A Pending Confirmation company's Run AI Screening action: queue an AI
  * screening task on the AI Workforce — the same forced scan Scan now runs
- * (match tracks if none, screen every criterion, then auto drop/promote when
- * the workspace has it on). Screening rows of already-matched tracks are reset
+ * (queue the Company Card if none, match tracks if none, screen every
+ * criterion, then auto promote / auto drop per the workspace's toggles). Screening rows of already-matched tracks are reset
  * to pending now, so the Pipeline's AI Screening tab shows it in progress.
  *
  * POST `{ companyId }` → 202 `{ data: { alreadyQueued, trackCount, screeningCount } }`,

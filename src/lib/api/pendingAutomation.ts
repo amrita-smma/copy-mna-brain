@@ -7,8 +7,8 @@ export function getPendingAutomation(): Promise<PendingAutomation> {
 }
 
 /**
- * Save both toggles. Auto-scan applies to companies arriving from now on; it
- * does not queue the ones already waiting.
+ * Save all three toggles. Auto-scan applies to companies arriving from now on;
+ * it does not queue the ones already waiting.
  */
 export function savePendingAutomation(input: PendingAutomation): Promise<PendingAutomation> {
   return apiRequest<PendingAutomation>('/api/pending-automation', {

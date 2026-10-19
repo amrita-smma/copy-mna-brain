@@ -297,13 +297,14 @@ export class WorkspaceService {
     return resolvePipelineHeading(row.pipeline_title, row.pipeline_subtitle);
   }
 
-  /** Sourcing → Pending Confirmation auto-scan / auto drop-promote toggles. */
+  /** Sourcing → Pending Confirmation auto-scan / auto-promote / auto-drop toggles. */
   async getPendingAutomation(id: string): Promise<PendingAutomation> {
     const ws = await this.workspaceRepo.findById(id);
     if (!ws) return DEFAULT_PENDING_AUTOMATION;
     return normalizePendingAutomation({
       autoScan: ws.pending_auto_scan,
-      autoDropPromote: ws.pending_auto_drop_promote,
+      autoPromote: ws.pending_auto_promote,
+      autoDrop: ws.pending_auto_drop,
     });
   }
 
@@ -314,12 +315,14 @@ export class WorkspaceService {
     const next = normalizePendingAutomation(input);
     const row = await this.workspaceRepo.update(id, {
       pending_auto_scan: next.autoScan,
-      pending_auto_drop_promote: next.autoDropPromote,
+      pending_auto_promote: next.autoPromote,
+      pending_auto_drop: next.autoDrop,
     });
     if (!row) throw new WorkspaceNotFoundError(id);
     return normalizePendingAutomation({
       autoScan: row.pending_auto_scan,
-      autoDropPromote: row.pending_auto_drop_promote,
+      autoPromote: row.pending_auto_promote,
+      autoDrop: row.pending_auto_drop,
     });
   }
 

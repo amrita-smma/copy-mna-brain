@@ -356,10 +356,15 @@ export const workspaces = pgTable(
     pipeline_subtitle: text(),
     // Sourcing → Pending Confirmation automation, toggled by any member.
     // `pending_auto_scan`: a company entering Pending Confirmation is matched
-    // to tracks and AI-screened against their criteria. `pending_auto_drop_promote`:
-    // after that scan, an overall pass promotes it to L0 and a fail drops it.
-    // Only meaningful while auto-scan is on (the service forces it off otherwise).
+    // to tracks and AI-screened against their criteria. After that scan,
+    // `pending_auto_promote` promotes an overall pass to L0 and
+    // `pending_auto_drop` drops a fail — each independently. Both are only
+    // meaningful while auto-scan is on (the service forces them off otherwise).
     pending_auto_scan: boolean().default(false).notNull(),
+    pending_auto_promote: boolean().default(false).notNull(),
+    pending_auto_drop: boolean().default(false).notNull(),
+    // Deprecated: the combined toggle the two above replaced. No longer read
+    // or written; kept until a follow-up migration drops it.
     pending_auto_drop_promote: boolean().default(false).notNull(),
     // Soft delete. Non-null = the workspace is archived: it disappears from
     // the workspace picker/switcher, from every membership listing, and from
