@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Check, ChevronsUpDown, Loader2 } from 'lucide-react';
+import { ArrowLeft, Check, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
@@ -14,6 +14,7 @@ import {
   CommandItem,
 } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
+import { WorkspaceSwitchingOverlay } from './WorkspaceSwitchingOverlay';
 import { useAuth } from '@/hooks/useAuth';
 
 interface Membership {
@@ -104,11 +105,7 @@ export function WorkspaceSwitcher() {
 
   return (
     <>
-      {isNavigating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )}
+      {isNavigating && <WorkspaceSwitchingOverlay />}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button

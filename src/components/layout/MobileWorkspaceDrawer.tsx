@@ -2,9 +2,10 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, usePathname } from 'next/navigation';
-import { Check, Loader2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { WorkspaceSwitchingOverlay } from './WorkspaceSwitchingOverlay';
 import { useAuth } from '@/hooks/useAuth';
 import {
   Drawer,
@@ -99,11 +100,7 @@ export function MobileWorkspaceDrawer({
 
   return (
     <>
-      {isNavigating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )}
+      {isNavigating && <WorkspaceSwitchingOverlay />}
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>
           {renderTrigger({ current: current ?? null, loading: memberships === null })}
