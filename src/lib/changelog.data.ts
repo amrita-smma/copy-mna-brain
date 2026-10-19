@@ -48,6 +48,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "0add0c1ff271bbc9e9a63e819c46986f6598d910",
+    "date": "2026-10-19",
+    "subject": "Pending Confirmation auto-scan now runs as soon as a company is moved into it",
+    "category": "improvement"
+  },
+  {
+    "hash": "96f38e637e85ea3aed465295ab00ebd3c7b8ddac",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
