@@ -22,7 +22,7 @@ Turn git history into clean, customer-readable release notes grouped into three 
    - **Features** — net-new user-facing capability or endpoint (e.g. "Add chat endpoint", "Add Google SSO login", new HITL flows, new columns/screens). Subjects often start with `feat`/`feature`/`[FEAT]` or "Add ...".
    - **Enhancements** — improvements to existing behavior: UX/UI polish, redesigns, performance, refactors that change observable behavior (e.g. "Improve Company Card UX", "Enhance ... details", "save state of ...").
    - **Bugfixes** — corrections to broken behavior. Subjects often start with `fix`/`[FIX]`/`Hotfix`/`Bug`.
-   - Internal-only plumbing with no user impact (e.g. tooling, CI, test fixes like "Fixed playwright UI automation", "setup mlflow") goes under a short **Internal** subsection at the end — or omit if the notes are customer-facing only. Use judgment and state which you did.
+   - Internal-only plumbing with no user impact (e.g. tooling, CI, test fixes like "Fixed playwright UI automation", "Add terraform/redis") goes under a short **Internal** subsection at the end — or omit if the notes are customer-facing only. Use judgment and state which you did.
 
 3. **Rewrite each line for a reader, not a committer.**
    - One bullet per PR. Start with a capitalized verb phrase describing the user-visible change.
