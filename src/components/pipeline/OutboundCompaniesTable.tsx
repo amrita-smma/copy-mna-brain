@@ -65,7 +65,7 @@ import { formatDealType } from "@/lib/companies/dealTypes";
 /**
  * Matched-track pills for a company. Shows ONLY the persisted matches assigned
  * when the company entered L0 (never the live keyword heuristic), so editing &
- * saving Track Settings can't retroactively populate this column.
+ * saving Pipeline Settings can't retroactively populate this column.
  */
 function MatchedTracksCell({
   company,

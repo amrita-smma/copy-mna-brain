@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { PendingAutoScanService } from './pendingAutoScanService';
-import { CompanyL0RequirementsError } from './companyService';
+import { CompanyPipelineRequirementsError } from './companyService';
 
 const WS = 'ws-1';
 const COMPANY_ID = 'c-1';
@@ -217,7 +217,7 @@ describe('PendingAutoScanService.processCompany', () => {
       undefined,
       undefined,
       'Auto-promoted: passed AI screening (Healthcare)',
-      // The task's user fills a blank Entered By, so the L0 gate doesn't block it.
+      // The task's user fills a blank Entered By, so the required-fields gate doesn't block it.
       { triggeredByUserId: 'user-7' },
     );
     expect(result).toMatchObject({ outcome: 'promoted', verdict: 'pass', screened: 3 });
@@ -413,13 +413,13 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(result.verdict).toBe('pass');
   });
 
-  it('leaves a passing company pending when L0 requirements are missing', async () => {
+  it('leaves a passing company pending when required fields are missing', async () => {
     t.screeningRepo.findByCompanyIds.mockResolvedValue([
       screening('k1', 'pass'),
       screening('k2', 'pass'),
       screening('k3', 'pass'),
     ]);
-    t.companyService.promote.mockRejectedValue(new CompanyL0RequirementsError(['segment']));
+    t.companyService.promote.mockRejectedValue(new CompanyPipelineRequirementsError(['segment']));
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 

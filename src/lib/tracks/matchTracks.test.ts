@@ -113,7 +113,7 @@ describe('persistedTrackIds', () => {
 
   it('never falls back to the keyword heuristic when nothing is persisted', () => {
     // Same input that resolveTrackIds would auto-suggest "semi" for — but the
-    // persisted-only view stays empty, so saving Track Settings cannot
+    // persisted-only view stays empty, so saving Pipeline Settings cannot
     // retroactively fill the Matched Tracks column.
     const company: MatchableCompany = {
       segment: 'Photoresist solvents',

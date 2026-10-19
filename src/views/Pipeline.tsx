@@ -62,7 +62,7 @@ import CompanyDetailDialog, {
 } from "@/components/pipeline/CompanyDetailDialog";
 import InboundCompaniesTable from "@/components/pipeline/InboundCompaniesTable";
 import OutboundCompaniesTable from "@/components/pipeline/OutboundCompaniesTable";
-import TrackSettingsDialog from "@/components/pipeline/TrackSettingsDialog";
+import PipelineSettingsDialog from "@/components/pipeline/PipelineSettingsDialog";
 import PipelineHeadingDialog from "@/components/pipeline/PipelineHeadingDialog";
 import PendingAutomationToggles from "@/components/pipeline/PendingAutomationToggles";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -353,7 +353,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
 
   // Tracks (investment theses) + matched-track filter
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [trackSettingsOpen, setTrackSettingsOpen] = useState(false);
+  const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
   // The pipeline page's heading is a workspace setting (see
   // PipelineHeadingContext). Sourcing keeps its own fixed copy.
   const { heading: pipelineHeading, setHeading: setPipelineHeading } =
@@ -372,7 +372,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     focusCopilot();
   };
   const [trackFilter, setTrackFilter] = useState<string[]>([]);
-  // Bumped after Track Settings saves so the AI Market Scanning banner refetches.
+  // Bumped after Pipeline Settings saves so the AI Market Scanning banner refetches.
   const [tracksRefreshKey, setTracksRefreshKey] = useState(0);
 
   // Pagination
@@ -1430,11 +1430,11 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                 isSourcing ? "sourcing-track-button" : "pipeline-configure-button"
               }
               variant="outline"
-              onClick={() => setTrackSettingsOpen(true)}
+              onClick={() => setPipelineSettingsOpen(true)}
               className="gap-2 bg-card text-muted-foreground"
             >
               <Settings className="h-4 w-4" />
-              {isSourcing ? "Track" : "Configure"}
+              Pipeline Settings
             </Button>
           }
         />
@@ -1958,9 +1958,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
           />
         )}
 
-        <TrackSettingsDialog
-          open={trackSettingsOpen}
-          onOpenChange={setTrackSettingsOpen}
+        <PipelineSettingsDialog
+          open={pipelineSettingsOpen}
+          onOpenChange={setPipelineSettingsOpen}
           onSaved={() => {
             fetchTracks();
             setTracksRefreshKey((k) => k + 1);

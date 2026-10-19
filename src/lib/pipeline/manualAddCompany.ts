@@ -4,14 +4,14 @@
  * stays thin and the rules are unit-tested.
  *
  * The form creates the company straight at L0. `CompanyService.createFromDTO`
- * does not run the L0 required-field gate on create, so the form enforces it
- * here: every field in `L0_REQUIRED_FIELDS` the user supplies is required,
+ * does not run the pipeline required-field gate on create, so the form enforces it
+ * here: every field in `PIPELINE_REQUIRED_FIELDS` the user supplies is required,
  * plus the fields the add-company brief asks for (HQ country, what the company
  * does). `entered_by` is stamped by `POST /api/companies` from the session.
  */
 import { countryCode } from '@/lib/countryFlag';
 import { DEFAULT_DEAL_TYPE, type DealType } from '@/lib/companies/dealTypes';
-import { getMissingL0Fields } from '@/lib/companies/l0Requirements';
+import { getMissingPipelineFields } from '@/lib/pipeline/requiredFields';
 import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
 
 export interface ManualCompanyForm {
@@ -183,7 +183,7 @@ export function validateManualCompany(form: ManualCompanyForm): ManualCompanyRes
   // Safety net: if L0 gains a requirement this form doesn't collect, block
   // rather than insert an L0 row that fails the gate. `entered_by` is stamped
   // server-side, so it is treated as satisfied here.
-  const missing = getMissingL0Fields({ ...company, entered_by: 'session-user' });
+  const missing = getMissingPipelineFields({ ...company, entered_by: 'session-user' });
   if (missing.length > 0) {
     return { status: 'invalid', errors: {}, formError: `Missing required fields: ${missing.join(', ')}` };
   }

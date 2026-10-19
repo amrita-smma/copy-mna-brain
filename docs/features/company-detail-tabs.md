@@ -9,7 +9,7 @@ A company is read in two places: the full page `CompanyDetail.tsx`
 | Overview | The read-only L0→L1 submission slide, from the AI Company Card. |
 | Additional Context | Context and Featured Slide, each in a collapsible section. |
 | Timeline | Every dated event on the deal, plus all manual entry. |
-| Details | Company Information, contact details ([company-contacts](company-contacts.md)), track variables, AI card, stage history. |
+| Details | Market Scanning Remarks (outbound), financials, Company Information, contact details ([company-contacts](company-contacts.md)), relationship graph, track variables, stage history, AI card. |
 | Pre-pipeline Filters | AI screening results against each matched track's criteria — run in Pending Confirmation (Scan now, Auto-scan, or a row's Run AI Screening); results stay with the company after it moves to L0. Pipeline's AI Screening tab opens the dialog here. |
 | Voting | The Investment-Committee round, beside a half-width Featured Slide preview (rules in a "How voting works" tooltip). |
 
@@ -18,6 +18,24 @@ returns to the tab you came from. `resolveTab()` in `CompanyDetail.tsx` also map
 the three retired values — `context` and `featured-slide` → `additional-context`,
 `attachments` → `timeline` — so old links and bookmarks still land on the content
 they were aimed at.
+
+## Details
+
+`CompanyDetailsTab` (`src/components/pipeline/CompanyDetailsTab.tsx`) is shared by
+the page and the dialog, like the Timeline, so the two cannot drift apart. Each
+parent supplies the data and callbacks; the tab owns the layout.
+
+- **Company Information** edits through `useCompanyInformationEditor`, and the
+  draft ↔ `PATCH /api/companies` mapping lives in
+  `src/lib/companies/companyInfoForm.ts`, so both views save the same fields
+  (including Company Focus, Comments, NBO Due Date, Live Process and Matched
+  Tracks). The workspace's pipeline required fields sit in the amber box at the
+  top; a save that moves a company into the pipeline without them toasts the
+  missing labels.
+- **Deal Status** (Active / Dropped) is an immediate action, not a form field:
+  `useDealStatusToggle` opens the host's `DropDealDialog` to drop and restores
+  (with the stage prompt) to reactivate. **Live Process** is the separate
+  `is_live` override, saved with the form.
 
 ## Additional Context
 

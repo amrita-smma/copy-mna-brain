@@ -51,7 +51,7 @@ that works for *any* file type:
 - The company is seeded from the extracted entry that matches that name
   (including its full financial/FX ledger, not just the FY2021–FY2025 the flat
   DTO carries), stamped with the file's `file_type` as `doc_type`, and created
-  at the `unreviewed` stage — one click can't satisfy the L0 required-field set,
+  at the `unreviewed` stage — one click can't satisfy the workspace pipeline required-field set,
   and triage is where a company sourced from a non-target document belongs.
 - An existing company already carrying that name is linked to the file instead
   of a near-duplicate being created. Creation runs under the same per-name

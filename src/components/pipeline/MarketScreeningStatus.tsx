@@ -30,7 +30,7 @@ import { waitForWorkforceRun } from '@/lib/jobs/useJob';
 interface MarketScreeningStatusProps {
   onScanComplete: () => void;
   newCandidatesCount: number;
-  /** Bumped by the parent (e.g. after Track Settings saves) to force a track refetch. */
+  /** Bumped by the parent (e.g. after Pipeline Settings saves) to force a track refetch. */
   refreshKey?: number;
 }
 

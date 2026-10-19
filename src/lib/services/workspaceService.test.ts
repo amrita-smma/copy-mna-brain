@@ -903,3 +903,55 @@ describe('WorkspaceService.updatePendingAutomation', () => {
     ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
   });
 });
+
+describe('WorkspaceService.getPipelineRequiredFields', () => {
+  it('returns every field for a workspace that never configured it', async () => {
+    const repos = makeRepoStubs();
+    vi.mocked(repos.workspaceRepo.findById).mockResolvedValueOnce({ pipeline_required_fields: null } as never);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+    expect(await service.getPipelineRequiredFields('w1')).toEqual([
+      'name', 'entered_by', 'source', 'deal_type', 'geography', 'segment', 'banker',
+    ]);
+  });
+
+  it('returns the stored keys in canonical order', async () => {
+    const repos = makeRepoStubs();
+    vi.mocked(repos.workspaceRepo.findById).mockResolvedValueOnce({
+      pipeline_required_fields: ['segment', 'name'],
+    } as never);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+    expect(await service.getPipelineRequiredFields('w1')).toEqual(['name', 'segment']);
+  });
+});
+
+describe('WorkspaceService.updatePipelineRequiredFields', () => {
+  it('stores the keys with the company name always kept', async () => {
+    const repos = makeRepoStubs();
+    vi.mocked(repos.workspaceRepo.update).mockImplementationOnce(
+      async (_id, updates) => ({ pipeline_required_fields: updates.pipeline_required_fields }) as never,
+    );
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+    expect(await service.updatePipelineRequiredFields('w1', ['geography'])).toEqual(['name', 'geography']);
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', {
+      pipeline_required_fields: ['name', 'geography'],
+    });
+  });
+
+  it('throws WorkspaceNotFoundError when the workspace is gone', async () => {
+    const repos = makeRepoStubs();
+    vi.mocked(repos.workspaceRepo.update).mockResolvedValueOnce(undefined);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+    await expect(service.updatePipelineRequiredFields('w1', ['name'])).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+
+  it('stores NULL when every field is required (the product default)', async () => {
+    const repos = makeRepoStubs();
+    vi.mocked(repos.workspaceRepo.update).mockImplementationOnce(
+      async (_id, updates) => ({ pipeline_required_fields: updates.pipeline_required_fields }) as never,
+    );
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+    const all = ['name', 'entered_by', 'source', 'deal_type', 'geography', 'segment', 'banker'] as const;
+    await service.updatePipelineRequiredFields('w1', all);
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { pipeline_required_fields: null });
+  });
+});

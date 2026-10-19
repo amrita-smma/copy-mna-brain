@@ -4,7 +4,7 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import type { ApproveFileInput } from '@/lib/services/fileService';
-import { CompanyL0RequirementsError } from '@/lib/services/companyService';
+import { CompanyPipelineRequirementsError } from '@/lib/services/companyService';
 import { FundUpdateValidationError } from '@/lib/services/flErrors';
 import { UserRepository } from '@/lib/repositories/userRepository';
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    if (error instanceof CompanyL0RequirementsError) {
+    if (error instanceof CompanyPipelineRequirementsError) {
       return NextResponse.json(
         { error: 'Missing required fields', missingFields: error.missingFields },
         { status: 422 },

@@ -50,7 +50,7 @@ export class InvestmentThesisService {
     return this.thesisRepo.findActive();
   }
 
-  /** List all theses ("Tracks") for the Track Settings manager. */
+  /** List all theses ("Tracks") for the Pipeline Settings manager. */
   list() {
     return this.thesisRepo.findAll();
   }

@@ -3,7 +3,7 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import { auth } from '@/auth';
-import { CompanyL0RequirementsError } from '@/lib/services/companyService';
+import { CompanyPipelineRequirementsError } from '@/lib/services/companyService';
 
 export interface TriageDecision {
   id: string;
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         );
         kept++;
       } catch (err) {
-        if (err instanceof CompanyL0RequirementsError) {
+        if (err instanceof CompanyPipelineRequirementsError) {
           keepErrors.push({ id: decision.id, missingFields: err.missingFields });
         } else {
           throw err;

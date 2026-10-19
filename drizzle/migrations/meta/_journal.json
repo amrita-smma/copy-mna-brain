@@ -1149,6 +1149,13 @@
       "when": 1792368004000,
       "tag": "20261019000004_fl_investment_types",
       "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1792368006000,
+      "tag": "20261019000006_add_workspaces_pipeline_required_fields",
+      "breakpoints": true
     }
   ]
 }

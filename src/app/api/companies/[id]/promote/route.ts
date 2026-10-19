@@ -5,7 +5,7 @@ import { createContainer } from '@/lib/services/container';
 import { auth } from '@/auth';
 import {
   CompanyDroppedError,
-  CompanyL0RequirementsError,
+  CompanyPipelineRequirementsError,
   PipelineStageUnavailableError,
 } from '@/lib/services/companyService';
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {
-    if (error instanceof CompanyL0RequirementsError) {
+    if (error instanceof CompanyPipelineRequirementsError) {
       return NextResponse.json(
         { error: error.message, missingFields: error.missingFields },
         { status: 422 },

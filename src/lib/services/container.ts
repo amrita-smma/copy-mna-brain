@@ -359,6 +359,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     // tolerant (notifyPendingArrival no-ops without it), so it must be wired on
     // every CompanyService — and the scan service is resolved only when the
     // handler fires, because its constructor takes companyService back.
+    // Pipeline Settings → Required Fields gates pipeline entry per workspace.
+    service.setWorkspaceRepo(workspaceRepo());
     service.setPendingArrivalHandler((companyIds, triggeredByUserId) =>
       pendingAutoScanService().onCompaniesEnteredPending(companyIds, triggeredByUserId),
     );

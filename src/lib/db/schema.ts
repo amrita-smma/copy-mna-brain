@@ -367,6 +367,11 @@ export const workspaces = pgTable(
     pending_auto_scan: boolean().default(false).notNull(),
     pending_auto_promote: boolean().default(false).notNull(),
     pending_auto_drop: boolean().default(false).notNull(),
+    // The fields a company must have before entering the pipeline
+    // (`PipelineFieldKey`s from src/lib/pipeline/requiredFields.ts), edited in
+    // Pipeline Settings → Required Fields. NULL = the product default (every
+    // field); the company name is always required regardless.
+    pipeline_required_fields: text().array(),
     // Soft delete. Non-null = the workspace is archived: it disappears from
     // the workspace picker/switcher, from every membership listing, and from
     // background sweeps (cron, graph sync), and `/w/<slug>/...` bounces back

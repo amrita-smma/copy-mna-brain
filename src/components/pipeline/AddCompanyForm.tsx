@@ -35,7 +35,7 @@ interface AddCompanyFormProps {
 
 /**
  * Pipeline "Add Company → Manual": one company straight into L0. Collects the
- * same fields the "Ask AI" prompt asks for, plus the L0 gate's deal fields
+ * same fields the "Ask AI" prompt asks for, plus the required-fields gate's deal fields
  * (source, deal type, banker for inbound). Rules live in
  * `@/lib/pipeline/manualAddCompany`.
  */

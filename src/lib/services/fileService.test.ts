@@ -12,6 +12,7 @@ import {
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CompanyService } from './companyService';
+import { getMissingPipelineFields, type PipelineEntryCompanyInput } from '@/lib/pipeline/requiredFields';
 import {
   FileService,
   FileCompanyNameRequiredError,
@@ -229,6 +230,8 @@ function makeCompanyServiceStub(): CompanyService {
     markPossibleDuplicate: vi.fn().mockResolvedValue(undefined),
     updateFromDTO: vi.fn().mockResolvedValue({ id: 'company-1' }),
     listIdAndTargetPage: vi.fn(),
+    // The real default rules (every field required).
+    missingPipelineFields: vi.fn(async (c: PipelineEntryCompanyInput) => getMissingPipelineFields(c)),
   } as unknown as CompanyService;
 }
 
@@ -1881,8 +1884,8 @@ describe('FileService.approve', () => {
     );
   });
 
-  it('throws CompanyL0RequirementsError when required fields are missing', async () => {
-    const { CompanyL0RequirementsError } = await import('./companyService');
+  it('throws CompanyPipelineRequirementsError when required fields are missing', async () => {
+    const { CompanyPipelineRequirementsError } = await import('./companyService');
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
     );
@@ -1892,8 +1895,30 @@ describe('FileService.approve', () => {
       create_company_from_ai: true,
       // entered_by, deal_type, banker all absent
     };
-    await expect(service.approve('file-1', input)).rejects.toBeInstanceOf(CompanyL0RequirementsError);
+    await expect(service.approve('file-1', input)).rejects.toBeInstanceOf(CompanyPipelineRequirementsError);
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
+  });
+
+  it("creates the company when the workspace's Required Fields no longer include the missing ones", async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', structured_notes: prospectusNotes }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-new' } as never);
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+    vi.mocked(companyService.missingPipelineFields).mockResolvedValueOnce([]);
+
+    const input: ApproveFileInput = {
+      file_type: 'prospectus',
+      matched_company_id: null,
+      create_company_from_ai: true,
+      // entered_by, deal_type, banker all absent — not required here
+    };
+    await service.approve('file-1', input);
+
+    expect(companyService.missingPipelineFields).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'Acme Corp', source: 'inbound' }),
+    );
+    expect(companyService.createFromDTO).toHaveBeenCalled();
   });
 
   it('prefers user-supplied source, geography and segment over the AI values', async () => {

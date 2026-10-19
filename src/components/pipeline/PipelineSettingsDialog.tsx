@@ -32,6 +32,7 @@ import StatusCombobox from "@/components/pipeline/StatusCombobox";
 import ScreeningCriteriaManager from "@/components/pipeline/ScreeningCriteriaManager";
 import TrackVariablesManager from "@/components/pipeline/TrackVariablesManager";
 import PipelineStageSettings from "@/components/pipeline/PipelineStageSettings";
+import RequiredFieldsSettings from "@/components/pipeline/RequiredFieldsSettings";
 import { trackDisplayName } from "@/lib/tracks/matchTracks";
 
 interface WorkingTrack {
@@ -44,21 +45,21 @@ interface WorkingTrack {
   isNew?: boolean;
 }
 
-type ConfigurationTab = "track" | "pipeline";
+type SettingsTab = "track" | "stages" | "required";
 
-interface TrackSettingsDialogProps {
+interface PipelineSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after tracks are persisted so the parent can refetch. */
   onSaved: () => void;
   /**
-   * Called after a Pipeline Settings change that moves companies or reorders
+   * Called after a Pipeline Stages change that moves companies or reorders
    * stages (delete, move, new stage), so the parent can refetch its deals.
    */
   onStagesChanged?: () => void;
 }
 
-const CONFIG_TAB_CLASS =
+const SETTINGS_TAB_CLASS =
   "rounded-none border-b-2 border-transparent px-1 pb-2.5 pt-0 -mb-px text-sm font-semibold text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 const toWorking = (t: Track): WorkingTrack => ({
@@ -76,18 +77,18 @@ const summary = (content: string) => {
 };
 
 /**
- * The Pipeline page's Configuration dialog: the Investment Track editor (the
- * theses used to auto-match deals) and Pipeline Settings (the workspace's
- * deal stages, MB-651).
+ * The Pipeline page's Pipeline Settings dialog: the Investment Track editor
+ * (the theses used to auto-match deals), Pipeline Stages (the workspace's deal
+ * stages, MB-651) and Required Fields (what a company needs to enter the pipeline).
  */
-export default function TrackSettingsDialog({
+export default function PipelineSettingsDialog({
   open,
   onOpenChange,
   onSaved,
   onStagesChanged,
-}: TrackSettingsDialogProps) {
+}: PipelineSettingsDialogProps) {
   // Every open starts on the Investment Track tab.
-  const [tab, setTab] = useState<ConfigurationTab>("track");
+  const [tab, setTab] = useState<SettingsTab>("track");
   useEffect(() => {
     if (open) setTab("track");
   }, [open]);
@@ -245,32 +246,40 @@ export default function TrackSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[80vw] p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-4 border-b">
-          <DialogTitle>Configuration</DialogTitle>
+          <DialogTitle>Pipeline Settings</DialogTitle>
           <DialogDescription>
             Manage the investment theses used to auto-match inbound and outbound
-            deals, and the stages of your deal pipeline.
+            deals, the stages of your deal pipeline, and the fields required to
+            enter it.
           </DialogDescription>
         </DialogHeader>
 
         <Tabs
           value={tab}
-          onValueChange={(v) => setTab(v as ConfigurationTab)}
+          onValueChange={(v) => setTab(v as SettingsTab)}
           className="w-full"
         >
           <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b bg-transparent px-6 pt-3">
-            <TabsTrigger value="track" className={CONFIG_TAB_CLASS}>
+            <TabsTrigger value="track" className={SETTINGS_TAB_CLASS}>
               Investment Track
             </TabsTrigger>
-            <TabsTrigger value="pipeline" className={CONFIG_TAB_CLASS}>
-              Pipeline Settings
+            <TabsTrigger value="stages" className={SETTINGS_TAB_CLASS}>
+              Pipeline Stages
+            </TabsTrigger>
+            <TabsTrigger value="required" className={SETTINGS_TAB_CLASS}>
+              Required Fields
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="pipeline" className="mt-0">
+          <TabsContent value="stages" className="mt-0">
             <PipelineStageSettings
               onStagesChanged={onStagesChanged}
               onCancel={() => onOpenChange(false)}
             />
+          </TabsContent>
+
+          <TabsContent value="required" className="mt-0">
+            <RequiredFieldsSettings onCancel={() => onOpenChange(false)} />
           </TabsContent>
 
           <TabsContent value="track" className="mt-0">

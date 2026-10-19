@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 209 | `src/app/api/**/route.ts` |
+| API routes | 210 | `src/app/api/**/route.ts` |
 | Services | 83 | `src/lib/services/` |
 | Repositories | 76 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 164 | `drizzle/migrations/` |
+| Migrations (app) | 165 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -246,6 +246,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/pending-automation` | GET, PUT | `workspaceService` |
 | `/api/pending-automation/scan` | POST | `pendingAutoScanService` |
 | `/api/pipeline-heading` | GET, PUT | `workspaceService` |
+| `/api/pipeline-required-fields` | GET, PUT | `workspaceService` |
 | `/api/pipeline-stages` | GET, POST, PATCH | `pipelineStageService` |
 | `/api/pipeline-stages/[key]` | PATCH, DELETE | `pipelineStageService` |
 | `/api/pipeline-stages/[key]/move` | POST | `pipelineStageService` |
@@ -328,7 +329,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `companyContactDiscoveryService.ts` | `CompanyNotFoundError`, `CompanyContactDiscoveryService` | ✅ |
 | `companyGraphService.ts` | `CompanyGraphService` | ✅ |
 | `companyRelationshipService.ts` | `CompanyNotFoundError`, `InvalidCombineError`, `CompanyRelationshipService` | ✅ |
-| `companyService.ts` | `PipelineStageUnavailableError`, `RestoreStageRequiredError`, `CompanyL0RequirementsError`, `CompanyDroppedError`, `CompanyService` | ✅ |
+| `companyService.ts` | `PipelineStageUnavailableError`, `RestoreStageRequiredError`, `CompanyPipelineRequirementsError`, `CompanyDroppedError`, `CompanyService` | ✅ |
 | `companyVoteService.ts` | `VoteRuleError`, `VoteNotFoundError`, `CompanyVoteService` | ✅ |
 | `consentService.ts` | `ConsentService` | ✅ |
 | `container.ts` | — | ✅ |

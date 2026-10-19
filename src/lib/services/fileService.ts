@@ -49,7 +49,7 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
-import { CompanyL0RequirementsError, CompanyService } from './companyService';
+import { CompanyPipelineRequirementsError, CompanyService } from './companyService';
 import { isInPipelineStage } from '@/lib/pipeline/stages';
 import type { TrackMatchingService } from './trackMatchingService';
 import type {
@@ -400,7 +400,7 @@ export interface ApproveFileInput {
    * to apply explicitly so existing rows aren't accidentally overwritten.
    */
   financial_years_to_apply?: number[];
-  /** Required L0 fields supplied by the user when creating a company from AI. */
+  /** Required pipeline fields supplied by the user when creating a company from AI. */
   entered_by?: string | null;
   deal_type?: DealType | null;
   banker?: string | null;
@@ -1701,16 +1701,16 @@ export class FileService {
       const safeProjectName = input.project_name?.trim()
         || (summary.project_name && !isGenericDocumentPhrase(summary.project_name) ? summary.project_name : null);
       if (safeTarget || safeProjectName) {
-        // Required L0 fields the reviewer supplies in the dialog take precedence
+        // Required pipeline fields the reviewer supplies in the dialog take precedence
         // over whatever the AI extracted; fall back to the AI value (and finally
         // to 'inbound' for source) when the reviewer left them blank.
         const l0Source = input.source ?? 'inbound';
         const l0Geography = input.geography ?? summary.geography ?? null;
         const l0Segment = input.segment ?? summary.segment ?? null;
 
-        // Run L0 requirements check via the shared static method — same rules
-        // as the triage promote flow. Throws if any required fields are missing.
-        const missing = CompanyService.checkL0Requirements({
+        // Run the workspace's pipeline requirements check — same rules as the triage
+        // promote flow. Throws if any required fields are missing.
+        const missing = await this.companyService.missingPipelineFields({
           target: safeTarget,
           project_name: safeProjectName,
           entered_by: input.entered_by,
@@ -1720,7 +1720,7 @@ export class FileService {
           segment: l0Segment,
           banker: input.banker,
         });
-        if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
+        if (missing.length > 0) throw new CompanyPipelineRequirementsError(missing);
 
         const overrides = input.company_field_updates ?? {};
         const pick = <K extends keyof typeof overrides>(
@@ -3781,7 +3781,7 @@ function isEntityDecisionRemapped(
 
   private buildCompanyService(db: DbClient): CompanyService {
     const companyGraphRepo = new CompanyRelationRepository(createNeo4jDriver());
-    return new CompanyService(
+    const service = new CompanyService(
       this.workspaceId,
       new CompanyRepository(db, this.workspaceId, companyGraphRepo),
       new CompanyLogRepository(db, this.workspaceId),
@@ -3793,6 +3793,8 @@ function isEntityDecisionRemapped(
       new CompanyScreeningDerivedRepository(db, this.workspaceId),
       this.trackMatchingService,
     );
+    if (this.workspaceRepo) service.setWorkspaceRepo(this.workspaceRepo);
+    return service;
   }
 
   private async mergeFinancialStatementCompanyFinancials(opts: {
@@ -3903,7 +3905,7 @@ function isEntityDecisionRemapped(
    * extracted.
    *
    * The new company lands in `unreviewed` (Pending Confirmation) rather than
-   * L0 — one click cannot satisfy the L0 required-field set, and triage is
+   * L0 — one click cannot satisfy the pipeline required-field set, and triage is
    * exactly where a company sourced from a non-target document belongs.
    *
    * `name` (what the user typed in the chip's search box) wins over the

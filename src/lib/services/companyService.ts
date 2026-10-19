@@ -23,9 +23,15 @@ import {
 } from '@/lib/dto/companyDTO';
 import type { TrackMatchingService } from './trackMatchingService';
 import type { CompanyAnalysisService } from './companyAnalysisService';
-import type { UserRepository } from '@/lib/repositories';
+import type { UserRepository, WorkspaceRepository } from '@/lib/repositories';
 import { bestFuzzyMatch } from '@/lib/fuzzySearch';
-import { getMissingL0Fields, type L0CompanyInput } from '@/lib/companies/l0Requirements';
+import {
+  DEFAULT_PIPELINE_REQUIRED_FIELD_KEYS,
+  getMissingPipelineFields,
+  normalizePipelineRequiredFieldKeys,
+  type PipelineEntryCompanyInput,
+  type PipelineFieldKey,
+} from '@/lib/pipeline/requiredFields';
 import { stageMoveDirection, UNREVIEWED_STAGE } from '@/lib/constants';
 import {
   BUILTIN_PIPELINE_STAGE_KEYS,
@@ -107,11 +113,11 @@ export interface FinancialUpsertInput {
 // assignees, etc.) so users can keep records accurate after a drop. Pipeline
 // lifecycle moves are still off-limits: promoting a dropped deal or
 // re-dropping one fails loud with this error.
-export class CompanyL0RequirementsError extends Error {
+export class CompanyPipelineRequirementsError extends Error {
   readonly missingFields: string[];
   constructor(missingFields: string[]) {
-    super(`Cannot promote to L0: missing required fields: ${missingFields.join(', ')}`);
-    this.name = 'CompanyL0RequirementsError';
+    super(`Cannot enter the pipeline: missing required fields: ${missingFields.join(', ')}`);
+    this.name = 'CompanyPipelineRequirementsError';
     this.missingFields = missingFields;
   }
 }
@@ -185,6 +191,36 @@ export class CompanyService {
   ) {}
 
   private stagesPromise: Promise<PipelineStageDef[]> | null = null;
+
+  // Optional: the workspace row, for its Pipeline Settings → Required Fields.
+  // Setter-injected so the many partial constructions (file ingest, tests)
+  // stay unchanged; without it every required field is enforced.
+  private workspaceRepo?: Pick<WorkspaceRepository, 'findById'>;
+  private pipelineRequiredKeysPromise: Promise<PipelineFieldKey[]> | null = null;
+
+  setWorkspaceRepo(repo: Pick<WorkspaceRepository, 'findById'>): void {
+    this.workspaceRepo = repo;
+    this.pipelineRequiredKeysPromise = null;
+  }
+
+  /**
+   * The workspace's configured pipeline requirements. Read once per service
+   * instance (containers are per request), like the pipeline stages, so bulk
+   * triage does not re-read the workspace per deal.
+   */
+  private pipelineRequiredKeys(): Promise<PipelineFieldKey[]> {
+    this.pipelineRequiredKeysPromise ??= this.loadPipelineRequiredKeys().catch((err: unknown) => {
+      this.pipelineRequiredKeysPromise = null;
+      throw err;
+    });
+    return this.pipelineRequiredKeysPromise;
+  }
+
+  private async loadPipelineRequiredKeys(): Promise<PipelineFieldKey[]> {
+    if (!this.workspaceRepo) return [...DEFAULT_PIPELINE_REQUIRED_FIELD_KEYS];
+    const ws = await this.workspaceRepo.findById(this.workspaceId);
+    return normalizePipelineRequiredFieldKeys(ws?.pipeline_required_fields ?? null);
+  }
 
   /**
    * The workspace's stages, or the six originals when no stage repository is
@@ -606,7 +642,7 @@ export class CompanyService {
     // untouched.
     const nextStage = split.company.pipeline_stage;
     // Only read the existing row when the payload actually carries a stage —
-    // that's the one case where we need the prior stage (for the L0 gate below
+    // that's the one case where we need the prior stage (for the required-fields gate below
     // and to detect a stage move worth regenerating the card for).
     const priorCompany =
       typeof nextStage === 'string' ? (await this.companyRepo.findById(id)) : null;
@@ -621,7 +657,7 @@ export class CompanyService {
       const existing = priorCompany!;
       const wasPreL0 = !isInPipelineStage(existing.pipeline_stage);
       if (wasPreL0) {
-        this.assertL0Requirements({
+        await this.assertPipelineRequirements({
           ...existing,
           ...(split.company as Partial<Tables<'companies'>>),
         } as Tables<'companies'>);
@@ -684,18 +720,29 @@ export class CompanyService {
   }
 
   /**
-   * Returns the list of missing required fields for L0 entry. Empty = all
-   * clear. Delegates to the shared `L0_REQUIRED_FIELDS` definition so the
+   * Returns the list of missing required fields for pipeline entry. Empty = all
+   * clear. Delegates to the shared `PIPELINE_REQUIRED_FIELDS` definition so the
    * service, the Smart Files approval path, and the review UIs all enforce the
-   * same rules — see `@/lib/companies/l0Requirements`.
+   * same rules — see `@/lib/pipeline/requiredFields`.
    */
-  static checkL0Requirements(company: L0CompanyInput): string[] {
-    return getMissingL0Fields(company);
+  static checkPipelineRequirements(
+    company: PipelineEntryCompanyInput,
+    requiredKeys: readonly PipelineFieldKey[] = DEFAULT_PIPELINE_REQUIRED_FIELD_KEYS,
+  ): string[] {
+    return getMissingPipelineFields(company, requiredKeys);
   }
 
-  private assertL0Requirements(company: Tables<'companies'>): void {
-    const missing = CompanyService.checkL0Requirements(company);
-    if (missing.length > 0) throw new CompanyL0RequirementsError(missing);
+  /**
+   * `checkPipelineRequirements` against this workspace's Pipeline Settings →
+   * Required Fields configuration.
+   */
+  async missingPipelineFields(company: PipelineEntryCompanyInput): Promise<string[]> {
+    return CompanyService.checkPipelineRequirements(company, await this.pipelineRequiredKeys());
+  }
+
+  private async assertPipelineRequirements(company: PipelineEntryCompanyInput): Promise<void> {
+    const missing = await this.missingPipelineFields(company);
+    if (missing.length > 0) throw new CompanyPipelineRequirementsError(missing);
   }
 
   /**
@@ -790,14 +837,14 @@ export class CompanyService {
     // it must NOT re-run the entry checks or track matching.
     const isEnteringL0 = nextStage === L0_STAGE && !isInPipelineStage(currentStage);
     // An unset Entered By defaults to the user making the move, so nobody has
-    // to fill it in by hand just to clear the L0 gate.
+    // to fill it in by hand just to clear the required-fields gate.
     const defaultEnteredBy =
       isEnteringL0 && !existing.entered_by?.trim() && opts?.triggeredByUserId
         ? opts.triggeredByUserId
         : null;
     if (isEnteringL0) {
-      // Hard-block: all required fields must be present before L0 entry.
-      this.assertL0Requirements(
+      // Hard-block: all required fields must be present before entering the pipeline.
+      await this.assertPipelineRequirements(
         defaultEnteredBy ? { ...existing, entered_by: defaultEnteredBy } : existing,
       );
       // Ensure a track is assigned: run inline matching if none yet.

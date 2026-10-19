@@ -37,6 +37,7 @@ import { getUsers, type UserSummary } from "@/lib/api/pipeline";
 import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
 import { SMART_FILES_TABS, SMART_FILES_TAB_LABELS } from "@/lib/smartFilesTabs";
 import { DEAL_TYPE_OPTIONS, type DealType } from "@/lib/companies/dealTypes";
+import { usePipelineRequiredFields } from "@/hooks/usePipelineRequiredFields";
 
 interface SuggestedCompany {
   target: string | null;
@@ -122,6 +123,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   // subsequent fetches (company switch, etc.) where we keep the existing
   // data mounted and just dim it during the in-flight request.
   const [loading, setLoading] = useState(false);
+  const pipelineRequired = usePipelineRequiredFields();
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
@@ -132,16 +134,16 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   const [createFromAi, setCreateFromAi] = useState(false);
   const [checkedFields, setCheckedFields] = useState<Record<string, boolean>>({});
   const [checkedYears, setCheckedYears] = useState<Record<number, boolean>>({});
-  // Required L0 fields the user must fill when creating a new company from AI
-  const [l0EnteredBy, setL0EnteredBy] = useState("");
-  const [l0DealType, setL0DealType] = useState<DealType | "">("");
-  const [l0Banker, setL0Banker] = useState("");
-  const [l0Source, setL0Source] = useState<"inbound" | "outbound">("inbound");
-  const [l0Geography, setL0Geography] = useState("");
-  const [l0Segment, setL0Segment] = useState("");
-  const [l0Target, setL0Target] = useState("");
-  const [l0ProjectName, setL0ProjectName] = useState("");
-  const [l0Website, setL0Website] = useState("");
+  // Required pipeline fields the user must fill when creating a new company from AI
+  const [entryEnteredBy, setEntryEnteredBy] = useState("");
+  const [entryDealType, setEntryDealType] = useState<DealType | "">("");
+  const [entryBanker, setEntryBanker] = useState("");
+  const [entrySource, setEntrySource] = useState<"inbound" | "outbound">("inbound");
+  const [entryGeography, setEntryGeography] = useState("");
+  const [entrySegment, setEntrySegment] = useState("");
+  const [entryTarget, setEntryTarget] = useState("");
+  const [entryProjectName, setEntryProjectName] = useState("");
+  const [entryWebsite, setEntryWebsite] = useState("");
   const [missingFields, setMissingFields] = useState<string[]>([]);
   // Users for the editable "Entered By" picker (entered_by is a uuid FK).
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -150,15 +152,15 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
   // company stored on the file. Sets the initial matched-company state too.
   useEffect(() => {
     if (!open) return;
-    setL0EnteredBy(user?.id ?? "");
-    setL0DealType("");
-    setL0Banker("");
-    setL0Source("inbound");
-    setL0Geography("");
-    setL0Segment("");
-    setL0Target("");
-    setL0ProjectName("");
-    setL0Website("");
+    setEntryEnteredBy(user?.id ?? "");
+    setEntryDealType("");
+    setEntryBanker("");
+    setEntrySource("inbound");
+    setEntryGeography("");
+    setEntrySegment("");
+    setEntryTarget("");
+    setEntryProjectName("");
+    setEntryWebsite("");
     setMissingFields([]);
     if (users.length === 0) {
       getUsers()
@@ -186,18 +188,18 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         const willCreateFromAi = !firstWithId && !!data.ai.suggested_company;
         setCreateFromAi(willCreateFromAi);
         if (willCreateFromAi) {
-          if (data.ai.suggested_banker) setL0Banker(data.ai.suggested_banker);
+          if (data.ai.suggested_banker) setEntryBanker(data.ai.suggested_banker);
           // Pre-fill the required Geo / Sector inputs from what the AI extracted
           // so the reviewer only has to fill what's genuinely missing.
           if (data.ai.suggested_company?.geography) {
-            setL0Geography(data.ai.suggested_company.geography);
+            setEntryGeography(data.ai.suggested_company.geography);
           }
           if (data.ai.suggested_company?.segment) {
-            setL0Segment(data.ai.suggested_company.segment);
+            setEntrySegment(data.ai.suggested_company.segment);
           }
-          setL0Target(data.ai.suggested_company?.target?.trim() ?? "");
-          setL0ProjectName(data.ai.suggested_company?.project_name?.trim() ?? "");
-          setL0Website(data.ai.suggested_company?.website?.trim() ?? "");
+          setEntryTarget(data.ai.suggested_company?.target?.trim() ?? "");
+          setEntryProjectName(data.ai.suggested_company?.project_name?.trim() ?? "");
+          setEntryWebsite(data.ai.suggested_company?.website?.trim() ?? "");
         }
 
         applyDefaultChecks(data);
@@ -297,7 +299,7 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
         }
       }
       if (createFromAi) {
-        company_field_updates.website = l0Website.trim() || null;
+        company_field_updates.website = entryWebsite.trim() || null;
       }
 
       const financial_years_to_apply = Object.entries(checkedYears)
@@ -313,14 +315,14 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
           : undefined,
         financial_years_to_apply: financial_years_to_apply.length > 0 ? financial_years_to_apply : undefined,
         ...(createFromAi && {
-          entered_by: l0EnteredBy.trim() || null,
-          deal_type: (l0DealType || null) as ApproveFileInput["deal_type"],
-          banker: l0Banker.trim() || null,
-          source: l0Source,
-          geography: l0Geography.trim() || null,
-          segment: l0Segment.trim() || null,
-          target: l0Target.trim() || null,
-          project_name: l0ProjectName.trim() || null,
+          entered_by: entryEnteredBy.trim() || null,
+          deal_type: (entryDealType || null) as ApproveFileInput["deal_type"],
+          banker: entryBanker.trim() || null,
+          source: entrySource,
+          geography: entryGeography.trim() || null,
+          segment: entrySegment.trim() || null,
+          target: entryTarget.trim() || null,
+          project_name: entryProjectName.trim() || null,
         }),
       };
 
@@ -431,18 +433,18 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                       setMissingFields([]);
                       if (checked) {
                         setMatchedCompanyId(AUTO);
-                        if (reviewData?.ai.suggested_banker && !l0Banker) {
-                          setL0Banker(reviewData.ai.suggested_banker);
+                        if (reviewData?.ai.suggested_banker && !entryBanker) {
+                          setEntryBanker(reviewData.ai.suggested_banker);
                         }
-                        if (reviewData?.ai.suggested_company?.geography && !l0Geography) {
-                          setL0Geography(reviewData.ai.suggested_company.geography);
+                        if (reviewData?.ai.suggested_company?.geography && !entryGeography) {
+                          setEntryGeography(reviewData.ai.suggested_company.geography);
                         }
-                        if (reviewData?.ai.suggested_company?.segment && !l0Segment) {
-                          setL0Segment(reviewData.ai.suggested_company.segment);
+                        if (reviewData?.ai.suggested_company?.segment && !entrySegment) {
+                          setEntrySegment(reviewData.ai.suggested_company.segment);
                         }
-                        if (!l0Target) setL0Target(reviewData?.ai.suggested_company?.target?.trim() ?? "");
-                        if (!l0ProjectName) setL0ProjectName(reviewData?.ai.suggested_company?.project_name?.trim() ?? "");
-                        if (!l0Website) setL0Website(reviewData?.ai.suggested_company?.website?.trim() ?? "");
+                        if (!entryTarget) setEntryTarget(reviewData?.ai.suggested_company?.target?.trim() ?? "");
+                        if (!entryProjectName) setEntryProjectName(reviewData?.ai.suggested_company?.project_name?.trim() ?? "");
+                        if (!entryWebsite) setEntryWebsite(reviewData?.ai.suggested_company?.website?.trim() ?? "");
                       }
                     }}
                   />
@@ -454,7 +456,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                 {createFromAi && (
                   <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-900/10 p-3 space-y-3">
                     <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                      Required to add to L0
+                      Required to enter the pipeline:{" "}
+                      {pipelineRequired.fields.map((f) => f.label).join(" · ")}
                     </p>
                     {missingFields.length > 0 && (
                       <div className="flex items-start gap-1.5 text-xs text-red-600">
@@ -466,13 +469,13 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                       <div className="space-y-1">
                         <div className="flex items-center gap-1.5">
                           <Label className="text-xs">Entered By</Label>
-                          {user && l0EnteredBy === user.id && (
+                          {user && entryEnteredBy === user.id && (
                             <span className="text-[10px] text-muted-foreground">· auto-filled</span>
                           )}
                         </div>
                         <UserSelectCombobox
-                          value={l0EnteredBy || null}
-                          onChange={(v) => { setL0EnteredBy(v); setMissingFields([]); }}
+                          value={entryEnteredBy || null}
+                          onChange={(v) => { setEntryEnteredBy(v); setMissingFields([]); }}
                           users={users}
                           className="h-7 text-xs"
                         />
@@ -480,8 +483,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                       <div className="space-y-1">
                         <Label className="text-xs">Inbound / Outbound</Label>
                         <Select
-                          value={l0Source}
-                          onValueChange={(v) => { setL0Source(v as "inbound" | "outbound"); setMissingFields([]); }}
+                          value={entrySource}
+                          onValueChange={(v) => { setEntrySource(v as "inbound" | "outbound"); setMissingFields([]); }}
                         >
                           <SelectTrigger className="h-7 text-xs">
                             <SelectValue placeholder="Select…" />
@@ -495,8 +498,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                       <div className="space-y-1">
                         <Label className="text-xs">Deal Type</Label>
                         <Select
-                          value={l0DealType || "__none__"}
-                          onValueChange={(v) => { setL0DealType(v === "__none__" ? "" : (v as DealType)); setMissingFields([]); }}
+                          value={entryDealType || "__none__"}
+                          onValueChange={(v) => { setEntryDealType(v === "__none__" ? "" : (v as DealType)); setMissingFields([]); }}
                         >
                           <SelectTrigger className="h-7 text-xs">
                             <SelectValue placeholder="Select…" />
@@ -514,44 +517,44 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                       <div className="space-y-1">
                         <div className="flex items-center gap-1.5">
                           <Label className="text-xs">Sector</Label>
-                          {l0Segment && reviewData?.ai.suggested_company?.segment && l0Segment === reviewData.ai.suggested_company.segment && (
+                          {entrySegment && reviewData?.ai.suggested_company?.segment && entrySegment === reviewData.ai.suggested_company.segment && (
                             <span className="text-[10px] text-muted-foreground">· AI suggested</span>
                           )}
                         </div>
                         <Input
                           className="h-7 text-xs"
                           placeholder="e.g. Technology"
-                          value={l0Segment}
-                          onChange={(e) => { setL0Segment(e.target.value); setMissingFields([]); }}
+                          value={entrySegment}
+                          onChange={(e) => { setEntrySegment(e.target.value); setMissingFields([]); }}
                         />
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center gap-1.5">
                           <Label className="text-xs">Geo</Label>
-                          {l0Geography && reviewData?.ai.suggested_company?.geography && l0Geography === reviewData.ai.suggested_company.geography && (
+                          {entryGeography && reviewData?.ai.suggested_company?.geography && entryGeography === reviewData.ai.suggested_company.geography && (
                             <span className="text-[10px] text-muted-foreground">· AI suggested</span>
                           )}
                         </div>
                         <Input
                           className="h-7 text-xs"
                           placeholder="e.g. Indonesia"
-                          value={l0Geography}
-                          onChange={(e) => { setL0Geography(e.target.value); setMissingFields([]); }}
+                          value={entryGeography}
+                          onChange={(e) => { setEntryGeography(e.target.value); setMissingFields([]); }}
                         />
                       </div>
-                      {l0Source !== "outbound" && (
+                      {entrySource !== "outbound" && (
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
                             <Label className="text-xs">Banker / Source</Label>
-                            {l0Banker && reviewData?.ai.suggested_banker && l0Banker === reviewData.ai.suggested_banker && (
+                            {entryBanker && reviewData?.ai.suggested_banker && entryBanker === reviewData.ai.suggested_banker && (
                               <span className="text-[10px] text-muted-foreground">· AI suggested</span>
                             )}
                           </div>
                           <Input
                             className="h-7 text-xs"
                             placeholder="e.g. Goldman Sachs"
-                            value={l0Banker}
-                            onChange={(e) => { setL0Banker(e.target.value); setMissingFields([]); }}
+                            value={entryBanker}
+                            onChange={(e) => { setEntryBanker(e.target.value); setMissingFields([]); }}
                           />
                         </div>
                       )}
@@ -639,8 +642,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         <Input
                           className="h-7 text-xs"
                           placeholder="e.g. Acme Corp"
-                          value={l0Target}
-                          onChange={(e) => setL0Target(e.target.value)}
+                          value={entryTarget}
+                          onChange={(e) => setEntryTarget(e.target.value)}
                         />
                       </div>
                       <div className="space-y-1">
@@ -648,8 +651,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         <Input
                           className="h-7 text-xs"
                           placeholder="e.g. Project Alpha"
-                          value={l0ProjectName}
-                          onChange={(e) => setL0ProjectName(e.target.value)}
+                          value={entryProjectName}
+                          onChange={(e) => setEntryProjectName(e.target.value)}
                         />
                       </div>
                       <div className="space-y-1 sm:col-span-2">
@@ -657,8 +660,8 @@ export function HitlReviewDialog({ fileId, open, onClose, onApproved }: Props) {
                         <Input
                           className="h-7 text-xs"
                           placeholder="e.g. https://example.com"
-                          value={l0Website}
-                          onChange={(e) => setL0Website(e.target.value)}
+                          value={entryWebsite}
+                          onChange={(e) => setEntryWebsite(e.target.value)}
                         />
                       </div>
                     </div>

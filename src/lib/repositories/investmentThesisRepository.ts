@@ -47,7 +47,7 @@ export class InvestmentThesisRepository {
       .limit(limit);
   }
 
-  /** All theses ("Tracks"), newest first. Used by the Track Settings manager. */
+  /** All theses ("Tracks"), newest first. Used by the Pipeline Settings manager. */
   async findAll(): Promise<Tables<'investment_thesis'>[]> {
     return this.db
       .select()

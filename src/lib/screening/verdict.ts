@@ -19,7 +19,7 @@ export interface ScreeningLike {
 }
 
 /**
- * A track's screening pass rule, configured in Track Settings → Criteria.
+ * A track's screening pass rule, configured in Pipeline Settings → Criteria.
  *
  * Every criterion in `mustPassCriteriaIds` has to pass; the track's other
  * (optional) criteria have to pass at least `minOptionalPass` times. A track
@@ -73,7 +73,7 @@ export function isConfiguredRule(rule: TrackPassRule | null | undefined): rule i
 
 /**
  * The share of optional criteria a track's minimum asks for, as a whole
- * percentage (0–100) — the bar beside the minimum in Track Settings.
+ * percentage (0–100) — the bar beside the minimum in Pipeline Settings.
  * 0 when the track has no optional criteria or no minimum.
  */
 export function optionalPassThresholdPercent(

@@ -101,7 +101,7 @@ export function resolveTrackIds(
  * {@link resolveTrackIds} this never falls back to the live keyword heuristic —
  * so it reflects only what was committed at L0 entry and does NOT change when
  * the track list is edited/saved. Use this for the "Matched Tracks" display
- * (pills) so saving Track Settings can't retroactively "fill in" matches.
+ * (pills) so saving Pipeline Settings can't retroactively "fill in" matches.
  */
 export function persistedTrackIds(
   company: MatchableCompany,

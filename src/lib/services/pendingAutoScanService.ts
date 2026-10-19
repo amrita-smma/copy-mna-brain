@@ -7,7 +7,7 @@ import {
 } from '@/lib/screening/verdict';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CompanyAnalysisService } from './companyAnalysisService';
-import { CompanyL0RequirementsError, type CompanyService } from './companyService';
+import { CompanyPipelineRequirementsError, type CompanyService } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 import type { WorkspaceService } from './workspaceService';
 
@@ -217,8 +217,8 @@ export class PendingAutoScanService {
           { triggeredByUserId: opts.triggeredByUserId ?? null },
         );
       } catch (err) {
-        if (err instanceof CompanyL0RequirementsError) {
-          steps.push(`Passed screening but L0 requirements are missing; left pending: ${err.message}`);
+        if (err instanceof CompanyPipelineRequirementsError) {
+          steps.push(`Passed screening but required fields are missing; left pending: ${err.message}`);
           return done({ outcome: 'promote_blocked', verdict, screened, detail: err.message });
         }
         throw err;

@@ -229,7 +229,7 @@ export default function PromoteDialog({
               <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-destructive">
-                  Fill in the required fields before adding to L0:
+                  Fill in the required fields before entering the pipeline:
                 </p>
                 <ul className="mt-1 list-disc list-inside text-sm text-destructive/80 space-y-0.5">
                   {missingFields.map((f) => <li key={f}>{f}</li>)}

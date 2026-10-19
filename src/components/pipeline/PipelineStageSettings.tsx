@@ -55,7 +55,7 @@ import {
 interface PipelineStageSettingsProps {
   /** Called after a change that moves companies or reorders stages, so the page can refetch. */
   onStagesChanged?: () => void;
-  /** The footer's Cancel: closes the Configuration dialog, dropping unsaved edits. */
+  /** The footer's Cancel: closes the Pipeline Settings dialog, dropping unsaved edits. */
   onCancel?: () => void;
 }
 
@@ -96,7 +96,7 @@ const nextNumber = (value: string) => {
 };
 
 /**
- * The Pipeline Settings tab of the Configuration dialog (MB-651): rename and
+ * The Pipeline Stages tab of the Pipeline Settings dialog (MB-651): rename and
  * renumber each stage, describe it, add stages, and reorder or delete them.
  * Text edits collect across the cards and save together from the footer, in
  * one request, so two stages can swap codes. Add, move and delete apply at
@@ -179,7 +179,7 @@ export default function PipelineStageSettings({
       <div className="flex-1 space-y-4 overflow-y-auto p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-base font-semibold">Pipeline Settings</h3>
+            <h3 className="text-base font-semibold">Pipeline Stages</h3>
             <p className="text-sm text-muted-foreground">Rename pipeline stages shown across the app.</p>
           </div>
           <Button

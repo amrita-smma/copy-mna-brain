@@ -4,7 +4,7 @@ import { createDb } from "@/lib/server/db";
 import { getActiveWorkspaceId, getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from "@/lib/workspace";
 import { createContainer } from "@/lib/services/container";
 import {
-  CompanyL0RequirementsError,
+  CompanyPipelineRequirementsError,
   PipelineStageUnavailableError,
 } from "@/lib/services/companyService";
 import { UserRepository } from "@/lib/repositories/userRepository";
@@ -196,7 +196,7 @@ export async function PATCH(req: NextRequest) {
     if (error instanceof PipelineStageUnavailableError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
-    if (error instanceof CompanyL0RequirementsError) {
+    if (error instanceof CompanyPipelineRequirementsError) {
       return NextResponse.json(
         { error: error.message, missingFields: error.missingFields },
         { status: 422 },

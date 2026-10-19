@@ -21,6 +21,11 @@ import {
 } from '@/lib/agents/analysis/flavors/keys';
 import { CURRENCIES, normalizeCurrency, type Currency } from '@/lib/currency';
 import {
+  isDefaultPipelineRequiredFieldConfiguration,
+  normalizePipelineRequiredFieldKeys,
+  type PipelineFieldKey,
+} from '@/lib/pipeline/requiredFields';
+import {
   resolvePipelineHeading,
   type PipelineHeading,
   type PipelineHeadingInput,
@@ -324,6 +329,30 @@ export class WorkspaceService {
       autoPromote: row.pending_auto_promote,
       autoDrop: row.pending_auto_drop,
     });
+  }
+
+  /**
+   * Pipeline Settings → Required Fields: the keys a company must satisfy to
+   * enter the pipeline. An unconfigured workspace gets the default (every field).
+   */
+  async getPipelineRequiredFields(id: string): Promise<PipelineFieldKey[]> {
+    const ws = await this.workspaceRepo.findById(id);
+    return normalizePipelineRequiredFieldKeys(ws?.pipeline_required_fields ?? null);
+  }
+
+  async updatePipelineRequiredFields(
+    id: string,
+    requiredFields: readonly PipelineFieldKey[],
+  ): Promise<PipelineFieldKey[]> {
+    const normalized = normalizePipelineRequiredFieldKeys(requiredFields);
+    // NULL = "product default" so a future required field ships required here without
+    // every workspace that left all toggles on needing a re-save.
+    const stored = isDefaultPipelineRequiredFieldConfiguration(normalized) ? null : normalized;
+    const row = await this.workspaceRepo.update(id, {
+      pipeline_required_fields: stored,
+    });
+    if (!row) throw new WorkspaceNotFoundError(id);
+    return normalizePipelineRequiredFieldKeys(row.pipeline_required_fields);
   }
 
   listRoles(): Promise<Tables<'roles'>[]> {

@@ -10,7 +10,7 @@ section above for the rationale.
 
 **Investment Tracks & matching.** Investment theses are managed as multiple
 **Tracks** (backed by the `investment_thesis` table; `title` = name, `content` =
-thesis, plus `pic` and the scan cadence). Track Settings (Pipeline header) CRUDs
+thesis, plus `pic` and the scan cadence). Pipeline Settings (Pipeline header) CRUDs
 them; the AI Market Scanner's Configure dialog selects which Tracks are active
 (`is_active`) for scanning. When a company **enters L0** (created at L0 or
 promoted to L0), `CompanyService` dispatches a `track_matching` job

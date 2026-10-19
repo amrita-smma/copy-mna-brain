@@ -10,7 +10,7 @@ The deal funnel is split across two sidebar pages, both gated by `PIPELINE_ENABL
 
 ## Configurable pipeline stages (MB-651)
 
-Each workspace names, numbers, describes, orders, adds and deletes its own deal stages, from **Configure → Pipeline Settings** on the Pipeline page (the Configuration dialog, beside Investment Track).
+Each workspace names, numbers, describes, orders, adds and deletes its own deal stages, from **Pipeline Settings → Pipeline Stages** on the Pipeline page (the Pipeline Settings dialog, beside Investment Track and Required Fields).
 
 - **Storage.** `pipeline_stages` holds one row per workspace stage: `key`, `code` (the editable number, e.g. `L3`, unique among live stages), `name` (≤ 40 chars), `description` (plain text), `position` and `deleted_at`. A trigger on `workspaces` insert seeds the six defaults (L0 Company Sourcing … L5 Closing), so every insert path gets them. `companies.pipeline_stage` is text: a stage `key`, or one of the fixed pre-pipeline buckets `market_screening`, `unreviewed`, `discovered`.
 - **Keys never change.** The six original stages keep the keys `L0`–`L5`; added stages get `stg-<hex>`. Renaming or renumbering a stage changes only `code` / `name`, so companies, logs and links stay valid.
@@ -19,6 +19,15 @@ Each workspace names, numbers, describes, orders, adds and deletes its own deal 
 - **L0 is locked**: it can be renamed but not moved or deleted, because confirmed deals enter there and demoting out of it returns a deal to Pending Confirmation.
 - **Deleting** a stage moves its active deals to a stage the user picks (logged as ordinary `PROMOTED_FROM_x_TO_y` moves) and soft-deletes the row. Dropped deals stay at the deleted stage and keep its name; restoring one asks which stage to restore it to (`restore_stage_required`), and the resurface cron brings one back at L0. No move, bulk move or Current Stage edit can target a deleted stage.
 - **Code.** `PipelineStageService` (`/api/pipeline-stages`, `/api/pipeline-stages/[key]`, `/api/pipeline-stages/[key]/move`) owns the changes; views read the stages through `usePipelineStages()`; the agent tools accept any stage key and `list_pipeline_stages` maps the codes users say to keys.
+
+## Configurable pipeline required fields
+
+Each workspace chooses which fields a company must have before it can enter the pipeline (its first stage), from **Pipeline Settings → Required Fields**.
+
+- **Storage.** `workspaces.pipeline_required_fields` (nullable `text[]` of `PipelineFieldKey`s; migration `20261019000006_add_workspaces_pipeline_required_fields`). `NULL` means the product default — every field (Company/Project Name, Entered By, Inbound/Outbound, Deal Type, Geo, Sector, Banker) — so existing workspaces keep the original rules. Saving the full set writes `NULL` again, so a field added to the product later is required by default.
+- **The name is locked.** Company Name / Project Name is always required (`ALWAYS_REQUIRED_PIPELINE_FIELD_KEYS`); a company with neither is unaddressable. Banker keeps its rule when required: inbound deals only.
+- **One definition, enforced server-side.** `src/lib/pipeline/requiredFields.ts` holds the field list and `normalizePipelineRequiredFieldKeys`. `CompanyService` reads the workspace's set once per request (`setWorkspaceRepo`) and applies it on every pipeline entry: promote, bulk triage, the Current Stage dropdown, Smart Files approval and Pending auto-promote; a miss throws `CompanyPipelineRequirementsError` (422 with `missingFields`). `GET/PUT /api/pipeline-required-fields` reads and saves it.
+- **Not retroactive.** Changing the set affects the next entry into the pipeline; companies already in it are untouched. The Pipeline "Add Company → Manual" form keeps its own fixed required set.
 
 ## Configurable page heading (title and subtitle)
 

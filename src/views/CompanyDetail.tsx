@@ -3,13 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
-import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
 import { CompanyContextCard } from '@/components/pipeline/CompanyContextCard';
 import { CollapsibleSection } from '@/components/pipeline/CollapsibleSection';
 import { CompanyTimeline } from '@/components/pipeline/CompanyTimeline';
-import { CompanyContactsSection } from '@/components/pipeline/CompanyContactsSection';
 import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
-import { formatMoneyMn } from '@/lib/currency';
 import posthog from 'posthog-js';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatActions } from '@/components/chat/ChatProvider';
@@ -21,12 +18,10 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  Building2,
   ArrowLeft,
   FileText,
   Link as LinkIcon,
@@ -34,25 +29,16 @@ import {
   Plus,
   Loader2,
   Trash2,
-  ExternalLink,
-  Clock,
   CheckCircle2,
   XCircle,
   AlertCircle,
-  Lightbulb,
   TrendingUp,
-  AlertTriangle,
-  Search,
-  Briefcase,
   BookOpen,
-  Globe,
   Sparkles,
   Download,
   Eye,
   HelpCircle,
   Presentation,
-  Pencil,
-  Check,
   X,
   MoreVertical,
 } from 'lucide-react';
@@ -62,36 +48,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import StatusCombobox, {
-  DEFAULT_INBOUND_STATUS_OPTIONS,
-  DEFAULT_OUTBOUND_STATUS_OPTIONS,
-} from '@/components/pipeline/StatusCombobox';
-import UserSelectCombobox from '@/components/pipeline/UserSelectCombobox';
 import CompanyVotingTab from '@/components/pipeline/voting/CompanyVotingTab';
-import TrackVariablesSection from '@/components/pipeline/TrackVariablesSection';
-import { normalizeStake } from '@/lib/stake';
-import {
-  matchedTrackPics,
-  dealLeadField,
-  dealLeadLabel,
-  effectiveDealLead,
-  persistedTrackIds,
-} from '@/lib/tracks/matchTracks';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CompanyAnalysisSection } from '@/components/pipeline/CompanyAnalysisSection';
-import CompanyRelationshipGraph from '@/components/pipeline/CompanyRelationshipGraph';
 import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading';
 import CompanyOverviewSlide, {
   type AnalysisSectionKey,
@@ -103,11 +66,9 @@ import { detectFileKind } from '@/lib/fileType';
 import ExistingAttachmentPicker from '@/components/pipeline/ExistingAttachmentPicker';
 import { cn } from '@/lib/utils';
 import { useDealDocumentProcessingPoll } from '@/components/Files/DocumentInsightsPanel';
-import { FinancialCharts } from '@/components/pipeline/FinancialCharts';
-import { OWNERSHIP_OPTIONS, isAnalysisInProgress } from '@/lib/constants';
+import { isAnalysisInProgress } from '@/lib/constants';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
-import { stageSelectOptions } from '@/lib/pipeline/stages';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
 import {
   addCompanyLink,
   addCompanyNote,
@@ -116,26 +77,15 @@ import {
   updateDealNote,
   getCompanies,
   getCompanyDetails,
-  getBankerNames,
   getTracks,
-  getUsers,
   updateCompany,
   type Track,
-  type UserSummary,
 } from '@/lib/api/pipeline';
-import { useRestoreDeal } from '@/components/pipeline/useRestoreDeal';
+import CompanyDetailsTab from '@/components/pipeline/CompanyDetailsTab';
+import { useCompanyInformationEditor } from '@/components/pipeline/useCompanyInformationEditor';
+import { useDealStatusToggle } from '@/components/pipeline/useDealStatusToggle';
 import DropDealDialog from '@/components/pipeline/DropDealDialog';
-import { DEAL_TYPE_OPTIONS, formatDealType } from "@/lib/companies/dealTypes";
 
-const websiteHref = (url: string) =>
-  /^https?:\/\//i.test(url) ? url : `https://${url}`;
-
-/** timestamptz ISO string -> YYYY-MM-DD for <input type="date">. */
-const isoToDateInput = (iso: string | null | undefined): string => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
-};
 
 interface CompanyData {
   id: string;
@@ -195,11 +145,15 @@ interface CompanyData {
   deal_size?: string | null;
   workflow_status?: string | null;
   key_rationale?: string | null;
+  nbo_date?: string | null;
+  is_live?: boolean | null;
   matched_track_ids?: string[] | null;
   track_specific_variables?: Record<string, Record<string, string>> | null;
   slide_track_variable_ids?: string[] | null;
   deal_sponsor?: string | null;
   deal_captain?: string | null;
+  deal_sponsor_name?: string | null;
+  deal_captain_name?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }
 
@@ -256,14 +210,6 @@ function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
   }
   return result.reverse(); // newest first for display
 }
-
-const formatDuration = (seconds: number | null) => {
-  if (seconds === null) return 'Ongoing';
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  if (days > 0) return `${days}d ${hours}h`;
-  return `${hours}h`;
-};
 
 interface DealNote {
   id: string;
@@ -377,8 +323,6 @@ export default function CompanyDetail() {
   const params = useParams();
   const router = useRouter();
   const { analyzeWithAI } = useChatActions();
-  const currency = useWorkspaceCurrency();
-  const formatCurrency = (value: number | null) => formatMoneyMn(value, currency);
   const { focusCopilot } = useLayoutControl();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -416,7 +360,6 @@ export default function CompanyDetail() {
   };
 
   const [company, setCompany] = useState<CompanyData | null>(null);
-  const { restore: restoreWithStagePrompt, restoreStageDialog } = useRestoreDeal();
   const pipelineStages = usePipelineStages();
   const getStageLabel = (stage: string | null): string =>
     pipelineStages.displayLabel(stage || 'L0');
@@ -566,110 +509,24 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     return kind === 'pdf' || kind === 'pptx';
   });
 
-  // Inline edit mode for the Company Information card
-  type EditForm = {
-    target: string;
-    project_name: string;
-    website: string;
-    geography: string;
-    source: string;
-    ownership: string;
-    segment: string;
-    pipeline_stage: string;
-    ev_2024: string;
-    // Pipeline (HTML-parity) fields
-    deal_type: string;
-    last_activity_at: string; // YYYY-MM-DD
-    workflow_status: string;
-    banker: string;
-    advisor: string;
-    doc_type: string;
-    stake: string;
-    deal_size: string;
-    key_rationale: string;
-    deal_sponsor: string;
-    deal_captain: string;
-    entered_by: string;
-    company_focus: string;
-    comments: string;
-  };
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [editForm, setEditForm] = useState<EditForm | null>(null);
-  const [bankerOptions, setBankerOptions] = useState<string[]>([]);
-  // Full users list (id + name + email) for the `entered_by` and Deal Sponsor
-  // / Deal Captain pickers — all three are uuid FKs to `users`, so they are
-  // pickers over this list rather than free-text fields.
-  const [users, setUsers] = useState<UserSummary[]>([]);
+  // Inline edit mode for the Company Information card (shared with the
+  // pipeline dialog via CompanyDetailsTab).
+  const editor = useCompanyInformationEditor<CompanyData>({
+    company,
+    stageLabel: getStageLabel,
+    onSaved: (refreshed) => {
+      if (refreshed) setCompany((prev) => (prev ? { ...prev, ...refreshed } : refreshed));
+    },
+  });
 
-  const startEditing = async () => {
-    if (!company) return;
-    setEditForm({
-      target: company.target ?? '',
-      project_name: company.project_name ?? '',
-      website: company.website ?? '',
-      geography: company.geography ?? '',
-      source: company.source ?? '',
-      ownership: company.ownership ?? '',
-      segment: company.segment ?? '',
-      pipeline_stage: company.pipeline_stage ?? 'L0',
-      ev_2024: company.ev_2024 != null ? String(company.ev_2024) : '',
-      deal_type: company.deal_type ?? '',
-      last_activity_at: isoToDateInput(company.last_activity_at),
-      workflow_status: company.workflow_status ?? '',
-      banker: company.banker ?? '',
-      advisor: company.advisor ?? '',
-      doc_type: company.doc_type ?? '',
-      stake: company.stake ?? '',
-      deal_size: company.deal_size ?? '',
-      key_rationale: company.key_rationale ?? '',
-      deal_sponsor: company.deal_sponsor ?? '',
-      deal_captain: company.deal_captain ?? '',
-      entered_by: company.entered_by ?? '',
-      company_focus: company.company_focus ?? '',
-      comments: company.comments ?? '',
-    });
-    setIsEditing(true);
-    if (bankerOptions.length === 0) {
-      getBankerNames()
-        .then(setBankerOptions)
-        .catch((err) => console.error('Failed to load bankers:', err));
-    }
-    if (users.length === 0) {
-      getUsers()
-        .then(setUsers)
-        .catch((err) => console.error('Failed to load users:', err));
-    }
-  };
-
-  const cancelEditing = () => {
-    setIsEditing(false);
-    setEditForm(null);
-  };
-
-  // Deal Status (Active/Dropped) toggle, paired with the Status field above.
-  // Dropping and reactivating are immediate side-effecting actions (their own
-  // log entry, optional note) rather than fields saved via handleSave.
+  // Deal Status (Active/Dropped). Dropping and reactivating are immediate
+  // side-effecting actions (their own log entry, optional note), not fields
+  // saved with the Company Information form.
   const [showDropDialog, setShowDropDialog] = useState(false);
-  const [isTogglingDealStatus, setIsTogglingDealStatus] = useState(false);
-
-  const handleDealStatusChange = async (next: 'active' | 'dropped') => {
-    if (!company || next === (company.status === 'dropped' ? 'dropped' : 'active')) return;
-    if (next === 'dropped') {
-      setShowDropDialog(true);
-      return;
-    }
-    // Reactivating is immediate, no confirmation — matches the pipeline
-    // board's restore action.
-    setIsTogglingDealStatus(true);
-    try {
-      const { restored, stage } = await restoreWithStagePrompt({
-        id: company.id,
-        name: companyDisplayName(company, 'This deal'),
-        currentStage: company.pipeline_stage,
-      });
-      if (!restored) return;
-      toast.success(`Restored ${companyDisplayName(company, 'company')}`);
+  const dealStatus = useDealStatusToggle({
+    company,
+    onDropRequested: () => setShowDropDialog(true),
+    onRestored: (stage) =>
       setCompany((prev) =>
         prev
           ? {
@@ -680,46 +537,21 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               pipeline_stage: stage ?? prev.pipeline_stage,
             }
           : prev,
-      );
-    } catch (err: unknown) {
-      console.error('Error restoring deal:', err);
-      toast.error(`Failed to restore deal: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setIsTogglingDealStatus(false);
-    }
-  };
+      ),
+  });
 
-  // Inline edit mode for the AI Market Scanning Remarks card
-  const [isEditingRemarks, setIsEditingRemarks] = useState(false);
-  const [isSavingRemarks, setIsSavingRemarks] = useState(false);
-  const [remarksDraft, setRemarksDraft] = useState('');
-
-  const startEditingRemarks = () => {
+  // The outbound deal's AI Market Scanning Remarks card. Rethrows so the card
+  // keeps its editor open on a failed save.
+  const saveRemarks = async (remarks: string | null) => {
     if (!company) return;
-    setRemarksDraft(company.remarks ?? '');
-    setIsEditingRemarks(true);
-  };
-
-  const cancelEditingRemarks = () => {
-    setIsEditingRemarks(false);
-    setRemarksDraft('');
-  };
-
-  const saveRemarks = async () => {
-    if (!company) return;
-    setIsSavingRemarks(true);
     try {
-      const trimmed = remarksDraft.trim();
-      await updateCompany(company.id, { remarks: trimmed || null });
-      setCompany((prev) => (prev ? { ...prev, remarks: trimmed || null } : prev));
+      await updateCompany(company.id, { remarks });
+      setCompany((prev) => (prev ? { ...prev, remarks } : prev));
       toast.success('Remarks updated');
-      setIsEditingRemarks(false);
-      setRemarksDraft('');
     } catch (err: unknown) {
       console.error('Failed to save remarks:', err);
       toast.error(`Failed to save: ${(err as Error)?.message || 'Unknown error'}`);
-    } finally {
-      setIsSavingRemarks(false);
+      throw err;
     }
   };
 
@@ -738,66 +570,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       // Rethrow so the slide keeps its editor open on the failed value rather
       // than closing over a write that never landed.
       throw err;
-    }
-  };
-
-  const saveEditing = async () => {
-    if (!editForm || !company) return;
-    setIsSaving(true);
-    try {
-      const evNum = editForm.ev_2024.trim() === '' ? null : Number(editForm.ev_2024);
-      if (evNum !== null && Number.isNaN(evNum)) {
-        toast.error('Valuation must be a number');
-        setIsSaving(false);
-        return;
-      }
-      const stakeResult = normalizeStake(editForm.stake);
-      if ('error' in stakeResult) {
-        toast.error(stakeResult.error);
-        setIsSaving(false);
-        return;
-      }
-      await updateCompany(company.id, {
-        target: editForm.target.trim() || null,
-        project_name: editForm.project_name.trim() || null,
-        website: editForm.website.trim() || null,
-        geography: editForm.geography.trim() || null,
-        source: editForm.source || null,
-        ownership: editForm.ownership || null,
-        segment: editForm.segment.trim() || null,
-        pipeline_stage: editForm.pipeline_stage,
-        ev_2024: evNum,
-        deal_type: editForm.deal_type || null,
-        last_activity_at: editForm.last_activity_at
-          ? new Date(editForm.last_activity_at).toISOString()
-          : null,
-        workflow_status: editForm.workflow_status.trim() || null,
-        banker: editForm.banker.trim() || null,
-        advisor: editForm.advisor.trim() || null,
-        doc_type: editForm.doc_type || null,
-        stake: stakeResult.value,
-        deal_size: editForm.deal_size.trim() || null,
-        key_rationale: editForm.key_rationale.trim() || null,
-        deal_sponsor: editForm.deal_sponsor.trim() || null,
-        deal_captain: editForm.deal_captain.trim() || null,
-        entered_by: editForm.entered_by.trim() || null,
-        company_focus: editForm.company_focus.trim() || null,
-        comments: editForm.comments.trim() || null,
-      });
-      const refreshedCompany = await getCompanies({ id: company.id });
-      if (refreshedCompany) {
-        setCompany((prev) =>
-          prev ? { ...prev, ...(refreshedCompany as CompanyData) } : (refreshedCompany as CompanyData),
-        );
-      }
-      toast.success('Company updated');
-      setIsEditing(false);
-      setEditForm(null);
-    } catch (err: unknown) {
-      console.error('Failed to save company:', err);
-      toast.error(`Failed to save: ${(err as Error)?.message || 'Unknown error'}`);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -1811,514 +1583,30 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             />
           </TabsContent>
 
-          <TabsContent value="company-card" className="space-y-6 mt-6">
-            {/* AI Market Scanning Remarks */}
-            {company.source?.toLowerCase() === 'outbound' && (
-              <Card className="border-blue-200 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 to-blue-50/30 dark:from-blue-950/20 dark:to-blue-950/10">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                      <Sparkles className="h-5 w-5 text-blue-500" />
-                      AI Market Scanning Remarks
-                    </CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700">
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        AI Discovered
-                      </Badge>
-                      {!isEditingRemarks && (
-                        <Button variant="ghost" size="sm" onClick={startEditingRemarks} aria-label="Edit remarks" className="h-6 w-6 p-0 text-blue-700 dark:text-blue-300">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                  {company.segment && (
-                    <p className="text-sm text-muted-foreground">Matched against: {company.segment}</p>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/80 dark:bg-blue-950/30">
-                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2 mb-2">
-                      <Sparkles className="h-4 w-4" />
-                      Why This Company Matches Your Investment Thesis
-                    </p>
-                    {isEditingRemarks ? (
-                      <div className="space-y-3">
-                        <Textarea
-                          value={remarksDraft}
-                          onChange={(e) => setRemarksDraft(e.target.value)}
-                          disabled={isSavingRemarks}
-                          rows={6}
-                          placeholder="Describe how this company aligns with the investment thesis…"
-                          className="text-sm"
-                        />
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={cancelEditingRemarks} disabled={isSavingRemarks}>Cancel</Button>
-                          <Button size="sm" onClick={saveRemarks} disabled={isSavingRemarks} className="gap-1">
-                            {isSavingRemarks ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                            Save
-                          </Button>
-                        </div>
-                      </div>
-                    ) : company.remarks ? (
-                      <MarkdownRenderer content={company.remarks} variant="card" />
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">No remarks yet. Click the edit icon to add some.</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Financial Charts - first */}
-            <FinancialCharts
-              financials={company.financials_raw ?? []}
-              rawFinancials={company.financials_raw ?? []}
-              companyId={company.id}
-              onUpdate={() => fetchCompany({ silent: true })}
+          <TabsContent value="company-card" className="mt-6">
+            <CompanyDetailsTab
+              company={company}
+              tracks={tracks}
+              editor={editor}
+              onDealStatusChange={(next) => void dealStatus.change(next)}
+              dealStatusBusy={dealStatus.busy}
+              onSaveRemarks={saveRemarks}
+              onFinancialsUpdate={() => fetchCompany({ silent: true })}
+              onTrackVariablesSaved={(next) => {
+                setCompany((prev) => (prev ? { ...prev, track_specific_variables: next } : prev));
+                void fetchCompany({ silent: true });
+              }}
+              onSlideVariablesSaved={(next) => {
+                setCompany((prev) => (prev ? { ...prev, slide_track_variable_ids: next } : prev));
+                void fetchCompany({ silent: true });
+              }}
+              stageHistory={stageHistory}
+              analysis={analysis}
+              analysisGenerating={analysisGenerating}
+              analysisCancelling={analysisCancelling}
+              onCancelAnalysis={cancelAnalysis}
+              onRetryAnalysis={regenerateAnalysis}
             />
-
-            {/* Company Information - flat, 2-column */}
-            <div className="rounded-lg border bg-card px-4 py-3">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Company Information
-                </p>
-                {!isEditing && (
-                  <Button variant="ghost" size="sm" onClick={startEditing} aria-label="Edit" className="h-6 w-6 p-0">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Company Name</p>
-                  {isEditing && editForm ? (
-                    <Input value={editForm.target} onChange={(e) => setEditForm({ ...editForm, target: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.target || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Project Name</p>
-                  {isEditing && editForm ? (
-                    <Input value={editForm.project_name} onChange={(e) => setEditForm({ ...editForm, project_name: e.target.value })} placeholder="e.g. Project Phoenix" disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.project_name || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Website</p>
-                  {isEditing && editForm ? (
-                    <Input value={editForm.website} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} placeholder="https://..." disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : company.website ? (
-                    <a href={websiteHref(company.website)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs inline-flex items-start gap-1 break-all">
-                      <span className="break-all">{company.website}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0 mt-0.5" />
-                    </a>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Sector</p>
-                  {isEditing && editForm ? (
-                    <Input value={editForm.segment} onChange={(e) => setEditForm({ ...editForm, segment: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.segment || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Headquarter</p>
-                  {isEditing && editForm ? (
-                    <Input value={editForm.geography} onChange={(e) => setEditForm({ ...editForm, geography: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.geography || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Ownership</p>
-                  {isEditing && editForm ? (
-                    <Select value={editForm.ownership || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, ownership: v === '__none__' ? '' : v })} disabled={isSaving}>
-                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">-</SelectItem>
-                        {OWNERSHIP_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.ownership || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Source</p>
-                  {isEditing && editForm ? (
-                    <Select value={editForm.source || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, source: v === '__none__' ? '' : v })} disabled={isSaving}>
-                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">-</SelectItem>
-                        <SelectItem value="inbound">Inbound</SelectItem>
-                        <SelectItem value="outbound">Outbound</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-sm font-medium capitalize break-words">{company.source || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Current Stage</p>
-                  {isEditing && editForm ? (
-                    <Select value={editForm.pipeline_stage} onValueChange={(v) => setEditForm({ ...editForm, pipeline_stage: v })} disabled={isSaving}>
-                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {stageSelectOptions(pipelineStages.liveKeys, editForm.pipeline_stage).map((s) => (
-                          <SelectItem key={s} value={s}>{getStageLabel(s)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Badge variant="outline" className="text-xs px-2 py-0.5 mt-0.5">{getStageLabel(company.pipeline_stage)}</Badge>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Valuation</p>
-                  {isEditing && editForm ? (
-                    <Input type="number" step="0.01" value={editForm.ev_2024} onChange={(e) => setEditForm({ ...editForm, ev_2024: e.target.value })} placeholder="USD millions" disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{formatCurrency(company.ev_2024)}</p>
-                  )}
-                </div>
-                <div>
-                  {(() => {
-                    const stage =
-                      isEditing && editForm ? editForm.pipeline_stage : company.pipeline_stage;
-                    const field = dealLeadField(stage, pipelineStages.captainKeys);
-                    const pics = matchedTrackPics(company, tracks);
-                    const fallback = pics.length > 0 ? pics.join(', ') : null;
-                    return (
-                      <>
-                        <p className="text-xs text-muted-foreground">{dealLeadLabel(stage, pipelineStages.captainKeys)}</p>
-                        {isEditing && editForm ? (
-                          <div className="mt-1">
-                            <UserSelectCombobox
-                              value={editForm[field] || null}
-                              users={users}
-                              placeholder={
-                                fallback ? `${fallback} (from track)` : `Set ${dealLeadLabel(stage, pipelineStages.captainKeys)}…`
-                              }
-                              searchPlaceholder="Search a team member…"
-                              emptyText="No team members found."
-                              onChange={(v) => setEditForm({ ...editForm, [field]: v })}
-                              disabled={isSaving}
-                            />
-                          </div>
-                        ) : (
-                          <p className="text-sm font-medium break-words">
-                            {effectiveDealLead(company, stage, tracks, pipelineStages.captainKeys) ?? '—'}
-                          </p>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Deal Type</p>
-                  {isEditing && editForm ? (
-                    <Select value={editForm.deal_type || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, deal_type: v === '__none__' ? '' : v })} disabled={isSaving}>
-                      <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">-</SelectItem>
-                        {DEAL_TYPE_OPTIONS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>
-                            {o.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{formatDealType(company.deal_type) || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Entered by</p>
-                  {isEditing && editForm ? (
-                    <div className="mt-1">
-                      <UserSelectCombobox value={editForm.entered_by || null} onChange={(v) => setEditForm({ ...editForm, entered_by: v })} users={users} disabled={isSaving} className="h-7 text-sm" />
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.entered_by_name || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Status</p>
-                  {isEditing && editForm ? (
-                    <div className="mt-1">
-                      <StatusCombobox value={editForm.workflow_status || null} options={company.source === 'outbound' ? DEFAULT_OUTBOUND_STATUS_OPTIONS : DEFAULT_INBOUND_STATUS_OPTIONS} placeholder={company.source === 'outbound' ? 'Set status…' : 'Unreviewed'} onChange={(v) => setEditForm({ ...editForm, workflow_status: v })} disabled={isSaving} />
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.workflow_status || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Deal Status</p>
-                  {isEditing ? (
-                    <div className="mt-1">
-                      <Select
-                        value={company.status === 'dropped' ? 'dropped' : 'active'}
-                        onValueChange={(v) => handleDealStatusChange(v as 'active' | 'dropped')}
-                        disabled={isSaving || isTogglingDealStatus}
-                      >
-                        <SelectTrigger data-testid="deal-status-select" className="h-7 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="dropped">Dropped</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {company.status === 'dropped' && company.dropped_reason && (
-                        <p className="mt-1 text-xs text-muted-foreground">Reason: {company.dropped_reason}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.status === 'dropped' ? 'Dropped' : 'Active'}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Last Activity</p>
-                  {isEditing && editForm ? (
-                    <Input type="date" value={editForm.last_activity_at} onChange={(e) => setEditForm({ ...editForm, last_activity_at: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
-                  ) : (
-                    <p className="text-sm font-medium break-words">{company.last_activity_at ? format(new Date(company.last_activity_at), 'MMM d, yyyy') : '—'}</p>
-                  )}
-                </div>
-                {company.source !== 'outbound' && (
-                  <>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Banker / Source</p>
-                      {isEditing && editForm ? (
-                        <StatusCombobox value={editForm.banker || null} options={bankerOptions} placeholder="Set banker…" searchPlaceholder="Search or add a banker…" emptyText="No bankers yet." onChange={(v) => setEditForm({ ...editForm, banker: v })} disabled={isSaving} className="mt-1" />
-                      ) : (
-                        <p className="text-sm font-medium break-words">{company.banker || '—'}</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Advisor</p>
-                      {isEditing && editForm ? (
-                        <StatusCombobox value={editForm.advisor || null} options={bankerOptions} placeholder="Set advisor…" searchPlaceholder="Search or add a banker…" emptyText="No bankers yet." onChange={(v) => setEditForm({ ...editForm, advisor: v })} disabled={isSaving} className="mt-1" />
-                      ) : (
-                        <p className="text-sm font-medium break-words">{company.advisor || '—'}</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Doc Type</p>
-                      {isEditing && editForm ? (
-                        <Select value={editForm.doc_type || '__none__'} onValueChange={(v) => setEditForm({ ...editForm, doc_type: v === '__none__' ? '' : v })} disabled={isSaving}>
-                          <SelectTrigger className="mt-1 h-7 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">-</SelectItem>
-                            <SelectItem value="teaser">Teaser</SelectItem>
-                            <SelectItem value="shopping_list">Shopping List</SelectItem>
-                            <SelectItem value="market_study">Market Study</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-sm font-medium capitalize break-words">{company.doc_type ? company.doc_type.replace(/_/g, ' ') : '—'}</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">% Stake</p>
-                      {isEditing && editForm ? (
-                        <Input value={editForm.stake} onChange={(e) => setEditForm({ ...editForm, stake: e.target.value })} placeholder="e.g. 51%" title="Target ownership percentage being pursued" disabled={isSaving} className="mt-1 h-7 text-sm" />
-                      ) : (
-                        <p className="text-sm font-medium break-words">{company.stake || '—'}</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Deal Size</p>
-                      {isEditing && editForm ? (
-                        <Input value={editForm.deal_size} onChange={(e) => setEditForm({ ...editForm, deal_size: e.target.value })} disabled={isSaving} className="mt-1 h-7 text-sm" />
-                      ) : (
-                        <p className="text-sm font-medium break-words">{company.deal_size || '—'}</p>
-                      )}
-                    </div>
-                  </>
-                )}
-                {company.source === 'outbound' && (
-                  <div className="col-span-2">
-                    <p className="text-xs text-muted-foreground">Key Rationale</p>
-                    {isEditing && editForm ? (
-                      <Textarea value={editForm.key_rationale} onChange={(e) => setEditForm({ ...editForm, key_rationale: e.target.value })} rows={3} disabled={isSaving} className="mt-1 text-sm resize-y" />
-                    ) : (
-                      <p className="text-sm font-medium break-words whitespace-pre-wrap">{company.key_rationale || '—'}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-              {/* Company Focus / Comments are free text, so they sit below the
-                  two-column grid. In edit mode both always render (even when
-                  empty) — that's the only way to fill in a blank one. */}
-              {isEditing && editForm ? (
-                <>
-                  <div className="mt-3 pt-3 border-t">
-                    <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
-                    <Textarea
-                      value={editForm.company_focus}
-                      onChange={(e) => setEditForm({ ...editForm, company_focus: e.target.value })}
-                      rows={3}
-                      placeholder="What the company focuses on…"
-                      disabled={isSaving}
-                      className="mt-1 text-sm resize-y"
-                    />
-                  </div>
-                  <div className="mt-3 pt-3 border-t">
-                    <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
-                    <Textarea
-                      value={editForm.comments}
-                      onChange={(e) => setEditForm({ ...editForm, comments: e.target.value })}
-                      rows={3}
-                      placeholder="Internal comments on this deal…"
-                      disabled={isSaving}
-                      className="mt-1 text-sm resize-y"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  {company.company_focus && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs text-muted-foreground mb-0.5">Company Focus</p>
-                      <p className="text-sm break-words whitespace-pre-wrap">{company.company_focus}</p>
-                    </div>
-                  )}
-                  {company.comments && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs text-muted-foreground mb-0.5">Comments</p>
-                      <p className="text-sm break-words whitespace-pre-wrap">{company.comments}</p>
-                    </div>
-                  )}
-                </>
-              )}
-              {isEditing && editForm && (
-                <div className="mt-4 flex justify-end gap-2">
-                  <Button variant="outline" size="sm" onClick={cancelEditing} disabled={isSaving}>Cancel</Button>
-                  <Button size="sm" onClick={saveEditing} disabled={isSaving} className="gap-1">
-                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    Save
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Partnership contacts at this company, kept in the CRM and found
-                on demand by @crm_contact on the AI Workforce. */}
-            <CompanyContactsSection
-              key={company.id}
-              companyId={company.id}
-              companyName={companyDisplayName(company, 'This company')}
-            />
-
-            {/* Relationship graph snippet — this company and the companies
-                directly connected to it. Filtering lives on the graph page. */}
-            <CompanyRelationshipGraph
-              companyId={company.id}
-              companyName={companyDisplayName(company, 'This company')}
-            />
-
-            {/* AI Company Card Section */}
-            {analysisGenerating ? (
-              <AICompanyCardLoading
-                onCancel={cancelAnalysis}
-                cancelling={analysisCancelling}
-              />
-            ) : analysis?.status === 'failed' ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-12 flex flex-col items-center justify-center gap-4">
-                <AlertCircle className="h-8 w-8 text-destructive" />
-                <div className="text-center">
-                  <h3 className="text-lg font-semibold text-destructive">Analysis Failed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {analysis.error_message || 'An error occurred while generating the analysis.'}
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={regenerateAnalysis} disabled={analysisGenerating}>
-                  <Sparkles className="h-4 w-4 mr-2" />Retry
-                </Button>
-              </div>
-            ) : analysis?.status === 'completed' ? (
-              <div className="space-y-6">
-                {analysis.created_at && (
-                  <p className="text-xs text-muted-foreground">
-                    Generated{' '}
-                    {formatDistanceToNow(new Date(analysis.created_at), { addSuffix: true })} · a
-                    stage move or Regenerate refreshes it against newer documents
-                  </p>
-                )}
-                {analysis.sources && Array.isArray(analysis.sources) && analysis.sources.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Sources:</span>
-                    {(analysis.sources as AnalysisSource[]).map((source, idx) =>
-                      source.url ? (
-                        <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs hover:bg-accent/20 transition-colors">
-                          <Globe className="h-3 w-3" />
-                          {source.title || new URL(source.url).hostname}
-                          <ExternalLink className="h-2.5 w-2.5" />
-                        </a>
-                      ) : (
-                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs">
-                          {source.type === 'database' || source.type === 'files' ? <FileText className="h-3 w-3" /> : source.type === 'inven' ? <Search className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
-                          {source.title || source.type}
-                        </span>
-                      ),
-                    )}
-                  </div>
-                )}
-                <CompanyAnalysisSection title="Business Overview" description="Establish a factual baseline: products, end markets, customer types, and geographic footprint." icon={Building2} content={analysis.business_overview || ''} colorVariant="default" />
-                <CompanyAnalysisSection title="Business Model & Value Chain Summary" description="Explain how the company operates economically and where it sits in the industry value chain." icon={Briefcase} content={analysis.business_model_summary || ''} colorVariant="teal" />
-                <CompanyAnalysisSection title="Key Takeaways" description="Surface the most important implications from the analysis above (3-5 synthesized insights)." icon={Lightbulb} content={analysis.key_takeaways || ''} colorVariant="blue" />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <CompanyAnalysisSection title="Investment Highlights" description="Identify upside drivers linked to the company's business model and positioning." icon={TrendingUp} content={analysis.investment_highlights || ''} colorVariant="green" />
-                  <CompanyAnalysisSection title="Investment Risks" description="Identify risks inherent to the company's business model and value chain." icon={AlertTriangle} content={analysis.investment_risks || ''} colorVariant="amber" />
-                </div>
-                <CompanyAnalysisSection title="Diligence Priorities" description="Define the most critical unknowns to resolve before advancing investment (3-7 items)." icon={Search} content={analysis.diligence_priorities || ''} colorVariant="rose" />
-              </div>
-            ) : null}
-
-            {/* Track-specific custom variables */}
-            {company && (
-              <TrackVariablesSection
-                companyId={company.id}
-                matchedTrackIds={persistedTrackIds(company, tracks)}
-                tracks={tracks}
-                values={company.track_specific_variables}
-                onSaved={() => fetchCompany({ silent: true })}
-                slideVariableIds={company.slide_track_variable_ids}
-                onSlideVariablesSaved={() => fetchCompany({ silent: true })}
-              />
-            )}
-
-            {/* Stage History */}
-            <div className="rounded-lg border bg-card px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" />
-                Stage History
-              </p>
-              {stageHistory.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No history yet</p>
-              ) : (
-                <div className="space-y-1">
-                  {stageHistory.map((history) => (
-                    <div key={history.id} className="flex items-center justify-between py-1.5 border-b last:border-0">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="text-xs px-2 py-0.5">{getStageLabel(history.stage)}</Badge>
-                        <span className="text-xs text-muted-foreground">{format(new Date(history.entered_at), 'MMM d, yyyy HH:mm')}</span>
-                      </div>
-                      <span className="text-xs font-medium">{history.exited_at ? formatDuration(history.duration_seconds) : 'Current'}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </TabsContent>
 
           <TabsContent value="filters" className="mt-6">
@@ -2397,7 +1685,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       </div>
 
 
-      {restoreStageDialog}
+      {dealStatus.restoreStageDialog}
 
       {company && (
         <DropDealDialog
