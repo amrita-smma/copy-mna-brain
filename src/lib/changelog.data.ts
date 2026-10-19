@@ -178,6 +178,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "4991609e71d847c3451614c9a5d13fb7ba840278",
+    "date": "2026-10-19",
+    "subject": "Added featured slide previews on the Voting tab and inline previews for timeline files",
+    "category": "improvement"
+  },
+  {
+    "hash": "a11f9ddf6c72212952a7f38f2281248641a5e2bc",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
