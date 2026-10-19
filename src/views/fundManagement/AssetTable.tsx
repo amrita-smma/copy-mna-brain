@@ -11,7 +11,9 @@ import {
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
+  matchesSearch,
   mergeHoldingsAcrossFunds,
+  normalizeSearch,
   resolveInvestorGroupName,
   sliceHoldingsByTxn,
   type AssetHolderInvested,
@@ -20,31 +22,50 @@ import {
 import { useFundMoney } from './useFundMoney';
 import { distinctEnglishName } from '@/lib/fundLedger/format';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, PartialValuationAmount, Pill } from './parts';
+import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, GroupSectionRow, InlineEdit, PartialValuationAmount, Pill, TypeToConfirmDialog } from './parts';
 import { HoldingDetail } from './HoldingDetail';
-import { TablePager } from './TablePager';
 import { useFundData } from './context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
 import { useChatActions } from '@/components/chat/ChatProvider';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { FundAiOpinionCell } from './FundAiOpinionCell';
+import { InvestmentTypesDialog } from './InvestmentTypesDialog';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Settings2, Tags } from 'lucide-react';
 
-const PAGE_SIZE = 25;
+/** Radio value for "no investment type" (Radix forbids an empty-string value). */
+const NO_TYPE_VALUE = '__none__';
 
-type GroupBy = 'none' | 'fund' | 'investor' | 'source';
+type GroupBy = 'none' | 'fund' | 'investor' | 'source' | 'investment_type';
 
 const GROUP_OPTIONS: { k: GroupBy; label: string }[] = [
   { k: 'none', label: 'No grouping' },
   { k: 'fund', label: 'by Fund Type' },
   { k: 'investor', label: 'by Investor' },
   { k: 'source', label: 'by Source of Fund' },
+  { k: 'investment_type', label: 'by Investment Type' },
 ];
 
 const GROUP_HEAD: Record<Exclude<GroupBy, 'none'>, string> = {
   fund: 'Fund Type',
   investor: 'Investor',
   source: 'Source of Fund',
+  investment_type: 'Investment Type',
 };
+
+/** Group for assets with no investment type (or one since deleted). */
+const UNASSIGNED_TYPE = 'Unassigned';
+
+/** Columns in an asset row — every full-width cell spans this many. */
+const COLUMN_COUNT = 9;
 
 const HOLDING_TYPE_NAME: Record<string, string> = {
   Equity: 'Company',
@@ -70,7 +91,16 @@ const ASSET_COLS: { label: string; term?: string }[] = [
   { label: 'DPI', term: 'dpiT' },
 ];
 
+/** Section heading, under "by investor", for entities that belong to no investor group. */
+const UNGROUPED_SECTION = 'Other entities';
+
 const dpi = (cost: number, real: number) => (cost > 0 ? real / cost : 0);
+
+/** A holding backed by an `fl_assets` row (not a fund-of-funds target). */
+const isAssetTarget = (h: Holding) =>
+  Boolean(h.id) &&
+  h.targetKind !== 'fund' &&
+  !(h.targetKind == null && h.tp === 'Fund of funds');
 
 /** A table row: a holding slice, plus — for a merged co-invested asset — the
  * names of every fund/entity holder holding it (the slice's `f` is the primary fund)
@@ -250,10 +280,13 @@ export function AssetTable({
   investors,
   initialGroupBy,
   initialOpenAssets,
+  search = '',
 }: {
   funds: Fund[];
   investors?: Investor[];
   initialGroupBy?: GroupBy;
+  /** Free-text filter over asset names, holders and action items. */
+  search?: string;
   /** Asset rows expanded on first render, as internal row keys
    * (`${scope}::${hkey}` — `all::<assetId>` for an ungrouped row). */
   initialOpenAssets?: string[];
@@ -261,11 +294,24 @@ export function AssetTable({
   const {
     deleteAsset,
     reopenAsset,
+    hardDeleteAsset,
+    updateActionItems,
     entityNameById,
     sourceNameById,
     analyzeAiOpinion,
     analyzingAiOpinionIds,
+    investmentTypes,
+    setInvestmentType,
+    reloadInvestmentTypes,
+    refreshAll,
   } = useFundData();
+  const [configureTypesOpen, setConfigureTypesOpen] = useState(false);
+  const investmentTypeNameById = useMemo(
+    () => new Map(investmentTypes.map((t) => [t.id, t.name] as const)),
+    [investmentTypes],
+  );
+  const investmentTypeName = (h: Holding) =>
+    (h.investmentTypeId && investmentTypeNameById.get(h.investmentTypeId)) || UNASSIGNED_TYPE;
   const { money } = useFundMoney();
   const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
@@ -316,14 +362,26 @@ export function AssetTable({
     focusCopilot();
   };
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  // Investor-group sections start open; this tracks the ones the user collapsed.
+  const [closedSections, setClosedSections] = useState<Set<string>>(new Set());
   const [openAssets, setOpenAssets] = useState<Set<string>>(
     () => new Set(initialOpenAssets ?? []),
   );
-  const [page, setPage] = useState(1);
-
-  // Grouping mode changes what a "row" is (assets vs. groups), so restart
-  // paging from the first page to avoid landing on an out-of-range page.
-  useEffect(() => setPage(1), [effectiveGroupBy]);
+  const [assetToDelete, setAssetToDelete] = useState<Holding | null>(null);
+  const query = normalizeSearch(search);
+  const rowMatches = (row: AssetRow) =>
+    matchesSearch(
+      [
+        getAssetDisplayName(row.h),
+        row.h.n,
+        row.h.englishName,
+        row.h.inv?.legalName,
+        row.h.actionItems,
+        row.h.investmentTypeId ? investmentTypeNameById.get(row.h.investmentTypeId) : undefined,
+        ...(row.holderNames ?? row.fundNames ?? (row.f ? [row.f.n] : [])),
+      ],
+      query,
+    );
 
   const toggle = <T,>(set: Set<T>, val: T) => {
     const next = new Set(set);
@@ -422,6 +480,17 @@ export function AssetTable({
   };
 
   const buildGroups = (): Map<string, AssetRow[]> => {
+    if (effectiveGroupBy === 'investment_type') {
+      // Investment type is an asset attribute, so group whole assets (the
+      // merged "No grouping" rows) — a co-invested asset appears once.
+      const map = new Map<string, AssetRow[]>();
+      flat.forEach((row) => {
+        const name = investmentTypeName(row.h);
+        if (!map.has(name)) map.set(name, []);
+        map.get(name)!.push(row);
+      });
+      return map;
+    }
     if (effectiveGroupBy === 'fund') {
       const map = new Map<string, AssetRow[]>();
       const push = (groupName: string, row: AssetRow) => {
@@ -504,16 +573,21 @@ export function AssetTable({
     return map;
   }, [funds, investors]);
 
-  /** The rail is rotated vertical text in an 8px cell, so an English line has
-   *  nowhere to go — it rides in the hover title instead. */
-  const englishRail = (name: string) => {
-    const english = englishNameByName.get(name);
-    return english ? `${name} (${english})` : name;
-  };
+  // A group whose own name matches keeps every row; otherwise only its
+  // matching rows survive, and a group left empty is dropped.
   const groups =
     effectiveGroupBy === 'none'
       ? []
-      : [...buildGroups().entries()].map(([name, items]) => ({
+      : [...buildGroups().entries()]
+          .map(([name, items]) => ({
+            name,
+            items:
+              matchesSearch([name, englishNameByName.get(name)], query)
+                ? items
+                : items.filter(rowMatches),
+          }))
+          .filter(({ items }) => items.length > 0)
+          .map(({ name, items }) => ({
           name,
           items,
           a: aggSlices(items),
@@ -530,7 +604,12 @@ export function AssetTable({
       (investorGroupFmv.get(group.investorGroupName) ?? 0) + group.a.fmv,
     );
   });
+  const typeOrder = new Map(investmentTypes.map((t, i) => [t.name, i] as const));
   groups.sort((x, y) => {
+    if (effectiveGroupBy === 'investment_type') {
+      // Configured order, with "Unassigned" last.
+      return (typeOrder.get(x.name) ?? Infinity) - (typeOrder.get(y.name) ?? Infinity);
+    }
     if (effectiveGroupBy !== 'investor') return y.a.fmv - x.a.fmv;
     if (x.investorGroupName && !y.investorGroupName) return -1;
     if (!x.investorGroupName && y.investorGroupName) return 1;
@@ -548,21 +627,70 @@ export function AssetTable({
     return y.a.fmv - x.a.fmv;
   });
 
-  // Paginate whichever list is being shown — flat asset rows when ungrouped,
-  // group rows when grouped. Slicing the top-level rows (not the expanded
-  // detail panels) keeps a heavy portfolio from rendering hundreds of rows at
-  // once, complementing the batched load that removed the per-asset fetches.
-  const total = effectiveGroupBy === 'none' ? flat.length : groups.length;
-  const start = (Math.min(page, Math.max(1, Math.ceil(total / PAGE_SIZE))) - 1) * PAGE_SIZE;
-  const pagedFlat = [...flat].sort((x, y) => (y.fmv ?? 0) - (x.fmv ?? 0)).slice(start, start + PAGE_SIZE);
-  const pagedGroups = groups.slice(start, start + PAGE_SIZE);
+  // Every row is rendered at once — the portfolio is already loaded in one
+  // batched request, so there is nothing to page.
+  const visibleFlat = flat.filter(rowMatches);
+  const pagedFlat = [...visibleFlat].sort((x, y) => (y.fmv ?? 0) - (x.fmv ?? 0));
+  const pagedGroups = groups;
   const hasInvestorGroups =
     effectiveGroupBy === 'investor' && groups.some((group) => group.investorGroupName);
+
+  // Entities per investor-group section, counted once rather than per heading.
+  const sectionGroupCount = new Map<string, number>();
+  pagedGroups.forEach((g) => {
+    const key = g.investorGroupName ?? UNGROUPED_SECTION;
+    sectionGroupCount.set(key, (sectionGroupCount.get(key) ?? 0) + 1);
+  });
+
+  const assetCountByTypeId = new Map<string, number>();
+  flat.forEach(({ h }) => {
+    if (h.investmentTypeId) {
+      assetCountByTypeId.set(h.investmentTypeId, (assetCountByTypeId.get(h.investmentTypeId) ?? 0) + 1);
+    }
+  });
 
   const hasDisplayOnlyOnScreen =
     effectiveGroupBy === 'none'
       ? pagedFlat.some((r) => r.h.displayOnly || r.f?.displayOnly)
       : pagedGroups.some((g) => g.items.some((it) => it.h.displayOnly || it.f?.displayOnly));
+
+  /** Row-menu submenu that assigns the asset's investment type. */
+  const investmentTypeMenu = (h: Holding) => {
+    const current =
+      h.investmentTypeId && investmentTypeNameById.has(h.investmentTypeId)
+        ? h.investmentTypeId
+        : NO_TYPE_VALUE;
+    return (
+      <>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger onClick={(e) => e.stopPropagation()}>
+            <Tags className="mr-2 h-3.5 w-3.5" />
+            Investment type
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[min(50vh,18rem)] overflow-y-auto"
+          >
+            <DropdownMenuRadioGroup
+              value={current}
+              onValueChange={(v) => {
+                if (v === current) return;
+                setInvestmentType(h, v === NO_TYPE_VALUE ? null : v).catch(() => {});
+              }}
+            >
+              <DropdownMenuRadioItem value={NO_TYPE_VALUE}>{UNASSIGNED_TYPE}</DropdownMenuRadioItem>
+              {investmentTypes.map((t) => (
+                <DropdownMenuRadioItem key={t.id} value={t.id}>
+                  {t.name}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+      </>
+    );
+  };
 
   // A single asset row + (if open) its detail panel. `rowKey` scopes the
   // open-state so the same holding under two source groups toggles independently.
@@ -627,6 +755,9 @@ export function AssetTable({
                     onConfirm={async () => {
                       await reopenAsset(f, h);
                     }}
+                    onDelete={isAssetTarget(h) ? () => setAssetToDelete(h) : undefined}
+                    deleteLabel="Delete asset"
+                    extraItems={isAssetTarget(h) ? investmentTypeMenu(h) : undefined}
                   />
                 ) : (
                   <DeleteRowMenu
@@ -637,6 +768,9 @@ export function AssetTable({
                     onConfirm={async () => {
                       await deleteAsset(f, h);
                     }}
+                    onDelete={isAssetTarget(h) ? () => setAssetToDelete(h) : undefined}
+                    deleteLabel="Delete asset"
+                    extraItems={isAssetTarget(h) ? investmentTypeMenu(h) : undefined}
                   />
                 ))}
               </div>
@@ -667,12 +801,37 @@ export function AssetTable({
                 onDiveDeeper={handleDiveDeeper}
               />
             </td>
+            <td
+              className="min-w-[220px] max-w-[320px] px-3 py-2 align-middle text-[13px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isDisplayOnly || !isAssetTarget(h) ? (
+                <span className="text-muted-foreground">—</span>
+              ) : (
+                <InlineEdit
+                  kind="textarea"
+                  value={h.actionItems ?? ''}
+                  placeholder="Add action items…"
+                  display={
+                    h.actionItems ? (
+                      <span className="line-clamp-2 whitespace-pre-line" title={h.actionItems}>
+                        {h.actionItems}
+                      </span>
+                    ) : undefined
+                  }
+                  onCommit={(raw) => {
+                    if (raw === (h.actionItems ?? '').trim()) return;
+                    updateActionItems(h, raw).catch(() => {});
+                  }}
+                />
+              )}
+            </td>
           </tr>,
         );
         if (hopen && !isDisplayOnly) {
           out.push(
             <tr key={`d${rowKey}`} className="border-b">
-              <td colSpan={8} className="bg-background px-3 pb-3.5 pt-2">
+              <td colSpan={COLUMN_COUNT} className="bg-background px-3 pb-3.5 pt-2">
                 <HoldingDetail
                   fund={f}
                   holding={h}
@@ -713,15 +872,24 @@ export function AssetTable({
             {label}
           </button>
         ))}
+        {effectiveGroupBy === 'investment_type' && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setConfigureTypesOpen(true)}
+            className="ml-auto h-7 gap-1.5 text-xs"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Configure groupings
+          </Button>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[1040px] border-collapse">
+        <table className="w-full min-w-[1260px] border-collapse">
           <thead>
             <tr>
-              {hasInvestorGroups && (
-                <th className="w-8 border-b border-r bg-muted/50 p-0" />
-              )}
               <th className="whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 {effectiveGroupBy === 'none' ? 'Asset' : GROUP_HEAD[effectiveGroupBy]}
               </th>
@@ -751,18 +919,21 @@ export function AssetTable({
                   </TooltipContent>
                 </Tooltip>
               </th>
+              <th className="min-w-[220px] whitespace-nowrap border-b bg-muted/50 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Action Items
+              </th>
             </tr>
           </thead>
           <tbody>
             {effectiveGroupBy === 'none'
-              ? flat.length === 0
+              ? pagedFlat.length === 0
                 ? [
                     <tr key="empty">
                       <td
-                        colSpan={hasInvestorGroups ? 9 : 8}
+                        colSpan={COLUMN_COUNT}
                         className="px-3 py-10 text-center text-sm text-muted-foreground"
                       >
-                        No assets yet.
+                        {query ? 'No assets match your search.' : 'No assets yet.'}
                       </td>
                     </tr>,
                   ]
@@ -771,10 +942,10 @@ export function AssetTable({
                 ? [
                     <tr key="empty">
                       <td
-                        colSpan={hasInvestorGroups ? 9 : 8}
+                        colSpan={COLUMN_COUNT}
                         className="px-3 py-10 text-center text-sm text-muted-foreground"
                       >
-                        No assets yet.
+                        {query ? 'No assets match your search.' : 'No assets yet.'}
                       </td>
                     </tr>,
                   ]
@@ -782,23 +953,27 @@ export function AssetTable({
                   const gopen = openGroups.has(name);
                   const isAllDisplayOnly = items.length > 0 && items.every((it) => it.h.displayOnly || it.f?.displayOnly);
                   const subRows = gopen ? assetRows(items, true, name) : [];
-                  const previousInvestorGroupName = pagedGroups[groupIndex - 1]?.investorGroupName;
-                  const isFirstInInvestorGroup =
-                    Boolean(investorGroupName) &&
-                    investorGroupName !== previousInvestorGroupName;
-                  let investorGroupRowSpan = 0;
-                  if (isFirstInInvestorGroup) {
-                    for (let i = groupIndex; i < pagedGroups.length; i += 1) {
-                      const groupedEntity = pagedGroups[i];
-                      if (groupedEntity.investorGroupName !== investorGroupName) break;
-                      investorGroupRowSpan +=
-                        1 +
-                        (openGroups.has(groupedEntity.name)
-                          ? assetRows(groupedEntity.items, true, groupedEntity.name).length
-                          : 0);
-                    }
-                  }
+                  const sectionName = investorGroupName ?? UNGROUPED_SECTION;
+                  const isFirstInSection =
+                    hasInvestorGroups &&
+                    (groupIndex === 0 ||
+                      (pagedGroups[groupIndex - 1].investorGroupName ?? UNGROUPED_SECTION) !== sectionName);
+                  const sectionOpen = !closedSections.has(sectionName);
                   const rows: ReactNode[] = [];
+                  if (isFirstInSection) {
+                    rows.push(
+                      <GroupSectionRow
+                        key={`s${sectionName}`}
+                        colSpan={COLUMN_COUNT}
+                        title={sectionName}
+                        subtitle={investorGroupName ? englishNameByName.get(investorGroupName) : undefined}
+                        count={sectionGroupCount.get(sectionName) ?? 0}
+                        open={sectionOpen}
+                        onToggle={() => setClosedSections((s) => toggle(s, sectionName))}
+                      />,
+                    );
+                  }
+                  if (hasInvestorGroups && !sectionOpen) return rows;
                   rows.push(
                     <tr
                       key={`g${name}`}
@@ -808,29 +983,6 @@ export function AssetTable({
                         gopen && '[&>td]:!bg-accent/10',
                       )}
                     >
-                      {hasInvestorGroups && isFirstInInvestorGroup && (
-                        <td
-                          rowSpan={investorGroupRowSpan}
-                          className="relative w-8 border-b border-r bg-muted/30 p-2 text-center align-middle select-none"
-                        >
-                          <div
-                            className="absolute inset-0 flex items-center justify-center overflow-hidden p-2"
-                            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-                          >
-                            <span
-                              title={englishRail(investorGroupName)}
-                              className="truncate whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              {investorGroupName}
-                            </span>
-                          </div>
-                        </td>
-                      )}
-                      {hasInvestorGroups && !investorGroupName && (
-                        <td
-                          rowSpan={1 + subRows.length}
-                          className="w-8 border-b border-r bg-card"
-                        />
-                      )}
                       <td className="px-3 py-2.5 align-middle">
                         <div className="flex items-center gap-2">
                           <Chevron open={gopen} />
@@ -875,6 +1027,7 @@ export function AssetTable({
                       </td>
                       <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                       <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
+                      <td className="px-3 py-2.5 align-middle text-[13px] text-muted-foreground">—</td>
                     </tr>,
                   );
                   rows.push(...subRows);
@@ -884,13 +1037,40 @@ export function AssetTable({
         </table>
       </div>
       {hasDisplayOnlyOnScreen && <DisclosureFootnote />}
-      <TablePager
-        page={page}
-        pageSize={PAGE_SIZE}
-        total={total}
-        onPageChange={setPage}
-        itemLabel={effectiveGroupBy === 'none' ? 'asset' : `${GROUP_HEAD[effectiveGroupBy].toLowerCase()} group`}
+      <InvestmentTypesDialog
+        open={configureTypesOpen}
+        onOpenChange={setConfigureTypesOpen}
+        types={investmentTypes}
+        assetCountByTypeId={assetCountByTypeId}
+        onChanged={async () => {
+          // A deleted type unassigns its assets server-side, so the portfolio
+          // is re-read too, not just the type list.
+          await Promise.all([reloadInvestmentTypes(), refreshAll()]);
+        }}
       />
+      {assetToDelete && (
+        <TypeToConfirmDialog
+          key={assetToDelete.id}
+          open={!!assetToDelete}
+          onOpenChange={(open) => {
+            if (!open) setAssetToDelete(null);
+          }}
+          title={`Delete "${assetToDelete.n}"?`}
+          description={
+            <>
+              <p>
+                This permanently deletes the asset, all of its positions and
+                valuations, and every ledger event that touches it — including
+                the matching cash legs in other holdings.
+              </p>
+              <p className="font-medium text-destructive">This cannot be undone.</p>
+            </>
+          }
+          confirmText={assetToDelete.n}
+          confirmLabel="Delete asset"
+          onConfirm={() => hardDeleteAsset(assetToDelete)}
+        />
+      )}
     </>
   );
 }

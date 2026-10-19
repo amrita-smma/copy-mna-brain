@@ -65,6 +65,7 @@ import {
   IneligibleCashHolderError,
   InvalidCurrencyError,
   InvalidEntryShapeError,
+  InvalidMasterDataError,
   PositionClosedError,
   UnbalancedTransferError,
   WorkspaceMismatchError,
@@ -292,6 +293,12 @@ const FUND_ONLY_TYPES = new Set<FlEntryType>([
 ]);
 
 const ASSET_ONLY_TYPES = new Set<FlEntryType>(['buy', 'sell']);
+
+export interface DeleteAssetResult {
+  entries: number;
+  events: number;
+  positions: number;
+}
 
 export class FlLedgerService {
   private readonly assetRepo: FlAssetRepository;
@@ -2070,6 +2077,74 @@ export class FlLedgerService {
         entries: originalEntries,
         allocations: originalAllocations,
       };
+    });
+  }
+
+  /**
+   * Permanently deletes an asset together with every ledger event that touches
+   * it. Whole events go — including their counterpart legs on other positions
+   * (e.g. the cash leg of a buy) and any entries derived from them — so the
+   * ledger stays balanced. Positions, valuations, corporate actions and
+   * ownership changes cascade from the asset row.
+   */
+  async deleteAssetWithLedger(
+    workspaceId: string,
+    assetId: string,
+    executor?: DbClient,
+  ): Promise<DeleteAssetResult> {
+    return this.withExecutor(executor, async (exec) => {
+      const asset = await this.assetRepo.findById(workspaceId, assetId, exec);
+      if (!asset) {
+        throw new EntityNotFoundError(
+          `Asset ${assetId} not found in workspace ${workspaceId}`,
+        );
+      }
+      const terms = asset.instrument_terms as Record<string, unknown> | null;
+      if (asset.asset_kind === 'cash' && terms?.system_cash === true) {
+        throw new InvalidMasterDataError(
+          'System cash assets cannot be deleted',
+        );
+      }
+
+      const positions = await this.positionRepo.findByAssetIds(
+        workspaceId,
+        [assetId],
+        exec,
+      );
+      const positionIds = positions.map((p) => p.id);
+
+      const eventIds = new Set(
+        await this.ledgerRepo.findEventIdsTouchingPositionIds(
+          workspaceId,
+          positionIds,
+          exec,
+        ),
+      );
+      let frontier = [...eventIds];
+      while (frontier.length > 0) {
+        const derived = await this.ledgerRepo.findEventIdsDerivedFromEventIds(
+          workspaceId,
+          frontier,
+          exec,
+        );
+        frontier = derived.filter((id) => !eventIds.has(id));
+        frontier.forEach((id) => eventIds.add(id));
+      }
+
+      const allEventIds = [...eventIds];
+      const entries = await this.ledgerRepo.deleteByBusinessEventIds(
+        workspaceId,
+        allEventIds,
+        exec,
+      );
+      const events = await this.eventRepo.deleteByIds(
+        workspaceId,
+        allEventIds,
+        exec,
+      );
+      await this.assetRepo.delete(workspaceId, assetId, exec);
+
+      return { entries, events, positions: positionIds.length };
     });
   }
 

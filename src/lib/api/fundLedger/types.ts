@@ -109,6 +109,14 @@ export interface UpdateAssetInput {
   sub_sector?: string | null;
   instrument_terms?: Record<string, unknown>;
   description?: string | null;
+  action_items?: string | null;
+}
+
+/** Counts removed by a hard asset delete. */
+export interface DeleteAssetResult {
+  entries: number;
+  events: number;
+  positions: number;
 }
 
 // ---- Investors ----

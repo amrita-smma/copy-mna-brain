@@ -160,3 +160,99 @@ export async function executeReopenHolding(
     throw err;
   }
 }
+
+export interface HardDeleteAssetDependencies {
+  deleteAssetApi?: typeof fundLedgerApi.deleteAsset;
+  reloadAll: () => Promise<void>;
+  toast: ToastFn;
+}
+
+/**
+ * Permanently deletes an asset and every ledger event that touches it. Unlike
+ * `executeDeleteAsset` (which only closes positions), nothing is retained.
+ */
+export async function executeHardDeleteAsset(
+  holding: { id?: string | null; n: string },
+  deps: HardDeleteAssetDependencies,
+): Promise<void> {
+  const { deleteAssetApi = fundLedgerApi.deleteAsset, reloadAll, toast } = deps;
+  if (!holding.id) return;
+  try {
+    const result = await deleteAssetApi(holding.id);
+    await reloadAll();
+    toast({
+      title: 'Asset deleted',
+      description: `"${holding.n}" was deleted with ${result.entries} ledger ${
+        result.entries === 1 ? 'entry' : 'entries'
+      } across ${result.positions} ${result.positions === 1 ? 'position' : 'positions'}.`,
+    });
+  } catch (err) {
+    console.error('Failed to delete asset', err);
+    toast({
+      title: 'Failed to delete asset',
+      description: err instanceof Error ? err.message : `"${holding.n}" was not deleted.`,
+      variant: 'destructive',
+    });
+    throw err;
+  }
+}
+
+export interface ActionItemsDependencies {
+  updateAssetApi?: typeof fundLedgerApi.updateAsset;
+  reloadAll: () => Promise<void>;
+  toast: ToastFn;
+}
+
+/** Saves the free-text Action Items on an asset (blank clears them). */
+export async function executeUpdateActionItems(
+  holding: { id?: string | null; n: string },
+  text: string,
+  deps: ActionItemsDependencies,
+): Promise<void> {
+  const { updateAssetApi = fundLedgerApi.updateAsset, reloadAll, toast } = deps;
+  if (!holding.id) return;
+  try {
+    await updateAssetApi(holding.id, { action_items: text.trim() || null });
+    await reloadAll();
+  } catch (err) {
+    console.error('Failed to save action items', err);
+    toast({
+      title: 'Failed to save action items',
+      description: err instanceof Error ? err.message : `Action items for "${holding.n}" were not saved.`,
+      variant: 'destructive',
+    });
+    throw err;
+  }
+}
+
+export interface InvestmentTypeDependencies {
+  setAssetInvestmentTypeApi?: typeof fundLedgerApi.setAssetInvestmentType;
+  reloadAll: () => Promise<void>;
+  toast: ToastFn;
+}
+
+/** Assigns an asset to an investment type (`null` unassigns it). */
+export async function executeSetInvestmentType(
+  holding: { id?: string | null; n: string },
+  investmentTypeId: string | null,
+  deps: InvestmentTypeDependencies,
+): Promise<void> {
+  const {
+    setAssetInvestmentTypeApi = fundLedgerApi.setAssetInvestmentType,
+    reloadAll,
+    toast,
+  } = deps;
+  if (!holding.id) return;
+  try {
+    await setAssetInvestmentTypeApi(holding.id, investmentTypeId);
+    await reloadAll();
+  } catch (err) {
+    console.error('Failed to set investment type', err);
+    toast({
+      title: 'Failed to set investment type',
+      description: err instanceof Error ? err.message : `"${holding.n}" was not updated.`,
+      variant: 'destructive',
+    });
+    throw err;
+  }
+}

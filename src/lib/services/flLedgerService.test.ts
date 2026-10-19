@@ -11,6 +11,7 @@ import {
   IneligibleCashHolderError,
   InvalidCurrencyError,
   InvalidEntryShapeError,
+  InvalidMasterDataError,
   PositionClosedError,
   UnbalancedTransferError,
   WorkspaceMismatchError,
@@ -4633,3 +4634,133 @@ describe('FlLedgerService', () => {
   });
 });
 
+describe('FlLedgerService.deleteAssetWithLedger', () => {
+  const ws = 'ws-del-1';
+  const executor = { __sentinel: 'tx-del' } as unknown as DbClient;
+  let calls: string[];
+  let ledgerRepo: {
+    findEventIdsTouchingPositionIds: ReturnType<typeof vi.fn>;
+    findEventIdsDerivedFromEventIds: ReturnType<typeof vi.fn>;
+    deleteByBusinessEventIds: ReturnType<typeof vi.fn>;
+  };
+  let eventRepo: { deleteByIds: ReturnType<typeof vi.fn> };
+  let positionRepo: { findByAssetIds: ReturnType<typeof vi.fn> };
+  let assetRepo: { findById: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+  let service: FlLedgerService;
+
+  beforeEach(() => {
+    calls = [];
+    ledgerRepo = {
+      findEventIdsTouchingPositionIds: vi.fn().mockResolvedValue(['be-buy', 'be-val']),
+      findEventIdsDerivedFromEventIds: vi
+        .fn()
+        .mockResolvedValueOnce(['be-cash-pair'])
+        .mockResolvedValueOnce([]),
+      deleteByBusinessEventIds: vi.fn().mockImplementation(async () => {
+        calls.push('entries');
+        return 5;
+      }),
+    };
+    eventRepo = {
+      deleteByIds: vi.fn().mockImplementation(async () => {
+        calls.push('events');
+        return 3;
+      }),
+    };
+    positionRepo = {
+      findByAssetIds: vi.fn().mockResolvedValue([{ id: 'pos-1' }, { id: 'pos-2' }]),
+    };
+    assetRepo = {
+      findById: vi.fn().mockResolvedValue({
+        id: 'asset-1',
+        asset_kind: 'equity',
+        instrument_terms: {},
+      }),
+      delete: vi.fn().mockImplementation(async () => {
+        calls.push('asset');
+      }),
+    };
+    service = new FlLedgerService(
+      {} as never,
+      ledgerRepo as never,
+      eventRepo as never,
+      {} as never,
+      positionRepo as never,
+      {} as never,
+      {} as never,
+      assetRepo as never,
+      {} as never,
+    );
+  });
+
+  it('deletes every touching and derived event, then the asset, and returns counts', async () => {
+    const result = await service.deleteAssetWithLedger(ws, 'asset-1', executor);
+
+    expect(positionRepo.findByAssetIds).toHaveBeenCalledWith(ws, ['asset-1'], executor);
+    expect(ledgerRepo.findEventIdsTouchingPositionIds).toHaveBeenCalledWith(
+      ws,
+      ['pos-1', 'pos-2'],
+      executor,
+    );
+    expect(ledgerRepo.findEventIdsDerivedFromEventIds).toHaveBeenNthCalledWith(
+      1,
+      ws,
+      ['be-buy', 'be-val'],
+      executor,
+    );
+    expect(ledgerRepo.findEventIdsDerivedFromEventIds).toHaveBeenNthCalledWith(
+      2,
+      ws,
+      ['be-cash-pair'],
+      executor,
+    );
+    const expectedEvents = ['be-buy', 'be-val', 'be-cash-pair'];
+    expect(ledgerRepo.deleteByBusinessEventIds).toHaveBeenCalledWith(ws, expectedEvents, executor);
+    expect(eventRepo.deleteByIds).toHaveBeenCalledWith(ws, expectedEvents, executor);
+    expect(assetRepo.delete).toHaveBeenCalledWith(ws, 'asset-1', executor);
+    expect(calls).toEqual(['entries', 'events', 'asset']);
+    expect(result).toEqual({ entries: 5, events: 3, positions: 2 });
+  });
+
+  it('stops expanding when derived events are already in the set', async () => {
+    ledgerRepo.findEventIdsDerivedFromEventIds.mockReset().mockResolvedValue(['be-buy']);
+    await service.deleteAssetWithLedger(ws, 'asset-1', executor);
+    expect(ledgerRepo.findEventIdsDerivedFromEventIds).toHaveBeenCalledTimes(1);
+    expect(ledgerRepo.deleteByBusinessEventIds).toHaveBeenCalledWith(
+      ws,
+      ['be-buy', 'be-val'],
+      executor,
+    );
+  });
+
+  it('throws EntityNotFoundError and deletes nothing when the asset is missing', async () => {
+    assetRepo.findById.mockResolvedValueOnce(undefined);
+    await expect(service.deleteAssetWithLedger(ws, 'missing', executor)).rejects.toBeInstanceOf(
+      EntityNotFoundError,
+    );
+    expect(ledgerRepo.deleteByBusinessEventIds).not.toHaveBeenCalled();
+    expect(assetRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete a system cash asset', async () => {
+    assetRepo.findById.mockResolvedValueOnce({
+      id: 'cash-usd',
+      asset_kind: 'cash',
+      instrument_terms: { system_cash: true, currency: 'USD' },
+    });
+    await expect(service.deleteAssetWithLedger(ws, 'cash-usd', executor)).rejects.toBeInstanceOf(
+      InvalidMasterDataError,
+    );
+    expect(positionRepo.findByAssetIds).not.toHaveBeenCalled();
+    expect(assetRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes an asset with no positions without touching the ledger', async () => {
+    positionRepo.findByAssetIds.mockResolvedValueOnce([]);
+    ledgerRepo.findEventIdsTouchingPositionIds.mockResolvedValueOnce([]);
+    const result = await service.deleteAssetWithLedger(ws, 'asset-1', executor);
+    expect(ledgerRepo.findEventIdsDerivedFromEventIds).not.toHaveBeenCalled();
+    expect(assetRepo.delete).toHaveBeenCalledWith(ws, 'asset-1', executor);
+    expect(result.positions).toBe(0);
+  });
+});

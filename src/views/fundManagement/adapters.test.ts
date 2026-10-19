@@ -787,6 +787,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Tech Co LLC',
         english_name: 'Tech Co English',
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'USA',
         sector: 'Tech',
         sub_sector: null,
@@ -901,6 +903,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Bridge Note LLC',
         english_name: null,
         asset_kind: 'loan' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'USA',
         sector: null,
         sub_sector: null,
@@ -1040,6 +1044,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Funded Co LLC',
         english_name: null,
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'USA',
         sector: 'Tech',
         sub_sector: null,
@@ -1185,6 +1191,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Asset Alpha LLC',
         english_name: null,
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'US',
         sector: 'Healthcare',
         sub_sector: null,
@@ -1258,6 +1266,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Unvalued Seed Co Inc',
         english_name: null,
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'US',
         sector: 'Tech',
         sub_sector: null,
@@ -1391,6 +1401,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Valued Asset LLC',
         english_name: null,
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'US',
         sector: 'Health',
         sub_sector: null,
@@ -1449,6 +1461,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
         legal_name: 'Unvalued Asset LLC',
         english_name: null,
         asset_kind: 'equity' as const,
+        action_items: null,
+        investment_type_id: null,
         country: 'US',
         sector: 'Tech',
         sub_sector: null,
@@ -2169,6 +2183,8 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
           legal_name: '南京微纳科技有限公司',
           english_name: 'Nanjing Micro-Nano',
           asset_kind: 'equity',
+          action_items: null,
+          investment_type_id: null,
           workspace_id: 'ws-1',
           country: 'China',
           sector: 'Tech',
@@ -3459,42 +3475,37 @@ describe('V2 flPositionToHolding and buildFundFromPortfolio', () => {
       holdings: [],
     };
 
-    it('renders a placeholder w-8 border-b border-r cell on ungrouped rows when groups exist', () => {
-      const html = renderToStaticMarkup(
+    const renderEntities = (investors: Investor[]) =>
+      renderToStaticMarkup(
         React.createElement(
           TooltipProvider,
           null,
-          React.createElement(EntitySummaryTable, {
-            funds: [],
-            investors: [mockGrouped, mockUngrouped],
-          }),
+          React.createElement(EntitySummaryTable, { funds: [], investors }),
         ),
       );
 
-      // The placeholder cell on ungrouped rows should match the group band width and border
-      expect(html).toContain('<td class="w-8 border-b border-r"></td>');
-      // The header cell should also have w-8 border-b border-r to align columns
-      expect(html).toContain(
-        '<th class="w-8 border-b border-r bg-muted/50 p-0 text-center text-[11px] font-medium text-muted-foreground"></th>',
-      );
+    it('renders each investor group as a collapsible section heading instead of a vertical rail', () => {
+      const html = renderEntities([mockGrouped, mockUngrouped]);
+
+      // Group heading row is an open dropdown spanning every column
+      expect(html).toMatch(/<td colSpan="6" class="bg-muted px-3 py-2">/i);
+      expect(html).toContain('aria-expanded="true"');
+      expect(html).toContain('Meranti 1');
+      // Ungrouped entities get their own section once groups exist
+      expect(html).toContain('Other entities');
+      // No rotated rail cell or spacer column remains
+      expect(html).not.toContain('writing-mode');
+      expect(html).not.toContain('w-8 border-b border-r');
+      // Both entity rows render under their open sections
+      expect(html).toContain('Grouped Entity');
+      expect(html).toContain('Ungrouped Entity');
     });
 
-    it('renders group band cell with relative positioning and an absolutely positioned overflow-hidden label', () => {
-      const html = renderToStaticMarkup(
-        React.createElement(
-          TooltipProvider,
-          null,
-          React.createElement(EntitySummaryTable, {
-            funds: [],
-            investors: [mockGrouped, mockUngrouped],
-          }),
-        ),
-      );
+    it('omits section headings when no entity belongs to a group', () => {
+      const html = renderEntities([mockUngrouped]);
 
-      // Group band cell has relative, w-8, border-b, border-r
-      expect(html).toContain('relative w-8 border-b border-r bg-muted/30');
-      // Inner wrapper is absolute inset-0 and overflow-hidden to decouple label height from row height
-      expect(html).toContain('absolute inset-0 flex items-center justify-center overflow-hidden');
+      expect(html).not.toContain('Other entities');
+      expect(html).toContain('Ungrouped Entity');
     });
 
     it('automatically excludes pure group parents passed into EntitySummaryTable', () => {

@@ -50,6 +50,8 @@ describe('CashHistoryTable (fund-only cash movements)', () => {
       legal_name: null,
       english_name: null,
       asset_kind: 'cash',
+      action_items: null,
+      investment_type_id: null,
       country: null,
       sector: null,
       sub_sector: null,

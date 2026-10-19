@@ -59,6 +59,7 @@ export * from './flInvestorRepository';
 export * from './flFundRepository';
 export * from './flAssetRepository';
 export * from './flFundingSourceRepository';
+export * from './flInvestmentTypeRepository';
 export * from './flPositionRepository';
 export * from './flBusinessEventRepository';
 export * from './flBusinessEventRevisionRepository';

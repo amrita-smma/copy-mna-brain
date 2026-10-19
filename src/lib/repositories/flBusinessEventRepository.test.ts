@@ -160,4 +160,24 @@ describe('FlBusinessEventRepository', () => {
       expect(mockDb.where).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('FlBusinessEventRepository.deleteByIds', () => {
+    it('returns 0 without hitting the DB when the id list is empty', async () => {
+      const mockDb = createMockDb();
+      const repo = new FlBusinessEventRepository(mockDb as never);
+      const result = await repo.deleteByIds('ws-1', []);
+      expect(result).toBe(0);
+      expect(mockDb.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes workspace-scoped events and returns how many were removed', async () => {
+      const mockDb = createMockDb();
+      const repo = new FlBusinessEventRepository(mockDb as never);
+      mockDb.returning.mockResolvedValueOnce([{ id: 'be-1' }, { id: 'be-2' }]);
+      const result = await repo.deleteByIds('ws-1', ['be-1', 'be-2']);
+      expect(result).toBe(2);
+      expect(mockDb.delete).toHaveBeenCalledTimes(1);
+      expect(mockDb.where).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -42,13 +42,14 @@ import {
   flFunds,
   flAssets,
   flFundingSources,
+  flInvestmentTypes,
   insightTemplates,
   insights,
   insightVersions,
 } from '../src/lib/db/schema';
 import { RSS_CATEGORIES, type RssCategory } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/services/password';
-import { createContainer } from '../src/lib/services';
+import { createContainer, DEFAULT_INVESTMENT_TYPES } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
 import type { DealType } from '../src/lib/companies/dealTypes';
 // Type-only: keeps the (heavy, LangChain-pulling) agent module out of the
@@ -5328,6 +5329,18 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           currency: 'USD',
         },
       ])
+      .onConflictDoNothing();
+
+    // Investment types for the "by investment type" asset grouping.
+    await tx
+      .insert(flInvestmentTypes)
+      .values(
+        DEFAULT_INVESTMENT_TYPES.map((name, sort_order) => ({
+          workspace_id: workspaceId,
+          name,
+          sort_order,
+        })),
+      )
       .onConflictDoNothing();
 
     // 3. Positions: open via FlPositionService (all with deterministic IDs and txDb executor)

@@ -53,6 +53,7 @@ import { FieldKey, GlossaryTerm, InlineEdit, type InlineKind, MiniSpark, Pill } 
 import { CURRENCIES, CurrencyInput, MoneyInlineEdit, normalizeCurrency, type Currency } from './CurrencyInput';
 import { OwnershipDisabledNotice, OwnershipSection, ownershipTabState } from './Ownership';
 import { useFeatureFlags } from '@/components/layout/FeatureFlagsContext';
+import { FundUpdateUploadDrop } from '@/components/ledger/FundUpdateUploadDrop';
 
 // Money domain values are in millions; the currency editors work in raw units.
 const M = 1_000_000;
@@ -1242,6 +1243,7 @@ function TxnDialog({
       submitLabel={mode === 'edit' ? 'Save changes' : 'Add transaction'}
       submitDisabled={!canSubmit}
     >
+      {mode === 'add' && <FundUpdateUploadDrop onNavigate={onClose} />}
       <FormRow>
         <FormField label="Fund" required={isCashInFundSell}>
           <Combobox

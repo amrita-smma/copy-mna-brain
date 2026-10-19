@@ -115,6 +115,7 @@ export interface UpdateAssetInput {
   sub_sector?: string | null;
   instrument_terms?: Record<string, unknown> | null;
   description?: string | null;
+  action_items?: string | null;
 }
 
 export interface CreateFundingSourceInput {
@@ -1405,6 +1406,8 @@ export class FlMasterDataService {
         updates.instrument_terms = input.instrument_terms ?? {};
       if (input.description !== undefined)
         updates.description = input.description;
+      if (input.action_items !== undefined)
+        updates.action_items = input.action_items?.trim() || null;
 
       const updated = await this.assetRepo.update(
         workspaceId,

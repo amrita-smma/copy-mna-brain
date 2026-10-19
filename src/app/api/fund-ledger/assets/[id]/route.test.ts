@@ -7,12 +7,14 @@ const {
   createContainerMock,
   getAssetByIdMock,
   updateAssetMock,
+  deleteAssetWithLedgerMock,
 } = vi.hoisted(() => ({
   createDbMock: vi.fn(),
   getActiveWorkspaceIdMock: vi.fn(),
   createContainerMock: vi.fn(),
   getAssetByIdMock: vi.fn(),
   updateAssetMock: vi.fn(),
+  deleteAssetWithLedgerMock: vi.fn(),
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
@@ -25,7 +27,8 @@ vi.mock('@/lib/services', async (importOriginal) => {
   };
 });
 
-import { GET, PATCH } from './route';
+import { DELETE, GET, PATCH } from './route';
+import { EntityNotFoundError } from '@/lib/services';
 
 describe('GET & PATCH /api/fund-ledger/assets/[id]', () => {
   beforeEach(() => {
@@ -33,10 +36,14 @@ describe('GET & PATCH /api/fund-ledger/assets/[id]', () => {
     getActiveWorkspaceIdMock.mockReset().mockResolvedValue('ws-1');
     getAssetByIdMock.mockReset();
     updateAssetMock.mockReset();
+    deleteAssetWithLedgerMock.mockReset();
     createContainerMock.mockReset().mockReturnValue({
       flMasterDataService: {
         getAssetById: getAssetByIdMock,
         updateAsset: updateAssetMock,
+      },
+      flLedgerService: {
+        deleteAssetWithLedger: deleteAssetWithLedgerMock,
       },
     });
   });
@@ -91,6 +98,56 @@ describe('GET & PATCH /api/fund-ledger/assets/[id]', () => {
       expect(updateAssetMock.mock.calls[0][2]).not.toHaveProperty('id');
       expect(updateAssetMock.mock.calls[0][2]).not.toHaveProperty('workspace_id');
       expect(updateAssetMock.mock.calls[0][2]).not.toHaveProperty('created_by');
+    });
+  });
+
+  describe('PATCH action_items', () => {
+    it('passes action_items through to the service', async () => {
+      updateAssetMock.mockResolvedValueOnce({ id: 'asset-1', action_items: 'Chase Q3 report' });
+      const req = new NextRequest('http://localhost/api/fund-ledger/assets/asset-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action_items: 'Chase Q3 report' }),
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: 'asset-1' }) });
+      expect(res.status).toBe(200);
+      expect(updateAssetMock).toHaveBeenCalledWith('ws-1', 'asset-1', {
+        action_items: 'Chase Q3 report',
+      });
+    });
+
+    it('rejects a non-string action_items with 400', async () => {
+      const req = new NextRequest('http://localhost/api/fund-ledger/assets/asset-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action_items: 42 }),
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: 'asset-1' }) });
+      expect(res.status).toBe(400);
+      expect(updateAssetMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE', () => {
+    it('hard-deletes the asset with its ledger and returns the counts', async () => {
+      const counts = { entries: 4, events: 2, positions: 1 };
+      deleteAssetWithLedgerMock.mockResolvedValueOnce(counts);
+      const req = new NextRequest('http://localhost/api/fund-ledger/assets/asset-1', {
+        method: 'DELETE',
+      });
+      const res = await DELETE(req, { params: Promise.resolve({ id: 'asset-1' }) });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ data: counts });
+      expect(deleteAssetWithLedgerMock).toHaveBeenCalledWith('ws-1', 'asset-1');
+    });
+
+    it('maps domain errors to 422', async () => {
+      deleteAssetWithLedgerMock.mockRejectedValueOnce(new EntityNotFoundError('Asset missing'));
+      const req = new NextRequest('http://localhost/api/fund-ledger/assets/missing', {
+        method: 'DELETE',
+      });
+      const res = await DELETE(req, { params: Promise.resolve({ id: 'missing' }) });
+      expect(res.status).toBe(422);
     });
   });
 });

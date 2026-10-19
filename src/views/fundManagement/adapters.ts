@@ -625,6 +625,8 @@ export function flPositionToHolding(
     targetKind: isFoF ? 'fund' : 'asset',
     n: name,
     englishName,
+    actionItems: asset?.action_items ?? null,
+    investmentTypeId: asset?.investment_type_id ?? null,
     tp,
     dt: pos.opened_at || '',
     cost: toDisplayMillions(rawCostStr) ?? 0,

@@ -131,4 +131,22 @@ export class FlBusinessEventRepository {
         ),
       );
   }
+
+  async deleteByIds(
+    workspaceId: string,
+    ids: string[],
+    executor?: DbClient,
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    const rows = await this.getExecutor(executor)
+      .delete(flBusinessEvents)
+      .where(
+        and(
+          eq(flBusinessEvents.workspace_id, workspaceId),
+          inArray(flBusinessEvents.id, ids),
+        ),
+      )
+      .returning({ id: flBusinessEvents.id });
+    return rows.length;
+  }
 }

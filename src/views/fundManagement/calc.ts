@@ -1891,3 +1891,20 @@ export function recomputeFund(f: Fund) {
   f.dpi = f.called ? f.real / f.called : 0;
   if (f.hist && f.hist.fmv.length) f.hist.fmv[f.hist.fmv.length - 1] = assetFmv;
 }
+
+/** Normalises a free-text search query: trimmed and lower-cased. */
+export function normalizeSearch(query: string | null | undefined): string {
+  return (query ?? '').trim().toLowerCase();
+}
+
+/**
+ * True when any of `fields` contains the (already-normalised) `query` as a
+ * case-insensitive substring. An empty query matches everything.
+ */
+export function matchesSearch(
+  fields: ReadonlyArray<string | null | undefined>,
+  query: string,
+): boolean {
+  if (!query) return true;
+  return fields.some((field) => field != null && field.toLowerCase().includes(query));
+}

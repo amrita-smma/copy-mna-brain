@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Building2, Layers, Wallet } from 'lucide-react';
+import { Building2, Layers, Search, Wallet } from 'lucide-react';
 import type { Tables } from '@/lib/repositories';
 import * as fundLedgerApi from '@/lib/api/fundLedger';
 import type { AssetKind, FlPortfolioReadModel } from '@/lib/api/fundLedger';
@@ -42,6 +42,9 @@ import {
   executeDeleteInvestor,
   executeDeleteFundingSource,
   executeDeleteAsset,
+  executeHardDeleteAsset,
+  executeUpdateActionItems,
+  executeSetInvestmentType,
   executeReopenHolding,
 } from './fundManagement/actions';
 import {
@@ -60,13 +63,15 @@ import { Combobox } from './fundManagement/Combobox';
 import { SourceSummaryTable } from './fundManagement/SourceSummaryTable';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { GlossaryTerm } from './fundManagement/parts';
-import { FundDataContext } from './fundManagement/context';
+import { FundDataContext, type InvestmentTypeOption } from './fundManagement/context';
 import { useFeatureEnabled } from '@/components/layout/FeatureFlagsContext';
 import {
   applyHoldingMetrics,
   getAssetEntity,
   getAssetFundingSources,
   getAssetInvestType,
+  matchesSearch,
+  normalizeSearch,
   recomputeFund,
 } from './fundManagement/calc';
 import type { Fund, Holding, HoldingType, Investor } from './fundManagement/types';
@@ -645,6 +650,8 @@ export default function FundManagement() {
   // Empty means the live portfolio; a selected date is propagated all the way
   // to the ledger read model so balances and marks are truly as-of.
   const [asOfDate, setAsOfDate] = useState('');
+  const [search, setSearch] = useState('');
+  const searchQuery = normalizeSearch(search);
   const fundVehicleViewEnabled = useFeatureEnabled('FUND_VEHICLE_VIEW_ENABLED');
   const sourceOfFundsEnabled = useFeatureEnabled('SOURCE_OF_FUNDS_ENABLED');
   const portfolioTabs = useMemo(
@@ -844,6 +851,20 @@ export default function FundManagement() {
     reloadAll();
   }, [reloadAll]);
 
+  const [investmentTypes, setInvestmentTypes] = useState<InvestmentTypeOption[]>([]);
+  const reloadInvestmentTypes = useCallback(async () => {
+    try {
+      const rows = await fundLedgerApi.listInvestmentTypes();
+      setInvestmentTypes(rows.map((r) => ({ id: r.id, name: r.name })));
+    } catch (err) {
+      console.error('Failed to load investment types', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadInvestmentTypes();
+  }, [reloadInvestmentTypes]);
+
   const reloadOne = useCallback(async () => {
     await reloadAll();
   }, [reloadAll]);
@@ -997,6 +1018,17 @@ export default function FundManagement() {
       reopenAsset: async (fund: Fund, holding: (typeof fund.h)[number]) => {
         await executeReopenHolding(fund, holding, { reloadAll, toast });
       },
+      hardDeleteAsset: async (holding: Holding) => {
+        await executeHardDeleteAsset(holding, { reloadAll, toast });
+      },
+      updateActionItems: async (holding: Holding, text: string) => {
+        await executeUpdateActionItems(holding, text, { reloadAll, toast });
+      },
+      setInvestmentType: async (holding: Holding, investmentTypeId: string | null) => {
+        await executeSetInvestmentType(holding, investmentTypeId, { reloadAll, toast });
+      },
+      investmentTypes,
+      reloadInvestmentTypes,
       funds: funds ?? [],
       investorOptions: comboboxEntityOptions,
       sourceOptions,
@@ -1020,6 +1052,8 @@ export default function FundManagement() {
       sourceOfFundsEnabled,
       handleAnalyzeAiOpinion,
       analyzingAiOpinionIds,
+      investmentTypes,
+      reloadInvestmentTypes,
     ],
   );
 
@@ -1081,7 +1115,6 @@ export default function FundManagement() {
           <div className="min-h-full">
             <PageHeader
               title="Fund Management"
-              innerClassName="mx-auto max-w-[1180px]"
               subtitle={
                 <>
                   Your funds, what they hold, and how each investor is doing. Hover any{' '}
@@ -1091,7 +1124,7 @@ export default function FundManagement() {
               }
             />
 
-            <div className="mx-auto max-w-[1180px] px-5 pb-16 pt-6">
+            <div className="px-5 pb-16 pt-6">
             {loadError && (
               <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {loadError}{' '}
@@ -1113,6 +1146,18 @@ export default function FundManagement() {
               <>
                 <MetricCards funds={funds ?? []} investors={tabInvestors} />
                 <MoneyBreakdown funds={funds ?? []} investors={tabInvestors} />
+
+                <div className="relative mb-3.5 w-full max-w-[470px]">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search assets, funds, investors, sources…"
+                    aria-label="Search portfolio"
+                    className="h-9 pl-9 text-[13px]"
+                  />
+                </div>
 
                 <div className="overflow-hidden rounded-lg border bg-card">
                   <div className="flex flex-wrap items-center gap-2.5 border-b bg-muted/30 px-3 py-2.5">
@@ -1182,10 +1227,18 @@ export default function FundManagement() {
 
                   <div className="p-3">
                     {activeTab === 'asset' ? (
-                      <AssetTable funds={displayFunds ?? []} investors={tabInvestors} />
+                      <AssetTable funds={displayFunds ?? []} investors={tabInvestors} search={search} />
                     ) : activeTab === 'fund' ? (
                       <FundSummaryTable
-                        funds={(displayFunds ?? []).filter((f) => f.id !== 'unassigned' && f.disclosure !== 'no_holder')}
+                        funds={(displayFunds ?? []).filter(
+                          (f) =>
+                            f.id !== 'unassigned' &&
+                            f.disclosure !== 'no_holder' &&
+                            matchesSearch(
+                              [f.n, f.englishName, ...f.h.flatMap((h) => [h.n, h.englishName])],
+                              searchQuery,
+                            ),
+                        )}
                         investors={fundTabLps}
                         onEditFund={(fund) => setEditFund(fund)}
                         positions={portfolioReadModel?.positions}
@@ -1195,7 +1248,9 @@ export default function FundManagement() {
                     ) : activeTab === 'investor' ? (
                       <EntitySummaryTable
                         funds={funds ?? []}
-                        investors={tabInvestors}
+                        investors={tabInvestors.filter((inv) =>
+                          matchesSearch([inv.n, inv.englishName, inv.groupName], searchQuery),
+                        )}
                         onEditStakes={(id, fundId) => setEditStakesFor({ investorId: id, fundId })}
                         onEditInvestor={(inv) => setEditInvestor(inv)}
                         onMoveInvestor={(inv) => setMoveInvestor(inv)}
@@ -1208,7 +1263,7 @@ export default function FundManagement() {
                     ) : (
                       <SourceSummaryTable
                         funds={funds ?? []}
-                        sourceNames={sourceOptions}
+                        sourceNames={sourceOptions.filter((name) => matchesSearch([name], searchQuery))}
                         sourceIdsByName={sourceIdsByName}
                         onDeleteSource={deleteSource}
                         onEditSource={(id, name) => setEditSource({ id, name })}

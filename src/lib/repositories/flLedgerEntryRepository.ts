@@ -6,7 +6,9 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   lte,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
@@ -297,6 +299,106 @@ export class FlLedgerEntryRepository {
       .orderBy(asc(flLedgerEntries.position_id));
 
     return rows;
+  }
+
+  /**
+   * Distinct business-event ids with a leg on, or a counterparty of, any of
+   * the given positions.
+   */
+  async findEventIdsTouchingPositionIds(
+    workspaceId: string,
+    positionIds: string[],
+    executor?: DbClient,
+  ): Promise<string[]> {
+    if (positionIds.length === 0) return [];
+    const rows = await this.getExecutor(executor)
+      .selectDistinct({ id: flLedgerEntries.business_event_id })
+      .from(flLedgerEntries)
+      .innerJoin(
+        flPositions,
+        eq(flLedgerEntries.position_id, flPositions.id),
+      )
+      .where(
+        and(
+          eq(flPositions.workspace_id, workspaceId),
+          or(
+            inArray(flLedgerEntries.position_id, positionIds),
+            inArray(flLedgerEntries.counterparty_position_id, positionIds),
+          ),
+        ),
+      )
+      .orderBy(asc(flLedgerEntries.business_event_id));
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Distinct business-event ids of entries derived (via
+   * `source_ledger_entry_id`) from an entry in one of the given events.
+   */
+  async findEventIdsDerivedFromEventIds(
+    workspaceId: string,
+    eventIds: string[],
+    executor?: DbClient,
+  ): Promise<string[]> {
+    if (eventIds.length === 0) return [];
+    const exec = this.getExecutor(executor);
+    const sourceEntryIds = exec
+      .select({ id: flLedgerEntries.id })
+      .from(flLedgerEntries)
+      .where(inArray(flLedgerEntries.business_event_id, eventIds));
+    const rows = await exec
+      .selectDistinct({ id: flLedgerEntries.business_event_id })
+      .from(flLedgerEntries)
+      .innerJoin(
+        flPositions,
+        eq(flLedgerEntries.position_id, flPositions.id),
+      )
+      .where(
+        and(
+          eq(flPositions.workspace_id, workspaceId),
+          inArray(flLedgerEntries.source_ledger_entry_id, sourceEntryIds),
+        ),
+      )
+      .orderBy(asc(flLedgerEntries.business_event_id));
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Deletes every entry belonging to the given workspace-scoped events.
+   * Derived entries (non-null `source_ledger_entry_id`) go first so the
+   * RESTRICT self-reference never blocks the delete. Funding allocations
+   * cascade. Returns the number of entries deleted.
+   */
+  async deleteByBusinessEventIds(
+    workspaceId: string,
+    eventIds: string[],
+    executor?: DbClient,
+  ): Promise<number> {
+    if (eventIds.length === 0) return 0;
+    const exec = this.getExecutor(executor);
+    const scopedEventIds = exec
+      .select({ id: flBusinessEvents.id })
+      .from(flBusinessEvents)
+      .where(
+        and(
+          eq(flBusinessEvents.workspace_id, workspaceId),
+          inArray(flBusinessEvents.id, eventIds),
+        ),
+      );
+    const derived = await exec
+      .delete(flLedgerEntries)
+      .where(
+        and(
+          inArray(flLedgerEntries.business_event_id, scopedEventIds),
+          isNotNull(flLedgerEntries.source_ledger_entry_id),
+        ),
+      )
+      .returning({ id: flLedgerEntries.id });
+    const rest = await exec
+      .delete(flLedgerEntries)
+      .where(inArray(flLedgerEntries.business_event_id, scopedEventIds))
+      .returning({ id: flLedgerEntries.id });
+    return derived.length + rest.length;
   }
 
   async deleteByIds(

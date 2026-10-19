@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils';
 import type { Fund, Investor } from './types';
 import { useFundMoney } from './useFundMoney';
 import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, PartialValuationAmount, Pill } from './parts';
-import { TablePager } from './TablePager';
 import { useFundData } from './context';
 import { CashHistoryTable } from './CashHistoryTable';
 import { distinctEnglishName, formatExact } from '@/lib/fundLedger/format';
@@ -13,7 +12,6 @@ import { flIsZero } from '@/lib/services/flDecimal';
 import type { FlPortfolioLedgerEntry, FlPortfolioPosition } from '@/lib/api/fundLedger/types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-const PAGE_SIZE = 25;
 
 export const FUND_TABLE_COL_WIDTHS = [
   '34%',
@@ -150,7 +148,6 @@ export function FundSummaryTable({
 }) {
   const { deleteFund } = useFundData();
   const { money } = useFundMoney();
-  const [page, setPage] = useState(1);
   const [openFunds, setOpenFunds] = useState<Set<string>>(new Set());
   const [openCashHistories, setOpenCashHistories] = useState<Set<string>>(new Set());
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -226,9 +223,6 @@ export function FundSummaryTable({
     }
   }
 
-  // Section 1 paging
-  const managedStart = (Math.min(page, Math.max(1, Math.ceil(managedRows.length / PAGE_SIZE))) - 1) * PAGE_SIZE;
-  const pagedManagedRows = managedRows.slice(managedStart, managedStart + PAGE_SIZE);
 
   // Footnote only appears for disclosures not explained by a section heading
   const isUnexplainedDisclosure = (f: Fund) =>
@@ -240,7 +234,7 @@ export function FundSummaryTable({
     );
 
   const hasDisplayOnlyOnScreen =
-    (openSections.managed && pagedManagedRows.some((r) => isUnexplainedDisclosure(r.f))) ||
+    (openSections.managed && managedRows.some((r) => isUnexplainedDisclosure(r.f))) ||
     (openSections.external && externalRows.some((r) => isUnexplainedDisclosure(r.f))) ||
     (openSections.liquidated && liquidatedRows.some((r) => isUnexplainedDisclosure(r.f)));
 
@@ -675,7 +669,6 @@ export function FundSummaryTable({
     totalCount: number,
     sectionKind: 'managed' | 'external' | 'liquidated',
     footerEl?: ReactNode,
-    pagerEl?: ReactNode,
   ) => {
     if (totalCount === 0) return null;
     const isOpen = openSections[key];
@@ -739,7 +732,6 @@ export function FundSummaryTable({
           </div>
         )}
 
-        {isOpen && pagerEl}
       </div>
     );
   };
@@ -773,17 +765,9 @@ export function FundSummaryTable({
           'managed',
           'Managed Funds',
           'Vehicles we operate. Included in portfolio totals.',
-          pagedManagedRows,
+          managedRows,
           managedRows.length,
           'managed',
-          undefined,
-          <TablePager
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={managedRows.length}
-            onPageChange={setPage}
-            itemLabel="fund"
-          />,
         )}
 
         {renderSection(

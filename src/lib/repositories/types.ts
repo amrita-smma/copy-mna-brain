@@ -68,6 +68,7 @@ type TableMap = {
   fl_funds: typeof schema.flFunds;
   fl_assets: typeof schema.flAssets;
   fl_funding_sources: typeof schema.flFundingSources;
+  fl_investment_types: typeof schema.flInvestmentTypes;
   fl_positions: typeof schema.flPositions;
   fl_business_events: typeof schema.flBusinessEvents;
   fl_business_event_revisions: typeof schema.flBusinessEventRevisions;

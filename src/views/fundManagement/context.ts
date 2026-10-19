@@ -13,6 +13,11 @@ import type { Fund, Holding } from './types';
  * and swaps it into place, so the UI reflects authoritative
  * server-recomputed rollups rather than a client-side guess.
  */
+export interface InvestmentTypeOption {
+  id: string;
+  name: string;
+}
+
 export interface FundDataCtx {
   commitHolding: (fund: Fund, holding: Holding) => void;
   refreshHolding: (fund: Fund, holding: Holding) => void;
@@ -30,6 +35,17 @@ export interface FundDataCtx {
   deleteAsset: (fund: Fund, holding: Holding) => Promise<void>;
   /** Reopens a closed holding's position. Same failure contract as `deleteFund`. */
   reopenAsset: (fund: Fund, holding: Holding) => Promise<void>;
+  /** Permanently deletes the asset, its positions/valuations and every ledger
+   * event touching it. Same failure contract as `deleteFund`. */
+  hardDeleteAsset: (holding: Holding) => Promise<void>;
+  /** Saves the asset's free-text Action Items. Same failure contract as `deleteFund`. */
+  updateActionItems: (holding: Holding, text: string) => Promise<void>;
+  /** Assigns the asset to an investment type (`null` unassigns). Same failure contract as `deleteFund`. */
+  setInvestmentType: (holding: Holding, investmentTypeId: string | null) => Promise<void>;
+  /** The workspace's configured investment types, in display order. */
+  investmentTypes: InvestmentTypeOption[];
+  /** Re-fetches `investmentTypes` after the grouping modal changes them. */
+  reloadInvestmentTypes: () => Promise<void>;
   funds: Fund[];
   investorOptions: string[];
   sourceOptions: string[];
@@ -54,13 +70,19 @@ export interface FundDataCtx {
   analyzingAiOpinionIds: Set<string>;
 }
 
-export const FundDataContext = createContext<FundDataCtx>({
+/** No-op defaults, used outside a provider (and as a base for test providers). */
+export const DEFAULT_FUND_DATA: FundDataCtx = {
   commitHolding: () => {},
   refreshHolding: () => {},
   refreshAll: () => Promise.resolve(),
   deleteFund: () => Promise.resolve(),
   deleteAsset: () => Promise.resolve(),
   reopenAsset: () => Promise.resolve(),
+  hardDeleteAsset: () => Promise.resolve(),
+  updateActionItems: () => Promise.resolve(),
+  setInvestmentType: () => Promise.resolve(),
+  investmentTypes: [],
+  reloadInvestmentTypes: () => Promise.resolve(),
   funds: [],
   investorOptions: [],
   sourceOptions: [],
@@ -70,6 +92,8 @@ export const FundDataContext = createContext<FundDataCtx>({
   sourceOfFundsEnabled: true,
   analyzeAiOpinion: () => {},
   analyzingAiOpinionIds: new Set(),
-});
+};
+
+export const FundDataContext = createContext<FundDataCtx>(DEFAULT_FUND_DATA);
 
 export const useFundData = () => useContext(FundDataContext);

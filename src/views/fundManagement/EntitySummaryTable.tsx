@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { Fund, Holding, Investor, ValuationCoverage } from './types';
 import { useFundMoney } from './useFundMoney';
-import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, PartialValuationAmount, Pill } from './parts';
+import { Chevron, DeleteRowMenu, DisclosureBadge, DisclosureFootnote, GlossaryTerm, GroupSectionRow, PartialValuationAmount, Pill } from './parts';
 import { InlineCommitmentHistory } from './CommitmentHistoryTable';
 import type { FlPortfolioLedgerEntry, FlPortfolioPosition } from '@/lib/api/fundLedger/types';
 import { filterEntityInvestors } from './adapters';
@@ -34,7 +34,10 @@ interface EntityComputedRow {
   };
 }
 
-/** The "Investment Entity" tab: an aggregate row per entity, grouped with spanning vertical band. */
+/** Section heading for entities that belong to no investor group. */
+const UNGROUPED_SECTION = 'Other entities';
+
+/** The "Investment Entity" tab: an aggregate row per entity, grouped into collapsible sections. */
 export function EntitySummaryTable({
   funds,
   investors,
@@ -66,6 +69,17 @@ export function EntitySummaryTable({
   );
   const [openHoldingTypes, setOpenHoldingTypes] = useState<Set<string>>(new Set());
   const [openFundHistories, setOpenFundHistories] = useState<Set<string>>(new Set());
+  // Group sections start open; this tracks the ones the user collapsed.
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (name: string) => {
+    setClosedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
   const toggle = (id: string) => {
     const next = new Set(openInvestors);
@@ -203,17 +217,15 @@ export function EntitySummaryTable({
 
   const hasGroups = sortedGroups.length > 0;
 
-  /** A group's rail is rotated vertical text in an 8px cell, so an English name
-   *  has nowhere to go — it rides in the hover title instead. The group name is
-   *  a parent entity's own name, so it resolves against the same list. */
-  const englishRail = (name: string) => {
+  /** The group name is a parent entity's own name, so its English name resolves
+   *  against the same list. */
+  const groupEnglishName = (name: string) => {
     const parent = investors.find((inv) => inv.n === name);
-    const english = parent ? distinctEnglishName(parent.n, parent.englishName) : undefined;
-    return english ? `${name} (${english})` : name;
+    return parent ? distinctEnglishName(parent.n, parent.englishName) : undefined;
   };
 
   // Helper to render expanded contents for an entity
-  const renderEntitySubRows = (inv: Investor, inGroup: boolean): ReactNode[] => {
+  const renderEntitySubRows = (inv: Investor): ReactNode[] => {
     const subRows: ReactNode[] = [];
 
     // 1. Holding categories: Direct Investments / Fund of funds
@@ -254,7 +266,6 @@ export function EntitySummaryTable({
     if (!hasAnyContent) {
       subRows.push(
         <tr key={`${inv.id}-empty`} className="border-b">
-          {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
           <td
             colSpan={COLS.length}
             className="bg-muted/10 px-3 py-3 pl-10 text-[13px] text-muted-foreground"
@@ -286,7 +297,6 @@ export function EntitySummaryTable({
             isTypeOpen && '[&>td]:!bg-accent/10',
           )}
         >
-          {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
           <td className="py-2 pl-3 pr-3 align-middle">
             <div className="flex items-center">
               <span className="w-5 shrink-0" />
@@ -329,7 +339,6 @@ export function EntitySummaryTable({
           const hGain = h.fmv != null ? h.fmv + h.real - h.cost : null;
           subRows.push(
             <tr key={`${typeKey}-holding-${h.id ?? idx}`} className="border-b [&>td]:bg-muted/5">
-              {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
               <td className="py-1.5 pl-3 pr-3 align-middle">
                 <div className="flex items-center pl-10">
                   <div className="flex items-center gap-1.5 border-l-2 border-muted-foreground/30 pl-3">
@@ -392,7 +401,6 @@ export function EntitySummaryTable({
             isTypeOpen && '[&>td]:!bg-accent/10',
           )}
         >
-          {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
           <td className="py-2 pl-3 pr-3 align-middle">
             <div className="flex items-center">
               <span className="w-5 shrink-0" />
@@ -435,7 +443,6 @@ export function EntitySummaryTable({
           const hGain = h.fmv != null ? h.fmv + h.real - h.cost : null;
           subRows.push(
             <tr key={`${typeKey}-holding-${h.id ?? idx}`} className="border-b [&>td]:bg-muted/5">
-              {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
               <td className="py-1.5 pl-3 pr-3 align-middle">
                 <div className="flex items-center pl-10">
                   <div className="flex items-center gap-1.5 border-l-2 border-muted-foreground/30 pl-3">
@@ -492,7 +499,6 @@ export function EntitySummaryTable({
               isHistoryOpen && '[&>td]:!bg-accent/10',
             )}
           >
-            {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
             <td className="py-2 pl-3 pr-3 align-middle">
               <div className="flex items-center">
                 <span className="w-5 shrink-0" />
@@ -561,7 +567,6 @@ export function EntitySummaryTable({
         if (isHistoryOpen) {
           subRows.push(
             <tr key={`${historyKey}-history`} className="border-b">
-              {!inGroup && hasGroups && <td className="w-8 border-b border-r" />}
               <td colSpan={COLS.length} className="bg-background px-4 py-3">
                 <div className="pl-6">
                   <InlineCommitmentHistory
@@ -676,15 +681,30 @@ export function EntitySummaryTable({
     </>
   );
 
+  const renderEntityRows = (r: EntityComputedRow) => {
+    const isOpen = openInvestors.has(r.inv.id);
+    return (
+      <Fragment key={r.inv.id}>
+        <tr
+          onClick={() => toggle(r.inv.id)}
+          className={cn(
+            'cursor-pointer border-b [&>td]:bg-card hover:[&>td]:bg-muted/40',
+            isOpen && '[&>td]:!bg-accent/10',
+          )}
+        >
+          {renderEntityRowCells(r.inv, r.commit, r.a, isOpen)}
+        </tr>
+        {isOpen && renderEntitySubRows(r.inv)}
+      </Fragment>
+    );
+  };
+
   return (
     <>
       <div className="overflow-x-auto rounded-lg border bg-card">
         <table className="w-full min-w-[640px] border-collapse">
           <thead>
             <tr>
-              {hasGroups && (
-                <th className="w-8 border-b border-r bg-muted/50 p-0 text-center text-[11px] font-medium text-muted-foreground" />
-              )}
               {COLS.map((c) => (
                 <th
                   key={c.label}
@@ -701,83 +721,41 @@ export function EntitySummaryTable({
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td
-                  colSpan={hasGroups ? COLS.length + 1 : COLS.length}
-                  className="px-3 py-10 text-center text-sm text-muted-foreground"
-                >
+                <td colSpan={COLS.length} className="px-3 py-10 text-center text-sm text-muted-foreground">
                   No investment entities yet.
                 </td>
               </tr>
             )}
 
-            {/* Render grouped entities */}
+            {/* Each investor group is a collapsible section, like the Fund Vehicles view. */}
             {sortedGroups.map((g) => {
-              // Calculate total rowSpan for the group band
-              const totalGroupRowCount = g.rows.reduce(
-                (sum, r) => sum + 1 + (openInvestors.has(r.inv.id) ? renderEntitySubRows(r.inv, true).length : 0),
-                0,
-              );
-
-              return g.rows.map((r, entityIdx) => {
-                const isOpen = openInvestors.has(r.inv.id);
-                const isFirstRowOfGroup = entityIdx === 0;
-                const subRows = isOpen ? renderEntitySubRows(r.inv, true) : [];
-
-                return (
-                  <Fragment key={r.inv.id}>
-                    <tr
-                      onClick={() => toggle(r.inv.id)}
-                      className={cn(
-                        'cursor-pointer border-b [&>td]:bg-card hover:[&>td]:bg-muted/40',
-                        isOpen && '[&>td]:!bg-accent/10',
-                      )}
-                    >
-                      {isFirstRowOfGroup && (
-                        <td
-                          rowSpan={totalGroupRowCount}
-                          className="relative w-8 border-b border-r bg-muted/30 p-2 text-center align-middle select-none"
-                        >
-                          <div
-                            className="absolute inset-0 flex items-center justify-center overflow-hidden p-2"
-                            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-                          >
-                            <span
-                              title={englishRail(g.name)}
-                              className="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                              {g.name}
-                            </span>
-                          </div>
-                        </td>
-                      )}
-                      {renderEntityRowCells(r.inv, r.commit, r.a, isOpen)}
-                    </tr>
-                    {subRows}
-                  </Fragment>
-                );
-              });
-            })}
-
-            {/* Render ungrouped entities */}
-            {ungroupedRows.map((r) => {
-              const isOpen = openInvestors.has(r.inv.id);
-              const subRows = isOpen ? renderEntitySubRows(r.inv, false) : [];
-
+              const open = !closedGroups.has(g.name);
               return (
-                <Fragment key={r.inv.id}>
-                  <tr
-                    onClick={() => toggle(r.inv.id)}
-                    className={cn(
-                      'cursor-pointer border-b [&>td]:bg-card hover:[&>td]:bg-muted/40',
-                      isOpen && '[&>td]:!bg-accent/10',
-                    )}
-                  >
-                    {hasGroups && <td className="w-8 border-b border-r" />}
-                    {renderEntityRowCells(r.inv, r.commit, r.a, isOpen)}
-                  </tr>
-                  {subRows}
+                <Fragment key={`group:${g.name}`}>
+                  <GroupSectionRow
+                    colSpan={COLS.length}
+                    title={g.name}
+                    subtitle={groupEnglishName(g.name)}
+                    count={g.rows.length}
+                    open={open}
+                    onToggle={() => toggleGroup(g.name)}
+                  />
+                  {open && g.rows.map(renderEntityRows)}
                 </Fragment>
               );
             })}
+
+            {/* Entities with no group. Only headed when there are groups to set them apart from. */}
+            {hasGroups && ungroupedRows.length > 0 && (
+              <GroupSectionRow
+                colSpan={COLS.length}
+                title={UNGROUPED_SECTION}
+                count={ungroupedRows.length}
+                open={!closedGroups.has(UNGROUPED_SECTION)}
+                onToggle={() => toggleGroup(UNGROUPED_SECTION)}
+              />
+            )}
+            {(!hasGroups || !closedGroups.has(UNGROUPED_SECTION)) && ungroupedRows.map(renderEntityRows)}
           </tbody>
         </table>
       </div>

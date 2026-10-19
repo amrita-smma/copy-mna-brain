@@ -68,12 +68,38 @@ export async function PATCH(
     if (body.instrument_terms !== undefined)
       updates.instrument_terms = body.instrument_terms;
     if (body.description !== undefined) updates.description = body.description;
+    if (body.action_items !== undefined) {
+      if (body.action_items !== null && typeof body.action_items !== 'string') {
+        return NextResponse.json(
+          { error: 'action_items must be a string or null' },
+          { status: 400 },
+        );
+      }
+      updates.action_items = body.action_items;
+    }
 
     const data = await flMasterDataService.updateAsset(
       workspaceId,
       id,
       updates,
     );
+    return NextResponse.json({ data });
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+    const workspaceId = await getActiveWorkspaceId();
+    const db = createDb();
+    const { flLedgerService } = createContainer(db, workspaceId);
+
+    const data = await flLedgerService.deleteAssetWithLedger(workspaceId, id);
     return NextResponse.json({ data });
   } catch (error: unknown) {
     return handleRouteError(error);

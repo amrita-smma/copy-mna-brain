@@ -36,6 +36,7 @@ export * from './flDecimal';
 export * from './flErrors';
 export * from './flCurrency';
 export * from './flMasterDataService';
+export * from './flInvestmentTypeService';
 export * from './flPositionService';
 export * from './flLedgerService';
 export * from './flValuationService';

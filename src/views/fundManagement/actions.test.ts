@@ -4,7 +4,10 @@ import {
   executeDeleteInvestor,
   executeDeleteFundingSource,
   executeDeleteAsset,
+  executeHardDeleteAsset,
   executeReopenHolding,
+  executeUpdateActionItems,
+  executeSetInvestmentType,
   type ToastFn,
 } from './actions';
 
@@ -299,5 +302,111 @@ describe('FundManagement actions: executeDeleteInvestor, executeDeleteFundingSou
         variant: 'destructive',
       });
     });
+  });
+});
+
+describe('executeHardDeleteAsset', () => {
+  const holding = { id: 'asset-1', n: 'Acme' };
+
+  it('deletes the asset, reloads, and toasts the counts', async () => {
+    const deleteAssetApi = vi.fn().mockResolvedValue({ entries: 3, events: 2, positions: 1 });
+    const reloadAll = vi.fn().mockResolvedValue(undefined);
+    const toast = vi.fn<ToastFn>();
+
+    await executeHardDeleteAsset(holding, { deleteAssetApi, reloadAll, toast });
+
+    expect(deleteAssetApi).toHaveBeenCalledWith('asset-1');
+    expect(reloadAll).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Asset deleted',
+        description: expect.stringContaining('3 ledger entries across 1 position'),
+      }),
+    );
+  });
+
+  it('toasts and rethrows when the delete fails', async () => {
+    const deleteAssetApi = vi.fn().mockRejectedValue(new Error('boom'));
+    const reloadAll = vi.fn();
+    const toast = vi.fn<ToastFn>();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      executeHardDeleteAsset(holding, { deleteAssetApi, reloadAll, toast }),
+    ).rejects.toThrow('boom');
+    expect(reloadAll).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Failed to delete asset', variant: 'destructive' }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it('does nothing for a holding without an id', async () => {
+    const deleteAssetApi = vi.fn();
+    await executeHardDeleteAsset({ n: 'Mock' }, { deleteAssetApi, reloadAll: vi.fn(), toast: vi.fn() });
+    expect(deleteAssetApi).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeUpdateActionItems', () => {
+  it('saves trimmed action items and reloads', async () => {
+    const updateAssetApi = vi.fn().mockResolvedValue({});
+    const reloadAll = vi.fn().mockResolvedValue(undefined);
+    await executeUpdateActionItems({ id: 'asset-1', n: 'Acme' }, '  Call CFO  ', {
+      updateAssetApi,
+      reloadAll,
+      toast: vi.fn(),
+    });
+    expect(updateAssetApi).toHaveBeenCalledWith('asset-1', { action_items: 'Call CFO' });
+    expect(reloadAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears action items when the text is blank', async () => {
+    const updateAssetApi = vi.fn().mockResolvedValue({});
+    await executeUpdateActionItems({ id: 'asset-1', n: 'Acme' }, '   ', {
+      updateAssetApi,
+      reloadAll: vi.fn().mockResolvedValue(undefined),
+      toast: vi.fn(),
+    });
+    expect(updateAssetApi).toHaveBeenCalledWith('asset-1', { action_items: null });
+  });
+});
+
+describe('executeSetInvestmentType', () => {
+  it('assigns the type and reloads', async () => {
+    const setAssetInvestmentTypeApi = vi.fn().mockResolvedValue({});
+    const reloadAll = vi.fn().mockResolvedValue(undefined);
+    await executeSetInvestmentType({ id: 'asset-1', n: 'Acme' }, 'type-vc', {
+      setAssetInvestmentTypeApi,
+      reloadAll,
+      toast: vi.fn(),
+    });
+    expect(setAssetInvestmentTypeApi).toHaveBeenCalledWith('asset-1', 'type-vc');
+    expect(reloadAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for a holding without an asset id', async () => {
+    const setAssetInvestmentTypeApi = vi.fn();
+    await executeSetInvestmentType({ id: null, n: 'Acme' }, null, {
+      setAssetInvestmentTypeApi,
+      reloadAll: vi.fn(),
+      toast: vi.fn(),
+    });
+    expect(setAssetInvestmentTypeApi).not.toHaveBeenCalled();
+  });
+
+  it('toasts and rethrows on failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const toast = vi.fn();
+    const reloadAll = vi.fn();
+    await expect(
+      executeSetInvestmentType({ id: 'asset-1', n: 'Acme' }, null, {
+        setAssetInvestmentTypeApi: vi.fn().mockRejectedValue(new Error('nope')),
+        reloadAll,
+        toast,
+      }),
+    ).rejects.toThrow('nope');
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
+    expect(reloadAll).not.toHaveBeenCalled();
   });
 });

@@ -16,6 +16,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 ## Pipeline & deals
 
 - [Smart Files](smart-files.md) — 7KB
+- [Fund Management page (search, Action Items, delete asset, fund-update upload)](fund-management.md) — 3KB
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
 - [CRM banker matching ("which banker can help me close this deal?")](crm-banker-matching.md) — 8KB

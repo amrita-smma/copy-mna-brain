@@ -217,6 +217,11 @@ export interface Holding {
    * (no per-holding CRUD happens there). */
   id?: string;
   n: string;
+  /** Free-text action items recorded on the asset (`fl_assets.action_items`). */
+  actionItems?: string | null;
+  /** The asset's investment type (`fl_assets.investment_type_id`), for the
+   * "by Investment Type" grouping. */
+  investmentTypeId?: string | null;
   /** English rendering of `n` — set when the asset is
    * recorded under a non-English name. Displayed in brackets after `n`. */
   englishName?: string;

@@ -78,6 +78,7 @@ import { toDivestmentSubType } from '@/lib/sellProceedsDestination';
 import { useLedgerMoney } from './useLedgerMoney';
 import { PricePerUnitField } from './PricePerUnitField';
 import { flIsZero } from '@/lib/services/flDecimal';
+import { FundUpdateUploadDrop } from '@/components/ledger/FundUpdateUploadDrop';
 
 /** The entity key a position's holder is addressed by. */
 export function holderKeyOf(position: ResolvedPosition): string {
@@ -597,6 +598,13 @@ export function PostEntryDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <section>
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Have a fund update document?
+            </div>
+            <FundUpdateUploadDrop onNavigate={() => onOpenChange(false)} />
+          </section>
+
           <section>
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               What happened

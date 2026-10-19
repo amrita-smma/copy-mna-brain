@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FundSummaryTable } from './FundSummaryTable';
-import { TablePager } from './TablePager';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Fund, Holding } from './types';
 
@@ -415,20 +414,6 @@ describe('FundSummaryTable - Section splitting', () => {
 
     // And the managed-row empty state never reaches the external section.
     expect(html).not.toContain('No investors committed.');
-  });
-
-  it('10. TablePager renders nothing for total: 1, pageSize: 25', () => {
-    const html = renderToStaticMarkup(
-      React.createElement(TablePager, {
-        page: 1,
-        pageSize: 25,
-        total: 1,
-        onPageChange: () => {},
-        itemLabel: 'fund',
-      }),
-    );
-
-    expect(html).toBe('');
   });
 });
 

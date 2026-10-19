@@ -46,10 +46,14 @@ async function resolveDefaultTab(): Promise<{
 
 export default async function SmartFilesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceSlug: string; tab?: string[] }>;
+  searchParams: Promise<{ file?: string | string[] }>;
 }) {
   const { tab } = await params;
+  const { file } = await searchParams;
+  const initialFileId = typeof file === 'string' && file ? file : undefined;
   const parsed = parseTab(tab);
   if (parsed.kind === 'not-found') {
     notFound();
@@ -62,6 +66,7 @@ export default async function SmartFilesPage({
     <SmartFiles
       initialTab={initialTab}
       initialCounts={initialCounts}
+      initialFileId={initialFileId}
     />
   );
 }

@@ -4140,6 +4140,22 @@ function isEntityDecisionRemapped(
     }>;
   }
 
+  /** Lightweight status read for deep links that wait on processing. */
+  async getStatus(id: string): Promise<{
+    id: string;
+    file_name: string;
+    file_type: string;
+    processing_status: string | null;
+  }> {
+    const record = await this.fileRepo.findById(id);
+    return {
+      id: record.id,
+      file_name: record.file_name,
+      file_type: record.file_type,
+      processing_status: record.processing_status,
+    };
+  }
+
   async getSignedDownloadUrl(id: string) {
     const record = await this.fileRepo.findLinkAndNameById(id);
     const url = await getSignedUrl(record.file_link);

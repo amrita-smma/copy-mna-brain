@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  matchesSearch,
+  normalizeSearch,
   aggregateByTxn,
   buildInvestorGroupLookup,
   calculateXirr,
@@ -3705,3 +3707,14 @@ describe('Phase 3 Task 2: Historical cutoff - historical calculations must not u
   });
 });
 
+describe('matchesSearch', () => {
+  it('matches everything when the query is empty', () => {
+    expect(matchesSearch([], '')).toBe(true);
+  });
+
+  it('matches a case-insensitive substring of any field', () => {
+    const q = normalizeSearch('  NANO ');
+    expect(matchesSearch(['南京微纳', 'Nanjing Micro-Nano'], q)).toBe(true);
+    expect(matchesSearch(['Acme', null, undefined], q)).toBe(false);
+  });
+});

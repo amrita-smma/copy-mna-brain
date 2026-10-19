@@ -93,6 +93,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getCompanies, getCompaniesLite } from "@/lib/api/pipeline";
+import { getSmartFileStatus, uploadSmartFile } from "@/lib/api/files";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
 import { MatchedCompaniesCell } from "@/components/Files/MatchedCompaniesCell";
 import { useChatActions } from "@/components/chat/ChatProvider";
@@ -289,6 +290,8 @@ interface FileTableProps {
   itemsPerPage?: number;
   /** Hide category title/icon — tab bar already identifies the category. */
   hideTitle?: boolean;
+  /** A row to highlight and scroll into view (deep-linked file). */
+  highlightFileId?: string | null;
 }
 
 function FileTable({
@@ -323,6 +326,7 @@ function FileTable({
   onPageChange,
   itemsPerPage = 10,
   hideTitle = false,
+  highlightFileId,
 }: FileTableProps) {
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
   // `files` is already the server-resolved page; render it as-is.
@@ -713,7 +717,18 @@ function FileTable({
                 />
                 <TableBody>
                   {paginatedFiles.map((note, index) => (
-                    <TableRow key={note.id}>
+                    <TableRow
+                      key={note.id}
+                      ref={
+                        note.id === highlightFileId
+                          ? (el) => el?.scrollIntoView({ block: "center", behavior: "smooth" })
+                          : undefined
+                      }
+                      className={cn(
+                        note.id === highlightFileId &&
+                          "bg-accent/10 ring-1 ring-inset ring-accent transition-colors",
+                      )}
+                    >
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-muted-foreground" />
@@ -966,6 +981,10 @@ function TabBucketPanel({
 
 const PAGE_SIZE = 10;
 
+/** How often / how long a `?file=` deep link waits for processing to settle. */
+const DEEP_LINK_POLL_INTERVAL_MS = 4000;
+const DEEP_LINK_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
 /**
  * Per-tab presentation. Labels come from `SMART_FILES_TAB_LABELS` so the tab
  * bar, the deep-link slugs, and the server-side bucketing can't drift; only
@@ -1214,11 +1233,18 @@ interface SmartFilesProps {
   initialTab?: SmartFilesTab;
   /** Unfiltered tab counts the page already loaded to pick `initialTab`. */
   initialCounts?: Partial<Record<SmartFilesTab, number>>;
+  /**
+   * Deep-link `?file=<id>`: once `initialTab`'s bucket loads, that file is
+   * highlighted and opened — its review dialog when awaiting review, its
+   * parsed view when completed, or as soon as background processing finishes.
+   */
+  initialFileId?: string;
 }
 
 export default function SmartFiles({
   initialTab = "mom",
   initialCounts,
+  initialFileId,
 }: SmartFilesProps) {
   const { analyzeWithAI } = useChatActions();
   const [activeTab, setActiveTab] = useState<SmartFilesTab>(initialTab);
@@ -1323,6 +1349,64 @@ export default function SmartFiles({
     [mom, prospectusBucket, shoppingListBucket, bankerCommsBucket, fundUpdatesBucket, marketStudyBucket, financialStatementBucket, bondIssuanceBucket, otherBucket],
   );
   const activeBucket = bucketByTab[activeTab] ?? mom;
+
+  // `?file=<id>` deep link (e.g. from the ledger "Upload File" drop zone).
+  // Polls the file's own status (it may not be on the first page of its tab)
+  // and opens it once processing settles.
+  const [highlightFileId, setHighlightFileId] = useState<string | null>(initialFileId ?? null);
+  useEffect(() => {
+    if (!initialFileId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let announced = false;
+    const startedAt = Date.now();
+    const poll = async () => {
+      try {
+        const file = await getSmartFileStatus(initialFileId);
+        if (cancelled) return;
+        switch (file.processing_status) {
+          case "awaiting_review":
+            setReviewFile({ id: file.id, file_type: file.file_type });
+            return;
+          case "completed":
+            if (file.file_type === "fund_updates") setViewFundUpdateFileId(file.id);
+            return;
+          case "failed":
+          case "dropped":
+            toast.error(`Processing failed for "${file.file_name}"`);
+            return;
+          default:
+            if (!announced) {
+              announced = true;
+              toast.info(`"${file.file_name}" is still processing — it will open when ready.`);
+            }
+            if (Date.now() - startedAt < DEEP_LINK_POLL_TIMEOUT_MS) {
+              timer = setTimeout(poll, DEEP_LINK_POLL_INTERVAL_MS);
+            }
+        }
+      } catch {
+        if (!cancelled) toast.error("Could not open the uploaded file");
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [initialFileId]);
+
+  // Drop `?file=` from the URL so a reload doesn't reopen the file. Reuse the
+  // Next history state for the same reason as the tab sync above.
+  useEffect(() => {
+    if (!initialFileId || typeof window === "undefined") return;
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+  }, [initialFileId]);
+
+  useEffect(() => {
+    if (!highlightFileId) return;
+    const handle = setTimeout(() => setHighlightFileId(null), 8000);
+    return () => clearTimeout(handle);
+  }, [highlightFileId]);
 
   /**
    * Count for a tab: once visited, the bucket's own total is authoritative
@@ -1634,78 +1718,20 @@ export default function SmartFiles({
       setUploadProgress({ current: i + 1, total: filesToUpload.length });
 
       try {
-        // 1. Get pre-signed URL
-        const fileName = file.name;
-        const contentType = file.type || "application/octet-stream";
-
-        const urlParams = new URLSearchParams({
-          fileName,
-          contentType,
-        });
-
-        const presignedResponse = await fetch(
-          `/api/smart-files/upload-url?${urlParams.toString()}`,
-        );
-        const presignedResult = await presignedResponse.json();
-
-        if (!presignedResult.success) {
-          throw new Error(presignedResult.error || "Failed to get upload URL");
-        }
-
-        const { uploadUrl, key } = presignedResult.data;
-
-        // 2. Upload directly to S3
-        const s3Response = await fetch(uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: {
-            "Content-Type": contentType,
-          },
-        });
-
-        if (!s3Response.ok) {
-          throw new Error("Failed to upload file to S3");
-        }
-
-        // 3. Notify server of completion
-        const fileKey = `${fileName}-${i}`;
+        const fileKey = `${file.name}-${i}`;
         const rawNotesForFile = fileRawNotes[fileKey]?.trim() || undefined;
         const fileTypeOverride = fileTypeOverrides[fileKey];
-        const body: Record<string, unknown> = {
-          key,
-          fileName,
-          contentType,
-        };
-        if (rawNotesForFile) body.raw_notes = rawNotesForFile;
-        if (fileTypeOverride && fileTypeOverride !== "auto") {
-          body.file_type_override = fileTypeOverride;
-        }
-
-        const notifyResponse = await fetch("/api/smart-files", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
+        const uploaded = await uploadSmartFile(file, {
+          rawNotes: rawNotesForFile,
+          fileTypeOverride:
+            fileTypeOverride && fileTypeOverride !== "auto" ? fileTypeOverride : undefined,
         });
-
-        const notifyResult = await notifyResponse.json();
-
-        if (notifyResponse.ok && notifyResult.success) {
-          results.success++;
-          const isAsync = notifyResponse.status === 202 || Boolean(notifyResult.data?.jobId);
-          if (isAsync) {
-            asyncCount++;
-          }
-          if (notifyResult.data?.asyncSecondaryWorkspacesSkipped) {
-            hasSecondarySkipped = true;
-          }
-        } else {
-          console.error(
-            `Processing failed for ${file.name}:`,
-            notifyResult.error,
-          );
-          results.failed++;
+        results.success++;
+        if (uploaded.isAsync) {
+          asyncCount++;
+        }
+        if (uploaded.asyncSecondaryWorkspacesSkipped) {
+          hasSecondarySkipped = true;
         }
       } catch (error) {
         console.error(`Upload error for ${file.name}:`, error);
@@ -2361,6 +2387,7 @@ export default function SmartFiles({
                     emptySubMessage={presentation.emptySubMessage}
                     currentPage={bucket.page}
                     onPageChange={bucket.setPage}
+                    highlightFileId={highlightFileId}
                     hideTitle
                   />
                 </TabBucketPanel>

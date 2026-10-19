@@ -5,6 +5,7 @@ import type {
   UpdateFundInput,
   CreateAssetInput,
   UpdateAssetInput,
+  DeleteAssetResult,
   CreateInvestorInput,
   UpdateInvestorInput,
   CreateFundingSourceInput,
@@ -61,6 +62,56 @@ export async function updateAsset(id: string, input: UpdateAssetInput): Promise<
   return apiRequest<Tables<'fl_assets'>>(`/api/fund-ledger/assets/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Permanently deletes an asset with its positions, valuations and every ledger
+ * event that touches it (counterpart legs included).
+ */
+export async function deleteAsset(id: string): Promise<DeleteAssetResult> {
+  return apiRequest<DeleteAssetResult>(`/api/fund-ledger/assets/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---- Investment types ----
+
+export async function listInvestmentTypes(): Promise<Tables<'fl_investment_types'>[]> {
+  return apiRequest<Tables<'fl_investment_types'>[]>('/api/fund-ledger/investment-types');
+}
+
+export async function createInvestmentType(name: string): Promise<Tables<'fl_investment_types'>> {
+  return apiRequest<Tables<'fl_investment_types'>>('/api/fund-ledger/investment-types', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameInvestmentType(
+  id: string,
+  name: string,
+): Promise<Tables<'fl_investment_types'>> {
+  return apiRequest<Tables<'fl_investment_types'>>(`/api/fund-ledger/investment-types/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteInvestmentType(id: string): Promise<void> {
+  await apiRequest<{ success: true }>(`/api/fund-ledger/investment-types/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Assigns an asset to an investment type; `null` unassigns it. */
+export async function setAssetInvestmentType(
+  assetId: string,
+  investmentTypeId: string | null,
+): Promise<Tables<'fl_assets'>> {
+  return apiRequest<Tables<'fl_assets'>>(`/api/fund-ledger/assets/${assetId}/investment-type`, {
+    method: 'PUT',
+    body: JSON.stringify({ investment_type_id: investmentTypeId }),
   });
 }
 

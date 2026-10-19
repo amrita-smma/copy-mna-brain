@@ -5,6 +5,7 @@ import { AssetTable } from './AssetTable';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { FeatureFlagsProvider } from '@/components/layout/FeatureFlagsContext';
 import type { Fund, Holding, Investor } from './types';
+import { DEFAULT_FUND_DATA, FundDataContext } from './context';
 
 type FlagsProviderProps = React.ComponentProps<typeof FeatureFlagsProvider>;
 
@@ -266,8 +267,8 @@ describe('AssetTable - Held by breakdown', () => {
     );
   }
 
-  /** The expanded detail row is the only full-width (colspan 8) cell in the body. */
-  const isExpanded = (html: string) => /<td colSpan="8"/.test(html);
+  /** The expanded detail row is the only full-width (colspan 9) cell in the body. */
+  const isExpanded = (html: string) => /<td colSpan="9"/.test(html);
 
   /** The inner markup of one `data-testid` element (open tag through its row). */
   function testIdRow(html: string, testId: string): string {
@@ -360,5 +361,83 @@ describe('AssetTable - Held by breakdown', () => {
     expect(testIdRow(html, 'asset-held-by-row-fund-one')).toContain('60.0%');
     expect(testIdRow(html, 'asset-held-by-row-inv-mix')).toContain('40.0%');
     expect(testIdRow(html, 'asset-held-by-total-asset-mix')).toContain('$100M');
+  });
+});
+
+describe('AssetTable - by Investment Type grouping', () => {
+  const holding = (id: string, n: string, fmv: number, investmentTypeId: string | null): Holding => ({
+    id,
+    n,
+    targetKind: 'asset',
+    tp: 'Direct Investments',
+    cost: 10,
+    fmv,
+    real: 0,
+    dt: '2023-01-01',
+    moic: 1,
+    st: 'Active',
+    valuationCoverage: 'complete',
+    investmentTypeId,
+  });
+
+  const fund: Fund = {
+    id: 'fund-1',
+    n: 'Fund One',
+    v: 2021,
+    size: 100,
+    called: 30,
+    calledPct: 30,
+    fmv: 40,
+    real: 0,
+    dpi: 0,
+    tvpi: 1,
+    irr: 0,
+    st: 'Investing',
+    h: [
+      holding('a-vc', 'Venture Co', 5, 'type-vc'),
+      holding('a-pe', 'Buyout Co', 50, 'type-pe'),
+      holding('a-none', 'Loose Co', 99, null),
+      holding('a-gone', 'Orphaned Co', 1, 'type-deleted'),
+    ],
+  };
+
+  function render() {
+    const ctx = {
+      ...DEFAULT_FUND_DATA,
+      investmentTypes: [
+        { id: 'type-vc', name: 'Venture Capital' },
+        { id: 'type-pe', name: 'Private Equity' },
+      ],
+    };
+    return renderToStaticMarkup(
+      withFlags(
+        { FUND_VEHICLE_VIEW_ENABLED: true },
+        React.createElement(
+          FundDataContext.Provider,
+          { value: ctx },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(AssetTable, { funds: [fund], initialGroupBy: 'investment_type' }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  it('groups assets by type in configured order, with unassigned and dangling types last', () => {
+    const html = render();
+    const vc = html.indexOf('>Venture Capital<');
+    const pe = html.indexOf('>Private Equity<');
+    const unassigned = html.indexOf('>Unassigned<');
+    expect(vc).toBeGreaterThan(-1);
+    expect(pe).toBeGreaterThan(vc);
+    expect(unassigned).toBeGreaterThan(pe);
+    // The unassigned group holds both the untyped asset and the one whose type was deleted
+    expect(html).toMatch(/Unassigned<\/div>[\s\S]*?2 holdings/);
+  });
+
+  it('shows the Configure groupings button only for this grouping', () => {
+    expect(render()).toContain('Configure groupings');
   });
 });

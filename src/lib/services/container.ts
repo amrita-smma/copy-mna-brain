@@ -58,6 +58,7 @@ import {
   FlFundRepository,
   FlAssetRepository,
   FlFundingSourceRepository,
+  FlInvestmentTypeRepository,
   FlPositionRepository,
   FlBusinessEventRepository,
   FlBusinessEventRevisionRepository,
@@ -78,6 +79,7 @@ import { CompanyService } from './companyService';
 import { CompanyGraphService } from './companyGraphService';
 import { CompanyRelationshipService } from './companyRelationshipService';
 import { FlMasterDataService } from './flMasterDataService';
+import { FlInvestmentTypeService } from './flInvestmentTypeService';
 import { FlPositionService } from './flPositionService';
 import { FlLedgerService } from './flLedgerService';
 import { FlValuationService } from './flValuationService';
@@ -203,6 +205,7 @@ export interface Container {
   dataNavigatorService: DataNavigatorService;
   consentService: ConsentService;
   flMasterDataService: FlMasterDataService;
+  flInvestmentTypeService: FlInvestmentTypeService;
   flPositionService: FlPositionService;
   flLedgerService: FlLedgerService;
   flValuationService: FlValuationService;
@@ -517,6 +520,11 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     flAssetRepo,
     flFundingSourceRepo,
   );
+  const flInvestmentTypeService = new FlInvestmentTypeService(
+    db,
+    new FlInvestmentTypeRepository(db),
+    flAssetRepo,
+  );
   const flPositionService = new FlPositionService(
     db,
     flPositionRepo,
@@ -724,6 +732,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     dataNavigatorService,
     consentService,
     flMasterDataService,
+    flInvestmentTypeService,
     flPositionService,
     flLedgerService,
     flValuationService,

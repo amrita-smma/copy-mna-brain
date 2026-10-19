@@ -8084,3 +8084,26 @@ describe('FileService.processUpload email-ingest notification', () => {
     error.mockRestore();
   });
 });
+
+describe('FileService.getStatus', () => {
+  it('returns only the id, name, type and processing status of the file', async () => {
+    const fileRepo = makeFileRepoStub();
+    (fileRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'file-1',
+      file_name: 'Q3 update.xlsx',
+      file_type: 'fund_updates',
+      processing_status: 'processing',
+      raw_notes: 'not returned',
+      file_link: 'uploads/q3.xlsx',
+    });
+    const service = makeService({ fileRepo });
+
+    await expect(service.getStatus('file-1')).resolves.toEqual({
+      id: 'file-1',
+      file_name: 'Q3 update.xlsx',
+      file_type: 'fund_updates',
+      processing_status: 'processing',
+    });
+    expect(fileRepo.findById).toHaveBeenCalledWith('file-1');
+  });
+});

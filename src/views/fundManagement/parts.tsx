@@ -4,6 +4,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderInput, Loader2, MoreVertical, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { GlossaryTerm as SharedGlossaryTerm } from '@/components/common/GlossaryTerm';
 import {
   AlertDialog,
@@ -43,6 +45,9 @@ export function DeleteRowMenu({
   moveLabel = 'Move to group…',
   confirmLabel,
   tone = 'destructive',
+  onDelete,
+  deleteLabel = 'Delete',
+  extraItems,
 }: {
   label: string;
   title: string;
@@ -58,6 +63,12 @@ export function DeleteRowMenu({
   /** `restore` renders the action as a non-destructive undo (e.g. reopening a
    * closed holding) instead of a red delete. */
   tone?: 'destructive' | 'restore';
+  /** When provided, a red item is shown below the confirm action. The caller
+   * owns its confirmation (e.g. a `TypeToConfirmDialog`). */
+  onDelete?: () => void;
+  deleteLabel?: string;
+  /** Extra menu content (items, a submenu) shown above the other actions. */
+  extraItems?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const restore = tone === 'restore';
@@ -90,6 +101,7 @@ export function DeleteRowMenu({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[8rem]">
+          {extraItems}
           {onEdit && (
             <DropdownMenuItem
               onClick={(e) => {
@@ -130,6 +142,18 @@ export function DeleteRowMenu({
               {label}
             </DropdownMenuItem>
           </AlertDialogTrigger>
+          {onDelete && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              {deleteLabel}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
@@ -149,6 +173,89 @@ export function DeleteRowMenu({
           >
             {confirmLabel ?? 'Delete'}
           </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * Destructive confirm that only enables once the user types `confirmText`
+ * exactly (case- and whitespace-sensitive). Mount it only while a target is
+ * selected and key it by the target id, so the typed value never carries over.
+ */
+export function TypeToConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmText,
+  confirmLabel = 'Delete',
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: ReactNode;
+  confirmText: string;
+  confirmLabel?: string;
+  onConfirm: () => Promise<void>;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const matches = typed === confirmText;
+
+  const confirm = async () => {
+    if (!matches || busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } catch {
+      // Failure is already toasted by the context provider.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">{description}</div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-1.5">
+          <label htmlFor="type-to-confirm" className="text-sm text-foreground">
+            Type <span className="select-all font-semibold">{confirmText}</span> to confirm
+          </label>
+          <Input
+            id="type-to-confirm"
+            value={typed}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void confirm();
+              }
+            }}
+            disabled={busy}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={!matches || busy}
+            onClick={() => void confirm()}
+          >
+            {busy && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+            {confirmLabel}
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -518,4 +625,43 @@ export function MiniSpark({
 /** Chevron affordance for expandable rows. */
 export function Chevron({ open }: { open: boolean }) {
   return <span className="inline-block w-3 text-xs text-muted-foreground">{open ? '▾' : '▸'}</span>;
+}
+
+/**
+ * A collapsible group heading rendered as a full-width table row — the same
+ * chevron + title + count dropdown as the Fund Vehicles sections, kept inside
+ * the table so the grouped rows below stay column-aligned.
+ */
+export function GroupSectionRow({
+  colSpan,
+  title,
+  subtitle,
+  count,
+  open,
+  onToggle,
+}: {
+  colSpan: number;
+  title: string;
+  subtitle?: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <tr className="border-b">
+      <td colSpan={colSpan} className="bg-muted px-3 py-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <Chevron open={open} />
+          <span className="text-sm font-semibold text-foreground">{title}</span>
+          {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
+          <span className="text-xs font-normal text-muted-foreground">({count})</span>
+        </button>
+      </td>
+    </tr>
+  );
 }

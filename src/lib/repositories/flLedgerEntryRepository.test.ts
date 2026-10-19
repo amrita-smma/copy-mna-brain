@@ -5,6 +5,7 @@ import type { DbClient } from './types';
 
 interface MockDb {
   select: ReturnType<typeof vi.fn>;
+  selectDistinct: ReturnType<typeof vi.fn>;
   from: ReturnType<typeof vi.fn>;
   innerJoin: ReturnType<typeof vi.fn>;
   leftJoin: ReturnType<typeof vi.fn>;
@@ -22,6 +23,7 @@ interface MockDb {
 function createMockDb(): MockDb {
   const mock: MockDb = {
     select: vi.fn().mockReturnThis(),
+    selectDistinct: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     leftJoin: vi.fn().mockReturnThis(),
@@ -378,6 +380,55 @@ describe('FlLedgerEntryRepository', () => {
       mockDb.where.mockResolvedValueOnce([{ id: 'entry-1' }]);
       await repo.deleteByIds('ws-1', ['entry-1', 'other']);
       expect(mockDb.delete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FlLedgerEntryRepository.findEventIdsTouchingPositionIds', () => {
+    it('returns [] without hitting the DB when the position list is empty', async () => {
+      const result = await repo.findEventIdsTouchingPositionIds('ws-1', []);
+      expect(result).toEqual([]);
+      expect(mockDb.selectDistinct).not.toHaveBeenCalled();
+    });
+
+    it('returns the distinct event ids of legs on, or countering, the positions', async () => {
+      mockDb.orderBy.mockResolvedValueOnce([{ id: 'be-1' }, { id: 'be-2' }]);
+      const result = await repo.findEventIdsTouchingPositionIds('ws-1', ['pos-1']);
+      expect(result).toEqual(['be-1', 'be-2']);
+      expect(mockDb.selectDistinct).toHaveBeenCalledTimes(1);
+      expect(mockDb.innerJoin).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FlLedgerEntryRepository.findEventIdsDerivedFromEventIds', () => {
+    it('returns [] without hitting the DB when the event list is empty', async () => {
+      const result = await repo.findEventIdsDerivedFromEventIds('ws-1', []);
+      expect(result).toEqual([]);
+      expect(mockDb.select).not.toHaveBeenCalled();
+      expect(mockDb.selectDistinct).not.toHaveBeenCalled();
+    });
+
+    it('returns event ids of entries sourced from the given events', async () => {
+      mockDb.orderBy.mockResolvedValueOnce([{ id: 'be-derived' }]);
+      const result = await repo.findEventIdsDerivedFromEventIds('ws-1', ['be-1']);
+      expect(result).toEqual(['be-derived']);
+      expect(mockDb.selectDistinct).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FlLedgerEntryRepository.deleteByBusinessEventIds', () => {
+    it('returns 0 without hitting the DB when the event list is empty', async () => {
+      const result = await repo.deleteByBusinessEventIds('ws-1', []);
+      expect(result).toBe(0);
+      expect(mockDb.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes derived entries first, then the rest, and returns the total', async () => {
+      mockDb.returning
+        .mockResolvedValueOnce([{ id: 'derived-1' }])
+        .mockResolvedValueOnce([{ id: 'e1' }, { id: 'e2' }]);
+      const result = await repo.deleteByBusinessEventIds('ws-1', ['be-1']);
+      expect(result).toBe(3);
+      expect(mockDb.delete).toHaveBeenCalledTimes(2);
     });
   });
 });

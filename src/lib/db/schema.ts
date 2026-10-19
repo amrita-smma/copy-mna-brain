@@ -3815,6 +3815,25 @@ export const flFunds = pgTable("fl_funds", {
     .on(table.workspace_id, table.canonical_name),
 }));
 
+// fl_investment_types — workspace-configurable grouping for assets ("by investment type").
+export const flInvestmentTypes = pgTable("fl_investment_types", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  workspace_id: uuid().notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  sort_order: integer().default(0).notNull(),
+  created_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updated_at: timestamp({ withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+}, (table) => ({
+  idxFlInvestmentTypesWorkspaceId: index("idx_fl_investment_types_workspace_id")
+    .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  flInvestmentTypesWorkspaceNameUniq: uniqueIndex("fl_investment_types_workspace_name_uniq")
+    .on(table.workspace_id, sql`lower(${table.name})`),
+}));
+
 // 3. fl_assets — investable assets (companies, loans, notes, safes, real estate, etc.).
 export const flAssets = pgTable("fl_assets", {
   id: uuid().defaultRandom().primaryKey().notNull(),
@@ -3829,6 +3848,8 @@ export const flAssets = pgTable("fl_assets", {
   sub_sector: text(),
   instrument_terms: jsonb().default({}).notNull(),
   description: text(),
+  action_items: text(),
+  investment_type_id: uuid().references(() => flInvestmentTypes.id, { onDelete: "set null" }),
   created_by: uuid(),
   updated_by: uuid(),
   created_at: timestamp({ withTimezone: true, mode: "string" })
@@ -3850,6 +3871,8 @@ export const flAssets = pgTable("fl_assets", {
   }).onDelete("set null"),
   idxFlAssetsWorkspaceId: index("idx_fl_assets_workspace_id")
     .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
+  idxFlAssetsInvestmentTypeId: index("idx_fl_assets_investment_type_id")
+    .using("btree", table.investment_type_id.asc().nullsLast().op("uuid_ops")),
   flAssetsWorkspaceCanonicalNameUniq: uniqueIndex("fl_assets_workspace_canonical_name_uniq")
     .on(table.workspace_id, table.canonical_name),
   flAssetsSystemCashCurrencyUniq: uniqueIndex("fl_assets_system_cash_currency_uniq")

@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 206 | `src/app/api/**/route.ts` |
-| Services | 82 | `src/lib/services/` |
-| Repositories | 75 | `src/lib/repositories/` |
+| API routes | 209 | `src/app/api/**/route.ts` |
+| Services | 83 | `src/lib/services/` |
+| Repositories | 76 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 43 | `src/app/**/page.tsx` |
-| Migrations (app) | 162 | `drizzle/migrations/` |
+| Migrations (app) | 164 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -189,9 +189,10 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/feedback` | POST | `feedbackService` |
 | `/api/fund-ledger/ai-opinion` | POST, DELETE | `fundAiOpinionService` |
 | `/api/fund-ledger/assets` | GET, POST | `flMasterDataService` |
-| `/api/fund-ledger/assets/[id]` | GET, PATCH | `flMasterDataService` |
+| `/api/fund-ledger/assets/[id]` | GET, PATCH, DELETE | `flLedgerService`, `flMasterDataService` |
 | `/api/fund-ledger/assets/[id]/ai-opinion` | GET, POST, DELETE | `fundAiOpinionService` |
 | `/api/fund-ledger/assets/[id]/corporate-actions` | GET, POST | `flCorporateActionService` |
+| `/api/fund-ledger/assets/[id]/investment-type` | PUT | `flInvestmentTypeService` |
 | `/api/fund-ledger/corporate-actions/[id]` | PUT, DELETE | `flCorporateActionService` |
 | `/api/fund-ledger/entries` | GET | `flLedgerService` |
 | `/api/fund-ledger/events` | POST | `flLedgerService` |
@@ -202,6 +203,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/fund-ledger/funds` | GET, POST | `flMasterDataService` |
 | `/api/fund-ledger/funds/[id]` | GET, PATCH | `flMasterDataService` |
 | `/api/fund-ledger/funds/[id]/rollup` | GET | `flBalanceService` |
+| `/api/fund-ledger/investment-types` | GET, POST | `flInvestmentTypeService` |
+| `/api/fund-ledger/investment-types/[id]` | PATCH, DELETE | `flInvestmentTypeService` |
 | `/api/fund-ledger/investors` | GET, POST | `flMasterDataService` |
 | `/api/fund-ledger/investors/[id]` | GET, PATCH, DELETE | `flMasterDataService` |
 | `/api/fund-ledger/portfolio` | GET | `flPortfolioService` |
@@ -266,7 +269,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/slide-generate` | POST | `slideService` |
 | `/api/slides/export-pptx` | GET | `slideService` |
 | `/api/smart-files` | GET, POST, PATCH | `fileService` |
-| `/api/smart-files/[id]` | DELETE | `fileService` |
+| `/api/smart-files/[id]` | GET, DELETE | `fileService` |
 | `/api/smart-files/[id]/approve` | POST | `fileService` |
 | `/api/smart-files/[id]/create-company` | POST | `fileService` |
 | `/api/smart-files/[id]/download` | GET | `fileService` |
@@ -305,7 +308,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 68 keys. Wire new services in
+`Container` exposes 69 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -351,6 +354,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `flCurrency.ts` | — | ✅ |
 | `flDecimal.ts` | — | ✅ |
 | `flErrors.ts` | `InvalidEntryShapeError`, `EntryPositionKindMismatchError`, `PositionClosedError`, `UnbalancedTransferError`, `AllocationMismatchError`, `AllocationSourceMismatchError`, `WorkspaceMismatchError`, `InvalidCurrencyError`, `EventAlreadyReversedError`, `CannotReverseReversalError`, `CannotDeletePostedEventError`, `PositionNotSettledError`, `InvalidPositionShapeError`, `DuplicatePositionError`, `InvalidValuationTargetError`, `EntityNotFoundError`, `InvalidMasterDataError`, `FundUpdateValidationError`, `IneligibleCashHolderError`, `ManagedFundInvestorConflictError`, `CorporateActionValidationError` | ✅ |
+| `flInvestmentTypeService.ts` | `FlInvestmentTypeService` | ✅ |
 | `flLedgerService.ts` | `FlLedgerService` | ✅ |
 | `flMasterDataService.ts` | `FlMasterDataService` | ✅ |
 | `flPortfolioService.ts` | `FlPortfolioService` | ✅ |
@@ -444,6 +448,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `flCorporateActionRepository.ts` | `FlCorporateActionRepository` | ✅ |
 | `flFundRepository.ts` | `FlFundRepository` | ✅ |
 | `flFundingSourceRepository.ts` | `FlFundingSourceRepository` | ✅ |
+| `flInvestmentTypeRepository.ts` | `FlInvestmentTypeRepository` | ✅ |
 | `flInvestorRepository.ts` | `FlInvestorRepository` | ✅ |
 | `flLedgerEntryRepository.ts` | `FlLedgerEntryRepository` | ✅ |
 | `flPositionRepository.ts` | `FlPositionRepository` | ✅ |
