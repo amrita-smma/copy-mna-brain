@@ -9,6 +9,7 @@ import {
   CompanyRepository,
   CompanyScreeningDerivedRepository,
   DealNoteRepository,
+  InvestmentThesisRepository,
 } from "@/lib/repositories";
 import { buildCompanyMentionsMarker } from "@/lib/navigation/companyMentions";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
@@ -64,6 +65,7 @@ export const getCompanyDetails = tool(
       const financialRepo = new CompanyFinancialRepository(db, workspaceId);
       const screeningRepo = new CompanyScreeningDerivedRepository(db, workspaceId);
       const noteRepo = new DealNoteRepository(db, workspaceId);
+      const thesisRepo = new InvestmentThesisRepository(db, workspaceId);
       const stageText = await loadStageLabeler(db, workspaceId);
       const c = id
         ? await companyRepo.findByIdOrNull(id)
@@ -75,7 +77,8 @@ export const getCompanyDetails = tool(
           : `No company found matching "${trimmed}". Try a different search term or use query_companies to browse available companies.`;
       }
 
-      const [financials, screening, recentNotes, noteCount, voteSummaries] =
+      const matchedTrackIds = c.matched_track_ids ?? [];
+      const [financials, screening, recentNotes, noteCount, voteSummaries, tracks] =
         await Promise.all([
           financialRepo.findByCompany(c.id),
           screeningRepo.findByCompany(c.id),
@@ -84,7 +87,14 @@ export const getCompanyDetails = tool(
           // Completed voting rounds only — an open round's live tally and a
           // cancelled round's drafts are never published, so neither is shown.
           loadVoteSummaries(db, workspaceId, [c.id]),
+          // Workspace-scoped, so a stale id from a deleted track drops out
+          // rather than printing as a bare uuid.
+          matchedTrackIds.length > 0 ? thesisRepo.findAll() : Promise.resolve([]),
         ]);
+      const trackTitles = new Map(tracks.map((t) => [t.id, t.title || "Untitled"]));
+      const matchedTracks = matchedTrackIds
+        .filter((trackId) => trackTitles.has(trackId))
+        .map((trackId) => `${trackTitles.get(trackId)} (id: ${trackId})`);
       const byYear = new Map<number, typeof financials[number]>();
       for (const row of financials) byYear.set(row.fiscal_year, row);
       const fmtNum = (n: number | null | undefined, digits = 1) =>
@@ -162,6 +172,7 @@ ${VOTE_NEUTRALITY_NOTE}
 - **Website:** ${c.website || "N/A"}
 - **Watchlist Status:** ${c.watchlist_status || "N/A"}
 - **Pipeline Stage:** ${stageText(c.pipeline_stage) || "N/A"}
+- **Matched Tracks:** ${matchedTracks.length > 0 ? matchedTracks.join("; ") : "None"}
 
 ### Revenue (USD Millions)
 | Year | ${yearHeader} |

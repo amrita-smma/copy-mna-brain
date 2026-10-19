@@ -4,14 +4,18 @@ import { z } from "zod";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { createContainer } from "@/lib/services";
-import { CompanyFinancialRepository, CompanyRepository } from "@/lib/repositories";
+import {
+  CompanyFinancialRepository,
+  CompanyRepository,
+  InvestmentThesisRepository,
+} from "@/lib/repositories";
 import type { Tables } from "@/lib/repositories";
 import type { FinancialUpsertInput } from "@/lib/services/companyService";
 import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
 
 /**
  * Edit any editable detail on an existing company — its name, profile, deal
- * fields, and per-year financials.
+ * fields, matched tracks, and per-year financials.
  *
  * Workforce-only, deliberately. Chat has no direct write tools: a "change
  * Acme's segment to Semiconductor" request goes through
@@ -25,10 +29,15 @@ import { DEAL_TYPES, normalizeDealType } from "@/lib/companies/dealTypes";
  *    stage here would route around that gate.
  *  - `status` / `dropped_reason` — `drop_company` owns dropping.
  *  - `ai_opinion_*` — `save_ai_opinion` owns the verdict and its lifecycle.
- *  - user-reference columns (`entered_by`, `deal_sponsor`, `deal_captain`),
- *    track matching, and the L0/L1 screening-derived columns — these are
- *    either uuid FKs the agent can't resolve or outputs of the screening
- *    pipeline rather than facts about the company.
+ *  - user-reference columns (`entered_by`, `deal_sponsor`, `deal_captain`)
+ *    and the L0/L1 screening-derived columns — these are either uuid FKs the
+ *    agent can't resolve or outputs of the screening pipeline rather than
+ *    facts about the company.
+ *
+ * `matched_track_ids` IS editable: unlike a user reference, a track id (or
+ * title) is resolvable against the workspace's `investment_thesis` rows, so
+ * the handler validates every entry before writing and never persists an id
+ * the Tracks UI can't render.
  *
  * Dropped companies stay editable here on purpose: `CompanyService` allows
  * detail edits after a drop so records can be kept accurate, and only blocks
@@ -67,7 +76,13 @@ const CORE_FIELDS = [
 
 type CoreField = (typeof CORE_FIELDS)[number];
 
-const CORE_FIELD_SET: ReadonlySet<string> = new Set(CORE_FIELDS);
+/**
+ * Every key `fields` accepts: the plain columns plus `matched_track_ids`,
+ * which is resolved against the workspace's tracks rather than copied through.
+ */
+const EDITABLE_FIELDS = [...CORE_FIELDS, "matched_track_ids"] as const;
+
+const EDITABLE_FIELD_SET: ReadonlySet<string> = new Set(EDITABLE_FIELDS);
 
 /**
  * Rejected keys the model is most likely to reach for, mapped to the tool (or
@@ -86,11 +101,13 @@ const REJECTED_FIELD_HINTS: Readonly<Record<string, string>> = {
   entered_by: "user-reference columns are not editable from a workforce run",
   deal_sponsor: "user-reference columns are not editable from a workforce run",
   deal_captain: "user-reference columns are not editable from a workforce run",
-  matched_track_ids: "track matching is not editable from a workforce run",
 };
 
 /** e.g. revenue_2024_usd_mn, ebitda_2023_usd_mn, ev_2024, ev_ebitda_2024. */
 const FLAT_FINANCIAL_KEY = /^(revenue|ebitda|ev)(_ebitda)?_(19|20)\d{2}(_usd_mn)?$/;
+
+/** Upper bound on tracks one company can be matched to in a single write. */
+const MAX_TRACKS = 50;
 
 const FINANCIAL_METRICS = ["revenue_usd_mn", "ebitda_usd_mn", "ev_usd_mn"] as const;
 
@@ -166,6 +183,14 @@ const FieldsSchema = z
     context: nullableText().describe(
       "Markdown background on the company's Context tab — what the company does and why it matters, how it was surfaced, deal situation, colour and caveats that no structured column holds. Read back by the AI Opinion run, the company card / slide generators and the read tools. Writing it REPLACES the whole document, so fetch the current text with get_company_details first and edit it rather than overwriting work the deal team wrote. Pass null to clear it.",
     ),
+    matched_track_ids: z
+      .array(z.string().trim().min(1))
+      .max(MAX_TRACKS)
+      .nullable()
+      .optional()
+      .describe(
+        "The COMPLETE list of tracks (investment theses) this company is matched to — each entry a track id from get_investment_theses or its exact title. REPLACES the current list, so to add or remove one track, read the current Matched Tracks with get_company_details and pass the edited list. [] or null clears every match.",
+      ),
   })
   // Unknown keys are kept rather than silently stripped so the handler can
   // name them back to the agent (and point at the tool that owns them)
@@ -277,6 +302,81 @@ function buildCorePatch(
   return { patch, changes };
 }
 
+type Track = Pick<Tables<"investment_thesis">, "id" | "title">;
+
+/**
+ * Resolve the caller's track references (ids or exact, case-insensitive
+ * titles) to workspace track ids, de-duplicated in the order given. Returns an
+ * error string naming every reference that is unknown or ambiguous so nothing
+ * is written for a partially-valid list.
+ */
+function resolveTrackRefs(
+  refs: string[],
+  tracks: Track[],
+): { ids: string[] } | { error: string } {
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const byTitle = new Map<string, Track[]>();
+  for (const track of tracks) {
+    const key = track.title?.trim().toLowerCase();
+    if (!key) continue;
+    byTitle.set(key, [...(byTitle.get(key) ?? []), track]);
+  }
+
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  const ambiguous: string[] = [];
+  for (const ref of refs) {
+    const titleMatches = byTitle.get(ref.toLowerCase()) ?? [];
+    const id = byId.has(ref)
+      ? ref
+      : titleMatches.length === 1
+        ? titleMatches[0].id
+        : null;
+    if (!id) {
+      (titleMatches.length > 1 ? ambiguous : unknown).push(ref);
+      continue;
+    }
+    if (!ids.includes(id)) ids.push(id);
+  }
+
+  if (unknown.length === 0 && ambiguous.length === 0) return { ids };
+
+  const problems = [
+    unknown.length > 0 ? `unknown track(s): ${unknown.map((r) => `"${r}"`).join(", ")}` : null,
+    ambiguous.length > 0
+      ? `title(s) shared by more than one track — pass the id instead: ${ambiguous.map((r) => `"${r}"`).join(", ")}`
+      : null,
+  ].filter(Boolean);
+  const available = tracks.length > 0
+    ? tracks.map((t) => `${t.title ?? "Untitled"} (id: ${t.id})`).join("; ")
+    : "none — this workspace has no tracks configured";
+  return {
+    error: `**Error:** matched_track_ids has ${problems.join("; ")}. Available tracks: ${available}.`,
+  };
+}
+
+function formatTracks(ids: string[], tracks: Track[]): string {
+  if (ids.length === 0) return "(empty)";
+  const titles = new Map(tracks.map((t) => [t.id, t.title ?? "Untitled"]));
+  return `[${ids.map((id) => `"${titles.get(id) ?? id}"`).join(", ")}]`;
+}
+
+/**
+ * Diff the resolved track list against what's stored. Order-insensitive: the
+ * list is a set as far as matching and the Track filter are concerned, so a
+ * reorder alone is not a change.
+ */
+function diffTracks(
+  nextIds: string[],
+  currentIds: string[],
+  tracks: Track[],
+): string | null {
+  const current = new Set(currentIds);
+  const same = nextIds.length === current.size && nextIds.every((id) => current.has(id));
+  if (same) return null;
+  return `matched_track_ids: ${formatTracks(currentIds, tracks)} → ${formatTracks(nextIds, tracks)}`;
+}
+
 export const updateCompanyDetails = tool(
   async ({
     company_id,
@@ -320,7 +420,7 @@ export const updateCompanyDetails = tool(
     // Reject unsupported field names up front rather than writing a partial
     // patch and reporting success for keys that never landed.
     const unsupported = Object.keys(providedFields).filter(
-      (key) => !CORE_FIELD_SET.has(key) && providedFields[key] !== undefined,
+      (key) => !EDITABLE_FIELD_SET.has(key) && providedFields[key] !== undefined,
     );
     if (unsupported.length > 0) {
       const detail = unsupported
@@ -331,7 +431,7 @@ export const updateCompanyDetails = tool(
           return hint ? `\`${key}\` (${hint})` : `\`${key}\``;
         })
         .join(", ");
-      return `**Error:** these fields cannot be set with update_company_details: ${detail}. Editable fields: ${CORE_FIELDS.join(", ")}.`;
+      return `**Error:** these fields cannot be set with update_company_details: ${detail}. Editable fields: ${EDITABLE_FIELDS.join(", ")}.`;
     }
 
     if (rows.length > MAX_FINANCIAL_ROWS) {
@@ -369,6 +469,22 @@ export const updateCompanyDetails = tool(
 
       const label = company.target ?? company.project_name ?? company.id;
       const { patch, changes } = buildCorePatch(providedFields, company as unknown as Record<string, unknown>);
+
+      // Track matching is resolved against the workspace's own tracks (the
+      // workspace-scoped `findAll`, inactive included — the Tracks picker
+      // offers both), so a foreign or deleted id can never be persisted.
+      const rawTracks = providedFields.matched_track_ids;
+      if (rawTracks !== undefined) {
+        const refs = Array.isArray(rawTracks) ? (rawTracks as string[]) : [];
+        const tracks = await new InvestmentThesisRepository(db, workspaceId).findAll();
+        const resolved = resolveTrackRefs(refs, tracks);
+        if ("error" in resolved) return resolved.error;
+        const trackChange = diffTracks(resolved.ids, company.matched_track_ids ?? [], tracks);
+        if (trackChange) {
+          patch.matched_track_ids = resolved.ids;
+          changes.push(trackChange);
+        }
+      }
 
       // A rename onto a name another company already answers to would fork one
       // company into two records and break every name lookup that follows.
@@ -439,11 +555,13 @@ export const updateCompanyDetails = tool(
   },
   {
     name: "update_company_details",
-    description: `Edit the details of an existing company on record — its name, profile, deal fields, and per-year financials. This is the workforce-side execution of any "change / correct / fill in / update X for company Y" instruction.
+    description: `Edit the details of an existing company on record — its name, profile, deal fields, matched tracks, and per-year financials. This is the workforce-side execution of any "change / correct / fill in / update X for company Y" instruction.
 
 Identify the company with \`company_id\` (preferred — exact) or \`company_name\` (fuzzy-matched against target and project name). Pass \`fields\` for company columns and/or \`financials\` for yearly figures; you may pass both in ONE call. Omitted keys are left alone; passing \`null\` (or an empty string) CLEARS a field. Values already equal to what's stored are skipped, and the tool reports every change it made as \`field: old → new\` so the trace records the before/after.
 
-Editable \`fields\`: ${CORE_FIELDS.join(", ")}.
+Editable \`fields\`: ${EDITABLE_FIELDS.join(", ")}.
+
+\`matched_track_ids\` sets which tracks (investment theses) the company is matched to — the "Matched Tracks" on the company card, which drive the pipeline Track filter and which criteria AI screening runs. Pass track ids from \`get_investment_theses\` (an exact track title also works). It is the COMPLETE list and REPLACES what's stored: to add or remove a single track, read the current Matched Tracks with \`get_company_details\` and pass the edited list. \`[]\` or \`null\` clears every match. An unknown or ambiguous track fails the whole call and lists the available tracks.
 
 \`financials\`: an array of rows, one per fiscal year (max ${MAX_FINANCIAL_ROWS} per call), each \`{ fiscal_year, revenue_usd_mn?, ebitda_usd_mn?, ev_usd_mn? }\`. Figures are USD millions. Every row needs at least one figure, and a year may appear only once — combine its metrics into a single row. A year whose figures already match is skipped rather than rewritten. EBITDA margin and EV/EBITDA are recomputed from the figures you write, so do NOT try to set them; revenue CAGR belongs to the screening pipeline and is left alone.
 

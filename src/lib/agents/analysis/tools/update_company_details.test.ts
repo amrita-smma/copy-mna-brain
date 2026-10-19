@@ -9,7 +9,9 @@ const {
   updateFinancials,
   createDb,
   createContainer,
+  findAllTheses,
 } = vi.hoisted(() => ({
+  findAllTheses: vi.fn(),
   findByIdOrNull: vi.fn(),
   findByNameFuzzy: vi.fn(),
   findByExactName: vi.fn(),
@@ -34,10 +36,14 @@ vi.mock("@/lib/repositories", async (importOriginal) => {
   class MockCompanyFinancialRepository {
     findByCompany = findByCompany;
   }
+  class MockInvestmentThesisRepository {
+    findAll = findAllTheses;
+  }
   return {
     ...actual,
     CompanyRepository: MockCompanyRepository,
     CompanyFinancialRepository: MockCompanyFinancialRepository,
+    InvestmentThesisRepository: MockInvestmentThesisRepository,
   };
 });
 
@@ -66,12 +72,20 @@ const ACME = {
   is_live: true,
 };
 
+const TRACKS = [
+  { id: "t-semis", title: "Semiconductors" },
+  { id: "t-health", title: "Healthcare" },
+  { id: "t-dup-1", title: "Consumer" },
+  { id: "t-dup-2", title: "consumer" },
+];
+
 describe("update_company_details (workforce tool)", () => {
   beforeEach(() => {
     findByIdOrNull.mockReset();
     findByNameFuzzy.mockReset();
     findByExactName.mockReset().mockResolvedValue([]);
     findByCompany.mockReset().mockResolvedValue([]);
+    findAllTheses.mockReset().mockResolvedValue(TRACKS);
     updateFromDTO.mockReset().mockResolvedValue({ id: "c-acme" });
     updateFinancials.mockReset().mockResolvedValue({ id: "c-acme" });
     createDb.mockReset().mockReturnValue({});
@@ -636,6 +650,99 @@ describe("update_company_details (workforce tool)", () => {
         /the detail fields were saved but the financials write failed: constraint violation/,
       );
       errSpy.mockRestore();
+    });
+  });
+
+  describe("matched_track_ids", () => {
+    it("replaces the matched tracks with the resolved ids and reports titles", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: ["t-health"] });
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { matched_track_ids: ["t-semis", "t-health"] },
+      });
+
+      expect(updateFromDTO).toHaveBeenCalledWith(
+        "c-acme",
+        { matched_track_ids: ["t-semis", "t-health"] },
+        "UPDATED_DETAILS_BY_AI_WORKFORCE",
+      );
+      expect(result).toContain(
+        'matched_track_ids: ["Healthcare"] → ["Semiconductors", "Healthcare"]',
+      );
+    });
+
+    it("resolves an exact track title case-insensitively and de-duplicates", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: [] });
+
+      await call({
+        company_id: "c-acme",
+        fields: { matched_track_ids: ["semiconductors", "t-semis"] },
+      });
+
+      expect(updateFromDTO).toHaveBeenCalledWith(
+        "c-acme",
+        { matched_track_ids: ["t-semis"] },
+        "UPDATED_DETAILS_BY_AI_WORKFORCE",
+      );
+    });
+
+    it("rejects the whole call when a track is unknown and lists the available tracks", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: [] });
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { segment: "Semiconductor", matched_track_ids: ["t-semis", "Fintech"] },
+      });
+
+      expect(result).toMatch(/unknown track\(s\): "Fintech"/);
+      expect(result).toContain("Semiconductors (id: t-semis)");
+      expect(updateFromDTO).not.toHaveBeenCalled();
+    });
+
+    it("refuses a title shared by two tracks and asks for the id", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: [] });
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { matched_track_ids: ["Consumer"] },
+      });
+
+      expect(result).toMatch(/more than one track — pass the id instead: "Consumer"/);
+      expect(updateFromDTO).not.toHaveBeenCalled();
+    });
+
+    it("clears every match when passed null", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: ["t-semis"] });
+
+      const result = await call({ company_id: "c-acme", fields: { matched_track_ids: null } });
+
+      expect(updateFromDTO).toHaveBeenCalledWith(
+        "c-acme",
+        { matched_track_ids: [] },
+        "UPDATED_DETAILS_BY_AI_WORKFORCE",
+      );
+      expect(result).toContain('matched_track_ids: ["Semiconductors"] → (empty)');
+    });
+
+    it("treats a reordered list as no change", async () => {
+      findByIdOrNull.mockResolvedValue({ ...ACME, matched_track_ids: ["t-semis", "t-health"] });
+
+      const result = await call({
+        company_id: "c-acme",
+        fields: { matched_track_ids: ["t-health", "t-semis"] },
+      });
+
+      expect(result).toMatch(/No changes made/);
+      expect(updateFromDTO).not.toHaveBeenCalled();
+    });
+
+    it("does not read the track list when matched_track_ids is not passed", async () => {
+      findByIdOrNull.mockResolvedValue(ACME);
+
+      await call({ company_id: "c-acme", fields: { segment: "Semiconductor" } });
+
+      expect(findAllTheses).not.toHaveBeenCalled();
     });
   });
 });

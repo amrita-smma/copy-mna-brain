@@ -8,6 +8,7 @@ const findByDealIdMock = vi.fn();
 const countByDealIdMock = vi.fn();
 const listCompletedSessionsByCompanyIdsMock = vi.fn();
 const listBallotsBySessionIdsMock = vi.fn();
+const findAllThesesMock = vi.fn();
 
 vi.mock('@/lib/server/db', () => ({
   createDb: vi.fn(() => ({})),
@@ -28,6 +29,9 @@ vi.mock('@/lib/repositories', () => ({
   },
   DealNoteRepository: function DealNoteRepository() {
     return { findByDealId: findByDealIdMock, countByDealId: countByDealIdMock };
+  },
+  InvestmentThesisRepository: function InvestmentThesisRepository() {
+    return { findAll: findAllThesesMock };
   },
   CompanyVoteRepository: function CompanyVoteRepository() {
     return {
@@ -57,6 +61,8 @@ beforeEach(() => {
   listCompletedSessionsByCompanyIdsMock.mockResolvedValue([]);
   listBallotsBySessionIdsMock.mockReset();
   listBallotsBySessionIdsMock.mockResolvedValue([]);
+  findAllThesesMock.mockReset();
+  findAllThesesMock.mockResolvedValue([]);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -115,6 +121,37 @@ describe('getCompanyDetails', () => {
     expect(result).toContain('### Context');
     expect(result).toContain('Founder wants out; plant rebuilt in 2024.');
     expect(result).toContain('first-hand internal knowledge');
+  });
+
+  it('lists matched tracks by title and id, dropping ids of deleted tracks', async () => {
+    findByNameFuzzyMock.mockResolvedValue({
+      id: 'c1',
+      target: 'Acme',
+      matched_track_ids: ['t-semis', 't-gone'],
+    });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+    findAllThesesMock.mockResolvedValue([
+      { id: 't-semis', title: 'Semiconductors' },
+      { id: 't-health', title: 'Healthcare' },
+    ]);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('- **Matched Tracks:** Semiconductors (id: t-semis)');
+    expect(result).not.toContain('t-gone');
+    expect(result).not.toContain('Healthcare');
+  });
+
+  it('reports no matched tracks without reading the track list', async () => {
+    findByNameFuzzyMock.mockResolvedValue({ id: 'c1', target: 'Acme', matched_track_ids: [] });
+    findByCompanyFinancialsMock.mockResolvedValue([]);
+    findByCompanyScreeningMock.mockResolvedValue(null);
+
+    const result = (await getCompanyDetails.invoke({ company_name: 'Acme' })) as string;
+
+    expect(result).toContain('- **Matched Tracks:** None');
+    expect(findAllThesesMock).not.toHaveBeenCalled();
   });
 
   it('omits the Context section when the company has none', async () => {
