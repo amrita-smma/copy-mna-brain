@@ -212,6 +212,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7f03b7107aacf60538c29ad39d564d27152eb390",
+    "date": "2026-10-19",
+    "subject": "Navigation shows workspace-wide AI Workforce counts with a red alert and blinking queue indicator",
+    "category": "improvement"
+  },
+  {
+    "hash": "df08562829e519197f0550050531d7a49622c4ba",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "e5a870411766cad17a0880086b458cea58df0b34",
     "date": "2026-10-16",
     "subject": "Contacts merge by email across manual and email sources, and CSV import added",
