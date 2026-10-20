@@ -40,6 +40,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "c758efd28326557c50a6861674a50c381fb8e170",
+    "date": "2026-10-20",
+    "subject": "Company logos are no longer cleared when a card refresh finds no new one",
+    "category": "improvement"
+  },
+  {
+    "hash": "7d377b747e3cbb644b736ece0dabd6a0904e9e78",
+    "date": "2026-10-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
