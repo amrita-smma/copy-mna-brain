@@ -1,11 +1,11 @@
 ---
 name: add-feature-flag
-description: Add a Vercel feature flag to this repo. Use when the user asks to "add a feature flag", "gate X behind a flag", "create a flag for Y", or runs `/add-feature-flag <name>`. Covers both nav-level flags (add a new sidebar entry) and in-page flags (show/hide UI within an existing page).
+description: Add a feature flag to this repo. Use when the user asks to "add a feature flag", "gate X behind a flag", "create a flag for Y", or runs `/add-feature-flag <name>`. Covers both nav-level flags (add a new sidebar entry) and in-page flags (show/hide UI within an existing page).
 ---
 
 # Add Feature Flag
 
-Add a typed, server-side feature flag using the Vercel Flags SDK (`flags/next` + `@flags-sdk/vercel`).
+Add a typed, server-side feature flag. Flags are resolved in-house by `booleanFlag` in `src/lib/flags.ts`: a per-workspace admin override (`feature_flags` table, admin portal → Features) wins, else the env var, else the catalog's `defaultEnabled`. There is no Vercel Flags SDK — do not add `flags`/`@flags-sdk/*`.
 
 ## Inputs
 
@@ -25,22 +25,17 @@ Read the user's intent and decide which kind applies. If uncertain, ask:
 
 ## Step 1 — define the flag in `src/lib/flags.ts`
 
-Append a named export using the existing pattern:
+Add an entry to `FEATURE_CATALOG` in `src/lib/features/catalog.ts` (key, label, description, `defaultEnabled: false`, `navItem`), then append a named export using the existing pattern:
 
 ```ts
 // src/lib/flags.ts
-export const myFeatureEnabled = flag<boolean>({
-  key: "MY_FEATURE_ENABLED",         // must match the env-var name exactly
-  defaultValue: process.env.MY_FEATURE_ENABLED === "true",
-  adapter: vercelAdapter(),
-});
+export const myFeatureEnabled = booleanFlag("MY_FEATURE_ENABLED");
 ```
 
 Rules:
-- `key` must be SCREAMING_SNAKE_CASE and match the env var.
-- `defaultValue` must be `process.env.KEY === "true"` — never hard-code `true`.
+- `key` must be SCREAMING_SNAKE_CASE and match the env var and the catalog entry.
+- `defaultEnabled` in the catalog must be `false` (opt-in) unless it's a navigation feature that's already live.
 - The camelCase export name should be `<featureName>Enabled` (or a descriptive verb phrase for non-boolean gates).
-- Do not add `describe` or `origin` metadata unless the user specifically asks for a Vercel Toolbar override.
 
 ---
 
@@ -154,21 +149,5 @@ No new type errors should appear. In particular confirm:
 - Never call the flag function (`myFeatureEnabled()`) inside a client component or `useEffect`. All flag resolution is server-side.
 - Never pass the raw flag function as a prop — always resolve it (`await myFeatureEnabled()`) in the page, then pass the boolean.
 - Never default to `true` in the flag definition.
-- Don't add a Drizzle migration or schema change for a flag — flags live in env vars and the Vercel dashboard, not the database.
-- Don't use `useSearchParams`, cookies, or headers to fake flag values in client components. Use the server-side `flag()` API only.
-
----
-
-## Vercel Dashboard wiring (one-time setup, if not present)
-
-For flags to appear in the Vercel Flags dashboard and Toolbar, a discovery endpoint must exist. Check if `src/app/.well-known/vercel/flags/route.ts` exists. If it does not:
-
-```ts
-// src/app/.well-known/vercel/flags/route.ts
-import { createFlagsDiscoveryEndpoint } from 'flags/next';
-import * as flags from '@/lib/flags';
-
-export const GET = createFlagsDiscoveryEndpoint(Object.values(flags));
-```
-
-This is a one-time file. Once it exists, every flag exported from `src/lib/flags.ts` is automatically registered with the Vercel dashboard — no per-flag changes needed to this file.
+- Don't add a Drizzle migration or schema change for a flag — overrides already live in the generic `feature_flags` table; a new flag only needs a catalog entry and a `booleanFlag` export.
+- Don't use `useSearchParams`, cookies, or headers to fake flag values in client components. Resolve the flag server-side only.

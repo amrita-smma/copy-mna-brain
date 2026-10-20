@@ -1,56 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("flags/next", () => ({
-  flag: vi.fn((config) => {
-    return async () => {
-      const adapter = config.adapter;
-      if (adapter && typeof adapter === "function") {
-        const result = await adapter({ key: config.key });
-        return result?.value ?? false;
-      }
-      return config.defaultValue;
-    };
-  }),
+const mocks = vi.hoisted(() => ({
+  resolveFeatureOverride: vi.fn(),
 }));
 
-vi.mock("@flags-sdk/vercel", () => ({
-  vercelAdapter: vi.fn(() => {
-    return async ({ key }: { key: string }) => {
-      const flags = process.env.FLAGS;
-      if (!flags) return { value: false };
-      try {
-        const parsed = JSON.parse(flags);
-        return { value: Boolean(parsed[key]) };
-      } catch {
-        return { value: false };
-      }
-    };
-  }),
+vi.mock("@/lib/features/overrides", () => ({
+  resolveFeatureOverride: mocks.resolveFeatureOverride,
 }));
 
-async function loadCompanyGraphEnabled() {
-  vi.resetModules();
-  const { companyGraphEnabled } = await import("./flags");
-  return companyGraphEnabled;
-}
+import {
+  chatCacheEnabled,
+  companyGraphEnabled,
+  fundManagementEnabled,
+  insightsEnabled,
+} from "./flags";
 
-async function loadChatCacheEnabled() {
-  vi.resetModules();
-  const { chatCacheEnabled } = await import("./flags");
-  return chatCacheEnabled;
-}
-
-async function loadFundManagementEnabled() {
-  vi.resetModules();
-  const { fundManagementEnabled } = await import("./flags");
-  return fundManagementEnabled;
-}
+const FLAGS = [
+  ["companyGraphEnabled", companyGraphEnabled, "COMPANY_GRAPH_ENABLED", false],
+  ["chatCacheEnabled", chatCacheEnabled, "CHAT_CACHE_ENABLED", false],
+  ["fundManagementEnabled", fundManagementEnabled, "FUND_MANAGEMENT_ENABLED", false],
+  ["insightsEnabled", insightsEnabled, "INSIGHTS_ENABLED", true],
+] as const;
 
 describe("Feature Flags", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    mocks.resolveFeatureOverride.mockReset();
+    mocks.resolveFeatureOverride.mockResolvedValue(undefined);
     process.env = { ...originalEnv };
   });
 
@@ -58,93 +35,40 @@ describe("Feature Flags", () => {
     process.env = originalEnv;
   });
 
-  describe("companyGraphEnabled", () => {
-    it("should return true when FLAGS contains COMPANY_GRAPH_ENABLED", async () => {
-      process.env.FLAGS = JSON.stringify({ "COMPANY_GRAPH_ENABLED": true });
-      const companyGraphEnabled = await loadCompanyGraphEnabled();
-      const result = await companyGraphEnabled();
-      expect(result).toBe(true);
+  describe.each(FLAGS)("%s", (_name, flagFn, key, catalogDefault) => {
+    it("returns true when the env var is 'true'", async () => {
+      process.env[key] = "true";
+      expect(await flagFn()).toBe(true);
     });
 
-    it("should return false when FLAGS is not set", async () => {
-      delete process.env.FLAGS;
-      const companyGraphEnabled = await loadCompanyGraphEnabled();
-      const result = await companyGraphEnabled();
-      expect(result).toBe(false);
+    it("returns false when the env var is 'false'", async () => {
+      process.env[key] = "false";
+      expect(await flagFn()).toBe(false);
     });
 
-    it("should return false when FLAGS contains COMPANY_GRAPH_ENABLED: false", async () => {
-      process.env.FLAGS = JSON.stringify({ "COMPANY_GRAPH_ENABLED": false });
-      const companyGraphEnabled = await loadCompanyGraphEnabled();
-      const result = await companyGraphEnabled();
-      expect(result).toBe(false);
+    it("falls back to the catalog default when the env var is unset", async () => {
+      delete process.env[key];
+      expect(await flagFn()).toBe(catalogDefault);
     });
 
-    it("should return false when FLAGS does not contain the key", async () => {
-      process.env.FLAGS = JSON.stringify({ "other-flag": true });
-      const companyGraphEnabled = await loadCompanyGraphEnabled();
-      const result = await companyGraphEnabled();
-      expect(result).toBe(false);
-    });
-  });
-
-  describe("chatCacheEnabled", () => {
-    it("should return true when FLAGS contains CHAT_CACHE_ENABLED", async () => {
-      process.env.FLAGS = JSON.stringify({ CHAT_CACHE_ENABLED: true });
-      const chatCacheEnabled = await loadChatCacheEnabled();
-      const result = await chatCacheEnabled();
-      expect(result).toBe(true);
+    it("reads the env var at call time, not import time", async () => {
+      process.env[key] = "false";
+      expect(await flagFn()).toBe(false);
+      process.env[key] = "true";
+      expect(await flagFn()).toBe(true);
     });
 
-    it("should default to false when FLAGS is not set", async () => {
-      delete process.env.FLAGS;
-      const chatCacheEnabled = await loadChatCacheEnabled();
-      const result = await chatCacheEnabled();
-      expect(result).toBe(false);
+    it("prefers a workspace override over the env var", async () => {
+      process.env[key] = "false";
+      mocks.resolveFeatureOverride.mockResolvedValue(true);
+      expect(await flagFn()).toBe(true);
+      expect(mocks.resolveFeatureOverride).toHaveBeenCalledWith(key);
     });
 
-    it("should return false when FLAGS contains CHAT_CACHE_ENABLED: false", async () => {
-      process.env.FLAGS = JSON.stringify({ CHAT_CACHE_ENABLED: false });
-      const chatCacheEnabled = await loadChatCacheEnabled();
-      const result = await chatCacheEnabled();
-      expect(result).toBe(false);
-    });
-
-    it("should return false when FLAGS does not contain the key", async () => {
-      process.env.FLAGS = JSON.stringify({ "other-flag": true });
-      const chatCacheEnabled = await loadChatCacheEnabled();
-      const result = await chatCacheEnabled();
-      expect(result).toBe(false);
-    });
-  });
-
-  describe("fundManagementEnabled", () => {
-    it("should return true when FLAGS contains FUND_MANAGEMENT_ENABLED", async () => {
-      process.env.FLAGS = JSON.stringify({ "FUND_MANAGEMENT_ENABLED": true });
-      const fundManagementEnabled = await loadFundManagementEnabled();
-      const result = await fundManagementEnabled();
-      expect(result).toBe(true);
-    });
-
-    it("should return false when FLAGS is not set", async () => {
-      delete process.env.FLAGS;
-      const fundManagementEnabled = await loadFundManagementEnabled();
-      const result = await fundManagementEnabled();
-      expect(result).toBe(false);
-    });
-
-    it("should return false when FLAGS contains FUND_MANAGEMENT_ENABLED: false", async () => {
-      process.env.FLAGS = JSON.stringify({ "FUND_MANAGEMENT_ENABLED": false });
-      const fundManagementEnabled = await loadFundManagementEnabled();
-      const result = await fundManagementEnabled();
-      expect(result).toBe(false);
-    });
-
-    it("should return false when FLAGS does not contain the key", async () => {
-      process.env.FLAGS = JSON.stringify({ "other-flag": true });
-      const fundManagementEnabled = await loadFundManagementEnabled();
-      const result = await fundManagementEnabled();
-      expect(result).toBe(false);
+    it("lets a false override switch off an env-enabled flag", async () => {
+      process.env[key] = "true";
+      mocks.resolveFeatureOverride.mockResolvedValue(false);
+      expect(await flagFn()).toBe(false);
     });
   });
 });

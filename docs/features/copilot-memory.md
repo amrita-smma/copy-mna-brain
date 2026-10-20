@@ -24,7 +24,7 @@ caller. That is what makes the guarantee real: `save_memories` reaches
 `importStatements` straight from an agent tool, with no route in between to
 check a flag. The kill-switch therefore lives in `src/lib/memory/client.ts`
 (`memoryDeploymentEnabled`, a bare `process.env` read) and `@/lib/flags`
-re-exports it, so the service can enforce it without importing `flags/next`.
+re-exports it, so the service can enforce it without pulling in the feature-override DB lookup.
 
 ## Where the memories live
 

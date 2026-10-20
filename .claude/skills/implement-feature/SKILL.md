@@ -87,7 +87,7 @@ Read, and apply for the rest of the session:
 > **Knowledge source precedence.** Repo conventions (`.claude/rules/*`, CLAUDE.md, existing
 > code) always win on structure, naming, layering, and test style — never consult external
 > docs for those. Reach for context7 only for a third-party library API signature you're
-> unsure of (Drizzle operator, `flags/next`, `@langchain/*`, `next/server`), and only after
+> unsure of (Drizzle operator, `@langchain/*`, `next/server`), and only after
 > checking how the repo already calls it. Best-effort: if context7 fails, continue.
 
 ### 2. Detect what already exists (change detection)

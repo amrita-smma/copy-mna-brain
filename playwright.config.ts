@@ -70,9 +70,6 @@ export default defineConfig({
           // server-side Auth.js `auth()` calls throw UntrustedHost on localhost.
           // Vercel sets this automatically in real deployments.
           AUTH_TRUST_HOST: 'true',
-          // Same secret the test runner uses to sign flag-override cookies, so the
-          // server can decrypt and apply them (see the FLAGS_SECRET note above).
-          FLAGS_SECRET: process.env.FLAGS_SECRET,
         },
       }
     : undefined,

@@ -112,8 +112,8 @@ new `{feature}.spec.ts` only for a genuinely new page/feature.
 | Chat | `/chat` | `src/views/Chat.tsx` | `ChatWindow`, `ChatSidebar`, `ChatProvider` | _(no spec yet — add one)_ |
 
 > **Flag-gated features** (CRM, AI workforce): the route is only mounted when its flag is on
-> (`src/lib/flags.ts`). UI tests must set/mock the flag (`FLAGS_SECRET` override) for the page
-> to render.
+> (`src/lib/flags.ts`). UI tests must enable the flag (env var on the server, or a workspace
+> override in the admin portal's Features tab) for the page to render.
 
 ### 1.3 Where the UI test code lives (`e2e/`)
 
@@ -177,7 +177,7 @@ playwright.config.ts     # test runner config (see §1.5)
 - `trace: 'on-first-retry'`
 - Project: `chromium` (Desktop Chrome)
 - `webServer` (local only): `pnpm build && pnpm start`, 240s timeout,
-  env `NEXT_DISABLE_STANDALONE=1`, `PORT=3000`, `AUTH_TRUST_HOST=true`, `FLAGS_SECRET`
+  env `NEXT_DISABLE_STANDALONE=1`, `PORT=3000`, `AUTH_TRUST_HOST=true`
 - **Env switches:** `TEST_ENV=local|staging|production`, `E2E_DATA_MODE=mock|real`
 
 ### 1.7 Running UI tests

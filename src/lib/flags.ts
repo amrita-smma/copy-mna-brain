@@ -1,31 +1,19 @@
-import { flag } from "flags/next";
 import { memoryDeploymentEnabled } from "./memory/switch";
-import { vercelAdapter } from "@flags-sdk/vercel";
 import { featureEnvDefault } from "./features/catalog";
 import { resolveFeatureOverride } from "./features/overrides";
 
 /**
- * Build a boolean feature flag whose default comes from the env var named
- * `key`, layered so a runtime admin override (persisted in `app_settings` and
- * managed from the admin portal's Features tab) takes precedence. When no
- * override is set the flag behaves exactly as before — Vercel adapter when
- * `FLAGS` is configured, otherwise the static env default.
+ * Build a boolean feature flag for `key`. A runtime admin override (persisted
+ * per workspace in `feature_flags` and managed from the admin portal's
+ * Features tab) takes precedence; otherwise the flag falls back to the env var
+ * named `key`, then the catalog's `defaultEnabled`.
  */
-function booleanFlag(key: string) {
-  const value = featureEnvDefault(key);
-  const base = flag<boolean>({
-    key,
-    defaultValue: value,
-    ...(process.env.FLAGS
-      ? { adapter: vercelAdapter<boolean, any>() }
-      : { decide: () => value }),
-  });
-  const wrapped = async () => {
+function booleanFlag(key: string): () => Promise<boolean> {
+  return async () => {
     const override = await resolveFeatureOverride(key);
     if (override !== undefined) return override;
-    return base();
+    return featureEnvDefault(key);
   };
-  return Object.assign(wrapped, base) as typeof base;
 }
 
 export const crmGoogleVaultSyncEnabled = booleanFlag("CRM_GOOGLE_VAULT_SYNC");
@@ -61,8 +49,8 @@ export const insightsEnabled = booleanFlag("INSIGHTS_ENABLED");
  * for one workspace's members.
  *
  * The implementation lives in `@/lib/memory/switch` — a module with no imports
- * — so `UserMemoryService` can enforce it without pulling `flags/next` into the
- * service layer, and so this file stays cheap to import. This is the
+ * — so `UserMemoryService` can enforce it without pulling the feature-override
+ * DB lookup into the service layer. This is the
  * route-facing alias, async to match every other flag's call shape.
  *
  * Set `COPILOT_MEMORY_ENABLED=false` to switch memory off for the whole

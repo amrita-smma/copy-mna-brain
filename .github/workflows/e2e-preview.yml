@@ -13,7 +13,6 @@ name: E2E Preview
 #                 Written into `.env.e2e.local` for Playwright. Optional vars:
 #   PREVIEW_TEST_EMAIL / PREVIEW_TEST_PASSWORD — repository Variables; default
 #                 to the seed user from scripts/seed.ts
-#   FLAGS_SECRET — optional secret if specs need flag-override cookies
 #
 # Why a GitHub App (not GITHUB_TOKEN / PAT):
 #   GITHUB_TOKEN cannot open PRs that trigger other workflows. Org policy often
@@ -265,7 +264,6 @@ jobs:
       - name: Write .env.e2e.local
         env:
           AUTH_SECRET: ${{ secrets.AUTH_SECRET || secrets.STAGING_AUTH_SECRET }}
-          FLAGS_SECRET: ${{ secrets.FLAGS_SECRET }}
           PREVIEW_TEST_EMAIL: ${{ vars.PREVIEW_TEST_EMAIL || 'test@sqe.co.id' }}
           PREVIEW_TEST_PASSWORD: ${{ vars.PREVIEW_TEST_PASSWORD || 'password' }}
         run: |
@@ -288,7 +286,6 @@ jobs:
             printf 'PREVIEW_TEST_EMAIL=%s\n' "$PREVIEW_TEST_EMAIL"
             printf 'PREVIEW_TEST_PASSWORD=%s\n' "$PREVIEW_TEST_PASSWORD"
             printf 'PREVIEW_BASE_URL=%s\n' "$PREVIEW_BASE_URL"
-            printf 'FLAGS_SECRET=%s\n' "${FLAGS_SECRET:-}"
           } > .env.e2e.local
           echo "Wrote .env.e2e.local for Playwright (PREVIEW_BASE_URL=$PREVIEW_BASE_URL)"
 
