@@ -44,6 +44,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB
 - [Async jobs](async-jobs.md) — 38KB
 - [AI Workforce: stage moves, company chips, failure signals](ai-workforce-stages-and-signals.md) — 4KB
+- [Insight generation: always on the AI Workforce, emailed when ready](insight-generation.md) — 2KB
 
 ## App shell & UI
 

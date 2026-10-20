@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { insights, insightVersions } from '@/lib/db/schema';
 import type {
+  InsightRunOutput,
   InsightRunVersionLink,
   InsightVersionSummary,
 } from '@/lib/insights/types';
@@ -176,6 +177,43 @@ export class InsightVersionRepository {
       .orderBy(desc(insightVersions.created_at), desc(insightVersions.version_no))
       .limit(1);
     return row;
+  }
+
+  /**
+   * Every live insight a workforce run wrote a version of, one row per
+   * insight, in the order the run first touched them. Unchanged-marker
+   * versions are skipped: they record that nothing was written.
+   */
+  async findInsightsBySourceRunId(
+    runId: string,
+    workspaceId: string,
+  ): Promise<InsightRunOutput[]> {
+    return this.db
+      .select({
+        insight_id: insightVersions.insight_id,
+        insight_name: insights.name,
+        first_version_no: sql<number>`min(${insightVersions.version_no})`.mapWith(Number),
+        latest_version_no: sql<number>`max(${insightVersions.version_no})`.mapWith(Number),
+      })
+      .from(insightVersions)
+      .innerJoin(
+        insights,
+        and(
+          eq(insights.id, insightVersions.insight_id),
+          eq(insights.workspace_id, workspaceId),
+          // An archived insight's page 404s, so there is nothing to link to.
+          isNull(insights.archived_at),
+        ),
+      )
+      .where(
+        and(
+          eq(insightVersions.workspace_id, workspaceId),
+          eq(insightVersions.source_run_id, runId),
+          eq(insightVersions.is_unchanged, false),
+        ),
+      )
+      .groupBy(insightVersions.insight_id, insights.name)
+      .orderBy(sql`min(${insightVersions.created_at})`);
   }
 
   async findLatestVersionNosByInsightIds(

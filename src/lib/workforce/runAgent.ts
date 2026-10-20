@@ -686,15 +686,22 @@ async function finalize(
   await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
   await failScreeningsIfStillPending(db, workspaceId, triggerMeta, agentName, queueInput);
   await kickDispatcher(db);
-  // Best-effort completion notification (MB-90). Skips cron runs internally —
-  // those roll up into the routine digest instead.
-  await makeNotifier(db, workspaceId).notifyTaskCompleted(runId);
+  // Best-effort completion notification (MB-90). A run that created or
+  // updated insights emails the requester links to them instead of the plain
+  // completion email. A refresh run is covered by notifyInsightRefreshed below,
+  // which goes to the insight's owner. notifyTaskCompleted skips cron runs
+  // internally — those roll up into the routine digest instead.
+  const notifier = makeNotifier(db, workspaceId);
+  const sentInsights = refreshInsightId
+    ? false
+    : await notifier.notifyInsightsGenerated(runId);
+  if (!sentInsights) await notifier.notifyTaskCompleted(runId);
 
   // Only a refresh that changed the insight notifies. 'unchanged' recorded an
   // is_unchanged version and stays silent; 'already_published' is a retry
   // that already notified (or deliberately didn't) on its first pass.
   if (publishResult?.status === 'published') {
-    await makeNotifier(db, workspaceId).notifyInsightRefreshed({
+    await notifier.notifyInsightRefreshed({
       workspaceId,
       insightId: publishResult.insightId,
       insightName: publishResult.insightName,
@@ -788,6 +795,7 @@ function makeNotifier(db: ReturnType<typeof createDb>, workspaceId: string): Ema
     routinesRepo: new RoutinesRepository(db, workspaceId),
     userRepo: new UserRepository(db),
     workspaceRepo: new WorkspaceRepository(db),
+    insightVersionRepo: new InsightVersionRepository(db),
   });
 }
 

@@ -52,9 +52,9 @@ harder. It is the signal to hand off.
 
 The Workforce can do this properly: it creates the insight and fills it **one
 section per turn**, and any file attached to this turn travels with the
-handoff. Do NOT reach for
-\`propose_insight_create\` on a deliverable of that size — it must emit the entire
-document in a single call, which is exactly what runs out of time.
+handoff. **Every new insight goes to the Workforce, whatever its size** — you
+have no tool that creates one, and the Workforce emails the user a link when it
+is published.
 
 **If the user asks you to hand something to the Workforce, do it.** Do not argue
 that the task is read-only. Read-only research is a valid Workforce task.

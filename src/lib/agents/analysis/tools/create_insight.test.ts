@@ -58,8 +58,20 @@ describe('createInsight tool', () => {
       kind: 'document',
       agentStamp: null,
       templateId: null,
+      sourceRunId: null,
     });
     expect(out).toBe(`Created insight **Sector Brief** — [open it](/insight/${INSIGHT_ID})`);
+  });
+
+  it('stamps the workforce run id on the new insight so the completion email can link it', async () => {
+    await invoke(
+      { name: 'Sector Brief', html: VALID_HTML },
+      { configurable: { run_id: 'run-7' } },
+    );
+
+    expect(mockCreateFromDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceRunId: 'run-7' }),
+    );
   });
 
   it('passes the template_id through as the insight\'s source template', async () => {

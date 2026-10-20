@@ -19,6 +19,7 @@ import {
   renderVoteSubmittedEmail,
   renderVoteRecapEmail,
   renderInsightRefreshedEmail,
+  renderInsightsGeneratedEmail,
   renderTaskReminderEmail,
 } from './emailService';
 import type { AttachmentSender, EmailSender } from './emailService';
@@ -725,6 +726,51 @@ describe('renderInsightRefreshedEmail', () => {
   });
 });
 
+describe('renderInsightsGeneratedEmail', () => {
+  it('gives a single new insight its own escaped title and an Open insight button', () => {
+    const out = renderInsightsGeneratedEmail({
+      taskName: 'Build <the> brief',
+      insights: [{ name: '<b>APAC</b> Brief', url: 'https://app.example.com/w/slug/insight/1', created: true }],
+      taskUrl: 'https://app.example.com/w/slug/ai-workforce/tasks/r1',
+    });
+    expect(out.subject).toBe('"<b>APAC</b> Brief" is ready');
+    expect(out.html).not.toContain('<b>APAC</b>');
+    expect(out.html).toContain('&lt;b&gt;APAC&lt;/b&gt; Brief');
+    expect(out.html).toContain('Build &lt;the&gt; brief');
+    expect(out.html).toContain('href="https://app.example.com/w/slug/insight/1"');
+    expect(out.html).toContain('Open insight');
+    expect(out.text).toContain('- <b>APAC</b> Brief (created): https://app.example.com/w/slug/insight/1');
+  });
+
+  it('says "updated" for a single insight the run edited', () => {
+    const out = renderInsightsGeneratedEmail({
+      taskName: 'T',
+      insights: [{ name: 'Tracker', url: 'https://x/insight/2', created: false }],
+    });
+    expect(out.subject).toBe('"Tracker" is updated');
+    expect(out.html).toContain('updated this insight');
+  });
+
+  it('lists several insights as links and points the button at the task', () => {
+    const out = renderInsightsGeneratedEmail({
+      taskName: 'Sector sweep',
+      insights: [
+        { name: 'One', url: 'https://x/insight/1', created: true },
+        { name: 'Two', url: 'https://x/insight/2', created: false },
+      ],
+      taskUrl: 'https://x/tasks/r1',
+    });
+    expect(out.subject).toBe('2 insights are ready');
+    expect(out.html).toContain('href="https://x/insight/1"');
+    expect(out.html).toContain('href="https://x/insight/2"');
+    expect(out.html).toContain('(created)');
+    expect(out.html).toContain('(updated)');
+    expect(out.html).toContain('href="https://x/tasks/r1"');
+    expect(out.html).toContain('View task');
+    expect(out.text).toContain('View task: https://x/tasks/r1');
+  });
+});
+
 describe('renderTaskReminderEmail', () => {
   it('escapes the task title and links to the task list', () => {
     const out = renderTaskReminderEmail({
@@ -1006,6 +1052,25 @@ describe('EmailService notification methods', () => {
       to: 'owner@example.com',
       subject: '"Market Overview" was refreshed',
     });
+  });
+
+  it('sendInsightsGeneratedEmail delegates to the sender, and throws without email or insights', async () => {
+    const sender = vi.fn().mockResolvedValue({ messageId: 'm-gen' });
+    const svc = new EmailService(sender as EmailSender);
+    const insights = [{ name: 'APAC Brief', url: 'https://x/insight/1', created: true }];
+    await expect(
+      svc.sendInsightsGeneratedEmail({ email: 'a@e.com', taskName: 'T', insights }),
+    ).resolves.toEqual({ messageId: 'm-gen' });
+    expect(vi.mocked(sender).mock.calls[0][0]).toMatchObject({
+      to: 'a@e.com',
+      subject: '"APAC Brief" is ready',
+    });
+    await expect(
+      svc.sendInsightsGeneratedEmail({ email: '', taskName: 'T', insights }),
+    ).rejects.toThrow(/email is required/);
+    await expect(
+      svc.sendInsightsGeneratedEmail({ email: 'a@e.com', taskName: 'T', insights: [] }),
+    ).rejects.toThrow(/at least one insight/);
   });
 
   it('sendInsightRefreshedEmail throws without email or insightName', async () => {

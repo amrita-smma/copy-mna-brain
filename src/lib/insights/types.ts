@@ -95,6 +95,17 @@ export interface InsightRunVersionLink {
   is_unchanged: boolean;
 }
 
+/**
+ * One insight a workforce run wrote to: `first_version_no` 1 means the run
+ * created it, anything higher means it updated an existing one.
+ */
+export interface InsightRunOutput {
+  insight_id: string;
+  insight_name: string;
+  first_version_no: number;
+  latest_version_no: number;
+}
+
 export interface InsightDetail extends InsightSummary {
   html: string;
   version_no: number;

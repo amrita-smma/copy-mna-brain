@@ -249,9 +249,9 @@ background.
   `low` and its 90 s budget cannot fit a rewrite. A tier picked by hand is
   never overridden.
 - **After a timeout.** Every budget wrap-up offers the Workforce. The next
-  turn does not get the whole-document tools (`propose_insight_create`,
-  `propose_insight_edit`, `replace_insight_document`), and it is told to hand
-  off a document request rather than retry it.
+  turn does not get the whole-document tools (`propose_insight_edit`,
+  `replace_insight_document`), and it is told to hand off a document request
+  rather than retry it.
 
 ### Scheduled refresh
 

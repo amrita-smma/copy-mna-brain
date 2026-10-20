@@ -148,7 +148,7 @@ describe('wholeDocumentToolsToWithhold', () => {
     const all = [...WHOLE_DOCUMENT_TOOL_NAMES];
     expect(wholeDocumentToolsToWithhold({ previousTurnTimedOut: true, carriesTooLargeDocument: false })).toEqual(all);
     expect(wholeDocumentToolsToWithhold({ previousTurnTimedOut: false, carriesTooLargeDocument: true })).toEqual(all);
-    expect(all).toEqual(['propose_insight_create', 'propose_insight_edit', 'replace_insight_document']);
+    expect(all).toEqual(['propose_insight_edit', 'replace_insight_document']);
   });
 
   it('withholds nothing on an ordinary turn', () => {

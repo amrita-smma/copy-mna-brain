@@ -77,6 +77,11 @@ describe.each(SETS)('%s tool set', (_key, set, extras) => {
     expect(names(set.workforce)).toEqual(expect.arrayContaining(['narrate_step', 'ask_owner']));
   });
 
+  it('chat role cannot create an insight — it hands new insights to the Workforce', () => {
+    expect(names(set.chat)).not.toContain('propose_insight_create');
+    expect(names(set.chat)).toContain('propose_workforce_handoff');
+  });
+
   it('chat role excludes every workforce-only tool', () => {
     for (const n of names(set.chat)) expect(WORKFORCE_ONLY_NAMES.has(n)).toBe(false);
   });

@@ -74,6 +74,8 @@ export const createInsight = tool(
         // Recorded as the insight's source template when it is a live template
         // in this workspace; the create never fails over it.
         templateId: template_id ?? null,
+        // Lets the run's completion email link to the insight it produced.
+        sourceRunId: ctx.runId,
       });
 
       const layoutNote = insightLayoutNote(trimmedHtml, 'workforce-create');

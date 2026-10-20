@@ -33,7 +33,7 @@ function bigTemplate(minChars: number): string {
 }
 
 describe('formatInsightTemplateBlock', () => {
-  it('inlines the full HTML of a template at or under the chat cap, with the build rules', () => {
+  it('inlines the full HTML of a template at or under the chat cap, with the handoff rule', () => {
     const block = formatInsightTemplateBlock(
       { id: ID, name: 'Market Brief', description: 'Deal landscape' },
       '<section data-section="summary">Sample</section>',
@@ -43,9 +43,12 @@ describe('formatInsightTemplateBlock', () => {
     expect(block).toContain('SAMPLE content');
     expect(block).toContain('Description: Deal landscape');
     expect(block).toContain('<template_html>\n<section data-section="summary">Sample</section>\n</template_html>');
+    // Chat never builds the insight itself: it hands the template to the Workforce.
+    expect(block).toContain('New insights are always built by the Workforce.');
     expect(block).toContain(
-      `- When you create the insight, pass template_id ${ID} to propose_insight_create (or create_insight in a Workforce run), so the insight records which template it came from.`,
+      `- Call propose_workforce_handoff with the user's full request as the instruction, and put "template_id ${ID}" in it.`,
     );
+    expect(block).not.toContain('propose_insight_create');
     expect(block.endsWith('</insight_template>')).toBe(true);
     expect(isTooLargeInsightTemplateBlock(block)).toBe(false);
   });
@@ -69,7 +72,7 @@ describe('formatInsightTemplateBlock', () => {
     expect(block).not.toContain('<style>');
     expect(block).not.toContain('9'.repeat(400));
     for (const line of largeTemplateHandoffInstruction(ID)) expect(block).toContain(line);
-    expect(block).toContain('Do NOT call propose_insight_create');
+    expect(block).toContain('Do NOT write the document yourself');
     expect(block).toContain(`put "template_id ${ID}" in the instruction`);
     // The outline keeps the section keys and headings.
     expect(block).toContain('<template_outline>');
@@ -174,7 +177,7 @@ describe('formatLargeHtmlAttachmentBlock', () => {
     expect(block).toContain('propose_workforce_handoff');
     expect(block).toContain('refer to the attached file "brief.html" by name');
     expect(block).toContain('The file travels with the handoff');
-    expect(block).toContain('Do NOT call propose_insight_create');
+    expect(block).toContain('Do NOT write the document yourself');
     expect(block).toContain('block-0');
     expect(block).not.toContain('<style>');
     expect(block).not.toContain('9'.repeat(400));

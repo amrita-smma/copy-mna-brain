@@ -574,4 +574,29 @@ describe('runSendEmail', () => {
       messageId: 'm-insight',
     });
   });
+
+  it('delegates insights_generated to EmailService.sendInsightsGeneratedEmail', async () => {
+    const emailService = new EmailService(
+      vi.fn().mockResolvedValue({ messageId: 'm-gen' }),
+    );
+    const spy = vi.spyOn(emailService, 'sendInsightsGeneratedEmail');
+    const insights = [{ name: 'APAC Brief', url: 'https://app.example.com/w/togan/insight/i1', created: true }];
+    const payload: SendEmailPayload = {
+      kind: 'insights_generated',
+      to: 'user@example.com',
+      taskName: 'Build the APAC brief',
+      insights,
+      taskUrl: 'https://app.example.com/w/togan/ai-workforce/tasks/r1',
+    };
+
+    const result = await runSendEmail(payload, { emailService });
+
+    expect(spy).toHaveBeenCalledWith({
+      email: 'user@example.com',
+      taskName: 'Build the APAC brief',
+      insights,
+      taskUrl: 'https://app.example.com/w/togan/ai-workforce/tasks/r1',
+    });
+    expect(result).toEqual({ kind: 'insights_generated', to: 'user@example.com', messageId: 'm-gen' });
+  });
 });

@@ -1,5 +1,6 @@
 import {
   AiWorkforceQueueRepository,
+  InsightVersionRepository,
   RoutinesRepository,
   UserRepository,
   WorkspaceRepository,
@@ -41,6 +42,11 @@ export interface NotificationDeps {
   routinesRepo: RoutinesRepository;
   userRepo: UserRepository;
   workspaceRepo: WorkspaceRepository;
+  /**
+   * Needed only by `notifyInsightsGenerated`; without it that method sends
+   * nothing and the caller falls back to the plain completion email.
+   */
+  insightVersionRepo?: InsightVersionRepository;
   /** Injectable for tests; defaults to the real Vercel-queue enqueue. */
   enqueue?: EnqueueFn;
   /** Base URL used to build deep links into the task UI. */
@@ -237,6 +243,7 @@ export class EmailNotificationService {
   private readonly routinesRepo: RoutinesRepository;
   private readonly userRepo: UserRepository;
   private readonly workspaceRepo: WorkspaceRepository;
+  private readonly insightVersionRepo: InsightVersionRepository | null;
   private readonly enqueue: EnqueueFn;
   private readonly appUrl: string;
   private readonly isEnabled: EnabledResolver;
@@ -246,6 +253,7 @@ export class EmailNotificationService {
     this.routinesRepo = deps.routinesRepo;
     this.userRepo = deps.userRepo;
     this.workspaceRepo = deps.workspaceRepo;
+    this.insightVersionRepo = deps.insightVersionRepo ?? null;
     this.enqueue = deps.enqueue ?? enqueueSendEmail;
     this.appUrl = (deps.appUrl ?? resolveAppUrl()).replace(/\/+$/, '');
     this.isEnabled = deps.isEnabled ?? defaultIsEnabled;
@@ -286,6 +294,38 @@ export class EmailNotificationService {
         summary,
       };
     });
+  }
+
+  /**
+   * A run created or updated insights — email the requester a link to each.
+   * Returns false (sending nothing) when the run wrote no insight, so the
+   * caller sends the plain completion email instead. Not subject to the
+   * notifications flag, and sent for cron runs too: Insight generation always
+   * runs in the Workforce, so this email is how the requester learns the
+   * insight they asked for exists.
+   */
+  async notifyInsightsGenerated(runId: string): Promise<boolean> {
+    const insightVersionRepo = this.insightVersionRepo;
+    if (!insightVersionRepo) return false;
+    return this.dispatch(runId, 'insights_generated', async (run, recipient) => {
+      const outputs = await insightVersionRepo.findInsightsBySourceRunId(
+        runId,
+        run.workspace_id,
+      );
+      if (outputs.length === 0) return null;
+      const slug = await this.workspaceSlug(run.workspace_id);
+      return {
+        kind: 'insights_generated',
+        to: recipient.email,
+        taskName: this.taskName(run),
+        insights: outputs.map((o) => ({
+          name: o.insight_name,
+          url: this.insightUrlForSlug(o.insight_id, slug),
+          created: o.first_version_no === 1,
+        })),
+        taskUrl: this.taskUrlForSlug(runId, slug),
+      };
+    }, undefined, { alwaysSend: true });
   }
 
   /**
@@ -549,36 +589,43 @@ export class EmailNotificationService {
     return trimmed.length > 90 ? `${trimmed.slice(0, 89).trimEnd()}…` : trimmed;
   }
 
-  // Falls back to the un-prefixed URL (today's behavior) if the workspace
-  // lookup fails — a wrong-but-working deeplink beats a broken email.
-  private async taskUrl(runId: string, workspaceId: string): Promise<string | undefined> {
-    if (!this.appUrl) return undefined;
+  // The workspace's slug for deep links, or null when the lookup fails or it
+  // has none — callers then fall back to the un-prefixed URL, because a
+  // wrong-but-working deeplink beats a broken email.
+  private async workspaceSlug(workspaceId: string): Promise<string | null> {
     try {
       const workspace = await this.workspaceRepo.findById(workspaceId);
-      if (workspace?.slug) {
-        return `${this.appUrl}/w/${workspace.slug}/ai-workforce/tasks/${runId}`;
-      }
-    } catch (err) {
-      console.error(`[EmailNotificationService] taskUrl: workspace lookup failed for ${workspaceId}:`, err);
-    }
-    return `${this.appUrl}/ai-workforce/tasks/${runId}`;
-  }
-
-  // Builds the insight link scoped by workspace slug when available, falling back
-  // to the un-prefixed URL if the workspace lookup fails or has no slug.
-  private async insightUrl(insightId: string, workspaceId: string): Promise<string | undefined> {
-    if (!this.appUrl) return undefined;
-    try {
-      const workspace = await this.workspaceRepo.findById(workspaceId);
-      if (workspace?.slug) {
-        return `${this.appUrl}/w/${workspace.slug}/insight/${insightId}`;
-      }
+      return workspace?.slug || null;
     } catch (err) {
       console.error(
-        `[EmailNotificationService] insightUrl: workspace lookup failed for ${workspaceId}:`,
+        `[EmailNotificationService] workspace lookup failed for ${workspaceId}:`,
         err,
       );
+      return null;
     }
-    return `${this.appUrl}/insight/${insightId}`;
+  }
+
+  private async taskUrl(runId: string, workspaceId: string): Promise<string | undefined> {
+    if (!this.appUrl) return undefined;
+    return this.taskUrlForSlug(runId, await this.workspaceSlug(workspaceId));
+  }
+
+  private taskUrlForSlug(runId: string, slug: string | null): string | undefined {
+    if (!this.appUrl) return undefined;
+    return slug
+      ? `${this.appUrl}/w/${slug}/ai-workforce/tasks/${runId}`
+      : `${this.appUrl}/ai-workforce/tasks/${runId}`;
+  }
+
+  private async insightUrl(insightId: string, workspaceId: string): Promise<string | undefined> {
+    if (!this.appUrl) return undefined;
+    return this.insightUrlForSlug(insightId, await this.workspaceSlug(workspaceId));
+  }
+
+  private insightUrlForSlug(insightId: string, slug: string | null): string | undefined {
+    if (!this.appUrl) return undefined;
+    return slug
+      ? `${this.appUrl}/w/${slug}/insight/${insightId}`
+      : `${this.appUrl}/insight/${insightId}`;
   }
 }

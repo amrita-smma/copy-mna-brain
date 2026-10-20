@@ -469,6 +469,14 @@ describe('InsightService', () => {
       expect(detail.versions[0].trigger).toBe('copilot_create');
     });
 
+    it('stamps the creating workforce run on version 1, and leaves it null otherwise', async () => {
+      const fromRun = await create({ sourceRunId: 'run-9' });
+      expect(version(fromRun.id, 1).source_run_id).toBe('run-9');
+
+      const fromChat = await create();
+      expect(version(fromChat.id, 1).source_run_id).toBeNull();
+    });
+
     it('creates an insight with kind report when specified', async () => {
       expect((await create({ kind: 'report' })).kind).toBe('report');
     });

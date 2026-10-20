@@ -138,6 +138,13 @@ export type SendEmailPayload =
       insightName: string;
       versionNo: number;
       insightUrl?: string;
+    }
+  | {
+      kind: 'insights_generated';
+      to: string;
+      taskName: string;
+      insights: Array<{ name: string; url?: string; created: boolean }>;
+      taskUrl?: string;
     };
 
 export interface SendEmailJobResult {
@@ -336,6 +343,15 @@ export async function runSendEmail(
         insightUrl: payload.insightUrl,
       });
       return { kind: 'insight_refreshed', to: payload.to, messageId };
+    }
+    case 'insights_generated': {
+      const { messageId } = await emailService.sendInsightsGeneratedEmail({
+        email: payload.to,
+        taskName: payload.taskName,
+        insights: payload.insights,
+        taskUrl: payload.taskUrl,
+      });
+      return { kind: 'insights_generated', to: payload.to, messageId };
     }
     case 'email_pdf_ingested': {
       if (!payload.fileName) {

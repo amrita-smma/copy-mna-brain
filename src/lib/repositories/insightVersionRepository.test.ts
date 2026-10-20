@@ -127,6 +127,26 @@ describe('InsightVersionRepository', () => {
     });
   });
 
+  describe('InsightVersionRepository.findInsightsBySourceRunId', () => {
+    it('groups the run\'s versions per live insight, scoped to the workspace, skipping unchanged markers', async () => {
+      const rows = [{ insight_id: 'art-1', insight_name: 'Q3', first_version_no: 1, latest_version_no: 3 }];
+      mockDb.orderBy.mockResolvedValueOnce(rows);
+
+      expect(await repo.findInsightsBySourceRunId('run-1', 'ws-1')).toEqual(rows);
+      const [joinTable, joinOn] = mockDb.innerJoin.mock.calls[0];
+      expect(joinTable).toBe(insights);
+      const join = toSql(joinOn);
+      expect(join.params).toContain('ws-1');
+      expect(join.sql).toContain('"archived_at" is null');
+      const where = toSql(mockDb.where.mock.calls[0][0]);
+      expect(where.params).toEqual(expect.arrayContaining(['ws-1', 'run-1', false]));
+      expect(where.sql).toContain('"source_run_id" =');
+      expect(where.sql).toContain('"is_unchanged" =');
+      expect(mockDb.groupBy).toHaveBeenCalledTimes(1);
+      expect(toSql(mockDb.orderBy.mock.calls[0][0]).sql).toContain('min(');
+    });
+  });
+
   describe('InsightVersionRepository.findLatestVersionNosByInsightIds', () => {
     it('returns empty map if given empty array without querying database', async () => {
       expect((await repo.findLatestVersionNosByInsightIds([], 'ws-1')).size).toBe(0);

@@ -18,9 +18,11 @@
  *   - Insights: get_insight and get_insight_template in both roles — a sector
  *     agent's output is an insight (dashboard).
  *   - Chat only: read_page_context / navigate_page (the console guide), the
- *     propose_insight_* and propose_report_plan approval cards (the insight
- *     authoring guide; propose_insight_refresh is the MB-552 refresh offer), and propose_workforce_handoff — chat never writes, so
- *     long deliverables and any pipeline write go through the Workforce.
+ *     propose_insight_edit / propose_insight_refresh and propose_report_plan
+ *     approval cards (the insight authoring guide; propose_insight_refresh is
+ *     the MB-552 refresh offer), and propose_workforce_handoff — chat never
+ *     writes, so new insights, long deliverables and any pipeline write go
+ *     through the Workforce.
  *   - Workforce only: narrate_step and report_progress (the trace contract),
  *     ask_owner (MB-561 HITL), and create_insight / edit_insight_section /
  *     replace_insight_document (incremental authoring and MB-558 refreshes).
@@ -42,7 +44,6 @@ import {
   getInsightTemplate,
   narrateStep,
   navigatePage,
-  proposeInsightCreate,
   proposeInsightEdit,
   proposeInsightRefresh,
   proposeReportPlan,
@@ -74,7 +75,6 @@ export const SECTOR_CHAT_CORE_TOOLS: ToolList = [
   ...SECTOR_READ_CORE_TOOLS,
   readPageContext,
   navigatePage,
-  proposeInsightCreate,
   proposeInsightEdit,
   proposeInsightRefresh,
   proposeReportPlan,

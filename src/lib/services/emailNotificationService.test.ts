@@ -402,6 +402,78 @@ describe('EmailNotificationService', () => {
       errSpy.mockRestore();
     });
   });
+
+  describe('notifyInsightsGenerated', () => {
+    const RUN = { id: 'r1', workspace_id: 'ws1', trigger_source: 'chat', triggered_by_user_id: 'u1', title: 'Build the APAC brief' };
+    const USER = { id: 'u1', name: 'A', email: 'a@e.com' };
+    const withOutputs = (deps: NotificationDeps, outputs: unknown[]) => {
+      const findInsightsBySourceRunId = vi.fn().mockResolvedValue(outputs);
+      deps.insightVersionRepo = { findInsightsBySourceRunId } as never;
+      return findInsightsBySourceRunId;
+    };
+
+    it('emails the requester a slugged link to each insight the run created or updated', async () => {
+      const { deps, enqueue } = makeDeps({ run: RUN, users: [USER] });
+      const lookup = withOutputs(deps, [
+        { insight_id: 'ins-1', insight_name: 'APAC Brief', first_version_no: 1, latest_version_no: 4 },
+        { insight_id: 'ins-2', insight_name: 'Old Tracker', first_version_no: 3, latest_version_no: 3 },
+      ]);
+
+      expect(await new EmailNotificationService(deps).notifyInsightsGenerated('r1')).toBe(true);
+      expect(lookup).toHaveBeenCalledWith('r1', 'ws1');
+      expect(enqueue).toHaveBeenCalledWith({
+        kind: 'insights_generated',
+        to: 'a@e.com',
+        taskName: 'Build the APAC brief',
+        insights: [
+          { name: 'APAC Brief', url: `${APP_URL}/w/togan-vcc/insight/ins-1`, created: true },
+          { name: 'Old Tracker', url: `${APP_URL}/w/togan-vcc/insight/ins-2`, created: false },
+        ],
+        taskUrl: `${APP_URL}/w/togan-vcc/ai-workforce/tasks/r1`,
+      });
+    });
+
+    it('sends even when the notifications flag is off, and for cron runs', async () => {
+      delete process.env.TASK_NOTIFICATIONS_ENABLED;
+      const { deps, enqueue } = makeDeps({
+        run: { ...RUN, trigger_source: 'cron', triggered_by_user_id: null, origin_routine_id: 'rt-1' },
+        routine: { id: 'rt-1', created_by: 'u1' },
+        users: [USER],
+      });
+      withOutputs(deps, [{ insight_id: 'ins-1', insight_name: 'APAC Brief', first_version_no: 1, latest_version_no: 1 }]);
+
+      expect(await new EmailNotificationService(deps).notifyInsightsGenerated('r1')).toBe(true);
+      expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ kind: 'insights_generated', to: 'a@e.com' }));
+    });
+
+    it('returns false without enqueueing when the run wrote no insight', async () => {
+      const { deps, enqueue } = makeDeps({ run: RUN, users: [USER] });
+      withOutputs(deps, []);
+
+      expect(await new EmailNotificationService(deps).notifyInsightsGenerated('r1')).toBe(false);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('returns false without touching the DB when no insight version repository is wired', async () => {
+      const { deps, enqueue, findById } = makeDeps({ run: RUN, users: [USER] });
+
+      expect(await new EmailNotificationService(deps).notifyInsightsGenerated('r1')).toBe(false);
+      expect(findById).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('resolves false (never throws) when the insight lookup fails', async () => {
+      const { deps, enqueue } = makeDeps({ run: RUN, users: [USER] });
+      deps.insightVersionRepo = {
+        findInsightsBySourceRunId: vi.fn().mockRejectedValue(new Error('db down')),
+      } as never;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(new EmailNotificationService(deps).notifyInsightsGenerated('r1')).resolves.toBe(false);
+      expect(enqueue).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+  });
 });
 
 describe('deriveApprovalDetails', () => {

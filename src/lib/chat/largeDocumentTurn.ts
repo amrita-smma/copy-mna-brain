@@ -47,7 +47,6 @@ export const TIMED_OUT_FOLLOW_UP_CONTEXT =
  * get them. `propose_insight_edit` is one: it carries the full edited document.
  */
 export const WHOLE_DOCUMENT_TOOL_NAMES = [
-  'propose_insight_create',
   'propose_insight_edit',
   'replace_insight_document',
 ] as const;

@@ -712,6 +712,78 @@ export function renderInsightRefreshedEmail(input: {
   return { subject, html, text };
 }
 
+export interface GeneratedInsightLink {
+  name: string;
+  url?: string;
+  /** True when the run created the insight; false when it updated one. */
+  created: boolean;
+}
+
+export interface InsightsGeneratedEmailInput {
+  email: string;
+  taskName: string;
+  insights: GeneratedInsightLink[];
+  taskUrl?: string;
+}
+
+/**
+ * An AI Workforce run created or updated one or more insights. A single
+ * insight gets its own "Open insight" button; several are listed as links,
+ * with the button pointing at the task.
+ */
+export function renderInsightsGeneratedEmail(input: {
+  taskName: string;
+  insights: GeneratedInsightLink[];
+  taskUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const [only] = input.insights;
+  const single = input.insights.length === 1 ? only : undefined;
+  const allUpdated = input.insights.every((i) => !i.created);
+  const subject = single
+    ? `"${sanitizeEmailHeaderFragment(single.name)}" is ${single.created ? 'ready' : 'updated'}`
+    : `${input.insights.length} insights are ${allUpdated ? 'updated' : 'ready'}`;
+  const verb = (i: GeneratedInsightLink) => (i.created ? 'created' : 'updated');
+  const lead = single
+    ? `The AI Workforce ${verb(single)} this insight for your task <strong>${escapeHtml(input.taskName)}</strong>.`
+    : `The AI Workforce produced these insights for your task <strong>${escapeHtml(input.taskName)}</strong>.`;
+  const listHtml = single
+    ? ''
+    : `<ul style="margin:0 0 16px; padding-left:20px; line-height:1.8; color:#374151;">${input.insights
+        .map((i) => {
+          const name = escapeHtml(i.name);
+          const label = i.url
+            ? `<a href="${escapeHtml(i.url)}" style="color:#5a4bd6; font-weight:600;">${name}</a>`
+            : `<strong>${name}</strong>`;
+          return `<li>${label} <span style="color:#71717a;">(${verb(i)})</span></li>`;
+        })
+        .join('')}</ul>`;
+
+  const html = renderNotificationShell({
+    bannerTitle: single ? 'Insight Ready' : 'Insights Ready',
+    accent: '#6d5ef5',
+    accentDark: '#5a4bd6',
+    bodyHtml: `<h1 style="margin:0 0 8px; font-size:24px;">${escapeHtml(single ? single.name : input.taskName)}</h1>
+      <p style="margin:0 0 16px; line-height:1.5; color:#52525b;">${lead}</p>${listHtml}`,
+    ctaUrl: single ? (single.url ?? input.taskUrl) : input.taskUrl,
+    ctaLabel: single?.url ? 'Open insight' : 'View task',
+  });
+
+  const text = [
+    subject,
+    '',
+    single
+      ? `The AI Workforce ${verb(single)} this insight for your task "${input.taskName}".`
+      : `The AI Workforce produced these insights for your task "${input.taskName}".`,
+    '',
+    ...input.insights.map(
+      (i) => `- ${i.name} (${verb(i)})${i.url ? `: ${i.url}` : ''}`,
+    ),
+    ...(input.taskUrl ? ['', `View task: ${input.taskUrl}`] : []),
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 export interface TaskReminderEmailInput {
   email: string;
   /** The to-do the user wrote for themselves. */
@@ -1632,6 +1704,18 @@ export class EmailService {
       throw new Error('sendInsightRefreshedEmail: insightName is required');
     }
     const { subject, html, text } = renderInsightRefreshedEmail(input);
+    return this.sender({ to: input.email, subject, html, text });
+  }
+
+  /** An AI Workforce run created or updated insights. */
+  async sendInsightsGeneratedEmail(
+    input: InsightsGeneratedEmailInput,
+  ): Promise<SendEmailResult> {
+    if (!input.email) throw new Error('sendInsightsGeneratedEmail: email is required');
+    if (input.insights.length === 0) {
+      throw new Error('sendInsightsGeneratedEmail: at least one insight is required');
+    }
+    const { subject, html, text } = renderInsightsGeneratedEmail(input);
     return this.sender({ to: input.email, subject, html, text });
   }
 

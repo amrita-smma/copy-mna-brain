@@ -218,6 +218,11 @@ export interface CreateInsightFromDocumentInput {
    * stored as null and never fails the create.
    */
   templateId?: string | null;
+  /**
+   * The workforce run creating the insight, stamped on version 1 so the run's
+   * completion email can link to what it produced.
+   */
+  sourceRunId?: string | null;
 }
 
 export interface UploadInsightDocumentInput {
@@ -838,6 +843,7 @@ export class InsightService {
       userId?: string | null;
       kind: InsightKind;
       agentStamp?: InsightAgentStamp | null;
+      sourceRunId?: string | null;
     },
     trigger: 'copilot_create' | 'upload',
     sourceTemplate: { id: string; name: string } | null,
@@ -868,6 +874,7 @@ export class InsightService {
           label: null,
           created_by: input.userId ?? null,
           content_hash: insightContentHash(input.html),
+          source_run_id: input.sourceRunId ?? null,
           ...InsightService.stampColumns(input.agentStamp),
         },
         tx,

@@ -24,6 +24,8 @@ const {
   deleteFromAnthropicMock,
   publishRunDraftMock,
   notifyInsightRefreshedMock,
+  notifyInsightsGeneratedMock,
+  notifyTaskCompletedMock,
   getSectorAgentGraphMock,
   getCrmContactAgentGraphMock,
   getCrmCompanyContactsAgentGraphMock,
@@ -48,6 +50,8 @@ const {
   deleteFromAnthropicMock: vi.fn(),
   publishRunDraftMock: vi.fn(),
   notifyInsightRefreshedMock: vi.fn(),
+  notifyInsightsGeneratedMock: vi.fn(),
+  notifyTaskCompletedMock: vi.fn(),
   // Identity carrier so tests can assert the argument structure without
   // pulling LangChain types into the test environment.
   HumanMessage: class {
@@ -136,7 +140,8 @@ vi.mock('@/lib/services/insightService', async (importOriginal) => {
 vi.mock('@/lib/services/emailNotificationService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/services/emailNotificationService')>();
   class MockEmailNotificationService {
-    notifyTaskCompleted = vi.fn().mockResolvedValue(true);
+    notifyTaskCompleted = notifyTaskCompletedMock;
+    notifyInsightsGenerated = notifyInsightsGeneratedMock;
     notifyTaskFailed = vi.fn().mockResolvedValue(true);
     notifyTaskWaitingApproval = notifyTaskWaitingApprovalMock;
     notifyInsightRefreshed = notifyInsightRefreshedMock;
@@ -269,6 +274,8 @@ beforeEach(() => {
   flushLangfuseMock.mockReset().mockResolvedValue(undefined);
   publishRunDraftMock.mockReset();
   notifyInsightRefreshedMock.mockReset().mockResolvedValue(true);
+  notifyInsightsGeneratedMock.mockReset().mockResolvedValue(false);
+  notifyTaskCompletedMock.mockReset().mockResolvedValue(true);
   process.env.ANTHROPIC_API_KEY = 'test-key';
 });
 
@@ -386,6 +393,27 @@ describe('runAgent — happy path', () => {
         final_message: '✓ Done: promoted 3 companies.',
       }),
     );
+  });
+});
+
+describe('runAgent — completion email', () => {
+  it('sends the insights email instead of the plain completion email when the run wrote insights', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    notifyInsightsGeneratedMock.mockResolvedValueOnce(true);
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(notifyInsightsGeneratedMock).toHaveBeenCalledWith(RUN_ID);
+    expect(notifyTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the plain completion email when the run wrote no insight', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(notifyInsightsGeneratedMock).toHaveBeenCalledWith(RUN_ID);
+    expect(notifyTaskCompletedMock).toHaveBeenCalledWith(RUN_ID);
   });
 });
 
@@ -1224,6 +1252,15 @@ describe('runAgent — insight refresh runs (MB-558)', () => {
       expect(notifyInsightRefreshedMock).not.toHaveBeenCalled();
     },
   );
+
+  it('a refresh run never sends the insights-generated email — the owner gets the refresh email', async () => {
+    findById.mockResolvedValueOnce(refreshRow());
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(notifyInsightsGeneratedMock).not.toHaveBeenCalled();
+    expect(notifyTaskCompletedMock).toHaveBeenCalledWith(RUN_ID);
+  });
 
   it('published → notifyInsightRefreshed called with the owner', async () => {
     findById.mockResolvedValueOnce(refreshRow());

@@ -3,8 +3,9 @@
  * attached to the message (or read with `get_insight_template`) and an HTML
  * file attached in the composer.
  *
- * Chat can inline and write a document of at most
- * CHAT_INLINE_DOCUMENT_MAX_CHARS in one turn. A larger one never reaches the
+ * Chat can inline a document of at most CHAT_INLINE_DOCUMENT_MAX_CHARS in one
+ * turn, but never creates an insight from it — new insights always go to the
+ * Workforce. A larger one never reaches the
  * model whole in chat: it becomes a bounded outline of its sections plus a
  * hard instruction to hand the work to the Workforce, which reads the full
  * document (templates in parts, see `formatInsightTemplatePart`) and builds
@@ -66,7 +67,7 @@ function attachedSentence(template: TemplateBlockInput, extra = ''): string {
 export function largeTemplateHandoffInstruction(templateId: string): string[] {
   return [
     'Do this — it is a hard rule, not a suggestion:',
-    `- Do NOT call propose_insight_create (or any other tool that writes a whole document) for this template. One tool call cannot carry a document this size inside the turn's time budget; the turn would time out with nothing to show.`,
+    `- Do NOT write the document yourself with any tool that writes a whole document. One tool call cannot carry a document this size inside the turn's time budget; the turn would time out with nothing to show.`,
     `- Call propose_workforce_handoff with the user's full request as the instruction, and put "template_id ${templateId}" in the instruction. The Workforce reads the whole template and builds the insight section by section, with no time limit.`,
     "- If the request doesn't say what the insight covers (which company, sector or fund), ask that one question first, then hand off.",
   ];
@@ -100,11 +101,11 @@ export function formatInsightTemplateBlock(template: TemplateBlockInput, html: s
     insightTemplateOpenTag(template),
     attachedSentence(template),
     '',
-    'Build the insight the user asks for on this template:',
-    "- Keep its layout, styling and data-section keys; the new insight is kind 'document'.",
-    '- Every figure, name, date and table row in it is SAMPLE content. Replace each with real data from the data tools, or mark it unknown — never carry a sample value into the insight.',
-    `- When you create the insight, pass template_id ${template.id} to propose_insight_create (or create_insight in a Workforce run), so the insight records which template it came from.`,
-    `- To reuse this template on a later turn or in a Workforce handoff instruction, reference template_id ${template.id}.`,
+    'New insights are always built by the Workforce. To build the insight the user asks for on this template:',
+    `- Call propose_workforce_handoff with the user's full request as the instruction, and put "template_id ${template.id}" in it. The Workforce keeps the template's layout, styling and data-section keys and replaces its sample content with real data.`,
+    '- Every figure, name, date and table row in it is SAMPLE content — never quote one as a fact.',
+    "- If the request doesn't say what the insight covers (which company, sector or fund), ask that one question first, then hand off.",
+    `- To reuse this template on a later turn, reference template_id ${template.id}.`,
     '',
     '<template_html>',
     html,
@@ -194,7 +195,7 @@ export function formatLargeHtmlAttachmentBlock(fileName: string, html: string): 
     tooLargeSentence(`This HTML file`, html.length),
     '',
     'To build an insight, a template or any other document from this file — a hard rule, not a suggestion:',
-    '- Do NOT call propose_insight_create or any other tool that writes a whole document from it. One tool call cannot carry a document this size inside the turn\'s time budget; the turn would time out with nothing to show.',
+    '- Do NOT write the document yourself with any tool that writes a whole document from it. One tool call cannot carry a document this size inside the turn\'s time budget; the turn would time out with nothing to show.',
     `- Call propose_workforce_handoff with the user's full request as the instruction, and refer to the attached file "${fileName}" by name. The file travels with the handoff: the Workforce receives it in full and builds the document section by section, with no time limit.`,
     '- For a quick question about the file, you may answer from this outline — say that you read only its outline.',
     `- To EMAIL this file, no handoff is needed: call send_email with attached_html.file_name "${escapeAttr(fileName)}". It reads the stored file, reformats it for email and sends it as the body, so the outline below is irrelevant — never retype the document into the email body.`,
