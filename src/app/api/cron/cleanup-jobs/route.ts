@@ -4,19 +4,20 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import { runSchedulerIfDue } from '@/lib/jobs/scheduler';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 /**
- * Manual trigger for the stuck-job cleanup sweep. The in-app scheduler
- * already fires on cold start (skipped on preview), so this route exists
- * for ops / debugging, and as the only trigger during long warm stretches
- * with no cold starts.
+ * Trigger for the stuck-job cleanup sweep. Vercel Cron calls it hourly (see
+ * vercel.json); it is also usable by hand for ops / debugging.
  *
- * Default behaviour honors the 24h window (same as the scheduler). Pass
+ * Default behaviour honors the scheduler's 24h window, so the hourly cron
+ * produces at most one sweep per day. Pass
  * `?force=true` to bypass the window and run the cleanup immediately;
  * useful when investigating incidents.
  *
- * Protect the route by setting CRON_SECRET and sending
- * `Authorization: Bearer $CRON_SECRET`. When unset the route is open
- * (local dev only).
+ * Protected by CRON_SECRET; Vercel Cron sends `Authorization: Bearer
+ * $CRON_SECRET`. When unset the route is open (local dev only).
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;

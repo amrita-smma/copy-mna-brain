@@ -4,15 +4,15 @@ import { JobService } from '@/lib/services/jobService';
 import { runJob } from './runner';
 
 /**
- * In-app scheduler for the stuck-job cleanup sweep. Triggered solely on cold
- * start (via instrumentation.ts) — not opportunistically from dispatchJob,
- * since piggybacking the sweep on every job dispatch multiplied the number of
- * DB connections made under load and made production connection timeouts
- * more likely.
+ * Scheduler for the stuck-job cleanup sweep. Triggered by Vercel Cron, which
+ * hits `GET /api/cron/cleanup-jobs` hourly (see vercel.json); the 24h DB
+ * window turns that into at most one sweep per day.
  *
- * Serverless constraint: setInterval doesn't survive function freezes, so we
- * rely on the cold-start trigger instead. The 24h DB window ensures we never
- * run the cleanup more than once per day regardless of cold-start cadence.
+ * It used to fire fire-and-forget from `instrumentation.ts` on every cold
+ * start. That path ran outside any request, so the instance could be frozen
+ * mid-connect, and it queried the DB on every cold start even when the window
+ * said skip — surfacing as frequent "Connection terminated due to connection
+ * timeout" errors. Don't reintroduce a cold-start or per-dispatch trigger.
  *
  * Each run is recorded as a normal `stuck_cleanup` job row with job_logs
  * transitions, matching the async-task rule in CLAUDE.md.
@@ -22,9 +22,8 @@ export const CLEANUP_WINDOW_SECONDS = 24 * 60 * 60;
 const CLEANUP_JOB_TIMEOUT_SECONDS = 300;
 
 // Per-process guard: once a scheduler run is in flight for this instance,
-// skip further triggers until it finishes. Prevents double-work when a cold
-// start's register() overlaps with another in-flight cold start on the same
-// warm instance.
+// skip further triggers until it finishes. Prevents double-work when two
+// requests to the cleanup route overlap on the same warm instance.
 let inFlight: Promise<boolean> | null = null;
 
 export interface SchedulerRunOptions {
@@ -38,7 +37,7 @@ export interface SchedulerRunOptions {
  *
  * Skipped entirely on Vercel preview deployments: preview Neon branches are
  * ephemeral (created/torn down per-PR by preview-db.yml) and can be mid-spinup
- * or already deleted on a cold start, which surfaces as password-auth or
+ * or already deleted, which surfaces as password-auth or
  * connection-timeout errors here that have nothing to do with real stuck jobs.
  */
 export function runSchedulerIfDue(

@@ -93,40 +93,33 @@ forever; if the runner process crashes mid-work, a job can get stuck in
 `pending` or `running` rows whose age exceeds `timeout_seconds + buffer` into
 `timed_out`, writing a `job_logs` entry that records the forced transition.
 
-The sweep runs in-process via `src/lib/jobs/scheduler.ts`. `setInterval` isn't
-viable on serverless (the function freezes between requests), so it's
-triggered solely by **cold start**: `src/instrumentation.ts` fires
-`runSchedulerIfDue` once per Node runtime init, fire-and-forget so cold-start
-latency is unaffected. It is deliberately *not* triggered opportunistically on
-every job dispatch — that multiplied DB connections made under load and made
-production connection timeouts more likely for no real benefit.
+The sweep is driven by **Vercel Cron**: `vercel.json` schedules
+`GET /api/cron/cleanup-jobs` hourly, and the route calls `runSchedulerIfDue`
+(`src/lib/jobs/scheduler.ts`) inside the request, so the work is awaited and
+the function stays alive until it finishes. Vercel Cron only runs on
+production, and `runSchedulerIfDue` also returns early when
+`VERCEL_ENV === 'preview'` — preview Neon branches are ephemeral and can be
+mid-spinup or already deleted.
 
-The cold-start trigger is skipped entirely when `VERCEL_ENV === 'preview'`
-(checked before `createDb()` is even called, in both `instrumentation.ts` and
-as defense-in-depth inside `runSchedulerIfDue` itself). Preview deployments
-get ephemeral, per-PR Neon branches that are created/torn down by
-`.github/workflows/preview-db.yml`; a cold start hitting a branch that's
-mid-spinup or already deleted surfaces as password-auth or connection-timeout
-errors that have nothing to do with real stuck jobs.
+Do not trigger the sweep from `instrumentation.ts` (cold start) or from job
+dispatch. A fire-and-forget cold-start trigger runs outside any request, so
+the instance can be frozen mid-connect, and it hits the DB on every cold start
+even when the window says skip — it produced frequent "Connection terminated
+due to connection timeout" errors. A per-dispatch trigger multiplied DB
+connections under load.
 
-The trigger is gated by a 24h DB window: `runSchedulerIfDue` queries the
+The run is gated by a 24h DB window: `runSchedulerIfDue` queries the
 most recent `stuck_cleanup` job row and skips if one was created within the
-last 24h. Each sweep that actually runs is itself inserted as a
-`stuck_cleanup` job, producing standard `job_logs` transitions
-(`pending → running → completed`) for observability. A per-process
-`inFlight` promise coalesces concurrent triggers.
+last 24h, so the hourly cron yields at most one sweep per day. Each sweep that
+actually runs is itself inserted as a `stuck_cleanup` job, producing standard
+`job_logs` transitions (`pending → running → completed`) for observability. A
+per-process `inFlight` promise coalesces concurrent triggers.
 
-Trade-offs:
+Trade-off: a stuck job can stay `pending`/`running` for up to ~25h before the
+sweep marks it `timed_out`. Use `?force=true` (below) to clear one sooner.
 
-- If the deployment has no cold starts for 24h, no sweep runs from the
-  in-app trigger. Use the manual `GET /api/cron/cleanup-jobs` route (below)
-  for long warm stretches with no cold starts.
-- Multi-instance deployments can race — two cold starts within a few ms of
-  each other could both see "no recent sweep" and both dispatch. Cleanup is
-  idempotent, so at worst two sweeps run in the same window.
-
-There's also a manual trigger at `GET /api/cron/cleanup-jobs` (useful for ops
-or incident response). Pass `?force=true` to bypass the 24h window. Protect
+The same route can be called by hand (useful for ops or incident response).
+Pass `?force=true` to bypass the 24h window. Protect
 it by setting `CRON_SECRET` and sending `Authorization: Bearer $CRON_SECRET`.
 
 ```bash
