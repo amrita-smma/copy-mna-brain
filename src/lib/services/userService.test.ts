@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UserRepository } from '@/lib/repositories';
 import type { AuthService } from './authService';
-import { CannotDeactivateSelfError, UserNotFoundError, UserService } from './userService';
+import {
+  CannotDeactivateSelfError,
+  CannotDeleteSelfError,
+  DeleteConfirmationMismatchError,
+  UserHasRetainedHistoryError,
+  UserNotDeactivatedError,
+  UserNotFoundError,
+  UserService,
+} from './userService';
 
 function makeUserRepoStub(): UserRepository {
   return {
@@ -14,6 +22,8 @@ function makeUserRepoStub(): UserRepository {
     update: vi.fn(),
     deactivate: vi.fn(),
     reactivate: vi.fn(),
+    hasDeleteBlockingHistory: vi.fn(),
+    hardDeleteDeactivated: vi.fn(),
   } as unknown as UserRepository;
 }
 
@@ -170,6 +180,106 @@ describe('UserService', () => {
 
       expect(userRepo.reactivate).toHaveBeenCalledWith('u1');
       expect(result).toEqual(adminShape(reactivated));
+      expect(result).not.toHaveProperty('password');
+    });
+  });
+
+  describe('hardDeleteUser', () => {
+    const deactivated = () => makeUser({ deactivated_at: '2026-02-01T00:00:00.000Z' });
+
+    it('throws CannotDeleteSelfError when the actor targets themselves', async () => {
+      await expect(service.hardDeleteUser('u1', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        CannotDeleteSelfError,
+      );
+      expect(userRepo.findById).not.toHaveBeenCalled();
+    });
+
+    it('throws UserNotFoundError for an unknown id', async () => {
+      vi.mocked(userRepo.findById).mockResolvedValue(null);
+      await expect(service.hardDeleteUser('admin', 'nope', 'Alice')).rejects.toBeInstanceOf(
+        UserNotFoundError,
+      );
+    });
+
+    it('refuses to delete a user who is still active', async () => {
+      vi.mocked(userRepo.findById).mockResolvedValue(makeUser() as never);
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        UserNotDeactivatedError,
+      );
+      expect(userRepo.hardDeleteDeactivated).not.toHaveBeenCalled();
+    });
+
+    it.each(['alice', 'Alice ', 'Alic', ''])(
+      'refuses when the typed name %j is not an exact match',
+      async (typed) => {
+        vi.mocked(userRepo.findById).mockResolvedValue(deactivated() as never);
+        await expect(service.hardDeleteUser('admin', 'u1', typed)).rejects.toBeInstanceOf(
+          DeleteConfirmationMismatchError,
+        );
+        expect(userRepo.hardDeleteDeactivated).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses when the user has vote or routine history', async () => {
+      vi.mocked(userRepo.findById).mockResolvedValue(deactivated() as never);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(true);
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        UserHasRetainedHistoryError,
+      );
+      expect(userRepo.hardDeleteDeactivated).not.toHaveBeenCalled();
+    });
+
+    it('maps a foreign-key violation during the delete to UserHasRetainedHistoryError', async () => {
+      vi.mocked(userRepo.findById).mockResolvedValue(deactivated() as never);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(false);
+      vi.mocked(userRepo.hardDeleteDeactivated).mockRejectedValue(
+        Object.assign(new Error('fk'), { code: '23503' }),
+      );
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        UserHasRetainedHistoryError,
+      );
+    });
+
+    it('rethrows any other delete error unchanged', async () => {
+      vi.mocked(userRepo.findById).mockResolvedValue(deactivated() as never);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(false);
+      const boom = new Error('boom');
+      vi.mocked(userRepo.hardDeleteDeactivated).mockRejectedValue(boom);
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBe(boom);
+    });
+
+    it('throws UserNotFoundError when a concurrent delete already removed the user', async () => {
+      vi.mocked(userRepo.findById)
+        .mockResolvedValueOnce(deactivated() as never)
+        .mockResolvedValueOnce(null);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(false);
+      vi.mocked(userRepo.hardDeleteDeactivated).mockResolvedValue(undefined);
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        UserNotFoundError,
+      );
+    });
+
+    it('throws UserNotDeactivatedError when the user was reactivated before the delete ran', async () => {
+      vi.mocked(userRepo.findById)
+        .mockResolvedValueOnce(deactivated() as never)
+        .mockResolvedValueOnce(makeUser() as never);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(false);
+      vi.mocked(userRepo.hardDeleteDeactivated).mockResolvedValue(undefined);
+      await expect(service.hardDeleteUser('admin', 'u1', 'Alice')).rejects.toBeInstanceOf(
+        UserNotDeactivatedError,
+      );
+    });
+
+    it('deletes a deactivated user whose name was typed exactly', async () => {
+      const user = deactivated();
+      vi.mocked(userRepo.findById).mockResolvedValue(user as never);
+      vi.mocked(userRepo.hasDeleteBlockingHistory).mockResolvedValue(false);
+      vi.mocked(userRepo.hardDeleteDeactivated).mockResolvedValue(user as never);
+
+      const result = await service.hardDeleteUser('admin', 'u1', 'Alice');
+
+      expect(userRepo.hardDeleteDeactivated).toHaveBeenCalledWith('u1');
+      expect(result).toEqual(adminShape(user));
       expect(result).not.toHaveProperty('password');
     });
   });

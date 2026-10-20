@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import {
   createUser,
   deactivateUser,
+  hardDeleteUser,
   listAllUsersForAdmin,
   reactivateUser,
   sendResetLink,
@@ -51,6 +52,7 @@ import {
   MoreVertical,
   RotateCcw,
   Search,
+  Trash2,
   UserPlus,
   Users as UsersIcon,
   UserX,
@@ -83,13 +85,24 @@ interface EditState {
  * — all session-gated superadmin routes (see `.claude/rules/api-routes.md`
  * and `src/lib/services/userService.ts`).
  *
- * "Remove" was deliberately merged into "Deactivate": a real hard delete can
- * fail outright (a user who has cast a vote is FK-`restrict`-protected) and
- * silently cascades away workspace memberships/chat history/consents for
- * everyone else. Deactivating instead mirrors the workspace archive/reinstate
- * pattern — reversible, no data loss, no FK risk.
+ * "Deactivate" is the everyday removal: it mirrors the workspace
+ * archive/reinstate pattern — reversible, no data loss, no FK risk. A
+ * deactivated user can then be permanently deleted (`POST
+ * /api/users/[id]/hard-delete`) after the superadmin types their exact name.
+ * That cascades away their workspace memberships/chat history/consents, and
+ * the server refuses it for anyone with vote or routine history
+ * (FK-`restrict`-protected), who can only stay deactivated.
  */
-export function UserManagementSection({ currentUserId }: { currentUserId?: string }) {
+export function UserManagementSection({
+  currentUserId,
+  onUsersChanged,
+}: {
+  currentUserId?: string;
+  /** Called after any change to the user directory (invite, edit, deactivate,
+   *  reactivate) so the page can refresh other user lists — notably the
+   *  workspace member picker — without a reload. */
+  onUsersChanged?: () => void;
+}) {
   const [expanded, setExpanded] = useState(true);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,6 +182,7 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
     try {
       await createUser({ name, email });
       await load();
+      onUsersChanged?.();
       setCreateOpen(false);
       setCreateName('');
       setCreateEmail('');
@@ -199,6 +213,7 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
     try {
       await updateUser(id, { [field]: trimmed });
       await load();
+      onUsersChanged?.();
       setEditing(null);
       toast.success(field === 'name' ? 'Name updated' : 'Email updated');
     } catch (err) {
@@ -226,9 +241,26 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
     try {
       await deactivateUser(user.id);
       await load();
+      onUsersChanged?.();
       toast.success(`${user.name} deactivated — they can no longer sign in`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Could not deactivate ${user.name}`);
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const handleHardDelete = async (user: AdminUser, confirmName: string) => {
+    setPendingId(user.id);
+    try {
+      await hardDeleteUser(user.id, confirmName);
+      await load();
+      onUsersChanged?.();
+      toast.success(`${user.name} permanently deleted`);
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Could not delete ${user.name}`);
+      return false;
     } finally {
       setPendingId(null);
     }
@@ -239,6 +271,7 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
     try {
       await reactivateUser(user.id);
       await load();
+      onUsersChanged?.();
       toast.success(`${user.name} reactivated`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Could not reactivate ${user.name}`);
@@ -450,6 +483,7 @@ export function UserManagementSection({ currentUserId }: { currentUserId?: strin
                       onSendResetLink={() => handleSendResetLink(user)}
                       onDeactivate={() => handleDeactivate(user)}
                       onReactivate={() => handleReactivate(user)}
+                      onHardDelete={(confirmName) => handleHardDelete(user, confirmName)}
                     />
                   ))}
                 </div>
@@ -474,6 +508,7 @@ function UserRow({
   onSendResetLink,
   onDeactivate,
   onReactivate,
+  onHardDelete,
 }: {
   user: AdminUser;
   editing: EditState | null;
@@ -486,6 +521,9 @@ function UserRow({
   onSendResetLink: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
+  /** Resolves true once the user is gone, so the confirm popup can close.
+   *  Only deactivated rows pass it. */
+  onHardDelete?: (confirmName: string) => Promise<boolean>;
 }) {
   const isDeactivated = Boolean(user.deactivated_at);
   const isEditingName = editing?.field === 'name';
@@ -591,10 +629,20 @@ function UserRow({
 
       <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
         {isDeactivated ? (
-          <Button type="button" size="sm" variant="outline" onClick={onReactivate} disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-            Reactivate
-          </Button>
+          <>
+            <Button type="button" size="sm" variant="outline" onClick={onReactivate} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              Reactivate
+            </Button>
+            {onHardDelete && (
+              <HardDeleteUserButton
+                user={user}
+                busy={busy}
+                isSelf={isSelf}
+                onHardDelete={onHardDelete}
+              />
+            )}
+          </>
         ) : (
           <UserRowMenu
             user={user}
@@ -705,6 +753,93 @@ function UserRowMenu({
           </AlertDialogFooter>
         </AlertDialogContent>
       )}
+    </AlertDialog>
+  );
+}
+
+/** Permanently delete a deactivated user. The confirm button only enables once
+ *  the superadmin has typed the user's name exactly (case- and space-
+ *  sensitive); the server repeats the check. */
+function HardDeleteUserButton({
+  user,
+  busy,
+  isSelf,
+  onHardDelete,
+}: {
+  user: AdminUser;
+  busy: boolean;
+  isSelf: boolean;
+  onHardDelete: (confirmName: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [typedName, setTypedName] = useState('');
+  const matches = typedName === user.name;
+
+  const confirm = async () => {
+    if (!matches || busy) return;
+    if (await onHardDelete(typedName)) setOpen(false);
+  };
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setTypedName('');
+      }}
+    >
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => setOpen(true)}
+        disabled={busy || isSelf}
+        className="text-destructive hover:text-destructive"
+      >
+        <Trash2 className="h-4 w-4" />
+        Delete
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Permanently delete user</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes {user.name}&apos;s account and cannot be undone. Their
+            workspace memberships, chat history, and consents are removed, and their name is
+            cleared from records they authored. Users with voting or routine history can&apos;t be
+            deleted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor={`confirm-delete-${user.id}`}>
+            Type <span className="font-semibold text-foreground">{user.name}</span> to confirm
+          </Label>
+          <Input
+            id={`confirm-delete-${user.id}`}
+            autoFocus
+            autoComplete="off"
+            value={typedName}
+            onChange={(e) => setTypedName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                confirm();
+              }
+            }}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button
+            type="button"
+            onClick={confirm}
+            disabled={!matches || busy}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Delete permanently
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
     </AlertDialog>
   );
 }

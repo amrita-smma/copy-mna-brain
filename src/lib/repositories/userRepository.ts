@@ -1,5 +1,11 @@
-import { and, asc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
-import { users, userWorkspaces } from '@/lib/db/schema';
+import { and, asc, eq, ilike, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import {
+  companyVoteBallots,
+  companyVoteSessions,
+  routines,
+  users,
+  userWorkspaces,
+} from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 
 export type UserListItem = Pick<Tables<'users'>, 'id' | 'name' | 'email' | 'role'>;
@@ -160,6 +166,39 @@ export class UserRepository {
       .update(users)
       .set({ deactivated_at: null, updated_at: sql`now()` })
       .where(eq(users.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Whether the user is referenced by rows whose foreign keys block a hard
+   * delete (`restrict` / no action): vote sessions they started, ballots they
+   * cast, and routines they created. One round trip of `EXISTS` probes.
+   */
+  async hasDeleteBlockingHistory(id: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({
+        blocked: sql<boolean>`(
+          exists (select 1 from ${companyVoteSessions} where ${companyVoteSessions.initiated_by} = ${id})
+          or exists (select 1 from ${companyVoteBallots} where ${companyVoteBallots.voter_id} = ${id})
+          or exists (select 1 from ${routines} where ${routines.created_by} = ${id})
+        )`,
+      })
+      .from(users)
+      .where(eq(users.id, id));
+    return Boolean(row?.blocked);
+  }
+
+  /**
+   * Permanently delete a user. Only ever removes an already-deactivated row
+   * (the `isNotNull` guard), so an active account can never be deleted even
+   * if a caller skips the service-level check. Returns the deleted row, or
+   * undefined when the id is unknown or the user is still active.
+   */
+  async hardDeleteDeactivated(id: string): Promise<Tables<'users'> | undefined> {
+    const [row] = await this.db
+      .delete(users)
+      .where(and(eq(users.id, id), isNotNull(users.deactivated_at)))
       .returning();
     return row;
   }

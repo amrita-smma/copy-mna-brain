@@ -12,7 +12,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 212 | `src/app/api/**/route.ts` |
+| API routes | 213 | `src/app/api/**/route.ts` |
 | Services | 84 | `src/lib/services/` |
 | Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
@@ -289,6 +289,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/track-variables/[id]` | PATCH, DELETE | `trackVariableService` |
 | `/api/users` | GET, POST | `authService`, `userService`, `workspaceService` |
 | `/api/users/[id]` | PATCH, DELETE | `userService`, `workspaceService` |
+| `/api/users/[id]/hard-delete` | POST | `userService`, `workspaceService` |
 | `/api/users/[id]/reactivate` | POST | `userService`, `workspaceService` |
 | `/api/users/[id]/send-reset-link` | POST | `userService`, `workspaceService` |
 | `/api/v1/chat` | POST | `apiChatConversationService`, `apiKeyService`, `copilotChatsService`, `insightService` |
@@ -398,7 +399,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `trackVariableService.ts` | `TrackVariableService` | ❌ |
 | `userMemoryService.ts` | `MemoryUnavailableError`, `MemoryImportTooLargeError`, `UserMemoryService` | ✅ |
 | `userProfileService.ts` | `UserProfileNotFoundError`, `UserProfileInvalidError`, `UserProfileService` | ✅ |
-| `userService.ts` | `UserNotFoundError`, `CannotDeactivateSelfError`, `UserService` | ✅ |
+| `userService.ts` | `UserNotFoundError`, `CannotDeactivateSelfError`, `CannotDeleteSelfError`, `UserNotDeactivatedError`, `DeleteConfirmationMismatchError`, `UserHasRetainedHistoryError`, `UserService` | ✅ |
 | `userTaskService.ts` | `UserTaskValidationError`, `UserTaskService` | ✅ |
 | `workspaceService.ts` | `RoleNotFoundError`, `NotSuperadminError`, `WorkspaceNotFoundError`, `WorkspaceService` | ✅ |
 

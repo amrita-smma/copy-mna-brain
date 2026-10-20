@@ -17,6 +17,48 @@ export class CannotDeactivateSelfError extends Error {
   }
 }
 
+/** Raised when a superadmin tries to permanently delete their own account. */
+export class CannotDeleteSelfError extends Error {
+  constructor() {
+    super('You cannot delete your own account');
+    this.name = 'CannotDeleteSelfError';
+  }
+}
+
+/** Raised when a hard delete targets a user who is still active. */
+export class UserNotDeactivatedError extends Error {
+  constructor() {
+    super('Deactivate this user before deleting them permanently');
+    this.name = 'UserNotDeactivatedError';
+  }
+}
+
+/** Raised when the typed confirmation does not exactly match the user's name. */
+export class DeleteConfirmationMismatchError extends Error {
+  constructor() {
+    super("The name you typed doesn't match this user's name");
+    this.name = 'DeleteConfirmationMismatchError';
+  }
+}
+
+/**
+ * Raised when the user has history that must outlive them — votes they ran or
+ * cast, routines they created — and whose foreign keys block the delete.
+ */
+export class UserHasRetainedHistoryError extends Error {
+  constructor() {
+    super(
+      'This user has voting or routine history that must be kept, so they cannot be deleted. Keep them deactivated instead.',
+    );
+    this.name = 'UserHasRetainedHistoryError';
+  }
+}
+
+/** Postgres `foreign_key_violation`. */
+function isForeignKeyViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === '23503';
+}
+
 /** Admin-portal projection — never includes `password` or other secrets. */
 function toAdminUser(row: Tables<'users'>): AdminUserListItem {
   return {
@@ -86,6 +128,45 @@ export class UserService {
     if (existing.deactivated_at === null) return toAdminUser(existing);
     const row = await this.userRepo.reactivate(id);
     return toAdminUser(row ?? existing);
+  }
+
+  /**
+   * Permanently delete a user. Only allowed once the user is deactivated, never
+   * on the caller's own account, and only when `confirmName` exactly matches
+   * the user's current name (the admin portal makes the superadmin type it).
+   *
+   * Workspace memberships, chats, consents, assignments and similar per-user
+   * rows cascade away; authorship columns elsewhere are set to null. Votes and
+   * routines block the delete (`restrict` FKs) — that history must be kept, so
+   * such a user can only stay deactivated.
+   */
+  async hardDeleteUser(
+    actorUserId: string,
+    id: string,
+    confirmName: string,
+  ): Promise<AdminUserListItem> {
+    if (actorUserId === id) throw new CannotDeleteSelfError();
+    const existing = await this.userRepo.findById(id);
+    if (!existing) throw new UserNotFoundError(id);
+    if (existing.deactivated_at === null) throw new UserNotDeactivatedError();
+    if (confirmName !== existing.name) throw new DeleteConfirmationMismatchError();
+    if (await this.userRepo.hasDeleteBlockingHistory(id)) throw new UserHasRetainedHistoryError();
+
+    let row: Awaited<ReturnType<UserRepository['hardDeleteDeactivated']>>;
+    try {
+      row = await this.userRepo.hardDeleteDeactivated(id);
+    } catch (err) {
+      // A vote or routine created between the probe and the delete.
+      if (isForeignKeyViolation(err)) throw new UserHasRetainedHistoryError();
+      throw err;
+    }
+    if (!row) {
+      // Someone else got there between the read and the delete: either the
+      // user is already gone, or they were reactivated.
+      if (!(await this.userRepo.findById(id))) throw new UserNotFoundError(id);
+      throw new UserNotDeactivatedError();
+    }
+    return toAdminUser(row);
   }
 
   /**

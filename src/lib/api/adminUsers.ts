@@ -77,3 +77,14 @@ export function sendResetLink(id: string): Promise<{ success: true }> {
     { method: 'POST' },
   );
 }
+
+/**
+ * Permanently delete a deactivated user. `confirmName` must match the user's
+ * name exactly — the server re-checks it.
+ */
+export function hardDeleteUser(id: string, confirmName: string): Promise<AdminUser> {
+  return apiRequest<AdminUser>(`/api/users/${encodeURIComponent(id)}/hard-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ confirmName }),
+  });
+}

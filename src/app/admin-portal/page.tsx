@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -222,33 +222,36 @@ export default function AdminPortalPage() {
 
   const isAuthorized = !loading && Boolean(user?.isSuperadmin) && Boolean(user?.hasConsented);
 
-  // Users directory (for the member picker).
+  // Users directory (for the member picker). Re-run whenever the User
+  // Management section changes the directory (e.g. after inviting someone),
+  // so a newly invited user can be added to a workspace without a reload.
+  // The sequence ref drops a slower, superseded response.
+  const usersRequestSeqRef = useRef(0);
+  const loadDbUsers = useCallback(async () => {
+    const seq = ++usersRequestSeqRef.current;
+    try {
+      // scope=all: the member picker must offer users who are not yet in
+      // the workspace, so it needs the global directory rather than the
+      // workspace-scoped default.
+      const res = await fetch('/api/users?scope=all');
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+      if (!res.ok) throw new Error('Failed to load users');
+      const body = await res.json();
+      if (seq === usersRequestSeqRef.current) setDbUsers(body?.data ?? []);
+    } catch {
+      if (seq === usersRequestSeqRef.current) toast.error('Could not load users');
+    } finally {
+      if (seq === usersRequestSeqRef.current) setUsersLoading(false);
+    }
+  }, [router]);
+
   useEffect(() => {
     if (!isAuthorized) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        // scope=all: the member picker must offer users who are not yet in
-        // the workspace, so it needs the global directory rather than the
-        // workspace-scoped default.
-        const res = await fetch('/api/users?scope=all');
-        if (res.status === 401) {
-          router.replace('/login');
-          return;
-        }
-        if (!res.ok) throw new Error('Failed to load users');
-        const body = await res.json();
-        if (!cancelled) setDbUsers(body?.data ?? []);
-      } catch {
-        if (!cancelled) toast.error('Could not load users');
-      } finally {
-        if (!cancelled) setUsersLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthorized, router]);
+    loadDbUsers();
+  }, [isAuthorized, loadDbUsers]);
 
   // Every workspace (superadmin listing, not just the caller's own memberships).
   const loadWorkspaces = useCallback(async () => {
@@ -336,17 +339,22 @@ export default function AdminPortalPage() {
   };
 
   // Members of the selected workspace.
+  // The latest requested workspace — a slower response for a workspace the
+  // admin already switched away from must not overwrite the roster.
+  const membersRequestWorkspaceRef = useRef<string | null>(null);
   const loadMembers = useCallback(async (workspaceId: string) => {
+    membersRequestWorkspaceRef.current = workspaceId;
+    const isLatest = () => membersRequestWorkspaceRef.current === workspaceId;
     setMembersLoading(true);
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/members`);
       if (!res.ok) throw new Error('Failed to load members');
       const body = await res.json();
-      setMembers(body?.data ?? []);
+      if (isLatest()) setMembers(body?.data ?? []);
     } catch {
-      toast.error('Could not load members');
+      if (isLatest()) toast.error('Could not load members');
     } finally {
-      setMembersLoading(false);
+      if (isLatest()) setMembersLoading(false);
     }
   }, []);
 
@@ -356,6 +364,14 @@ export default function AdminPortalPage() {
     loadMembers(selectedId);
     loadFeatures(selectedId);
   }, [selectedId, loadMembers, loadFeatures]);
+
+  // The User Management section changed the directory: refresh the member
+  // picker, and the selected workspace's members (a rename shows there, and a
+  // hard delete cascades the membership away).
+  const handleUsersChanged = useCallback(() => {
+    loadDbUsers();
+    if (selectedId) loadMembers(selectedId);
+  }, [loadDbUsers, loadMembers, selectedId]);
 
   const usersById = useMemo(() => {
     const map = new Map<string, DbUser>();
@@ -699,7 +715,7 @@ export default function AdminPortalPage() {
       </header>
 
       <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-6 sm:px-8">
-        <UserManagementSection currentUserId={user?.id} />
+        <UserManagementSection currentUserId={user?.id} onUsersChanged={handleUsersChanged} />
 
         <div className="shrink-0 rounded-2xl border bg-card shadow-sm">
           <button

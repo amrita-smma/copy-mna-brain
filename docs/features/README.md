@@ -60,7 +60,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Google SSO sign-in](google-sso.md) — 6KB
 - [Admin routes (`/api/auth`)](admin-routes.md) — 1KB
 - [Account invite flow (admin-created users)](account-invite-flow.md) — 2KB
-- [User Management (admin portal)](user-management.md) — 2KB
+- [User Management (admin portal)](user-management.md) — 4KB
 - [Forgot-password flow (AWS SES + Vercel Queues)](forgot-password-flow.md) — 3KB
 - [Workspace display currency (USD / IDR / CNY)](workspace-display-currency.md) — 2KB
 - [Workspace soft delete (archive / reinstate)](workspace-soft-delete.md) — 3KB

@@ -289,3 +289,54 @@ describe('UserRepository.setCopilotMemoryEnabled', () => {
     expect(await repo.setCopilotMemoryEnabled('nobody', false)).toBe(false);
   });
 });
+
+describe('UserRepository.hasDeleteBlockingHistory', () => {
+  function makeProbeDb(rows: Array<{ blocked: boolean }>) {
+    const selectChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue(rows),
+    };
+    return { db: { select: vi.fn().mockReturnValue(selectChain) }, selectChain };
+  }
+
+  it('returns true when the probe reports blocking rows', async () => {
+    const { db } = makeProbeDb([{ blocked: true }]);
+    expect(await new UserRepository(db as never).hasDeleteBlockingHistory('u1')).toBe(true);
+  });
+
+  it('returns false when there are none', async () => {
+    const { db } = makeProbeDb([{ blocked: false }]);
+    expect(await new UserRepository(db as never).hasDeleteBlockingHistory('u1')).toBe(false);
+  });
+
+  it('returns false for an unknown id', async () => {
+    const { db } = makeProbeDb([]);
+    expect(await new UserRepository(db as never).hasDeleteBlockingHistory('nobody')).toBe(false);
+  });
+});
+
+describe('UserRepository.hardDeleteDeactivated', () => {
+  function makeDeleteDb(rows: unknown[]) {
+    const deleteChain = {
+      where: vi.fn().mockReturnThis(),
+      returning: vi.fn().mockResolvedValue(rows),
+    };
+    return { db: { delete: vi.fn().mockReturnValue(deleteChain) }, deleteChain };
+  }
+
+  it('returns the deleted row', async () => {
+    const row = { id: 'u1', name: 'Alice', deactivated_at: '2026-02-01T00:00:00.000Z' };
+    const { db, deleteChain } = makeDeleteDb([row]);
+
+    const result = await new UserRepository(db as never).hardDeleteDeactivated('u1');
+
+    expect(result).toEqual(row);
+    expect(db.delete).toHaveBeenCalledTimes(1);
+    expect(deleteChain.where).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns undefined when nothing matched (unknown or still active)', async () => {
+    const { db } = makeDeleteDb([]);
+    expect(await new UserRepository(db as never).hardDeleteDeactivated('u1')).toBeUndefined();
+  });
+});
