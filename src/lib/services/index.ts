@@ -13,6 +13,7 @@ export * from './investmentThesisService';
 export * from './dealDocumentService';
 export * from './dealNoteService';
 export * from './dealLinkService';
+export * from './featuredSlide';
 export * from './companyAnalysisService';
 export * from './aiOpinionService';
 export * from './aiScreeningService';

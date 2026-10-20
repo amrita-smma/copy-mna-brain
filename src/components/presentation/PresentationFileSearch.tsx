@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, FileType2, Presentation as PresentationIcon } from 'lucide-react';
 import {
   Command,
   CommandEmpty,
@@ -13,6 +12,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { searchFiles, type FileSearchResult } from '@/lib/api/files';
 import { detectFileKind, isPresentableFileKind } from '@/lib/fileType';
+import FileKindIcon from '@/components/Files/FileKindIcon';
 
 const DEBOUNCE_MS = 250;
 const PAGE_SIZE = 20;
@@ -141,16 +141,9 @@ export function PresentationFileSearch({ onSelect, className }: Props) {
             </CommandEmpty>
             <CommandGroup heading={browsing && results.length > 0 ? 'Recently uploaded' : undefined}>
               {results.map((file) => {
-                const kind = detectFileKind(file.file_name);
                 return (
                   <CommandItem key={file.id} value={file.id} onSelect={() => handleSelect(file)}>
-                    {kind === 'pptx' ? (
-                      <PresentationIcon className="mr-2 h-4 w-4 shrink-0 text-orange-500" />
-                    ) : kind === 'pdf' ? (
-                      <FileText className="mr-2 h-4 w-4 shrink-0 text-red-500" />
-                    ) : (
-                      <FileType2 className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
+                    <FileKindIcon fileName={file.file_name} className="mr-2" />
                     <span className="truncate">{file.file_name}</span>
                   </CommandItem>
                 );

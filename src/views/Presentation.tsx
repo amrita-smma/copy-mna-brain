@@ -4,25 +4,23 @@ import { Button } from "@/components/ui/button";
 import {
   Loader2,
   FileText,
-  FileType2,
   ArrowLeft,
   Download,
+  ExternalLink,
   ChevronLeft,
   ChevronRight,
-  Presentation as PresentationIcon,
   Clock,
   Maximize2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import {
-  usePresentationViewer,
-  fileKind,
-} from "@/components/presentation/PresentationViewerContext";
+import { usePresentationViewer } from "@/components/presentation/PresentationViewerContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PresentationFileSearch } from "@/components/presentation/PresentationFileSearch";
 import { detectFileKind, isPresentableFileKind } from "@/lib/fileType";
+import { isYouTubeVideoUrl } from "@/lib/media/youtube";
+import FileKindIcon from "@/components/Files/FileKindIcon";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface RecentFileItem {
@@ -134,10 +132,12 @@ export default function Presentation() {
   // ---------------------------------------------------------------------------
   if (showViewer) {
     const displayName = currentFile?.name ?? name;
-    const kind = fileKind(displayName);
+    const isYouTube = isYouTubeVideoUrl(signedUrl);
     // Fullscreen is available for any kind FileBody can actually render, not
     // just pdf/pptx — matches what the search picker offers as "presentable".
-    const canFullscreen = !!signedUrl && isPresentableFileKind(detectFileKind(displayName));
+    // A YouTube link has no extension to detect, so it is checked by URL.
+    const canFullscreen =
+      !!signedUrl && (isYouTube || isPresentableFileKind(detectFileKind(displayName)));
 
     return (
       <>
@@ -149,11 +149,7 @@ export default function Presentation() {
                 Recent files
               </Button>
               <div className="flex min-w-0 items-center gap-2">
-                {kind === "pptx" ? (
-                  <PresentationIcon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                ) : (
-                  <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                )}
+                <FileKindIcon fileName={displayName} youtube={isYouTube} />
                 <span className="truncate text-sm font-medium">{displayName || "File"}</span>
               </div>
             </div>
@@ -172,11 +168,12 @@ export default function Presentation() {
                   href={(downloadUrl || signedUrl) as string}
                   target="_blank"
                   rel="noreferrer"
-                  download={displayName || undefined}
+                  download={isYouTube ? undefined : displayName || undefined}
                 >
+                  {/* A YouTube link has no file behind it — offer the video page instead. */}
                   <Button variant="outline" size="sm" className="gap-1.5">
-                    <Download className="h-4 w-4" />
-                    Download
+                    {isYouTube ? <ExternalLink className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                    {isYouTube ? "Open on YouTube" : "Download"}
                   </Button>
                 </a>
               )}
@@ -240,20 +237,13 @@ export default function Presentation() {
           <>
             <ul className="divide-y rounded-lg border">
               {recent.map((item) => {
-                const kind = fileKind(item.file_name);
                 return (
                   <li key={item.id}>
                     <button
                       onClick={() => openRecent(item)}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
                     >
-                      {kind === "pptx" ? (
-                        <PresentationIcon className="h-5 w-5 flex-shrink-0 text-orange-500" />
-                      ) : kind === "pdf" ? (
-                        <FileText className="h-5 w-5 flex-shrink-0 text-red-500" />
-                      ) : (
-                        <FileType2 className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-                      )}
+                      <FileKindIcon fileName={item.file_name} className="h-5 w-5" />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {item.file_name}
                       </span>

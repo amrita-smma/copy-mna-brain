@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 211 | `src/app/api/**/route.ts` |
-| Services | 83 | `src/lib/services/` |
+| API routes | 212 | `src/app/api/**/route.ts` |
+| Services | 84 | `src/lib/services/` |
 | Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
 | Pages | 44 | `src/app/**/page.tsx` |
-| Migrations (app) | 166 | `drizzle/migrations/` |
+| Migrations (app) | 167 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -186,6 +186,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/deal-documents/feature` | POST, DELETE | `dealDocumentService` |
 | `/api/deal-documents/upload-url` | GET | — |
 | `/api/deal-links/[id]` | DELETE | `dealLinkService` |
+| `/api/deal-links/feature` | POST | `dealLinkService` |
 | `/api/deal-notes/[id]` | PATCH, DELETE | `dealNoteService` |
 | `/api/feedback` | POST | `feedbackService` |
 | `/api/fund-ledger/ai-opinion` | POST, DELETE | `fundAiOpinionService` |
@@ -350,6 +351,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `emailNotificationService.ts` | `EmailNotificationService` | ✅ |
 | `emailService.ts` | `EmailService` | ✅ |
 | `featureFlagsService.ts` | `UnknownFeatureError`, `FeatureFlagsService` | ✅ |
+| `featuredSlide.ts` | `UnsupportedFeaturedSlideError` | ✅ |
 | `feedbackService.ts` | `FeedbackService` | ✅ |
 | `fileService.ts` | `FileCompanyNameRequiredError`, `FileService` | ✅ |
 | `flBalanceService.ts` | `FlBalanceService` | ✅ |

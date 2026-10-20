@@ -12,7 +12,6 @@ import {
 import { usePathname } from 'next/navigation';
 import { Loader2, FileText } from 'lucide-react';
 import FileBody from '@/components/Files/FileBody';
-import { detectFileKind } from '@/lib/fileType';
 
 export interface PresentationFile {
   /** Stable S3 key (preferred — re-signs on demand, recorded as recently-opened). */
@@ -20,15 +19,6 @@ export interface PresentationFile {
   /** Pre-signed URL fallback when no key is available. */
   url?: string;
   name: string;
-}
-
-export type PresentationKind = 'pdf' | 'pptx' | 'other';
-
-export function fileKind(name: string): PresentationKind {
-  const kind = detectFileKind(name);
-  if (kind === 'pdf') return 'pdf';
-  if (kind === 'pptx') return 'pptx';
-  return 'other';
 }
 
 interface PresentationViewerContextValue {

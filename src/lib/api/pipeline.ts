@@ -277,11 +277,36 @@ export async function addCompanyLink(
   title?: string,
   stage?: string | null,
   createdAt?: string | null,
+  featured?: boolean,
 ) {
   return apiRequest<any>(`/api/companies/${encodeURIComponent(id)}/links`, {
     method: 'POST',
-    body: JSON.stringify({ url, title, stage, createdAt }),
+    body: JSON.stringify({ url, title, stage, createdAt, featured }),
   });
+}
+
+/** Features an existing attachment (PDF / PPTX / video / audio) as the company's Featured Slide. */
+export async function featureDealDocument(dealId: string, documentId: string) {
+  return apiRequest<{ success: boolean }>('/api/deal-documents/feature', {
+    method: 'POST',
+    body: JSON.stringify({ dealId, documentId }),
+  });
+}
+
+/** Features an existing YouTube link as the company's Featured Slide. */
+export async function featureDealLink(dealId: string, linkId: string) {
+  return apiRequest<{ success: boolean }>('/api/deal-links/feature', {
+    method: 'POST',
+    body: JSON.stringify({ dealId, linkId }),
+  });
+}
+
+/** Unfeatures whichever document or link is the company's Featured Slide. */
+export async function clearFeaturedSlide(dealId: string) {
+  return apiRequest<{ success: boolean }>(
+    `/api/deal-documents/feature?dealId=${encodeURIComponent(dealId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 /** Rewrites a timeline note's body in place. */

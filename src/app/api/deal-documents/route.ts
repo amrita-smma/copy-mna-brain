@@ -3,6 +3,7 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import { InvalidOccurredAtError } from '@/lib/timeline/occurredAt';
+import { UnsupportedFeaturedSlideError } from '@/lib/services/featuredSlide';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof InvalidOccurredAtError) {
+    if (error instanceof InvalidOccurredAtError || error instanceof UnsupportedFeaturedSlideError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error('Register deal document error:', error);

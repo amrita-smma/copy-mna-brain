@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import FilePreview from '@/components/Files/FilePreview';
+import { isYouTubeVideoUrl } from '@/lib/media/youtube';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,13 +67,15 @@ export interface TimelineDocumentItem {
   file_path?: string;
 }
 
-/** A URL attached to the deal. */
+/** A URL attached to the deal. A YouTube video link previews inline. */
 export interface TimelineLinkItem {
   id: string;
   url: string;
   title: string | null;
   stage: string;
   created_at: string | null;
+  /** The deal's Featured Slide (YouTube links only). */
+  is_featured?: boolean;
 }
 
 /** A Smart File that references this company (`files.matched_companies`). */
@@ -984,9 +987,26 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
       )}
 
       {event.kind === 'link' && (
-        <Badge variant="outline" className="text-xs">
-          {getStageLabel(event.item.stage)}
-        </Badge>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {event.item.is_featured && (
+              <Badge variant="outline" className="text-xs gap-1">
+                <Star className="h-3 w-3" />
+                Featured slide
+              </Badge>
+            )}
+            <Badge variant="outline" className="text-xs">
+              {getStageLabel(event.item.stage)}
+            </Badge>
+          </div>
+          {/* A YouTube link plays in place, like an uploaded recording does;
+              any other link stays a link. */}
+          {isYouTubeVideoUrl(event.item.url) && (
+            <div className="h-[60vh] w-full overflow-hidden rounded-md border bg-card">
+              <FilePreview url={event.item.url} fileName={event.title} />
+            </div>
+          )}
+        </div>
       )}
 
       {event.kind === 'file' && (

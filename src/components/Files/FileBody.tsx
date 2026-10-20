@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react';
 import mammoth from 'mammoth';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Loader2, FileText, AlertCircle, Download } from 'lucide-react';
+import { Loader2, FileText, AlertCircle, Download, Music } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import PdfViewer, { LazyPdfSlideViewer } from '@/components/Files/LazyPdfViewer';
 import { detectFileKind } from '@/lib/fileType';
+import { youTubeEmbedUrl } from '@/lib/media/youtube';
 
 interface FileBodyProps {
   url: string;
@@ -24,8 +25,9 @@ interface FileBodyProps {
 
 /**
  * Renders the appropriate preview for a file's kind (PDF, PPTX, DOCX, image,
- * text, markdown — falling back to a download prompt for anything else),
- * filling its container. Shared between `FilePreview` (the dialog preview)
+ * text, markdown, video, audio — falling back to a download prompt for
+ * anything else), filling its container. A YouTube video URL is recognised by
+ * the URL itself, whatever `fileName` says, and plays in an embedded player. Shared between `FilePreview` (the dialog preview)
  * and the Presentation tab's persistent full-screen viewer so both support
  * exactly the same set of "presentable" file kinds — a file that previews
  * fine in a dialog can't dead-end into "not supported" once presented.
@@ -35,7 +37,8 @@ export default function FileBody({ url, fileName, onDownload, pdfLayout = 'scrol
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const fileType = detectFileKind(fileName);
+  const youTubeEmbed = youTubeEmbedUrl(url);
+  const fileType = youTubeEmbed ? 'youtube' : detectFileKind(fileName);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +65,7 @@ export default function FileBody({ url, fileName, onDownload, pdfLayout = 'scrol
       }
     };
 
-    if (fileType === 'image' || fileType === 'pdf' || fileType === 'pptx' || fileType === 'unknown') {
+    if (fileType !== 'docx' && fileType !== 'text' && fileType !== 'markdown') {
       setLoading(false);
       setError(null);
     } else {
@@ -105,6 +108,60 @@ export default function FileBody({ url, fileName, onDownload, pdfLayout = 'scrol
           )}
           Download instead
         </Button>
+      </div>
+    );
+  }
+
+  if (youTubeEmbed) {
+    return (
+      <div className="h-full w-full rounded-md border overflow-hidden bg-black">
+        <iframe
+          src={youTubeEmbed}
+          className="w-full h-full"
+          title={fileName || 'YouTube video'}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+        />
+      </div>
+    );
+  }
+
+  if (fileType === 'video') {
+    return (
+      <div className="h-full w-full rounded-md border overflow-hidden bg-black flex items-center justify-center">
+        {/* Keyed on `url` so switching files restarts playback instead of
+            keeping the previous file's position. */}
+        <video
+          key={url}
+          src={url}
+          controls
+          preload="metadata"
+          playsInline
+          className="max-h-full max-w-full"
+          onError={() => setError('This video could not be played in the browser')}
+        >
+          {fileName}
+        </video>
+      </div>
+    );
+  }
+
+  if (fileType === 'audio') {
+    return (
+      <div className="h-full w-full rounded-md border bg-muted flex flex-col items-center justify-center gap-4 p-6">
+        <Music className="h-12 w-12 text-muted-foreground" />
+        <p className="max-w-full truncate text-sm font-medium">{fileName}</p>
+        <audio
+          key={url}
+          src={url}
+          controls
+          preload="metadata"
+          className="w-full max-w-xl"
+          onError={() => setError('This recording could not be played in the browser')}
+        >
+          {fileName}
+        </audio>
       </div>
     );
   }
@@ -176,7 +233,7 @@ export default function FileBody({ url, fileName, onDownload, pdfLayout = 'scrol
       <FileText className="h-12 w-12 text-muted-foreground opacity-50" />
       <div className="text-center">
         <p className="font-medium">No preview available</p>
-        <p className="text-sm text-muted-foreground">Supported previews: PDF, DOCX, PPTX, TXT, MD, PNG, JPG, JPEG</p>
+        <p className="text-sm text-muted-foreground">Supported previews: PDF, DOCX, PPTX, TXT, MD, PNG, JPG, JPEG, video and audio</p>
       </div>
       <Button variant="outline" onClick={handleDownload} disabled={!onDownload || downloading}>
         {downloading ? (

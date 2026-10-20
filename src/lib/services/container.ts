@@ -302,7 +302,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   );
   const trackVariableService = lazy(() => new TrackVariableService(trackVariableRepo()));
   const dealNoteService = lazy(() => new DealNoteService(dealNoteRepo()));
-  const dealLinkService = lazy(() => new DealLinkService(dealLinkRepo()));
+  const dealLinkService = lazy(() => new DealLinkService(dealLinkRepo(), dealDocRepo()));
   const jobService = lazy(() => new JobService(jobRepo(), db));
   const authService = lazy(() => new AuthService(userRepo(), resetTokenRepo()));
   const userService = lazy(() => new UserService(userRepo(), workspaceId, authService()));
@@ -403,7 +403,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
       new CompanyRelationshipService(companyRepo(), companyService(), companyGraphService()),
   );
   const dealDocumentService = lazy(
-    () => new DealDocumentService(dealDocRepo(), jobDispatcher(), workspaceId),
+    () => new DealDocumentService(dealDocRepo(), dealLinkRepo(), jobDispatcher(), workspaceId),
   );
   const recentFileService = lazy(() => new RecentFileService(recentFileRepo()));
   const userTaskService = lazy(

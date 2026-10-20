@@ -11,7 +11,7 @@ A company is read in two places: the full page `CompanyDetail.tsx`
 | Timeline | Every dated event on the deal, plus all manual entry. |
 | Details | Market Scanning Remarks (outbound), financials, Company Information, contact details ([company-contacts](company-contacts.md)), relationship graph, track variables, stage history, AI card. |
 | Pre-pipeline Filters | AI screening results against each matched track's criteria — run in Pending Confirmation (Scan now, Auto-scan, or a row's Run AI Screening); results stay with the company after it moves to L0. Pipeline's AI Screening tab opens the dialog here. |
-| Voting | The Investment-Committee round, beside a half-width Featured Slide preview (rules in a "How voting works" tooltip). |
+| Voting | The Investment-Committee round, beside a half-width Featured Slide preview — deck, recording or YouTube video (rules in a "How voting works" tooltip). |
 
 The page mirrors its tab in `?tab=`, so each switch is a history entry and Back
 returns to the tab you came from. `resolveTab()` in `CompanyDetail.tsx` also maps
@@ -46,11 +46,40 @@ half so neither pushes the other off screen:
   already supplies the title, description and border. The card keeps its own
   edit/save behaviour; its text still feeds the AI Opinion, the company card and
   slide generation, and the agent read tools.
-- **Featured Slide** — the highlighted PDF/PPTX one-pager, its upload / replace /
-  remove / present actions, and the `ExistingAttachmentPicker`. It always starts
-  collapsed, and names the current slide in its header instead: the viewer is
-  70–75vh tall, and the documents it reads land after the tab first renders, so
-  an `open` derived from them would pop the section open mid-read.
+- **Featured Slide** — one highlighted item: a PDF / PPTX deck, a video or
+  audio recording, or a YouTube video. Its upload / replace / remove / present
+  actions, the YouTube-link form, and the `ExistingAttachmentPicker` (existing
+  featurable uploads *and* YouTube links) live in `FeaturedSlideSection`, driven
+  by the `useFeaturedSlide` hook (`src/components/pipeline/featured/`) — both
+  the page and the dialog render that one component, and the Voting tab takes
+  the hook's `slide` state. It always starts collapsed, and names the current
+  slide in its header instead: the viewer is 70–75vh tall, and the documents it
+  reads land after the tab first renders, so an `open` derived from them would
+  pop the section open mid-read.
+
+### What a featured slide can be
+
+An upload is a `deal_documents` row with `is_featured`; a YouTube link is a
+`deal_links` row with `is_featured`. Each table has a partial unique index (one
+featured row per deal), and `DealDocumentService` / `DealLinkService` clear
+**both** tables' flags before setting their own, so a deal has one featured item
+overall. `DELETE /api/deal-documents/feature` unfeatures whichever holds it;
+`POST /api/deal-links/feature` features an existing link, and
+`POST /api/companies/:id/links` with `featured: true` adds and features one in a
+single step. Featurable kinds are `isFeaturableFileKind` (`src/lib/fileType.ts`)
+and `isYouTubeVideoUrl` (`src/lib/media/youtube.ts`); anything else is an
+`UnsupportedFeaturedSlideError` → **400**.
+
+Video and audio uploads skip the `deal_document_processing` job (stored as
+`processing_status: 'skipped'`) — there is no text to extract, and the job
+would load the whole recording into memory to find that out.
+
+Rendering lives in `FileBody`, so every preview surface — this section, the
+Voting panel, the Timeline, Smart Files, chat and the Presentation page — plays
+the same kinds: a `<video>` / `<audio>` element for recordings, and a
+`youtube-nocookie.com` embed for any YouTube video URL (detected from the URL,
+not the file name). A YouTube preview's toolbar offers **Open on YouTube** in
+place of Download, since there is no file to download.
 
 ## Timeline
 
@@ -67,13 +96,14 @@ signed preview URL for a selected attachment (through the parent's
 | Stage change | `company_logs`, via `companyLogsToStageHistory` |
 | Note | `deal_notes` |
 | Upload | `deal_documents` (the featured one is badged) |
-| Link | `deal_links` |
+| Link | `deal_links` (a YouTube video link plays inline) |
 | File reference | `files` rows whose `matched_companies` include this company |
 
 Each rail card shows its kind, its date, and a paperclip or link glyph when the
 entry carries one; the rail renders `PAGE_SIZE` entries and **Load more…**
 extends the window. Selecting a card fills the reading pane: a note's full body,
-a document's processing status, tags and AI insights, a link's URL, a Smart
+a document's processing status, tags and AI insights, a link's URL (and an
+inline player when it is a YouTube video), a Smart
 File's AI insights and open-in-Smart-Files, or a stage change's label. A
 document or Smart File previews **inline** below that, in a `FilePreview` with
 its Present / Download toolbar — there is no Preview button or preview dialog. **Close** clears the selection and the pane returns to its empty

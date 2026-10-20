@@ -1101,9 +1101,16 @@ export const dealLinks = pgTable(
     title: text(),
     stage: text().notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
+    // A YouTube link can be the deal's Featured Slide. The featured slide is
+    // one item across deal_links and deal_documents; the services clear the
+    // other table's flag before setting this one.
+    is_featured: boolean().default(false).notNull(),
   },
   (table) => {
     return {
+      uqDealLinksOneFeatured: uniqueIndex("uq_deal_links_one_featured")
+        .using("btree", table.deal_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`is_featured = true`),
       idxDealLinksDealId: index("idx_deal_links_deal_id").using(
         "btree",
         table.deal_id.asc().nullsLast().op("uuid_ops"),

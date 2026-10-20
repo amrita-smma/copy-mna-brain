@@ -1163,6 +1163,13 @@
       "when": 1792368007000,
       "tag": "20261019000007_workforce_failure_seen_at",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1792454400000,
+      "tag": "20261020000000_deal_links_is_featured",
+      "breakpoints": true
     }
   ]
 }

@@ -16,15 +16,19 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Check, FileText, Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
+import FileKindIcon from '@/components/Files/FileKindIcon';
 
 export interface ExistingAttachmentOption {
   id: string;
+  /** Display label — a file name, or a link's title / URL. */
   file_name: string;
+  /** A YouTube link rather than an uploaded file — drives the row icon. */
+  youtube?: boolean;
 }
 
 interface ExistingAttachmentPickerProps {
-  /** Candidate documents to search — the caller filters these to a presentable kind (PDF/PPTX). */
+  /** Candidate attachments to search — the caller filters these to featurable kinds. */
   documents: ExistingAttachmentOption[];
   /** Fires once with the chosen document's id, then the popover closes. */
   onSelect: (documentId: string) => void;
@@ -49,7 +53,7 @@ export default function ExistingAttachmentPicker({
   disabled,
   triggerLabel = 'Choose existing',
   searchPlaceholder = 'Search attachments…',
-  emptyText = 'No PDF or PPTX attachments yet.',
+  emptyText = 'No featurable attachments yet.',
   className,
 }: ExistingAttachmentPickerProps) {
   const [open, setOpen] = useState(false);
@@ -112,7 +116,7 @@ export default function ExistingAttachmentPicker({
                       selectedId === d.id ? 'opacity-100' : 'opacity-0',
                     )}
                   />
-                  <FileText className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <FileKindIcon fileName={d.file_name} youtube={d.youtube} className="mr-2" />
                   <span className="truncate">{d.file_name}</span>
                 </CommandItem>
               ))}

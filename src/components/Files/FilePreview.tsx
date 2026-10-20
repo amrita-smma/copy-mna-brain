@@ -2,10 +2,11 @@
 
 import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Download, Loader2, Presentation } from 'lucide-react';
+import { Download, ExternalLink, Loader2, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import FileBody from '@/components/Files/FileBody';
+import { isYouTubeVideoUrl } from '@/lib/media/youtube';
 
 interface FilePreviewProps {
   url: string;
@@ -34,11 +35,15 @@ interface FilePreviewProps {
  * A file preview with its toolbar: Present (open in the Presentation tab) and
  * Download. Use this — not a bare `FileBody` — wherever a file is previewed,
  * so a preview is never shown without a way to download the file.
+ *
+ * A YouTube video `url` previews the same way, but there is no file to
+ * download, so its toolbar offers Open on YouTube in Download's place.
  */
 export default function FilePreview({ url, onDownload, fileName, fileKey, title }: FilePreviewProps) {
   const router = useRouter();
   const presentationHref = useWorkspaceHref('/presentation');
   const [downloading, setDownloading] = useState(false);
+  const isYouTube = isYouTubeVideoUrl(url);
 
   // Open the file by itself in the Presentation page. Prefer the stable S3
   // key (re-openable + recorded as recently-opened); fall back to the signed
@@ -87,23 +92,32 @@ export default function FilePreview({ url, onDownload, fileName, fileKey, title 
             <Presentation className="h-4 w-4" />
             Present
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void handleDownload()}
-            disabled={downloading}
-            title={`Download ${fileName}`}
-            className="gap-1.5"
-            data-testid="file-preview-download"
-          >
-            {downloading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            Download
-          </Button>
+          {isYouTube ? (
+            <Button variant="outline" size="sm" className="gap-1.5" asChild>
+              <a href={url} target="_blank" rel="noopener noreferrer" title="Open on YouTube">
+                <ExternalLink className="h-4 w-4" />
+                Open on YouTube
+              </a>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              title={`Download ${fileName}`}
+              className="gap-1.5"
+              data-testid="file-preview-download"
+            >
+              {downloading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Download
+            </Button>
+          )}
         </div>
       </div>
       <div className="min-h-0 flex-1">

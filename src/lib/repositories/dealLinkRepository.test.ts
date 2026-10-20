@@ -6,6 +6,9 @@ interface MockDb {
   from: ReturnType<typeof vi.fn>;
   where: ReturnType<typeof vi.fn>;
   orderBy: ReturnType<typeof vi.fn>;
+  limit: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   values: ReturnType<typeof vi.fn>;
   returning: ReturnType<typeof vi.fn>;
@@ -18,6 +21,9 @@ function makeMockDb(): MockDb {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     orderBy: vi.fn(),
+    limit: vi.fn(),
+    update: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     returning: vi.fn(),
@@ -72,5 +78,31 @@ describe('DealLinkRepository', () => {
       expect(await repoA.findByDealId('deal-1')).toHaveLength(1);
       expect(await repoB.findByDealId('deal-1')).toHaveLength(0);
     });
+  });
+
+  it('findById returns the row scoped to this workspace', async () => {
+    const row = { id: 'link1', deal_id: 'deal-1' };
+    mockDb.limit.mockResolvedValueOnce([row]);
+
+    await expect(repo.findById('link1')).resolves.toEqual(row);
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
+  it('findById throws when the link is missing or in another workspace', async () => {
+    mockDb.limit.mockResolvedValueOnce([]);
+    await expect(repo.findById('link1')).rejects.toThrow(/not found/);
+  });
+
+  it('markFeatured sets is_featured on the one link, scoped to this workspace', async () => {
+    await repo.markFeatured('link1');
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.set).toHaveBeenCalledWith({ is_featured: true });
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
+  });
+
+  it('clearFeaturedByDealId unsets is_featured scoped to the deal and this workspace', async () => {
+    await repo.clearFeaturedByDealId('deal-1');
+    expect(mockDb.set).toHaveBeenCalledWith({ is_featured: false });
+    expect(mockDb.where).toHaveBeenCalledTimes(2);
   });
 });
