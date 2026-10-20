@@ -949,8 +949,6 @@ function AICompanyCard({
               >
                 {source.type === "database" || source.type === "files" ? (
                   <FileText className="h-3 w-3" />
-                ) : source.type === "inven" ? (
-                  <Search className="h-3 w-3" />
                 ) : (
                   <Globe className="h-3 w-3" />
                 )}

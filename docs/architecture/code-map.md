@@ -14,7 +14,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 |---|---|---|
 | API routes | 211 | `src/app/api/**/route.ts` |
 | Services | 83 | `src/lib/services/` |
-| Repositories | 76 | `src/lib/repositories/` |
+| Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 10 | `src/lib/jobs/handlers/` |
 | Feature flags | 11 | `src/lib/flags.ts` |
@@ -461,7 +461,6 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `insightRunDraftRepository.ts` | `InsightRunDraftRepository` | ✅ |
 | `insightTemplateRepository.ts` | `InsightTemplateRepository` | ✅ |
 | `insightVersionRepository.ts` | `InsightVersionRepository` | ✅ |
-| `invenCacheRepository.ts` | `InvenCacheRepository` | ❌ |
 | `investmentThesisRepository.ts` | `InvestmentThesisRepository` | ✅ |
 | `jobRepository.ts` | `JobRepository` | ✅ |
 | `pipelineStageRepository.ts` | `PipelineStageRepository` | ✅ |
@@ -485,7 +484,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `workspaceRepository.ts` | `WorkspaceRepository` | ✅ |
 | `workspaceTableLayoutRepository.ts` | `WorkspaceTableLayoutRepository` | ✅ |
 
-**Repositories with no `.test.ts`:** `dailyPulseRepository.ts`, `invenCacheRepository.ts`, `resetPasswordTokenRepository.ts`, `types.ts`
+**Repositories with no `.test.ts`:** `dailyPulseRepository.ts`, `resetPasswordTokenRepository.ts`, `types.ts`
 
 ## Agents
 
@@ -494,7 +493,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 75 | 69/75 | ✅ |
+| `analysis` | 73 | 67/73 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 6 | 6/6 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |

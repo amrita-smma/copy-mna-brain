@@ -96,9 +96,8 @@ You have access to these tools — USE THEM ALL to gather comprehensive informat
 
 **Research steps you MUST follow:**
 1. Use \`get_company_details\` to retrieve internal database information about "{companyName}"
-2. Use \`inven_paid_data_source_search\` to find the company on Inven, then \`inven_paid_data_source_enrichment\` for detailed data
-3. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors"). Run it several times, from different angles, and always include one search for what has happened to the company lately (e.g., "{companyName} latest news funding acquisition results") — a card built without that search describes the company as it was, not as it is
-4. Use \`query_files\` to check if there are any internal files about this company beyond the ones already inlined under "Existing Card & Source Freshness" below
+2. Use \`web_search\` to research the company's website, products, market position, recent news, and competitive landscape (e.g., "{companyName} company overview products services", "{companyName} revenue market position competitors"). Run it several times, from different angles, and always include one search for what has happened to the company lately (e.g., "{companyName} latest news funding acquisition results") — a card built without that search describes the company as it was, not as it is
+3. Use \`query_files\` to check if there are any internal files about this company beyond the ones already inlined under "Existing Card & Source Freshness" below
 
 **If an "Existing Card & Source Freshness" section appears below, read it FIRST.** It carries the date the previous card was generated, the company's own documents with their dates, and the rule for resolving contradictions between them — the later-dated source always wins.
 
@@ -186,15 +185,14 @@ Respond ONLY with a JSON object. Each section value should be a markdown string 
   "investment_risks": "- **Contract Structure**: ...\\n- **Margin Trajectory**: ...\\n...",
   "diligence_priorities": "1. Question one?\\n2. Question two?\\n...",
   "logo_url": "https://...",
-  "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "inven"}, {"type": "{source}"}],
+  "sources_used": [{"type": "database"}, {"type": "web", "url": "https://...", "title": "..."}, {"type": "{source}"}],
   "related_companies": [{"name": "Some Customer Inc", "relation_type": "SELLS_TO", "notes": "Key buyer of {companyName}'s wafers", "evidence": "https://..."}]
 }
 \`\`\`
 
 For \`logo_url\`: find the company's official logo. Try these sources in order:
 1. The company's own website favicon/logo (e.g. https://companydomain.com/favicon.ico or look for og:image in their homepage)
-2. If using Inven data, use the \`logo_url\` field from the enrichment result
-3. If none found, set to null
+2. If none found, set to null — the existing logo is kept
 
 Include ONLY the sources you actually used in \`sources_used\`. Respond with the JSON object only, no additional text.`;
 
@@ -458,7 +456,9 @@ export async function generateCompanyCard(
     investment_risks: analysisResult.investment_risks,
     diligence_priorities: analysisResult.diligence_priorities,
     sources: analysisResult.sources_used || [],
-    logo_url: analysisResult.logo_url ?? null,
+    // Only overwrite the logo when this run found one. A regeneration whose
+    // research turned up no logo must not wipe the one an earlier run saved.
+    ...(analysisResult.logo_url ? { logo_url: analysisResult.logo_url } : {}),
     error_message: null,
   });
 

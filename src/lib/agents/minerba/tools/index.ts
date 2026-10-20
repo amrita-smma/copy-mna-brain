@@ -12,10 +12,7 @@
  *     found by search.
  *   - read_relationship_graph — ownership chains already recorded internally
  *     (control layer: ownership chain depth, related-party offtake).
- *   - inven_paid_data_source_search / inven_paid_data_source_enrichment —
- *     premium data, granted for now while the public sources stay thin:
- *     firmographics (headcount, revenue estimate, ownership) for unlisted
- *     holders and operators. Valyu comes with the core.
+ *   - Valyu (premium search) comes with the core.
  */
 import {
   getCompanyProfile,
@@ -25,8 +22,6 @@ import {
   readRelationshipGraph,
   valyuExtractContent,
 } from '@/lib/agents/analysis/tools';
-import { invenPaidDataSourceEnrichment } from '@/lib/agents/analysis/tools/inven_paid_data_source_enrichment';
-import { invenPaidDataSourceSearch } from '@/lib/agents/analysis/tools/inven_paid_data_source_search';
 import { composeSectorTools } from '@/lib/agents/sector/coreTools';
 
 export const MINERBA_EXTRA_TOOLS = [
@@ -36,8 +31,6 @@ export const MINERBA_EXTRA_TOOLS = [
   getSectorContext,
   valyuExtractContent,
   readRelationshipGraph,
-  invenPaidDataSourceSearch,
-  invenPaidDataSourceEnrichment,
 ];
 
 export const MINERBA_TOOLS = composeSectorTools(MINERBA_EXTRA_TOOLS);

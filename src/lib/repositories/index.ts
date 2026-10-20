@@ -21,7 +21,6 @@ export * from './userRepository';
 export * from './resetPasswordTokenRepository';
 export * from './recentFileRepository';
 export * from './userTaskRepository';
-export * from './invenCacheRepository';
 export * from './employerRepository';
 export * from './employerDomainRepository';
 export * from './employerOverrideRepository';

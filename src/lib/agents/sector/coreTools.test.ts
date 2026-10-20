@@ -21,8 +21,6 @@ import {
   vcTools,
   valyuSearch,
 } from '@/lib/agents/analysis/tools';
-import { invenPaidDataSourceEnrichment } from '@/lib/agents/analysis/tools/inven_paid_data_source_enrichment';
-import { invenPaidDataSourceSearch } from '@/lib/agents/analysis/tools/inven_paid_data_source_search';
 import { financialEquityAnalysis } from '@/lib/agents/analysis/tools/financial_equity_analysis';
 import { SECTOR_CHAT_CORE_TOOLS, SECTOR_WORKFORCE_CORE_TOOLS, composeSectorTools } from './coreTools';
 import { MINERBA_EXTRA_TOOLS, MINERBA_TOOLS } from '@/lib/agents/minerba/tools';
@@ -32,10 +30,9 @@ import { BANGUN_EXTRA_TOOLS, BANGUN_TOOLS } from '@/lib/agents/bangun/tools';
 const names = (list: ReadonlyArray<{ name: string }>) => list.map((t) => t.name);
 
 /**
- * Every existing tool object: what any agent is built with, plus the Inven
- * premium-data tools, which live under analysis/tools but no general flavour
- * registers, and the equity-analysis calculator, which @minority and the
- * workforce list append rather than it living in one of the shared arrays.
+ * Every existing tool object: what any agent is built with, plus the
+ * equity-analysis calculator, which @minority and the workforce list append
+ * rather than it living in one of the shared arrays.
  */
 const EXISTING_TOOLS = new Set([
   ...tools,
@@ -45,8 +42,6 @@ const EXISTING_TOOLS = new Set([
   ...combinedTools,
   ...vcTools,
   valyuSearch,
-  invenPaidDataSourceSearch,
-  invenPaidDataSourceEnrichment,
   financialEquityAnalysis,
 ]);
 
@@ -130,11 +125,7 @@ describe('composeSectorTools', () => {
 });
 
 describe('premium data access', () => {
-  const PREMIUM = [
-    'valyu_search',
-    'inven_paid_data_source_search',
-    'inven_paid_data_source_enrichment',
-  ];
+  const PREMIUM = ['valyu_search', 'valyu_extract_content'];
 
   it.each([
     ['minerba', MINERBA_TOOLS],
@@ -147,10 +138,14 @@ describe('premium data access', () => {
     expect(names(set.workforce)).not.toContain('alphasense_search');
   });
 
-  it('@bangun is not granted Inven', () => {
+  it.each([
+    ['minerba', MINERBA_TOOLS],
+    ['dikti', DIKTI_TOOLS],
+    ['bangun', BANGUN_TOOLS],
+  ] as const)('%s does not register the removed Inven tools', (_key, set) => {
     for (const role of ['chat', 'workforce'] as const) {
-      expect(names(BANGUN_TOOLS[role])).not.toContain('inven_paid_data_source_search');
-      expect(names(BANGUN_TOOLS[role])).not.toContain('inven_paid_data_source_enrichment');
+      expect(names(set[role])).not.toContain('inven_paid_data_source_search');
+      expect(names(set[role])).not.toContain('inven_paid_data_source_enrichment');
     }
   });
 });

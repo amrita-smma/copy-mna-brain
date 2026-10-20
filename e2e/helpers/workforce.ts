@@ -190,7 +190,7 @@ export const baseTraceStep = (overrides: Partial<TraceStep> = {}): TraceStep => 
   status: 'done',
   stepNumber: 1,
   title: 'Search configured sources',
-  description: 'Queried Inven.AI and the SEMI directory.',
+  description: 'Queried the SEMI directory.',
   timestamp: '06:00:05',
   ...overrides,
 });

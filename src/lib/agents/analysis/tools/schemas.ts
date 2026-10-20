@@ -83,28 +83,3 @@ export const companyScreeningDerivedSchema = [
   { name: "fx_ebitda_above_10_l3y", type: "boolean" },
   { name: "fx_rationale", type: "text" },
 ];
-
-export const invenCacheSchema = [
-  // Inven-specific identifiers
-  { name: "inven_company_id", type: "text" },
-  { name: "domain", type: "text" },
-  { name: "inven_company_name", type: "text" },
-  { name: "website", type: "text" },
-  { name: "linkedin", type: "text" },
-  { name: "description", type: "text" },
-  { name: "logo_url", type: "text" },
-  // Headcount
-  { name: "headcount_min", type: "integer" },
-  { name: "headcount_max", type: "integer" },
-  { name: "employee_count", type: "integer" },
-  // Financial estimates
-  { name: "revenue_estimate_usd_millions", type: "numeric" },
-  // Company info
-  { name: "ownership", type: "text" },
-  { name: "founded_year", type: "integer" },
-  { name: "headquarters_city", type: "text" },
-  { name: "headquarters_state", type: "text" },
-  { name: "headquarters_country_code", type: "text" },
-  // Plus all companies columns for enrichment
-  ...companiesSchema,
-];

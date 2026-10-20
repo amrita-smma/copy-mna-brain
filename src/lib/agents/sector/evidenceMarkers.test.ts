@@ -229,6 +229,8 @@ describe('source and unavailable snippets', () => {
     // Retired: still a valid stored kind, but never offered to the model.
     expect(SOURCE_KINDS).toContain('alphasense');
     expect(INSIGHT_SOURCES_GUIDE).not.toContain('alphasense');
+    expect(SOURCE_KINDS).toContain('inven');
+    expect(INSIGHT_SOURCES_GUIDE).not.toContain('inven');
     expect(INSIGHT_UNAVAILABLE_GUIDE).toContain(unavailableMarkerHtml('REASON'));
     expect(WORKFORCE_SOURCES_WRITE_ORDER).toContain('replace_insight_document');
   });
@@ -266,6 +268,13 @@ describe('findSourceMarkerProblems', () => {
     expect(findSourceMarkerProblems(html)).toEqual([]);
   });
 
+  it('still accepts the retired inven source kind on an existing document', () => {
+    const html = `<p>Output rose to 62.1 Mt${sourceRefHtml('S1')}.</p>${sourcesSectionHtml([
+      { ...ENTRY, kind: 'inven', locator: 'inven_paid_data_source_search: Adaro' },
+    ])}`;
+    expect(findSourceMarkerProblems(html)).toEqual([]);
+  });
+
   it('accepts a document with no source markers at all', () => {
     expect(findSourceMarkerProblems('<html><body><p>Revenue was $42M in FY2024.</p></body></html>')).toEqual([]);
   });
@@ -294,7 +303,7 @@ describe('findSourceMarkerProblems', () => {
     [entryWith({ feeds: 'FEEDS' }), 'replace the FEEDS placeholder'],
     [
       '<li data-source-id="S1" data-source-kind="blog" data-retrieved="2026-09-01" data-feeds="x">a</li>',
-      'data-source-kind must be one of web, valyu, inven, internal, insight',
+      'data-source-kind must be one of web, valyu, internal, insight',
     ],
     ['<td data-evidence="unavailable">Unavailable</td>', 'an unavailable cell needs data-reason'],
     ['<td data-evidence="unavailable" data-reason=" ">Unavailable</td>', 'an unavailable cell needs data-reason'],

@@ -58,7 +58,6 @@ export function renderPremiumSources(): string {
 Beyond the public sources above, you have the firm's licensed data. Use it before concluding a figure cannot be found:
 
 - \`valyu_search\` and \`valyu_extract_content\` — filings, research and news corpora, and full-text extraction from a page you found.
-- \`inven_paid_data_source_search\`, then \`inven_paid_data_source_enrichment\` with the Inven company IDs it returns — firmographics (headcount, revenue estimate, ownership, headquarters) for unlisted holders, operators and buyers. Inven revenue is a model estimate: label it "Inven estimate", never present it as reported revenue.
 
 Name the premium source and the date for every figure it gives you, like any other source. Premium data does not lift a declared data limit: when a request falls inside one, state the limit first; if a premium source does report a figure there, you may give it after the limit, attributed as "reported by <source>, <date> — not an official disclosure".`;
 }

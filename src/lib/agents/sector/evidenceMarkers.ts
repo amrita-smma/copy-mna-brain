@@ -187,11 +187,11 @@ export const SOURCES_SECTION_KEY = 'sources';
  * What a source is: the open web, one of the research tools, the internal
  * record, or another insight.
  *
- * `alphasense` stays accepted even though AlphaSense is retired and no agent
- * can call it any more — insights written while the subscription was live
- * carry `data-source-kind="alphasense"`, and dropping it would make every one
- * of those documents fail validation on the next write. It is not offered to
- * the model: see `OFFERED_SOURCE_KINDS`.
+ * `alphasense` and `inven` stay accepted even though both are retired and no
+ * agent can call them any more — insights written while they were live carry
+ * `data-source-kind="alphasense"` or `"inven"`, and dropping them would make
+ * every one of those documents fail validation on the next write. They are not
+ * offered to the model: see `OFFERED_SOURCE_KINDS`.
  */
 export const SOURCE_KINDS = ['web', 'alphasense', 'valyu', 'inven', 'internal', 'insight'] as const;
 
@@ -199,7 +199,9 @@ export const SOURCE_KINDS = ['web', 'alphasense', 'valyu', 'inven', 'internal', 
  * The kinds the sources guide advertises — `SOURCE_KINDS` minus the retired
  * ones. Validation accepts the full list; the prompt names only these.
  */
-export const OFFERED_SOURCE_KINDS = SOURCE_KINDS.filter((k) => k !== 'alphasense');
+export const OFFERED_SOURCE_KINDS = SOURCE_KINDS.filter(
+  (k) => k !== 'alphasense' && k !== 'inven',
+);
 
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
@@ -309,7 +311,7 @@ ${sourcesSectionHtml([
 \`\`\`
 
 - \`data-source-id\` is \`S\` and a number, unique in the document, and every \`data-source-ref\` must match one. Reuse the id when another figure comes from the same source.
-- \`data-source-kind\` is one of ${SOURCE_KIND_CODES}. For a web source write its URL; for a tool (Valyu, Inven, the internal record) write the tool and the query you ran; for another insight, its name and version.
+- \`data-source-kind\` is one of ${SOURCE_KIND_CODES}. For a web source write its URL; for a tool (Valyu, the internal record) write the tool and the query you ran; for another insight, its name and version.
 - \`data-retrieved\` is the date you retrieved the source (YYYY-MM-DD) and \`data-feeds\` names the figures or sections it feeds. Neither may be empty, and the same date and feeds follow as visible text.
 - A figure you could not verify says **unverified** next to it — never drop it, and never give it a source it did not come from. Where the data sits behind a declared data limit, point at the limit instead of a source you did not use.
 - An insight write with a reference that matches no entry, or with a malformed entry, is refused and nothing is written; fix it and write again. A document with no references at all is not refused (nothing can tell a figure from any other number), so keeping every figure referenced is your job.`;

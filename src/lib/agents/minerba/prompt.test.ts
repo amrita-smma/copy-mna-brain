@@ -31,7 +31,7 @@ describe('MINERBA_PROMPT', () => {
   it('names the premium data tools in its premium data section', () => {
     expect(MINERBA_PROMPT).toContain('## Premium data sources');
     const section = MINERBA_PROMPT.slice(MINERBA_PROMPT.indexOf('## Premium data sources'));
-    for (const tool of ['valyu_search', 'inven_paid_data_source_search']) {
+    for (const tool of ['valyu_search', 'valyu_extract_content']) {
       expect(section).toContain(tool);
     }
     // AlphaSense is retired — no agent holds the tool, so no prompt names it.

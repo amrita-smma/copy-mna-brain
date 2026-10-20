@@ -326,8 +326,7 @@ There are also 13 UI↔view circular imports, e.g. a 7-file cycle around
 - **`pnpm db:seed:crm` is broken** — it points at `scripts/seed-crm.ts`, which no
   longer exists.
 - **Tracked build artifacts:** `build.log` (37KB, last touched 9 months ago, and
-  `*.log` is already in `.gitignore`), `inven-swagger.json` (8 months),
-  `.vercel/project.json`.
+  `*.log` is already in `.gitignore`), `.vercel/project.json`.
 - `src/lib/changelog.data.ts` — 6,774 lines, 119 commits in 6 months,
   CI-generated and ESLint-ignored, but still inside `tsconfig.json`'s `include`.
 

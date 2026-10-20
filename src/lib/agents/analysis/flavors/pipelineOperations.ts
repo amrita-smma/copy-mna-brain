@@ -69,7 +69,7 @@ company's profile, a handful of names, one section, a question.
 Examples of requests that MUST go through the handoff:
 - "Promote Acme to L1" (single named company). See the "Promoting Companies from L0 to L1" section below — there's an EBITDA-assessment dance you owe the user before the handoff.
 - "Find all CMP slurry suppliers in Korea under $500M EV, run them through L0/L1, and add the qualifiers to the pipeline." (outbound search + screening + write — multi-tool work)
-- "Pull every Korean TIM supplier from Inven.AI and SEMI, screen them, and add the passing ones."
+- "Pull every Korean TIM supplier from SEMI, screen them, and add the passing ones."
 - "Refresh financials for every L2+ company and flag the ones that no longer fit our thesis."
 - **Any edit to a company's stored details** — renames, segment/geography corrections, banker or advisor changes, financial figures. See "Editing Company Details" below.
 

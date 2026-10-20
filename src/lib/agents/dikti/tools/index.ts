@@ -15,10 +15,7 @@
  *   - search_investments / get_fund_asset_details — the cohort is "regional
  *     plus internal holdings by necessity", so the agent must reach internal
  *     holdings.
- *   - inven_paid_data_source_search / inven_paid_data_source_enrichment —
- *     premium data, granted for now while the public sources stay thin:
- *     firmographics (headcount, revenue estimate, ownership) for unlisted
- *     holders and operators. Valyu comes with the core.
+ *   - Valyu (premium search) comes with the core.
  */
 import {
   getCompanyProfile,
@@ -29,8 +26,6 @@ import {
   searchInvestments,
   valyuExtractContent,
 } from '@/lib/agents/analysis/tools';
-import { invenPaidDataSourceEnrichment } from '@/lib/agents/analysis/tools/inven_paid_data_source_enrichment';
-import { invenPaidDataSourceSearch } from '@/lib/agents/analysis/tools/inven_paid_data_source_search';
 import { composeSectorTools } from '@/lib/agents/sector/coreTools';
 
 export const DIKTI_EXTRA_TOOLS = [
@@ -41,8 +36,6 @@ export const DIKTI_EXTRA_TOOLS = [
   readRelationshipGraph,
   searchInvestments,
   getFundAssetDetails,
-  invenPaidDataSourceSearch,
-  invenPaidDataSourceEnrichment,
 ];
 
 export const DIKTI_TOOLS = composeSectorTools(DIKTI_EXTRA_TOOLS);

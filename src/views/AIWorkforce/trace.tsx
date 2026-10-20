@@ -17,9 +17,7 @@ import {
   Loader2,
   Minus,
   Plus,
-  Search,
   Send,
-  Sparkles,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -65,8 +63,6 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   generate_relationship_graph: GitCompare,
   move_stage: ArrowUp,
   lookup_pipeline_stage: GitBranch,
-  inven_paid_data_source_search: Search,
-  inven_paid_data_source_enrichment: Sparkles,
 };
 
 function iconForTool(name: string): LucideIcon {

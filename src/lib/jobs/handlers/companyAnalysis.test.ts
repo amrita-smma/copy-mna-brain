@@ -288,6 +288,39 @@ describe('generateCompanyCard', () => {
     );
   });
 
+  it('saves the logo the run found', async () => {
+    mocks.invoke.mockResolvedValue({
+      messages: [
+        {
+          content: JSON.stringify({
+            ...JSON.parse(VALID_ANALYSIS_JSON),
+            logo_url: 'https://acme.com/logo.png',
+          }),
+        },
+      ],
+    });
+
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    const [, updates] = mocks.updateByCompanyId.mock.calls.at(-1)!;
+    expect(updates.logo_url).toBe('https://acme.com/logo.png');
+  });
+
+  it.each([
+    ['null', { logo_url: null }],
+    ['missing', {}],
+  ])('keeps the existing logo when the run returns a %s logo_url', async (_label, logo) => {
+    mocks.invoke.mockResolvedValue({
+      messages: [{ content: JSON.stringify({ ...JSON.parse(VALID_ANALYSIS_JSON), ...logo }) }],
+    });
+
+    await generateCompanyCard({ companyId: 'co-1' }, { db: {} as never });
+
+    const [, updates] = mocks.updateByCompanyId.mock.calls.at(-1)!;
+    expect(updates.status).toBe('completed');
+    expect(updates).not.toHaveProperty('logo_url');
+  });
+
   it('does not capture a company_card_generated event when parsing fails', async () => {
     mocks.invoke.mockResolvedValue({
       messages: [{ content: 'not json at all' }],

@@ -11,8 +11,6 @@ import type {
   vcTools,
   AnthropicServerTool,
 } from "../tools";
-import type { invenPaidDataSourceSearch } from "../tools/inven_paid_data_source_search";
-import type { invenPaidDataSourceEnrichment } from "../tools/inven_paid_data_source_enrichment";
 import type { financialEquityAnalysis } from "../tools/financial_equity_analysis";
 
 // The user-selectable Copilot flavors. Persisted per-workspace on
@@ -32,10 +30,6 @@ export type ToolList = Array<
   | (typeof workforceOnlyTools)[number]
   | (typeof investmentTools)[number]
   | (typeof vcTools)[number]
-  // Registered by no general flavour; the premium-data grant to @minerba and
-  // @dikti composes them into sector tool sets.
-  | typeof invenPaidDataSourceSearch
-  | typeof invenPaidDataSourceEnrichment
   // In no array above: @minority adds it to the M&A chat list and the
   // workforce list appends it, rather than it belonging to one shared base.
   | typeof financialEquityAnalysis
