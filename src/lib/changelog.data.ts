@@ -34,6 +34,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "6d8b87c7e98888191a5e08265f3412fc1e0820f4",
+    "date": "2026-10-20",
+    "subject": "Smart Files now open on their own page with a shareable link",
+    "category": "improvement"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
@@ -271,6 +277,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "3c544dc2133228041df277d195e3b912cc64ed7f",
+    "date": "2026-10-19",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "b5fdab6a677bdd06da8a47ab5cc15b5df2f7054a",
     "date": "2026-10-19",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
