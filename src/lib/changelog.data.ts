@@ -98,6 +98,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "6d8ca4813da111a72c392c2dd0de4be1363573d3",
+    "date": "2026-10-20",
+    "subject": "Run stuck-job cleanup from Vercel Cron instead of cold start",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "3b8f0d51cc455c55613da10a40156518c225ccd3",
+    "date": "2026-10-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
