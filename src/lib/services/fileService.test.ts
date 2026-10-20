@@ -8132,3 +8132,47 @@ describe('FileService.getStatus', () => {
     expect(fileRepo.findById).toHaveBeenCalledWith('file-1');
   });
 });
+
+describe('FileService.getDetail', () => {
+  it('returns the full file record with a signed preview url', async () => {
+    const fileRepo = makeFileRepoStub();
+    const record = {
+      id: 'file-1',
+      file_name: 'Deck.pdf',
+      file_link: 'uploads/deck.pdf',
+      structured_notes: '{"summary":"s"}',
+    };
+    (fileRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(record);
+    vi.mocked(getSignedUrl).mockResolvedValueOnce('https://signed/deck.pdf');
+    const service = makeService({ fileRepo });
+
+    await expect(service.getDetail('file-1')).resolves.toEqual({
+      ...record,
+      signed_url: 'https://signed/deck.pdf',
+    });
+    expect(fileRepo.findById).toHaveBeenCalledWith('file-1');
+    expect(getSignedUrl).toHaveBeenCalledWith('uploads/deck.pdf');
+  });
+
+  it('returns a null signed url when signing fails', async () => {
+    const fileRepo = makeFileRepoStub();
+    (fileRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'file-1',
+      file_link: 'uploads/deck.pdf',
+    });
+    vi.mocked(getSignedUrl).mockRejectedValueOnce(new Error('S3 down'));
+    const service = makeService({ fileRepo });
+
+    await expect(service.getDetail('file-1')).resolves.toMatchObject({ signed_url: null });
+  });
+
+  it('propagates not-found from the repository', async () => {
+    const fileRepo = makeFileRepoStub();
+    (fileRepo.findById as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('File file-9 not found'),
+    );
+    const service = makeService({ fileRepo });
+
+    await expect(service.getDetail('file-9')).rejects.toThrow(/not found/);
+  });
+});

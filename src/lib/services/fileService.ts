@@ -4158,6 +4158,17 @@ function isEntityDecisionRemapped(
     };
   }
 
+  /**
+   * One file with a signed preview URL — what the `/files/[id]` deeplink page
+   * renders. Signing failures degrade to `signed_url: null` (the page shows
+   * "Preview not available"), same as the paginated list.
+   */
+  async getDetail(id: string) {
+    const record = await this.fileRepo.findById(id);
+    const [withUrl] = await this.attachSignedUrls([record]);
+    return withUrl;
+  }
+
   async getSignedDownloadUrl(id: string) {
     const record = await this.fileRepo.findLinkAndNameById(id);
     const url = await getSignedUrl(record.file_link);

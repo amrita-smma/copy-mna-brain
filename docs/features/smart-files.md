@@ -21,6 +21,17 @@ with buckets it never uses. The active tab and any tab whose count hasn't
 loaded yet are always shown, so deep links still render and the bar doesn't
 flash on first paint.
 
+## File detail page (deeplink)
+
+Every file has its own page at `/w/<slug>/files/<id>`. It renders exactly what
+a row's "View details" dialog shows — preview (with Present / Download) and the
+AI structured notes — because both shells render the same
+`FileDetailActions` / `FileDetailBody` from `src/components/Files/FileDetail.tsx`.
+Change the detail surface there, never in only one shell. The dialog's header
+has **Open page** and both have **Copy link**; the page also has a back link to the file's Smart Files tab. The page loads the file via
+`FileService.getDetail` (one row + a signed preview URL); an unknown or
+other-workspace id renders 404.
+
 ## Multi-company auto-ingestion
 
 Deal-target file types — **prospectus** and **shopping_list** — can describe multiple companies. The agent emits a `companies` array (one entry per target, each with identity fields, financials, and FX adjustments; `prospectus_summary` mirrors `companies[0]` for backward compatibility) and `FileService.processUpload` auto-ingests every extracted target directly on upload:

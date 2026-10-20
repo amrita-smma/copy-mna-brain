@@ -1,6 +1,11 @@
 "use client";
 
-import FilePreview from "@/components/Files/FilePreview";
+import {
+  FileDetailActions,
+  FileDetailBody,
+  getFileFailureDetails,
+  type FileRecord,
+} from "@/components/Files/FileDetail";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +26,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,7 +33,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -64,7 +67,6 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   AlertCircle,
-  Bot,
   CalendarIcon,
   CheckCircle2,
   ChevronDown,
@@ -82,7 +84,6 @@ import {
   Landmark,
   Loader2,
   Pencil,
-  RefreshCw,
   Search,
   Tag,
   Trash2,
@@ -93,7 +94,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getCompanies, getCompaniesLite } from "@/lib/api/pipeline";
-import { getSmartFileStatus, uploadSmartFile } from "@/lib/api/files";
+import {
+  downloadSmartFile,
+  getSmartFileStatus,
+  reprocessSmartFile,
+  uploadSmartFile,
+} from "@/lib/api/files";
 import { MatchedCompanyCombobox, AUTO as COMBOBOX_AUTO, type CompanyOption as ComboboxOption } from "@/components/Files/MatchedCompanyCombobox";
 import { MatchedCompaniesCell } from "@/components/Files/MatchedCompaniesCell";
 import { useChatActions } from "@/components/chat/ChatProvider";
@@ -169,84 +175,6 @@ export function matchCompanyByFilename(
     }
   }
   return bestId;
-}
-
-interface FileRecord {
-  id: string;
-  file_name: string;
-  file_link: string;
-  file_type: string | null;
-  raw_notes: string | null;
-  structured_notes: string | null;
-  processing_status: "pending" | "processing" | "awaiting_review" | "completed" | "failed";
-  tags: string[];
-  matched_companies: any[];
-  signed_url?: string;
-  file_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface FileFailureDetails {
-  reasons: string[];
-  warnings: string[];
-  coverage: {
-    parsed: number;
-    excluded: number;
-    ambiguous: number;
-    total: number;
-    percentage: number;
-  } | null;
-}
-
-function getFileFailureDetails(note: FileRecord): FileFailureDetails | null {
-  if (note.processing_status !== "failed") return null;
-
-  try {
-    const structured = note.structured_notes ? JSON.parse(note.structured_notes) : null;
-    const proposal = structured?.fund_update_proposal;
-    const validation = proposal?.validation;
-    const stats = proposal?.stats;
-    const reasons: string[] = Array.isArray(validation?.hardFailures)
-      ? Array.from(
-          new Set<string>(
-            validation.hardFailures.filter(
-              (reason: unknown): reason is string => typeof reason === "string",
-            ) as string[],
-          ),
-        )
-      : [];
-    const warnings = Array.isArray(proposal?.warnings)
-      ? proposal.warnings.filter((warning: unknown): warning is string => typeof warning === "string")
-      : [];
-    const hasCoverage = [
-      stats?.parsed_rows_count,
-      stats?.excluded_rows_count,
-      stats?.ambiguous_rows_count,
-      stats?.total_data_rows,
-      stats?.coverage_pct,
-    ].every((value) => typeof value === "number");
-
-    return {
-      reasons: reasons.length > 0 ? reasons : [note.raw_notes || "Extraction failed"],
-      warnings,
-      coverage: hasCoverage
-        ? {
-            parsed: stats.parsed_rows_count,
-            excluded: stats.excluded_rows_count,
-            ambiguous: stats.ambiguous_rows_count,
-            total: stats.total_data_rows,
-            percentage: stats.coverage_pct,
-          }
-        : null,
-    };
-  } catch {
-    return {
-      reasons: [note.raw_notes || "Extraction failed"],
-      warnings: [],
-      coverage: null,
-    };
-  }
 }
 
 // Keep these for backward compatibility
@@ -331,6 +259,19 @@ function FileTable({
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
   // `files` is already the server-resolved page; render it as-is.
   const paginatedFiles = files;
+  // The details dialog is opened from the file name or the eye button. Track
+  // the id and derive the record from `files`, so a refetch (e.g. after
+  // Reprocess) shows fresh data, and the dialog unmounts once the row is gone.
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
+  const previewFile = previewFileId
+    ? files.find((file) => file.id === previewFileId) ?? null
+    : null;
+  // Row left the current page (delete, search, pagination) — unmounting the
+  // dialog does not fire onOpenChange, so clear the id or it would reopen if
+  // the row shows up again.
+  useEffect(() => {
+    if (previewFileId && !previewFile) setPreviewFileId(null);
+  }, [previewFileId, previewFile]);
   const hasSearch = searchQuery.trim().length > 0;
   const SortIcon = ({ field }: { field: keyof FileRecord }) => {
     if (sortField !== field)
@@ -462,133 +403,6 @@ function FileTable({
         onToggleExpand={() => toggleCompanies(note.id)}
       />
     );
-  };
-
-  const renderStructuredNotes = (note: FileRecord) => {
-    if (!note.structured_notes) {
-      const failure = getFileFailureDetails(note);
-      if (failure) {
-        return (
-          <div className="rounded-md border border-red-200 bg-red-500/5 p-3 text-sm text-red-700">
-            <div className="flex items-center gap-2 font-medium">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              Why this failed
-            </div>
-            <p className="mt-2">{failure.reasons[0]}</p>
-          </div>
-        );
-      }
-      return (
-        <p className="text-sm text-muted-foreground italic p-4">
-          Processing not complete or structure extraction failed.
-        </p>
-      );
-    }
-
-    try {
-      const structured = JSON.parse(note.structured_notes);
-      const proposal = structured.fund_update_proposal;
-      const isFundUpdate =
-        structured.file_type === "fund_updates" || note.file_type === "fund_updates";
-      const failure = getFileFailureDetails(note);
-
-      return (
-        <>
-          {failure ? (
-            <div className="rounded-md border border-red-200 bg-red-500/5 p-3 text-sm">
-              <div className="flex items-center gap-2 font-medium text-red-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                Why this failed
-              </div>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-red-700">
-                {failure.reasons.map((reason, index) => (
-                  <li key={index}>{reason}</li>
-                ))}
-              </ul>
-              {failure.coverage ? (
-                <div className="mt-3 rounded border border-red-200/80 bg-background/70 p-2 text-xs text-foreground">
-                  <span className="font-medium">Coverage: {failure.coverage.percentage}%</span>
-                  <span className="text-muted-foreground">
-                    {` · ${failure.coverage.parsed} parsed · ${failure.coverage.excluded} excluded · ${failure.coverage.ambiguous} ambiguous · ${failure.coverage.total} planned`}
-                  </span>
-                </div>
-              ) : null}
-              {failure.warnings.length > 0 ? (
-                <details className="mt-3 text-xs text-muted-foreground">
-                  <summary className="cursor-pointer font-medium">
-                    Show {failure.warnings.length} extraction warning
-                    {failure.warnings.length === 1 ? "" : "s"}
-                  </summary>
-                  <ul className="mt-2 list-disc space-y-1 pl-5">
-                    {failure.warnings.map((warning, index) => (
-                      <li key={index}>{warning}</li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
-            </div>
-          ) : null}
-          <div>
-            <h4 className="font-medium text-primary mb-1">Summary</h4>
-            <p>{structured.summary}</p>
-          </div>
-          {isFundUpdate && proposal?.stats ? (
-            <div className="rounded-md border bg-background p-3 text-xs space-y-2">
-              <div className="font-medium text-foreground">Parsed workbook</div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                <span>Format</span>
-                <span className="text-foreground">{proposal.template_id ?? "—"}</span>
-                {proposal.fund_catalog?.length ? (
-                  <>
-                    <span>Funds</span>
-                    <span className="text-foreground">{proposal.fund_catalog.length}</span>
-                  </>
-                ) : null}
-                <span>Assets</span>
-                <span className="text-foreground">{proposal.stats.asset_count}</span>
-                <span>Transactions</span>
-                <span className="text-foreground">{proposal.stats.transaction_count}</span>
-                <span>Valuations</span>
-                <span className="text-foreground">{proposal.stats.valuation_count}</span>
-              </div>
-              {onViewFundUpdateParsed ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={() => onViewFundUpdateParsed(note.id)}
-                >
-                  Browse parsed assets
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          <div>
-            <h4 className="font-medium text-primary mb-1">Key Points</h4>
-            <ul className="list-disc pl-4 space-y-1">
-              {structured.key_points?.map((p: string, i: number) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-medium text-primary mb-1">Action Items</h4>
-            <ul className="list-disc pl-4 space-y-1">
-              {structured.action_items?.map((p: string, i: number) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </div>
-        </>
-      );
-    } catch {
-      return (
-        <pre className="text-xs whitespace-pre-wrap">
-          {note.structured_notes}
-        </pre>
-      );
-    }
   };
 
   // Managed (reorderable / hideable / groupable) data columns. The sortable
@@ -730,10 +544,17 @@ function FileTable({
                       )}
                     >
                       <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
+                        <button
+                          type="button"
+                          onClick={() => setPreviewFileId(note.id)}
+                          title="View details"
+                          aria-label={`View details for ${note.file_name}`}
+                          className="flex items-center gap-2 text-left hover:text-primary hover:underline focus-visible:outline-none focus-visible:underline"
+                          data-testid="smart-file-name"
+                        >
+                          <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                           {note.file_name}
-                        </div>
+                        </button>
                       </TableCell>
                       <ManagedRowCells row={note} index={index} />
                       <TableCell className="text-right">
@@ -772,87 +593,17 @@ function FileTable({
                           </Popover>
 
                           <div className="flex items-center justify-end gap-1">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="View details"
-                                  className="h-8 w-8"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0">
-                                <DialogHeader>
-                                  <div className="flex items-center justify-between gap-4 pr-8">
-                                    <DialogTitle>
-                                      {note.file_name} - Details
-                                    </DialogTitle>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => onReprocess(note.id)}
-                                      disabled={
-                                        reprocessingId === note.id ||
-                                        note.processing_status === "processing"
-                                      }
-                                      title="Re-run AI extraction to refresh notes, tags & matches"
-                                    >
-                                      {reprocessingId === note.id ? (
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                      ) : (
-                                        <RefreshCw className="h-4 w-4 mr-2" />
-                                      )}
-                                      Reprocess
-                                    </Button>
-                                  </div>
-                                </DialogHeader>
-                                <div className="grid md:grid-cols-2 gap-6 mt-4 flex-1 min-h-0 overflow-hidden">
-                                  <div className="flex flex-col gap-2 min-h-0">
-                                    {note.signed_url ? (
-                                      <div className="flex-1 min-h-0">
-                                        <FilePreview
-                                          title={
-                                            <>
-                                              <FileText className="h-4 w-4" />
-                                              File Preview
-                                            </>
-                                          }
-                                          url={note.signed_url}
-                                          onDownload={() =>
-                                            onDownload(note.id, note.file_name)
-                                          }
-                                          fileName={note.file_name}
-                                          fileKey={note.file_link}
-                                        />
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <h3 className="text-sm font-semibold flex items-center gap-2">
-                                          <FileText className="h-4 w-4" />
-                                          File Preview
-                                        </h3>
-                                        <div className="flex flex-1 min-h-0 w-full items-center justify-center bg-muted/30 rounded-md border text-muted-foreground">
-                                          Preview not available (Link missing)
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-2 min-h-0">
-                                    <h3 className="text-sm font-semibold flex items-center gap-2">
-                                      <Bot className="h-4 w-4" />
-                                      AI Structured Notes
-                                    </h3>
-                                    <ScrollArea className="flex-1 min-h-0 w-full rounded-md border p-4 bg-muted/30">
-                                      <div className="space-y-4 text-sm">
-                                        {renderStructuredNotes(note)}
-                                      </div>
-                                    </ScrollArea>
-                                  </div>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setPreviewFileId(note.id)}
+                              title="View details"
+                              aria-label={`View details for ${note.file_name}`}
+                              data-testid="smart-file-view-details"
+                              className="h-8 w-8"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             {note.processing_status === "awaiting_review" && (
                               <Button
                                 variant="ghost"
@@ -957,6 +708,34 @@ function FileTable({
         )}
       </CardContent>
     </Card>
+    {previewFile && (
+      <Dialog
+        key={previewFile.id}
+        open={!!previewFile}
+        onOpenChange={(open) => {
+          if (!open) setPreviewFileId(null);
+        }}
+      >
+        <DialogContent className="flex flex-col w-screen h-screen max-w-none sm:rounded-none border-0">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-4 pr-8">
+              <DialogTitle>{previewFile.file_name} - Details</DialogTitle>
+              <FileDetailActions
+                file={previewFile}
+                reprocessing={reprocessingId === previewFile.id}
+                onReprocess={onReprocess}
+                showOpenPage
+              />
+            </div>
+          </DialogHeader>
+          <FileDetailBody
+            file={previewFile}
+            onDownload={() => onDownload(previewFile.id, previewFile.file_name)}
+            onViewFundUpdateParsed={onViewFundUpdateParsed}
+          />
+        </DialogContent>
+      </Dialog>
+    )}
     </ColumnManagerProvider>
   );
 }
@@ -1830,29 +1609,15 @@ export default function SmartFiles({
     setReprocessingId(id);
 
     try {
-      const response = await fetch(`/api/smart-files/${id}/reprocess`, {
-        method: "POST",
+      const { isAsync } = await reprocessSmartFile(id);
+      posthog.capture("file_reprocessed", {
+        file_id: id,
       });
-
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        posthog.capture("file_reprocessed", {
-          file_id: id,
-        });
-
-        if (response.status === 202 || result.data?.jobId) {
-          toast.success("File processing started");
-        } else {
-          toast.success("File reprocessed successfully");
-        }
-        refetchVisited();
-      } else {
-        toast.error(result.error || "Failed to reprocess file");
-      }
+      toast.success(isAsync ? "File processing started" : "File reprocessed successfully");
+      refetchVisited();
     } catch (error) {
       console.error("Reprocess error:", error);
-      toast.error("Failed to reprocess file");
+      toast.error((error as Error).message || "Failed to reprocess file");
     } finally {
       setReprocessingId(null);
     }
@@ -1910,19 +1675,7 @@ export default function SmartFiles({
   const handleDownload = async (noteId: string, fileName: string) => {
     setDownloadingId(noteId);
     try {
-      const response = await fetch(`/api/smart-files/${noteId}/download`);
-      if (!response.ok) throw new Error("Failed to generate download URL");
-
-      const { download_url } = await response.json();
-      if (!download_url) throw new Error("Download URL not provided");
-
-      // Trigger download
-      const link = document.createElement("a");
-      link.href = download_url;
-      link.setAttribute("download", fileName);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      await downloadSmartFile(noteId, fileName);
     } catch (error) {
       console.error("Download error:", error);
       toast.error("Failed to download file. Please try again.");

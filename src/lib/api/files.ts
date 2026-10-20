@@ -124,3 +124,38 @@ export async function getSmartFileStatus(id: string): Promise<SmartFileStatus> {
   }
   return result.data as SmartFileStatus;
 }
+
+/**
+ * Re-runs AI extraction on a file (`POST /api/smart-files/:id/reprocess`).
+ * Resolves `{ isAsync: true }` when processing continues in a background job.
+ * Throws with the server's message on failure.
+ */
+export async function reprocessSmartFile(id: string): Promise<{ isAsync: boolean }> {
+  const response = await fetch(`/api/smart-files/${encodeURIComponent(id)}/reprocess`, {
+    method: 'POST',
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to reprocess file');
+  }
+  return { isAsync: response.status === 202 || Boolean(result.data?.jobId) };
+}
+
+/**
+ * Downloads the original file through a short-lived signed URL
+ * (`GET /api/smart-files/:id/download`). Throws when no URL is issued.
+ */
+export async function downloadSmartFile(id: string, fileName: string): Promise<void> {
+  const response = await fetch(`/api/smart-files/${encodeURIComponent(id)}/download`);
+  if (!response.ok) throw new Error('Failed to generate download URL');
+
+  const { download_url } = await response.json();
+  if (!download_url) throw new Error('Download URL not provided');
+
+  const link = document.createElement('a');
+  link.href = download_url;
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
