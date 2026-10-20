@@ -54,6 +54,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2a5ecebdb86d95eeb1521df9f3ce1df41db71244",
+    "date": "2026-10-20",
+    "subject": "Deal insights now trigger an email notification to the requester when generated",
+    "category": "improvement"
+  },
+  {
+    "hash": "f3b434456c1cea91b2df83256da29a094a11a2ed",
+    "date": "2026-10-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
