@@ -114,6 +114,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "64e165630d3ef2515ac8f4498e1889f9f139b050",
+    "date": "2026-10-20",
+    "subject": "Company Information box now shows only the fields your team has marked as required",
+    "category": "improvement"
+  },
+  {
+    "hash": "5cb7b428145f99dc3e48698a88c11bfde6479a40",
+    "date": "2026-10-20",
+    "subject": "Refresh admin member picker after user changes; add hard delete for deactivated users",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "43190583003484722d133b960dffa8ff149c03bd",
+    "date": "2026-10-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "61a6122268ed0987fff93e004342dbf55ccd5a9d",
     "date": "2026-10-19",
     "subject": "Users can now edit matched track IDs when updating company details",
