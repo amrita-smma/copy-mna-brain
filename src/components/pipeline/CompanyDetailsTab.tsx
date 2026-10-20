@@ -48,6 +48,7 @@ import UserSelectCombobox from "@/components/pipeline/UserSelectCombobox";
 import type { CompanyInformationEditor } from "@/components/pipeline/useCompanyInformationEditor";
 import { usePipelineRequiredFields } from "@/hooks/usePipelineRequiredFields";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
+import type { PipelineFieldKey } from "@/lib/pipeline/requiredFields";
 import type { Track } from "@/lib/api/pipeline";
 import type { CompanyInfoForm, CompanyInfoSource } from "@/lib/companies/companyInfoForm";
 import { DEAL_TYPE_OPTIONS, formatDealType } from "@/lib/companies/dealTypes";
@@ -453,6 +454,127 @@ function CompanyInformationCard({
       />
     );
 
+  // The fields behind each pipeline-entry requirement. The ones the workspace
+  // requires (Pipeline Settings → Required Fields) render in the amber box;
+  // the rest render with the other company information.
+  const requirementFields: { key: PipelineFieldKey; node: ReactNode }[] = [
+    {
+      key: "name",
+      node: (
+        <Field key="target" label="Company Name" editing={editing} editor={textInput("target")}>
+          <Value>{company.target || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "name",
+      node: (
+        <Field
+          key="project_name"
+          label="Project Name"
+          editing={editing}
+          editor={textInput("project_name", "e.g. Project Phoenix")}
+        >
+          <Value>{company.project_name || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "source",
+      node: (
+        <Field
+          key="source"
+          label="Source"
+          editing={editing}
+          editor={select("source", [
+            { value: "inbound", label: "Inbound" },
+            { value: "outbound", label: "Outbound" },
+          ])}
+        >
+          <Value className="capitalize">{company.source || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "deal_type",
+      node: (
+        <Field
+          key="deal_type"
+          label="Deal Type"
+          editing={editing}
+          editor={select("deal_type", DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })))}
+        >
+          <Value>{formatDealType(company.deal_type) || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "segment",
+      node: (
+        <Field key="segment" label="Sector" editing={editing} editor={textInput("segment")}>
+          <Value>{company.segment || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "geography",
+      node: (
+        <Field key="geography" label="Headquarter" editing={editing} editor={textInput("geography")}>
+          <Value>{company.geography || "—"}</Value>
+        </Field>
+      ),
+    },
+    {
+      key: "entered_by",
+      node: (
+        <Field
+          key="entered_by"
+          label="Entered by"
+          editing={editing}
+          editor={
+            form && (
+              <div className="mt-1">
+                <UserSelectCombobox
+                  value={form.entered_by || null}
+                  onChange={(v) => set({ entered_by: v })}
+                  users={users}
+                  disabled={isSaving}
+                />
+              </div>
+            )
+          }
+        >
+          <Value>{company.entered_by_name || "—"}</Value>
+        </Field>
+      ),
+    },
+    ...(inbound
+      ? [
+          {
+            key: "banker" as const,
+            node: (
+              <Field
+                key="banker"
+                label="Banker / Source"
+                editing={editing}
+                editor={bankerPicker("banker", "Set banker…")}
+              >
+                <Value>{company.banker || "—"}</Value>
+              </Field>
+            ),
+          },
+        ]
+      : []),
+  ];
+
+  const requiredPipelineFields = requirementFields.filter((f) => pipelineRequired.isRequired(f.key));
+  const optionalPipelineFields = requirementFields.filter((f) => !pipelineRequired.isRequired(f.key));
+  const requiredKeysInAmber = new Set(requiredPipelineFields.map((f) => f.key));
+  const amberRequiredLabels = pipelineRequired.fields
+    .filter((f) => requiredKeysInAmber.has(f.key))
+    .map((f) => f.label)
+    .join(" · ");
+
   const matchedTracks = persistedTrackIds(company, tracks)
     .map((id) => tracks.find((t) => t.id === id))
     .filter((t): t is Track => !!t);
@@ -478,79 +600,22 @@ function CompanyInformationCard({
 
       <div className="space-y-3">
         {/* Fields the workspace requires before a company can enter the pipeline */}
-        <div className="rounded-md border border-amber-400/70 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-950">
-          <div className="mb-2 flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" />
-            <p className="text-xs font-medium text-amber-700 dark:text-amber-500">
-              Required to enter the pipeline:{" "}
-              {pipelineRequired.fields.map((f) => f.label).join(" · ")}
-            </p>
+        {requiredPipelineFields.length > 0 && (
+          <div className="rounded-md border border-amber-400/70 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-950">
+            <div className="mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" />
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-500">
+                Required to enter the pipeline: {amberRequiredLabels}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+              {requiredPipelineFields.map((f) => f.node)}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-            <Field label="Company Name" editing={editing} editor={textInput("target")}>
-              <Value>{company.target || "—"}</Value>
-            </Field>
-            <Field
-              label="Project Name"
-              editing={editing}
-              editor={textInput("project_name", "e.g. Project Phoenix")}
-            >
-              <Value>{company.project_name || "—"}</Value>
-            </Field>
-            <Field
-              label="Source"
-              editing={editing}
-              editor={select("source", [
-                { value: "inbound", label: "Inbound" },
-                { value: "outbound", label: "Outbound" },
-              ])}
-            >
-              <Value className="capitalize">{company.source || "—"}</Value>
-            </Field>
-            <Field
-              label="Deal Type"
-              editing={editing}
-              editor={select("deal_type", DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })))}
-            >
-              <Value>{formatDealType(company.deal_type) || "—"}</Value>
-            </Field>
-            <Field label="Sector" editing={editing} editor={textInput("segment")}>
-              <Value>{company.segment || "—"}</Value>
-            </Field>
-            <Field label="Headquarter" editing={editing} editor={textInput("geography")}>
-              <Value>{company.geography || "—"}</Value>
-            </Field>
-            <Field
-              label="Entered by"
-              editing={editing}
-              editor={
-                form && (
-                  <div className="mt-1">
-                    <UserSelectCombobox
-                      value={form.entered_by || null}
-                      onChange={(v) => set({ entered_by: v })}
-                      users={users}
-                      disabled={isSaving}
-                    />
-                  </div>
-                )
-              }
-            >
-              <Value>{company.entered_by_name || "—"}</Value>
-            </Field>
-            {inbound && (
-              <Field
-                label="Banker / Source"
-                editing={editing}
-                editor={bankerPicker("banker", "Set banker…")}
-              >
-                <Value>{company.banker || "—"}</Value>
-              </Field>
-            )}
-          </div>
-        </div>
+        )}
 
         <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+          {optionalPipelineFields.map((f) => f.node)}
           <Field label="Website" editing={editing} editor={textInput("website", "https://...")}>
             {company.website ? (
               <a
