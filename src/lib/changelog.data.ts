@@ -28,6 +28,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "5217f6ed8e2d84ddf2bffb0258d0988428e92e9a",
+    "date": "2026-10-21",
+    "subject": "AI Workforce runs no longer fail when they finish without a final message",
+    "category": "improvement"
+  },
+  {
+    "hash": "865816296718433ec6c6c09c0fabf8e4772f71cf",
+    "date": "2026-10-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
     "date": "2026-10-20",
     "subject": "Slide thumbnails are now hidden by default in Presentation view",
