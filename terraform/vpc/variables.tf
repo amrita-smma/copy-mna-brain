@@ -19,18 +19,6 @@ variable "tags" {
 locals {
   # Naming: mna-{env}-vpc, CIDR mna-{octet} per env (see CONVENTIONS in repo docs — pattern mna-<workspace>-*)
   workspace_config = {
-    dev = {
-      name            = "mna-dev"
-      cidr_block      = "10.100.0.0/16"
-      public_subnets  = ["10.100.1.0/24", "10.100.2.0/24"]
-      private_subnets = ["10.100.3.0/24", "10.100.4.0/24"]
-      environment     = "dev"
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       name            = "mna-staging"
       cidr_block      = "10.101.0.0/16"
@@ -57,7 +45,7 @@ locals {
     }
   }
 
-  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   vpc_config = {
     name            = local.current_config.name
     cidr_block      = local.current_config.cidr_block

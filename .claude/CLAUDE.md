@@ -51,6 +51,10 @@ App-infrastructure modules live under `terraform/` (e.g. `bootstrap`, `iam`, `rd
 
 Each module must have a `Makefile` with `init-staging` and `init-production` targets. Copy the pattern from any existing module's `Makefile` when adding a new one.
 
+The only workspaces are `staging` and `production` — there is no dev environment. Every module's `workspace_config` has exactly those two keys and falls back to `staging`.
+
+Every file rendered with `templatefile()` lives under the module's `templates/` and is named `<name>.<ext>.tftpl` (e.g. `user_data.sh.tftpl`, `docker-compose.yml.tftpl`), even if it has no placeholders yet. The suffix marks the file as a template, so `${...}` in it is Terraform interpolation and a literal shell `${var}` must be written `$${var}`.
+
 ## Package Manager
 
 This project uses **pnpm** instead of npm. All Claude Code commands should use pnpm:

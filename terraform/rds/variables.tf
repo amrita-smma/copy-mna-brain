@@ -30,12 +30,6 @@ variable "rds_public_ingress_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
-variable "rds_iam_database_authentication_enabled" {
-  description = "When true, enables RDS IAM DB authentication (password + IAM). Workspaces staging and production always use true (see local.rds_iam_db_auth_enabled). Dev falls back to this variable."
-  type        = bool
-  default     = true
-}
-
 variable "iam_db_auth_username" {
   description = "PostgreSQL role name used only for IAM DB auth (must match --username when generating the token). Do not use the RDS master user unless you intend IAM to take precedence over password for that user."
   type        = string
@@ -76,20 +70,6 @@ locals {
   # settings live here so staging vs production differences are declared in one
   # place rather than as flat variables/inline expressions.
   workspace_config = {
-    dev = {
-      environment                             = "dev"
-      rds_iam_database_authentication_enabled = var.rds_iam_database_authentication_enabled
-      rds_apply_immediately                   = true
-      instance_class                          = "db.t3.micro"
-      allocated_storage                       = 20
-      multi_az                                = false
-      backup_retention_period                 = 7
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       environment                             = "staging"
       rds_iam_database_authentication_enabled = true
@@ -121,7 +101,7 @@ locals {
     }
   }
 
-  current_config              = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config              = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   environment_tags            = merge(local.current_config.tags, var.tags)
   rds_iam_db_auth_enabled     = local.current_config.rds_iam_database_authentication_enabled
   rds_apply_immediately       = local.current_config.rds_apply_immediately

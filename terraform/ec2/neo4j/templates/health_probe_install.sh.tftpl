@@ -1,0 +1,44 @@
+# Rendered by terraform/ec2/neo4j (monitoring.tf). Run by the health-probe SSM
+# association: installs the probe and the timer that runs it every minute.
+# Idempotent; re-runs whenever the probe changes or the instance is replaced.
+# No pipefail: SSM runs this with /bin/sh (dash on Ubuntu), which lacks it.
+set -eu
+
+# user_data installs AWS CLI v2; an instance older than the backup tooling has none.
+if [ ! -x /usr/local/bin/aws ]; then
+  echo "AWS CLI v2 not found at /usr/local/bin/aws; install it first (see README.md)" >&2
+  exit 1
+fi
+
+cat >/usr/local/bin/neo4j-health-probe <<'PROBE_EOF'
+${probe}
+PROBE_EOF
+chmod 0755 /usr/local/bin/neo4j-health-probe
+
+cat >/etc/systemd/system/neo4j-health-probe.service <<'UNIT_EOF'
+[Unit]
+Description=Publish Neo4j health metrics to CloudWatch
+After=neo4j.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/neo4j-health-probe
+UNIT_EOF
+
+cat >/etc/systemd/system/neo4j-health-probe.timer <<'UNIT_EOF'
+[Unit]
+Description=Run neo4j-health-probe every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable --now neo4j-health-probe.timer
+# Publish once now, so a missing IAM grant fails the association loudly.
+/usr/local/bin/neo4j-health-probe

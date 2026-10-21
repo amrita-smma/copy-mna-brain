@@ -1,0 +1,38 @@
+# Rendered by terraform/redis (monitoring.tf). Run by the health-probe SSM
+# association: installs the probe and the timer that runs it every minute.
+# Idempotent; re-runs whenever the probe changes or the instance is replaced.
+# No pipefail: SSM runs this with /bin/sh, which lacks it on some distros.
+set -eu
+
+cat >/usr/local/bin/redis-health-probe <<'PROBE_EOF'
+${probe}
+PROBE_EOF
+chmod 0755 /usr/local/bin/redis-health-probe
+
+cat >/etc/systemd/system/redis-health-probe.service <<'UNIT_EOF'
+[Unit]
+Description=Publish Redis health metrics to CloudWatch
+After=redis.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/redis-health-probe
+UNIT_EOF
+
+cat >/etc/systemd/system/redis-health-probe.timer <<'UNIT_EOF'
+[Unit]
+Description=Run redis-health-probe every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable --now redis-health-probe.timer
+# Publish once now, so a missing IAM grant fails the association loudly.
+/usr/local/bin/redis-health-probe

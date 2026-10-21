@@ -95,10 +95,42 @@ redis-cli -h "$(terraform output -raw public_ip)" -p 6379 ping
 
 ## Monitoring
 
-Nothing collects Redis metrics over time: this is a container on EC2, not
-ElastiCache, and there is no CloudWatch agent, so the EC2 console shows only
-CPU and network. To see memory, keys or clients, ask Redis itself. The
-`Makefile` wraps the useful `redis-cli` calls:
+### Alarms and dashboard
+
+`monitoring.tf` adds:
+
+- **A health probe on the box.** `redis-health-probe.timer` runs every
+  minute and publishes to the CloudWatch namespace `MnA/Redis` (dimension
+  `Environment`): `RedisUp` (INFO answered over TLS), `UsedMemoryPercentOfMax`,
+  `ConnectedClients`, `ContainerRestarts`, `HostMemoryUsedPercent` and
+  `DiskUsedPercent`. An SSM association (`AWS-RunShellScript`) installs it, not
+  user_data, so changing the probe re-runs the association instead of
+  replacing the instance. If the metrics stop arriving, look at the
+  association in Systems Manager > State Manager.
+- **Alarms** named `mna-<env>-redis-<check>`, which post ALARM and OK to the
+  pipeline's alerts SNS topic (`mna-<env>-pipeline-alerts`). AWS Chatbot
+  forwards that topic to `#mna-brain-alerts-<env>` in Slack, as it does for
+  the pipeline Lambda alarms:
+
+  | Alarm | Fires when |
+  |---|---|
+  | `down` | `RedisUp` is 0 or missing for 3 minutes (missing = the box is gone) |
+  | `restarted` | Docker restarted a crashed container (the store is now empty) |
+  | `memory-near-max` | memory ≥ `alarm_redis_memory_percent` (80%) of `maxmemory` for 5 minutes |
+  | `host-memory-high` | host memory ≥ `alarm_host_memory_percent` (90%) for 5 minutes |
+  | `disk-high` | root disk ≥ `alarm_disk_percent` (85%) |
+  | `status-check-failed` | an EC2 status check fails for 2 minutes |
+  | `cpu-high` | CPU ≥ `alarm_cpu_percent` (90%) for 15 minutes |
+
+- **A dashboard**, `mna-<env>-redis`: `terraform output dashboard_url`.
+
+The alerts topic belongs to `data-pipeline/terraform/pipeline-compute`, so
+apply that module first in a new environment.
+
+### Looking at Redis directly
+
+The probe sends a few headline numbers. To see keys, clients or what is using
+memory, ask Redis itself. The `Makefile` wraps the useful `redis-cli` calls:
 
 ```bash
 make init-staging        # or init-production: picks which Redis you are looking at

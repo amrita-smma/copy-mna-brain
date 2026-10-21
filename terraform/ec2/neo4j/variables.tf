@@ -122,3 +122,24 @@ variable "tags" {
     ManagedBy = "Terraform"
   }
 }
+
+# ------------------------------------------------------------- monitoring ---
+# Thresholds for the CloudWatch alarms in monitoring.tf.
+
+variable "alarm_host_memory_percent" {
+  description = "Alarm when host memory stays at or above this % for 5 minutes. Neo4j's heap and page cache are both counted as used."
+  type        = number
+  default     = 90
+}
+
+variable "alarm_disk_percent" {
+  description = "Alarm when the root disk (database + temporary backup dumps) reaches this % used."
+  type        = number
+  default     = 80
+}
+
+variable "alarm_cpu_percent" {
+  description = "Alarm when CPU averages at or above this % for 15 minutes."
+  type        = number
+  default     = 90
+}

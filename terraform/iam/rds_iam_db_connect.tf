@@ -57,11 +57,10 @@ resource "aws_iam_role_policy_attachment" "extra_rds_db_connect" {
 resource "aws_iam_group_policy_attachment" "mna_devops_rds_iam_db_connect" {
   count = (
     var.attach_rds_iam_db_connect_policy &&
-    local.environment != "dev" &&
     local.rds_iam_db_connect_policy_arn != null
   ) ? 1 : 0
 
-  group      = aws_iam_group.mna_devops[0].name
+  group      = aws_iam_group.mna_devops.name
   policy_arn = local.rds_iam_db_connect_policy_arn
 }
 
@@ -70,10 +69,9 @@ resource "aws_iam_group_policy_attachment" "mna_devops_rds_iam_db_connect" {
 resource "aws_iam_group_policy_attachment" "mna_developer_rds_iam_db_connect" {
   count = (
     var.attach_rds_iam_db_connect_policy &&
-    local.environment != "dev" &&
     local.rds_iam_db_connect_policy_arn != null
   ) ? 1 : 0
 
-  group      = aws_iam_group.mna_developer[0].name
+  group      = aws_iam_group.mna_developer.name
   policy_arn = local.rds_iam_db_connect_policy_arn
 }

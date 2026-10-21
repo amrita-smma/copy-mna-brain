@@ -4,7 +4,7 @@ output "mna_devops_user_names" {
 }
 
 output "mna_developer_user_names" {
-  description = "Usernames added to mna_developer group when not dev (must exist in IAM)"
+  description = "Usernames added to mna_developer group (must exist in IAM)"
   value       = local.current_config.mna_developer_users
 }
 
@@ -14,10 +14,9 @@ output "rds_iam_db_connect_policy_arn_from_rds_state" {
 }
 
 output "rds_iam_db_connect_group_attachments_enabled" {
-  description = "Whether mna_devops and mna_developer get the RDS IAM DB connect policy attachment (non-dev only)"
+  description = "Whether mna_devops and mna_developer get the RDS IAM DB connect policy attachment"
   value = (
     var.attach_rds_iam_db_connect_policy &&
-    local.environment != "dev" &&
     local.rds_iam_db_connect_policy_arn != null
   )
 }

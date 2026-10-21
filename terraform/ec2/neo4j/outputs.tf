@@ -60,3 +60,8 @@ output "neo4j_credentials_summary" {
     browser    = "http://${aws_instance.neo4j_server.public_ip}:${var.neo4j_http_port}"
   }
 }
+
+output "dashboard_url" {
+  description = "CloudWatch dashboard for this Neo4j server"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards/dashboard/${aws_cloudwatch_dashboard.neo4j.dashboard_name}"
+}

@@ -119,18 +119,6 @@ locals {
   # t3.small (2 GiB) OOM-killed langfuse-web on first boot, so t3.medium is the
   # smallest staging box; production gets headroom for retention-window queries.
   workspace_config = {
-    dev = {
-      environment     = "dev"
-      hostname        = "langfuse-dev.sqe.co.id"
-      instance_type   = "t3.medium"
-      data_volume_gb  = 50
-      clickhouse_heap = "1500000000"
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       environment = "staging"
       # The Elastic IP: staging runs without a DNS record, on a Let's Encrypt
@@ -161,7 +149,7 @@ locals {
     }
   }
 
-  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   environment    = local.current_config.environment
   name_prefix    = "mna-${local.environment}-langfuse"
   hostname       = coalesce(var.hostname, local.current_config.hostname)

@@ -64,15 +64,6 @@ locals {
   # class is plenty everywhere. Memory is bounded by redis_maxmemory, not by
   # the box.
   workspace_config = {
-    dev = {
-      environment   = "dev"
-      instance_type = "t3.small"
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       environment   = "staging"
       instance_type = "t3.small"
@@ -93,11 +84,38 @@ locals {
     }
   }
 
-  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   environment    = local.current_config.environment
   name_prefix    = "mna-${local.environment}-redis"
 
   environment_tags = merge(local.current_config.tags, {
     Component = "redis"
   }, var.tags)
+}
+
+# ------------------------------------------------------------- monitoring ---
+# Thresholds for the CloudWatch alarms in monitoring.tf.
+
+variable "alarm_redis_memory_percent" {
+  description = "Alarm when Redis used_memory reaches this % of maxmemory. With noeviction, writes fail at 100%."
+  type        = number
+  default     = 80
+}
+
+variable "alarm_host_memory_percent" {
+  description = "Alarm when host memory stays at or above this % for 5 minutes."
+  type        = number
+  default     = 90
+}
+
+variable "alarm_disk_percent" {
+  description = "Alarm when the root disk reaches this % used."
+  type        = number
+  default     = 85
+}
+
+variable "alarm_cpu_percent" {
+  description = "Alarm when CPU averages at or above this % for 15 minutes."
+  type        = number
+  default     = 90
 }

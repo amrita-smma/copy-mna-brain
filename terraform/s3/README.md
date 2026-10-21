@@ -93,7 +93,7 @@ git push
 All resources are tagged with:
 
 ```hcl
-Environment = "dev"
+Environment = "staging" # or "production"
 Project     = "MnA"
 ManagedBy   = "Terraform"
 ```

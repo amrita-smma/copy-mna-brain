@@ -32,17 +32,6 @@ locals {
   tfstate_bucket = "mna-tfstate-${terraform.workspace}-${data.aws_caller_identity.current.account_id}"
 
   workspace_config = {
-    dev = {
-      environment          = "dev"
-      mna_devops_users     = ["nico.alimin"]
-      mna_developer_users  = []
-      ses_send_email_users = []
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       environment = "staging"
       mna_devops_users = [
@@ -85,7 +74,7 @@ locals {
     }
   }
 
-  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   environment    = local.current_config.environment
   common_tags    = merge(local.current_config.tags, var.tags)
 }

@@ -1,12 +1,10 @@
 resource "aws_iam_group" "mna_developer" {
-  count = local.environment == "dev" ? 0 : 1
-  name  = "mna_developer"
+  name = "mna_developer"
 }
 
 resource "aws_iam_group_membership" "mna_developer" {
-  count = local.environment == "dev" ? 0 : 1
   name  = "mna_developer_membership"
-  group = aws_iam_group.mna_developer[0].name
+  group = aws_iam_group.mna_developer.name
   users = local.current_config.mna_developer_users
 }
 
@@ -19,9 +17,8 @@ resource "aws_iam_group_membership" "mna_developer" {
 # the rds-db:connect attachment in rds_iam_db_connect.tf, because rds:* does not
 # cover the rds-db service prefix used by RDS IAM authentication.
 resource "aws_iam_group_policy" "mna_developer_policy" {
-  count = local.environment == "dev" ? 0 : 1
   name  = "mna_developer_policy"
-  group = aws_iam_group.mna_developer[0].name
+  group = aws_iam_group.mna_developer.name
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
@@ -83,4 +80,20 @@ resource "aws_iam_group_policy" "mna_developer_policy" {
       }
     ]
   })
+}
+
+# These resources used to carry `count`; the moved blocks keep their state addresses.
+moved {
+  from = aws_iam_group.mna_developer[0]
+  to   = aws_iam_group.mna_developer
+}
+
+moved {
+  from = aws_iam_group_membership.mna_developer[0]
+  to   = aws_iam_group_membership.mna_developer
+}
+
+moved {
+  from = aws_iam_group_policy.mna_developer_policy[0]
+  to   = aws_iam_group_policy.mna_developer_policy
 }

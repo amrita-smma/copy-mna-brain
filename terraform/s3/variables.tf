@@ -22,14 +22,6 @@ data "aws_caller_identity" "current" {}
 
 locals {
   workspace_config = {
-    dev = {
-      environment = "dev"
-      tags = {
-        Environment = "dev"
-        Project     = "MnA"
-        ManagedBy   = "Terraform"
-      }
-    }
     staging = {
       environment = "staging"
       tags = {
@@ -48,7 +40,7 @@ locals {
     }
   }
 
-  current_config   = lookup(local.workspace_config, terraform.workspace, local.workspace_config["dev"])
+  current_config   = lookup(local.workspace_config, terraform.workspace, local.workspace_config["staging"])
   environment_tags = merge(local.current_config.tags, var.tags)
   bucket_name      = "mna-app-data-${local.current_config.environment}"
 

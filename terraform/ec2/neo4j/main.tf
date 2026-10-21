@@ -203,7 +203,7 @@ resource "aws_instance" "neo4j_server" {
   }
 
   user_data_replace_on_change = true
-  user_data_base64 = base64encode(replace(templatefile("${path.module}/templates/user_data.sh", {
+  user_data_base64 = base64encode(replace(templatefile("${path.module}/templates/user_data.sh.tftpl", {
     neo4j_version   = var.neo4j_version
     neo4j_username  = var.neo4j_username
     neo4j_password  = random_password.neo4j.result

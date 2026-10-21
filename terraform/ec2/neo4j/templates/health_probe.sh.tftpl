@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Rendered by terraform/ec2/neo4j (monitoring.tf) and installed by an SSM
+# association, not user_data: a user_data change replaces this instance and
+# destroys the database, so monitoring must never go through it.
+# neo4j-health-probe.timer runs it every minute. It publishes to CloudWatch
+# namespace ${namespace}, the metrics the alarms and dashboard in monitoring.tf read.
+#
+# It never exits early: if Neo4j is unreachable it still publishes Neo4jUp=0
+# alongside the host metrics, so the "down" alarm sees a 0 and not missing data.
+set -uo pipefail
+
+# AWS CLI v2 lives in /usr/local/bin (installed by user_data); systemd's PATH
+# for a service does include it, but be explicit.
+export PATH="/usr/local/bin:$PATH"
+
+REGION="${aws_region}"
+NAMESPACE="${namespace}"
+ENVIRONMENT="${environment}"
+HTTP_PORT="${http_port}"
+STATE_DIR=/var/lib/neo4j-health-probe
+install -d -m 0700 "$STATE_DIR"
+
+# ------------------------------------------------------------------- neo4j ---
+# The scheduled backup stops Neo4j for an offline dump (Community edition).
+# That window is planned, so it reports Up=1 with BackupInProgress=1 rather
+# than paging #alerts every night.
+backup_running=0
+if systemctl is-active --quiet neo4j-backup.service; then backup_running=1; fi
+
+up=0
+if curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$HTTP_PORT/"; then
+  up=1
+elif [ "$backup_running" -eq 1 ]; then
+  up=1
+fi
+
+# Result of the last neo4j-backup.service run. "success" until it first runs.
+backup_failed=0
+result="$(systemctl show neo4j-backup.service -p Result --value 2>/dev/null || true)"
+if [ -n "$result" ] && [ "$result" != "success" ]; then backup_failed=1; fi
+
+# When the packaged unit's Restart= policy brings Neo4j back after a crash
+# (e.g. the OOM killer), it can be too fast for Neo4jUp to catch, so count those
+# restarts. A drop in NRestarts is a counter reset, not a crash, and counts as 0.
+restarts=0
+count="$(systemctl show neo4j.service -p NRestarts --value 2>/dev/null || true)"
+if [ -n "$count" ]; then
+  prev="$(cat "$STATE_DIR/nrestarts" 2>/dev/null || echo "$count")"
+  if [ "$count" -gt "$prev" ]; then restarts=$((count - prev)); fi
+  echo "$count" >"$STATE_DIR/nrestarts"
+fi
+
+# -------------------------------------------------------------------- host ---
+mem_pct="$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { printf "%.2f", 100 * (t - a) / t }' /proc/meminfo)"
+disk_pct="$(df -P / | awk 'NR == 2 { sub("%", "", $5); print $5 }')"
+
+# ----------------------------------------------------------------- publish ---
+metric() {
+  printf '{"MetricName":"%s","Value":%s,"Unit":"%s","Dimensions":[{"Name":"Environment","Value":"%s"}]}' \
+    "$1" "$2" "$3" "$ENVIRONMENT"
+}
+
+aws cloudwatch put-metric-data --region "$REGION" --namespace "$NAMESPACE" --metric-data "[
+  $(metric Neo4jUp "$up" None),
+  $(metric BackupInProgress "$backup_running" None),
+  $(metric BackupFailed "$backup_failed" None),
+  $(metric ServiceRestarts "$restarts" Count),
+  $(metric HostMemoryUsedPercent "$mem_pct" Percent),
+  $(metric DiskUsedPercent "$disk_pct" Percent)
+]"

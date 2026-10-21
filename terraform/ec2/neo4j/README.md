@@ -61,6 +61,43 @@ systemctl list-timers neo4j-backup.timer
 journalctl -u neo4j-backup.service
 ```
 
+## Monitoring
+
+`monitoring.tf` adds health checks, Slack alerts and a dashboard. All of it is
+additive to the running instance: nothing touches `user_data`.
+
+- **A health probe on the box.** `neo4j-health-probe.timer` runs every minute
+  and publishes to the CloudWatch namespace `MnA/Neo4j` (dimension
+  `Environment`): `Neo4jUp` (HTTP answers on 7474), `BackupInProgress`,
+  `BackupFailed` (result of the last `neo4j-backup.service` run),
+  `ServiceRestarts` (systemd's `NRestarts`), `HostMemoryUsedPercent` and
+  `DiskUsedPercent`. An SSM association (`AWS-RunShellScript`) installs it. If
+  the metrics stop arriving, look at the association in Systems Manager >
+  State Manager. The probe needs AWS CLI v2 at `/usr/local/bin/aws`, which
+  `user_data` installs.
+- **Alarms** named `<env>-mna-neo4j-server-<check>`, which post ALARM and OK to
+  the pipeline's alerts SNS topic (`mna-<env>-pipeline-alerts`). AWS Chatbot
+  forwards that topic to `#mna-brain-alerts-<env>` in Slack, as it does for
+  the pipeline Lambda alarms:
+
+  | Alarm | Fires when |
+  |---|---|
+  | `down` | `Neo4jUp` is 0 or missing for 3 minutes (missing = the box is gone) |
+  | `restarted` | systemd restarted Neo4j after a crash |
+  | `backup-failed` | the last scheduled backup failed; clears when the next one succeeds |
+  | `host-memory-high` | host memory ≥ `alarm_host_memory_percent` (90%) for 5 minutes |
+  | `disk-high` | root disk ≥ `alarm_disk_percent` (80%); the database and the temporary dump share it |
+  | `status-check-failed` | an EC2 status check fails for 2 minutes |
+  | `cpu-high` | CPU ≥ `alarm_cpu_percent` (90%) for 15 minutes |
+
+  The nightly backup stops Neo4j for an offline dump. The probe reports that
+  window as `BackupInProgress=1` and keeps `Neo4jUp=1`, so the backup does not
+  trigger the `down` alarm.
+- **A dashboard**, `mna-<env>-neo4j`: `terraform output dashboard_url`.
+
+The alerts topic belongs to `data-pipeline/terraform/pipeline-compute`, so
+apply that module first in a new environment.
+
 ## Preserving existing data across an apply
 
 ⚠️ This module sets `user_data_replace_on_change = true` and the root volume has
@@ -130,9 +167,10 @@ replacements can be recovered with `neo4j-restore.sh latest`.
 | `instance_type` | `t3.medium` | EC2 instance type |
 | `ebs_volume_size` | `50` | Root/data volume size (GB) |
 | `allowed_cidr_blocks` | `[]` (→ `0.0.0.0/0`) | CIDRs allowed to reach Bolt/HTTP |
+| `alarm_host_memory_percent` / `alarm_disk_percent` / `alarm_cpu_percent` | `90` / `80` / `90` | Alarm thresholds (see Monitoring) |
 
 ## Outputs
 
 `neo4j_ip_address`, `neo4j_bolt_uri`, `neo4j_browser_url`, `neo4j_username`,
 `neo4j_password` (sensitive), `neo4j_backup_bucket`, `neo4j_backup_bucket_arn`,
-`neo4j_server_instance_id`.
+`neo4j_server_instance_id`, `dashboard_url`.

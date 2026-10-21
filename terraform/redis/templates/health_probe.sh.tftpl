@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Rendered by terraform/redis (monitoring.tf) and installed by an SSM
+# association, not user_data, so changing it never replaces the instance.
+# redis-health-probe.timer runs it every minute. It publishes to CloudWatch
+# namespace ${namespace}, the metrics the alarms and dashboard in monitoring.tf read.
+#
+# It never exits early: if Redis is unreachable it still publishes RedisUp=0
+# alongside the host metrics, so the "down" alarm sees a 0 and not missing data.
+set -uo pipefail
+
+REGION="${aws_region}"
+NAMESPACE="${namespace}"
+ENVIRONMENT="${environment}"
+# Compose project "redis" (WorkingDirectory=/srv/redis), service "redis".
+CONTAINER=redis-redis-1
+STATE_DIR=/var/lib/redis-health-probe
+install -d -m 0700 "$STATE_DIR"
+
+# ------------------------------------------------------------------- redis ---
+# INFO over TLS from inside the container: the CA and REDIS_AUTH are already
+# there, and the password never reaches this host's argv.
+info="$(timeout 5 docker exec "$CONTAINER" sh -c \
+  'REDISCLI_AUTH="$REDIS_AUTH" redis-cli -h 127.0.0.1 --tls --cacert /tls/ca.crt info' \
+  2>/dev/null | tr -d "\r")"
+field() { printf '%s\n' "$info" | awk -F: -v k="$1" '$1 == k { print $2; exit }'; }
+
+up=0
+used_pct=""
+clients=""
+if [ -n "$(field redis_version)" ]; then
+  up=1
+  used="$(field used_memory)"
+  max="$(field maxmemory)"
+  if [ -n "$max" ] && [ "$max" -gt 0 ]; then
+    used_pct="$(awk -v u="$used" -v m="$max" 'BEGIN { printf "%.2f", 100 * u / m }')"
+  fi
+  clients="$(field connected_clients)"
+fi
+
+# Docker restarts a crashed container (restart: unless-stopped) within seconds,
+# too fast for RedisUp to catch, so count the restarts instead. RestartCount
+# resets when the container is recreated (systemctl restart redis); a drop is
+# a deliberate recreate, not a crash, and counts as 0.
+restarts=0
+count="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || true)"
+if [ -n "$count" ]; then
+  prev="$(cat "$STATE_DIR/restart_count" 2>/dev/null || echo "$count")"
+  if [ "$count" -gt "$prev" ]; then restarts=$((count - prev)); fi
+  echo "$count" >"$STATE_DIR/restart_count"
+fi
+
+# -------------------------------------------------------------------- host ---
+mem_pct="$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { printf "%.2f", 100 * (t - a) / t }' /proc/meminfo)"
+disk_pct="$(df -P / | awk 'NR == 2 { sub("%", "", $5); print $5 }')"
+
+# ----------------------------------------------------------------- publish ---
+metric() {
+  printf '{"MetricName":"%s","Value":%s,"Unit":"%s","Dimensions":[{"Name":"Environment","Value":"%s"}]}' \
+    "$1" "$2" "$3" "$ENVIRONMENT"
+}
+
+# Memory and clients only when INFO answered: a 0 while Redis is down would
+# read as "empty" on the dashboard and clear a memory alarm.
+redis_metrics=""
+if [ -n "$used_pct" ]; then redis_metrics="$redis_metrics$(metric UsedMemoryPercentOfMax "$used_pct" Percent),"; fi
+if [ -n "$clients" ]; then redis_metrics="$redis_metrics$(metric ConnectedClients "$clients" Count),"; fi
+
+aws cloudwatch put-metric-data --region "$REGION" --namespace "$NAMESPACE" --metric-data "[
+  $(metric RedisUp "$up" None),
+  $redis_metrics
+  $(metric ContainerRestarts "$restarts" Count),
+  $(metric HostMemoryUsedPercent "$mem_pct" Percent),
+  $(metric DiskUsedPercent "$disk_pct" Percent)
+]"

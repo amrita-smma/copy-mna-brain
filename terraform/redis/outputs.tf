@@ -38,3 +38,8 @@ output "ssm_parameter_prefix" {
 output "environment" {
   value = local.environment
 }
+
+output "dashboard_url" {
+  description = "CloudWatch dashboard for this Redis"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards/dashboard/${aws_cloudwatch_dashboard.redis.dashboard_name}"
+}
