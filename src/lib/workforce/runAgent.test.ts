@@ -1067,9 +1067,6 @@ describe('runAgent — attachments, effort tiers, and user attribution', () => {
 describe('invokeAgent', () => {
   const callInvokeAgent = () =>
     invokeAgent(RUN_ID, PROMPT, null, RUN_ID, [], 'ws-1', 'medium', null);
-  const NO_OUTPUT_REASON =
-    'The run ended without producing any output — the agent stopped before ' +
-    'writing a final message. Nothing was saved — retry the task.';
 
   it('has maxRetries set to 5', () => {
     expect(invokeAgent.maxRetries).toBe(5);
@@ -1105,10 +1102,10 @@ describe('invokeAgent', () => {
   it.each([
     ['empty with no invalid_tool_calls', { content: '' }],
     ['whitespace with an empty invalid_tool_calls', { content: '   ', invalid_tool_calls: [] }],
-  ])('fails with the generic no-output reason when the final message is %s', async (_label, last) => {
+  ])('completes rather than fails when the final message is %s', async (_label, last) => {
     invokeMock.mockResolvedValueOnce({ messages: [{ content: 'user msg' }, last] });
 
-    expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: NO_OUTPUT_REASON });
+    expect(await callInvokeAgent()).toMatchObject({ kind: 'completed', messageCount: 2 });
   });
 
   // The Langfuse drain must live inside this step, where the callback handler

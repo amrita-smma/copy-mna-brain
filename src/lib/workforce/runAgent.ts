@@ -545,15 +545,16 @@ export async function invokeAgent(
       }
     }
 
-    // Empty final messages (e.g. unparsed invalid_tool_calls or thinking-only
-    // turns) indicate an incomplete run rather than a completed one. Fail the run
-    // so the user is prompted to retry rather than reporting false success.
+    // An empty final message is a legitimate outcome: an agent can finish its
+    // work entirely through tool calls (save, promote, edit) and have nothing
+    // left to say. Only an empty turn that ended on a tool call the SDK could
+    // not parse means the agent was cut off mid-action, so only that fails.
     if (!isFailure && lastMessage && finalMessage.trim() === '') {
       const invalid = (
         lastMessage as unknown as { invalid_tool_calls?: unknown[] }
       ).invalid_tool_calls;
-      isFailure = true;
       if (Array.isArray(invalid) && invalid.length > 0) {
+        isFailure = true;
         // The SDK leaves `name` empty when the tool call arrives without the
         // frame that carries it, so this is frequently '<unnamed>'.
         const names = invalid
@@ -569,10 +570,6 @@ export async function invokeAgent(
           `The run ended on a tool call that could not be parsed (${names}` +
           `${sdkError ? `: ${sdkError}` : ''}), so the agent stopped before ` +
           `producing any output. Nothing was saved — retry the task.`;
-      } else {
-        failureReason =
-          'The run ended without producing any output — the agent stopped before ' +
-          'writing a final message. Nothing was saved — retry the task.';
       }
     }
 
