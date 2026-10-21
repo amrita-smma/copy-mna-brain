@@ -317,6 +317,30 @@ export class AiWorkforceQueueRepository {
   }
 
   /**
+   * Batched {@link findLatestByCompanyId}: the newest `agentName` run for each
+   * of `companyIds`, whatever its status. One `DISTINCT ON` instead of a
+   * lookup per company — what a table row per company needs to show each
+   * company's run state.
+   */
+  async findLatestByCompanyIds(agentName: string, companyIds: string[]): Promise<Row[]> {
+    if (companyIds.length === 0) return [];
+    const companyId = sql`${aiWorkforceQueue.trigger_meta}->>'company_id'`;
+    const rows = await this.db
+      .selectDistinctOn([companyId], { run: aiWorkforceQueue })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.agent_name, agentName),
+          inArray(companyId, companyIds),
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+        ),
+      )
+      // DISTINCT ON keeps each group's first row: newest first.
+      .orderBy(asc(companyId), desc(aiWorkforceQueue.created_at));
+    return rows.map((r) => r.run);
+  }
+
+  /**
    * Batched {@link findActiveByCompanyId}: the subset of `companyIds` that
    * already have a non-terminal run for `agentName`. Lets a bulk caller ask
    * "which of these are already in flight?" in one query instead of one

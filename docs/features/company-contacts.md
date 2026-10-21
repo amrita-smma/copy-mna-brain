@@ -51,11 +51,48 @@ page can never capture that host's email.
 5. The card polls `GET /api/companies/:id/contacts` — firm, top 5 contacts and
    total count, latest run — every 4s while the run is active (5 min cap).
 
+## Who the search looks for
+
+The agent's prompt (`PARTNERSHIP_ROLE_MIX` in `companyContactsPrompt.ts`) asks
+for up to five people **spread across levels** rather than five from one tier:
+one CEO, one business development lead (VP / Director), two business
+development staff (manager / associate / analyst) and one sales contact. It is
+guidance to the agent only — nothing in the data model or the save enforces it,
+and the contacts stay a flat list.
+
 ## Ranking
 
 The card ranks **all** the firm's CRM contacts — ingested, imported, hand-added
 or agent-found — by `partnershipRoleRank(title)` (`crm_contact/constants.ts`):
 CEO / MD / founder → CBO / CCO / CSO → VP or Head of BD / Partnerships →
 BD / Partnerships Manager → country or BU GM → other C-level → everyone else.
-It shows the top five and links to the rest in the CRM. The agent's prompt
-searches in the same priority order.
+It shows the top five and links to the rest in the CRM. The agent's search
+prompt (`PARTNERSHIP_ROLE_MIX`) asks for a spread across levels; ranking here
+is display-only.
+
+## AI-Discovered Companies table
+
+The Sourcing page's **AI-Discovered Companies** table (`MarketScreeningResults`)
+has a **Contact** column in place of Revenue / EBITDA / Valuation: each
+company's top-ranked contact (name, title, email / phone / LinkedIn), with
+**See more** expanding the rest of the top five inline and a link to any
+beyond that in the CRM.
+
+- **Auto-enrichment.** When a market scan inserts companies,
+  `runMarketScreening` calls `discoverMany` on them, so each new company gets a
+  contact search queued without anyone pressing a button. Best-effort: a queue
+  failure is logged and the scan still succeeds.
+- **One request per page.** The table loads its visible page through
+  `GET /api/companies/contacts?ids=…` → `getStates`, the batched `getState`:
+  a fixed handful of queries whatever the number of companies
+  (`findByIds`, `findLatestByCompanyIds`, `findManyByDomains`,
+  `findByNormalizedNames`, `findByEmployerIds`). `resolveEmployers` mirrors
+  `resolveEmployer`'s precedence — keep the two in step. The page re-polls
+  every 5s while any visible company's search is active.
+- **Backfill.** **Find missing contacts on this page** posts the visible
+  page's ids (10, the endpoint's `MAX_BULK_CONTACT_DISCOVERY` cap — each is an
+  agent run) to `POST /api/companies/contacts` with `onlyMissing: true`; the
+  server skips companies that already have contacts, a run in flight, or a
+  succeeded search, so a second click never pays twice. A scan's
+  auto-enrichment queues in batches of the same size.
+  A row without contacts also has its own **Find contacts** / **Search again**.

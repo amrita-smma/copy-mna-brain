@@ -32,11 +32,14 @@ describe('CRM_COMPANY_CONTACTS_SYSTEM_PROMPT', () => {
     }
   });
 
-  it('prioritises the partnership roles and caps the list at five', () => {
-    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('CEO');
-    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('Head of Business Development');
-    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('Business Development Manager');
-    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('the best 5');
+  it('asks for five contacts spread across levels, not one tier', () => {
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('several levels of the hierarchy');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('Aim for this mix of 5');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('1 × CEO');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('1 × business development upper management');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('2 × business development working level');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('1 × sales');
+    expect(CRM_COMPANY_CONTACTS_SYSTEM_PROMPT).toContain('Do not fill the list from one level');
   });
 
   it('forbids guessed emails and keeps the existing list when nothing is found', () => {

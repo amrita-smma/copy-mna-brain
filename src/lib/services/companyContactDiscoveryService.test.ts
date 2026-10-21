@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   enqueueAgentRun: vi.fn(),
   findLatestByCompanyId: vi.fn(),
+  findLatestByCompanyIds: vi.fn(),
   findById: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
     AiWorkforceQueueRepository: function AiWorkforceQueueRepository() {
       return {
         findLatestByCompanyId: mocks.findLatestByCompanyId,
+        findLatestByCompanyIds: mocks.findLatestByCompanyIds,
         findById: mocks.findById,
       };
     },
@@ -39,18 +41,26 @@ const EMPLOYER = { id: 'emp-1', name: 'Acme Logistics' };
 function makeService(company: typeof COMPANY | null = COMPANY) {
   const companyRepo = {
     findByIdOrNull: vi.fn().mockResolvedValue(company),
+    findByIds: vi.fn().mockResolvedValue(company ? [company] : []),
     update: vi.fn().mockResolvedValue([]),
   };
   const employerRepo = {
     findById: vi.fn().mockResolvedValue(EMPLOYER),
     findByNormalizedName: vi.fn().mockResolvedValue(undefined),
+    findByIds: vi.fn().mockResolvedValue([]),
+    findByNormalizedNames: vi.fn().mockResolvedValue([]),
   };
   const employerDomainRepo = {
     findByDomain: vi.fn().mockResolvedValue(null),
     findByEmployerId: vi.fn().mockResolvedValue([]),
+    findByEmployerIds: vi.fn().mockResolvedValue([]),
+    findManyByDomains: vi.fn().mockResolvedValue([]),
     persistMany: vi.fn().mockResolvedValue([]),
   };
-  const correspondentRepo = { findByEmployerId: vi.fn().mockResolvedValue([]) };
+  const correspondentRepo = {
+    findByEmployerId: vi.fn().mockResolvedValue([]),
+    findByEmployerIds: vi.fn().mockResolvedValue([]),
+  };
   const crmService = {
     findOrCreateEmployer: vi.fn().mockResolvedValue({ id: 'emp-new', name: 'Acme Logistics' }),
     addContactsToEmployer: vi.fn().mockResolvedValue({ createdIds: ['c1'], merged: [] }),
@@ -80,6 +90,7 @@ function queueRow(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.enqueueAgentRun.mockReset();
   mocks.findLatestByCompanyId.mockReset().mockResolvedValue(null);
+  mocks.findLatestByCompanyIds.mockReset().mockResolvedValue([]);
   mocks.findById.mockReset();
 });
 
@@ -294,5 +305,146 @@ describe('CompanyContactDiscoveryService.discover', () => {
 
     await expect(service.discover('co-x')).rejects.toBeInstanceOf(CompanyNotFoundError);
     expect(mocks.enqueueAgentRun).not.toHaveBeenCalled();
+  });
+});
+
+const GLOBEX = {
+  id: 'co-2',
+  target: 'Globex',
+  website: 'https://globex.com',
+  crm_employer_id: null as string | null,
+};
+
+describe('CompanyContactDiscoveryService.getStates', () => {
+  it('returns {} without querying when no ids are given', async () => {
+    const { service, companyRepo } = makeService();
+    expect(await service.getStates([])).toEqual({});
+    expect(companyRepo.findByIds).not.toHaveBeenCalled();
+  });
+
+  it('resolves every company in one batch: stored link, then domain, then name', async () => {
+    const third = { id: 'co-3', target: 'Initech', website: null, crm_employer_id: null };
+    const { service, companyRepo, employerRepo, employerDomainRepo, correspondentRepo } =
+      makeService();
+    companyRepo.findByIds.mockResolvedValueOnce([
+      { ...COMPANY, crm_employer_id: 'emp-1' },
+      GLOBEX,
+      third,
+    ]);
+    employerDomainRepo.findManyByDomains.mockResolvedValueOnce([
+      { domain: 'globex.com', employer_id: 'emp-2' },
+    ]);
+    employerRepo.findByIds.mockResolvedValueOnce([
+      EMPLOYER,
+      { id: 'emp-2', name: 'Globex Corp' },
+    ]);
+    employerRepo.findByNormalizedNames.mockResolvedValueOnce([
+      { id: 'emp-3', name: 'Initech', normalized_name: 'initech' },
+    ]);
+    correspondentRepo.findByEmployerIds.mockResolvedValueOnce([
+      { id: 'p1', employer_id: 'emp-1', title: 'Analyst' },
+      { id: 'p2', employer_id: 'emp-1', title: 'CEO' },
+      { id: 'p3', employer_id: 'emp-2', title: 'Head of Partnerships' },
+    ]);
+    mocks.findLatestByCompanyIds.mockResolvedValueOnce([
+      { ...queueRow({ id: 'run-2', status: 'running' }), trigger_meta: { company_id: 'co-2' } },
+    ]);
+
+    const states = await service.getStates(['co-1', 'co-2', 'co-3']);
+
+    expect(states['co-1'].employer).toEqual({ id: 'emp-1', name: 'Acme Logistics', matchedBy: 'stored' });
+    expect(states['co-1'].contacts.map((c) => c.id)).toEqual(['p2', 'p1']);
+    expect(states['co-1'].totalContacts).toBe(2);
+    expect(states['co-1'].run).toBeNull();
+    expect(states['co-2'].employer?.matchedBy).toBe('domain');
+    expect(states['co-2'].run).toMatchObject({ runId: 'run-2', active: true });
+    expect(states['co-3'].employer).toMatchObject({ id: 'emp-3', matchedBy: 'name' });
+    expect(states['co-3'].contacts).toEqual([]);
+    // One query per lookup, whatever the number of companies.
+    expect(correspondentRepo.findByEmployerIds).toHaveBeenCalledTimes(1);
+    expect(employerRepo.findByIds).toHaveBeenCalledTimes(1);
+    expect(employerRepo.findById).not.toHaveBeenCalled();
+    expect(employerDomainRepo.findByDomain).not.toHaveBeenCalled();
+  });
+
+  it('rejects a same-name firm whose own domains differ from the company website', async () => {
+    const { service, companyRepo, employerRepo, employerDomainRepo } = makeService();
+    companyRepo.findByIds.mockResolvedValueOnce([COMPANY]);
+    employerRepo.findByNormalizedNames.mockResolvedValueOnce([
+      { id: 'emp-bank', name: 'Acme Logistics', normalized_name: 'acme logistics' },
+    ]);
+    employerDomainRepo.findByEmployerIds.mockResolvedValueOnce([
+      { domain: 'acmebank.com', employer_id: 'emp-bank' },
+    ]);
+
+    const states = await service.getStates(['co-1']);
+
+    expect(states['co-1'].employer).toBeNull();
+  });
+});
+
+describe('CompanyContactDiscoveryService.discoverMany', () => {
+  it('queues a run for each company and reports in-flight ones as already queued', async () => {
+    const { service, companyRepo } = makeService();
+    companyRepo.findByIds.mockResolvedValueOnce([COMPANY, GLOBEX]);
+    mocks.findLatestByCompanyIds.mockResolvedValueOnce([
+      { ...queueRow({ id: 'run-g', status: 'running' }), trigger_meta: { company_id: 'co-2' } },
+    ]);
+    mocks.enqueueAgentRun.mockResolvedValueOnce({ runId: 'run-a', created: true });
+    mocks.findById.mockResolvedValueOnce(queueRow({ id: 'run-a' }));
+
+    const result = await service.discoverMany(['co-1', 'co-2'], { triggeredByUserId: 'u1' });
+
+    expect(result).toEqual({ queued: ['co-1'], alreadyQueued: ['co-2'], skipped: [] });
+    expect(mocks.enqueueAgentRun).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueueAgentRun.mock.calls[0][1]).toMatchObject({
+      triggerMeta: { company_id: 'co-1' },
+      triggeredByUserId: 'u1',
+    });
+    // Company rows come from the one batched read, not a lookup per company.
+    expect(companyRepo.findByIdOrNull).not.toHaveBeenCalled();
+  });
+
+  it('with onlyMissing, skips companies that have contacts or a finished search', async () => {
+    const { service, companyRepo, employerRepo, correspondentRepo } = makeService();
+    const third = { id: 'co-3', target: 'Initech', website: null, crm_employer_id: null };
+    companyRepo.findByIds.mockResolvedValueOnce([
+      { ...COMPANY, crm_employer_id: 'emp-1' },
+      GLOBEX,
+      third,
+    ]);
+    employerRepo.findByIds.mockResolvedValueOnce([EMPLOYER]);
+    correspondentRepo.findByEmployerIds.mockResolvedValueOnce([
+      { id: 'p1', employer_id: 'emp-1', title: 'CEO' },
+    ]);
+    mocks.findLatestByCompanyIds.mockResolvedValueOnce([
+      { ...queueRow({ id: 'run-g', status: 'succeeded' }), trigger_meta: { company_id: 'co-2' } },
+    ]);
+    mocks.enqueueAgentRun.mockResolvedValueOnce({ runId: 'run-3', created: true });
+    mocks.findById.mockResolvedValueOnce(queueRow({ id: 'run-3' }));
+
+    const result = await service.discoverMany(['co-1', 'co-2', 'co-3'], { onlyMissing: true });
+
+    expect(result).toEqual({ queued: ['co-3'], alreadyQueued: [], skipped: ['co-1', 'co-2'] });
+  });
+
+  it('keeps going when one company fails to queue', async () => {
+    const { service, companyRepo } = makeService();
+    companyRepo.findByIds.mockResolvedValueOnce([COMPANY, GLOBEX]);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.enqueueAgentRun
+      .mockRejectedValueOnce(new Error('queue down'))
+      .mockResolvedValueOnce({ runId: 'run-g', created: true });
+    mocks.findById.mockResolvedValueOnce(queueRow({ id: 'run-g' }));
+
+    const result = await service.discoverMany(['co-1', 'co-2']);
+
+    expect(result.queued).toEqual(['co-2']);
+  });
+
+  it('returns an empty result without querying for no ids', async () => {
+    const { service, companyRepo } = makeService();
+    expect(await service.discoverMany([])).toEqual({ queued: [], alreadyQueued: [], skipped: [] });
+    expect(companyRepo.findByIds).not.toHaveBeenCalled();
   });
 });

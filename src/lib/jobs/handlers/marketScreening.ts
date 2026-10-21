@@ -92,6 +92,36 @@ async function markScanCompleted(
   });
 }
 
+/**
+ * Enrich every newly discovered company with its partnership contacts: queue
+ * an @crm_contact run per company, so the AI-Discovered table can show who to
+ * call. Best-effort — the scan already succeeded, and a company whose search
+ * failed to queue can still be searched from the table.
+ */
+async function queueContactSearches(
+  db: DbClient,
+  workspaceId: string,
+  companyIds: string[],
+): Promise<void> {
+  if (companyIds.length === 0) return;
+  try {
+    // Lazy, as in the companyVote handler: the container pulls in every service.
+    const [{ createContainer }, { MAX_BULK_CONTACT_DISCOVERY }] = await Promise.all([
+      import('@/lib/services/container'),
+      import('@/lib/services/companyContactDiscoveryService'),
+    ]);
+    const { companyContactDiscoveryService } = createContainer(db, workspaceId);
+    // discoverMany takes a page's worth at a time; a scan can find more.
+    for (let i = 0; i < companyIds.length; i += MAX_BULK_CONTACT_DISCOVERY) {
+      await companyContactDiscoveryService.discoverMany(
+        companyIds.slice(i, i + MAX_BULK_CONTACT_DISCOVERY),
+      );
+    }
+  } catch (err) {
+    console.error('[marketScreening] failed to queue contact searches:', err);
+  }
+}
+
 function getSchemaFieldsForPrompt(): string {
   const excludeFields = [
     'id',
@@ -264,6 +294,7 @@ Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use 
   );
 
   await markScanCompleted(thesisRepo, thesisIds);
+  await queueContactSearches(deps.db, workspaceId, insertedCompanies.map((c) => c.id));
 
   captureWorkspaceEvent({
     workspaceId,

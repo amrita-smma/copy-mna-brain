@@ -1,9 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useWorkspaceCurrency } from '@/components/layout/WorkspaceCurrencyContext';
-import { formatMoneyMn } from '@/lib/currency';
 import {
   Table,
   TableBody,
@@ -21,7 +19,7 @@ import {
   type ColumnDef,
 } from '@/components/table';
 import { toast } from 'sonner';
-import { Loader2, Zap, Target, Sparkles, Trash2, ChevronLeft, ChevronRight, ArrowRight, Inbox } from 'lucide-react';
+import { Loader2, Zap, Target, Sparkles, Trash2, ChevronLeft, ChevronRight, ArrowRight, Inbox, Users } from 'lucide-react';
 import CompanyDetailDialog from './CompanyDetailDialog';
 import PromoteDialog from './PromoteDialog';
 import {
@@ -37,6 +35,13 @@ import { companyDisplayName } from '@/lib/companyDisplay';
 import { DealStage } from '@/lib/types';
 import { deleteCompanyById, getCompanies, promoteCompany } from '@/lib/api/pipeline';
 import { UNREVIEWED_STAGE } from '@/lib/constants';
+import {
+  findCompaniesContacts,
+  findCompanyContacts,
+  getCompaniesContacts,
+  type CompanyContactsState,
+} from '@/lib/api/companyContacts';
+import { CompanyContactCell } from './CompanyContactCell';
 
 // Sticky cells follow this table's blue row hover with an opaque tint.
 const stickyHoverClass = 'group-hover:bg-blue-50 dark:group-hover:bg-blue-950';
@@ -114,26 +119,12 @@ interface MarketScreeningResultsProps {
   onAddedToPipeline: () => void;
 }
 
-const latestFin = (
-  rows: import('@/lib/repositories').Tables<'company_financials'>[] | undefined,
-  key: 'revenue_usd_mn' | 'ebitda_usd_mn',
-): { value: number | null; year: number | null } => {
-  if (!rows?.length) return { value: null, year: null };
-  let best: { value: number; year: number } | null = null;
-  for (const r of rows) {
-    const v = r[key] as number | null;
-    if (v == null) continue;
-    if (!best || r.fiscal_year > best.year) best = { value: v, year: r.fiscal_year };
-  }
-  return best ?? { value: null, year: null };
-};
-
+/** Re-read the page's contacts this often while any of its searches is running. */
+const CONTACTS_POLL_MS = 5_000;
 const ITEMS_PER_PAGE = 10;
 
 export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeline }: MarketScreeningResultsProps) {
   const { analyzeWithAI } = useChatActions();
-  const currency = useWorkspaceCurrency();
-  const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
   const [results, setResults] = useState<MarketScreeningResult[]>([]);
   const [loading, setLoading] = useState(true);
   // Open state is derived from `selectedResult` (not a separate boolean) so the
@@ -235,18 +226,6 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
           aVal = (a.segment || '').toLowerCase();
           bVal = (b.segment || '').toLowerCase();
           break;
-        case 'revenue':
-          aVal = latestFin(a.financials_raw, 'revenue_usd_mn').value ?? 0;
-          bVal = latestFin(b.financials_raw, 'revenue_usd_mn').value ?? 0;
-          break;
-        case 'ebitda':
-          aVal = latestFin(a.financials_raw, 'ebitda_usd_mn').value ?? 0;
-          bVal = latestFin(b.financials_raw, 'ebitda_usd_mn').value ?? 0;
-          break;
-        case 'valuation':
-          aVal = a.ev_2024 || 0;
-          bVal = b.ev_2024 || 0;
-          break;
         default:
           return 0;
       }
@@ -267,6 +246,87 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   useEffect(() => {
     setCurrentPage(1);
   }, [sortField, sortDirection]);
+
+  // Contacts for the visible page, keyed by company id — one batched request
+  // per page, never one per row.
+  const [contactsById, setContactsById] = useState<Record<string, CompanyContactsState>>({});
+  const [startingIds, setStartingIds] = useState<Set<string>>(new Set());
+  const [bulkFinding, setBulkFinding] = useState(false);
+  const pageIds = useMemo(() => paginatedResults.map((r) => r.id), [paginatedResults]);
+  const pageIdsKey = pageIds.join(',');
+  const pageIdsRef = useRef(pageIds);
+  pageIdsRef.current = pageIds;
+
+  const loadContacts = useCallback(async () => {
+    const ids = pageIdsRef.current;
+    if (ids.length === 0) return;
+    try {
+      const states = await getCompaniesContacts(ids);
+      setContactsById((prev) => ({ ...prev, ...states }));
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadContacts();
+  }, [pageIdsKey, refreshTrigger, loadContacts]);
+
+  const anySearching = pageIds.some((id) => contactsById[id]?.run?.active);
+  useEffect(() => {
+    if (!anySearching) return;
+    const timer = setInterval(() => void loadContacts(), CONTACTS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [anySearching, loadContacts]);
+
+  const findContacts = async (result: MarketScreeningResult) => {
+    if (startingIds.has(result.id)) return;
+    setStartingIds((prev) => new Set(prev).add(result.id));
+    try {
+      const { created: _created, ...run } = await findCompanyContacts(result.id);
+      setContactsById((prev) => {
+        const current = prev[result.id];
+        return {
+          ...prev,
+          [result.id]: {
+            employer: current?.employer ?? null,
+            contacts: current?.contacts ?? [],
+            totalContacts: current?.totalContacts ?? 0,
+            run,
+          },
+        };
+      });
+    } catch (error) {
+      toast.error((error as Error).message || 'Could not start the contact search');
+    } finally {
+      setStartingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(result.id);
+        return next;
+      });
+    }
+  };
+
+  // Backfill, one page at a time (each search is an agent run; the endpoint
+  // takes at most a page — MAX_BULK_CONTACT_DISCOVERY): search the visible
+  // companies that have no contacts and were never successfully searched.
+  // The server decides which ones that is.
+  const findMissingContactsOnPage = async () => {
+    setBulkFinding(true);
+    try {
+      const { queued } = await findCompaniesContacts(pageIds, { onlyMissing: true });
+      toast.info(
+        queued.length > 0
+          ? `Looking for contacts at ${queued.length} compan${queued.length === 1 ? 'y' : 'ies'}…`
+          : 'Every company on this page already has contacts or a contact search',
+      );
+      await loadContacts();
+    } catch (error) {
+      toast.error((error as Error).message || 'Could not start the contact searches');
+    } finally {
+      setBulkFinding(false);
+    }
+  };
 
   // Header content (sort controls) for a managed column, without the
   // surrounding <TableHead> (the managed header supplies that).
@@ -295,51 +355,19 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
       ),
     },
     {
-      id: 'revenue',
-      label: 'Revenue',
-      header: colHeader('Revenue', { sort: 'revenue' }),
-      headerClassName: 'text-right',
-      cellClassName: 'text-right font-mono text-xs',
-      cell: (result) => {
-        const rev = latestFin(result.financials_raw, 'revenue_usd_mn');
-        return rev.value === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <>
-            <div className="font-medium">{formatCurrency(rev.value)}</div>
-            {rev.year && <div className="text-[10px] text-muted-foreground">{rev.year}</div>}
-          </>
-        );
-      },
-    },
-    {
-      id: 'ebitda',
-      label: 'EBITDA',
-      header: colHeader('EBITDA', { sort: 'ebitda' }),
-      headerClassName: 'text-right',
-      cellClassName: 'text-right font-mono text-xs',
-      cell: (result) => {
-        const ebitda = latestFin(result.financials_raw, 'ebitda_usd_mn');
-        return ebitda.value === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <>
-            <div className="font-medium">{formatCurrency(ebitda.value)}</div>
-            {ebitda.year && <div className="text-[10px] text-muted-foreground">{ebitda.year}</div>}
-          </>
-        );
-      },
-    },
-    {
-      id: 'valuation',
-      label: 'Valuation',
-      header: colHeader('Valuation', { sort: 'valuation' }),
-      headerClassName: 'text-right',
-      cellClassName: 'text-right font-mono text-xs font-medium text-foreground',
-      cell: (result) => formatCurrency(result.ev_2024),
+      id: 'contact',
+      label: 'Contact',
+      header: colHeader('Contact'),
+      cell: (result) => (
+        <CompanyContactCell
+          state={contactsById[result.id]}
+          starting={startingIds.has(result.id)}
+          onFind={() => void findContacts(result)}
+        />
+      ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [sortField, sortDirection]);
+  ], [sortField, sortDirection, contactsById, startingIds]);
 
   const mgr = useColumnLayout('market-screening-results', columns);
 
@@ -415,7 +443,18 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
 
       <CardContent>
         <ColumnManagerProvider value={mgr}>
-          <div className="flex items-center justify-end px-2 py-1.5">
+          <div className="flex items-center justify-end gap-2 px-2 py-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => void findMissingContactsOnPage()}
+              disabled={bulkFinding}
+              data-testid="market-screening-find-all-contacts"
+            >
+              {bulkFinding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+              Find missing contacts on this page
+            </Button>
             <ColumnConfigGear />
           </div>
           <div className="overflow-x-auto">

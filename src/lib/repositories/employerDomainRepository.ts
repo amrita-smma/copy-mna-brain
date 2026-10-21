@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { employerDomains } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
@@ -29,6 +29,16 @@ export class EmployerDomainRepository {
       .select()
       .from(employerDomains)
       .where(eq(employerDomains.employer_id, employerId));
+  }
+
+  /** Batched {@link findByEmployerId}, ordered by employer so callers group in one pass. */
+  async findByEmployerIds(employerIds: string[]): Promise<EmployerDomain[]> {
+    if (employerIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(employerDomains)
+      .where(inArray(employerDomains.employer_id, employerIds))
+      .orderBy(asc(employerDomains.employer_id));
   }
 
   async findManyByDomains(domains: string[]): Promise<EmployerDomain[]> {

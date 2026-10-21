@@ -8,7 +8,9 @@ const {
   bulkUpsertForCompany,
   findByIds,
   updateMany,
+  discoverMany,
 } = vi.hoisted(() => ({
+  discoverMany: vi.fn(),
   agentInvoke: vi.fn(),
   extractMessageText: vi.fn(),
   findTargetNames: vi.fn(),
@@ -51,6 +53,12 @@ vi.mock('@/lib/repositories', () => {
 
 vi.mock('@/lib/posthog-server', () => ({ captureWorkspaceEvent: vi.fn() }));
 
+vi.mock('@/lib/services/companyContactDiscoveryService', () => ({ MAX_BULK_CONTACT_DISCOVERY: 10 }));
+
+vi.mock('@/lib/services/container', () => ({
+  createContainer: vi.fn(() => ({ companyContactDiscoveryService: { discoverMany } })),
+}));
+
 import { runMarketScreening } from './marketScreening';
 
 const NOW = new Date('2026-07-03T10:00:00.000Z');
@@ -77,6 +85,7 @@ describe('runMarketScreening', () => {
     bulkUpsertForCompany.mockReset().mockResolvedValue(undefined);
     findByIds.mockReset().mockResolvedValue([{ id: 't1', scan_frequency: 'weekly' }]);
     updateMany.mockReset().mockResolvedValue(undefined);
+    discoverMany.mockReset().mockResolvedValue({ queued: [], alreadyQueued: [], skipped: [] });
   });
 
   afterEach(() => {
@@ -182,5 +191,47 @@ describe('runMarketScreening', () => {
     await expect(
       runMarketScreening({ thesis: '' }, { db: {} as never }),
     ).rejects.toThrow(/Investment thesis is required/);
+  });
+
+  it('queues a contact search for every newly inserted company', async () => {
+    mockAgentResponse(foundCompanies('Acme', 'Globex'));
+
+    await runMarketScreening({ thesis: 'SaaS' }, { db: {} as never, workspaceId: 'ws-1' });
+
+    expect(discoverMany).toHaveBeenCalledTimes(1);
+    expect(discoverMany).toHaveBeenCalledWith(['id-Acme', 'id-Globex']);
+  });
+
+  it('queues contact searches in batches of ten when a scan finds more', async () => {
+    const names = Array.from({ length: 12 }, (_, i) => `Co${i}`);
+    mockAgentResponse(foundCompanies(...names));
+
+    await runMarketScreening({ thesis: 'SaaS' }, { db: {} as never, workspaceId: 'ws-1' });
+
+    expect(discoverMany).toHaveBeenCalledTimes(2);
+    expect(discoverMany.mock.calls[0][0]).toHaveLength(10);
+    expect(discoverMany.mock.calls[1][0]).toEqual(['id-Co10', 'id-Co11']);
+  });
+
+  it('does not queue contact searches when nothing new was found', async () => {
+    findTargetNames.mockResolvedValue(['Acme']);
+    mockAgentResponse(foundCompanies('Acme'));
+
+    await runMarketScreening({ thesis: 'SaaS' }, { db: {} as never, workspaceId: 'ws-1' });
+
+    expect(discoverMany).not.toHaveBeenCalled();
+  });
+
+  it('still reports the scan as successful when queueing contact searches fails', async () => {
+    mockAgentResponse(foundCompanies('Acme'));
+    discoverMany.mockRejectedValueOnce(new Error('queue down'));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const result = await runMarketScreening(
+      { thesis: 'SaaS' },
+      { db: {} as never, workspaceId: 'ws-1' },
+    );
+
+    expect(result.count).toBe(1);
   });
 });

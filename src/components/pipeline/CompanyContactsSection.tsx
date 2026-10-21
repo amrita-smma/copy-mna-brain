@@ -36,7 +36,7 @@ const POLL_TIMEOUT_MS = 5 * 60_000;
  * does: `firm` seeds the search so the row is on the page, `employerId` tells
  * `CRM.tsx` which card to expand.
  */
-function crmHref(employer: { id: string; name: string }): string {
+export function crmHref(employer: { id: string; name: string }): string {
   const params = new URLSearchParams({ employerId: employer.id, firm: employer.name });
   return `/crm?${params.toString()}`;
 }

@@ -102,3 +102,26 @@ describe('EmployerDomainRepository.findByEmployerId', () => {
     expect(db.select).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('EmployerDomainRepository.findByEmployerIds', () => {
+  it('returns [] for empty input without hitting the DB', async () => {
+    const db = { ...makeDb(), orderBy: vi.fn() };
+    const repo = new EmployerDomainRepository(db as never);
+    expect(await repo.findByEmployerIds([])).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('reads every employer’s domains in one ordered query', async () => {
+    const db = { ...makeDb(), orderBy: vi.fn() };
+    db.where.mockReturnThis();
+    const rows = [
+      { domain: 'a.com', employer_id: 'e1' },
+      { domain: 'b.com', employer_id: 'e2' },
+    ];
+    db.orderBy.mockResolvedValueOnce(rows);
+    const repo = new EmployerDomainRepository(db as never);
+    expect(await repo.findByEmployerIds(['e1', 'e2'])).toEqual(rows);
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(db.orderBy).toHaveBeenCalledTimes(1);
+  });
+});

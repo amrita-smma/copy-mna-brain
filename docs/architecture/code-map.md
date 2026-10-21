@@ -12,7 +12,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 213 | `src/app/api/**/route.ts` |
+| API routes | 214 | `src/app/api/**/route.ts` |
 | Services | 84 | `src/lib/services/` |
 | Repositories | 75 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
@@ -131,6 +131,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/companies/[id]/run-l1-filters` | POST | `companyService` |
 | `/api/companies/[id]/vote` | GET, POST, PATCH | `companyVoteService` |
 | `/api/companies/[id]/vote/ballot` | PUT | `companyVoteService` |
+| `/api/companies/contacts` | GET, POST | `companyContactDiscoveryService` |
 | `/api/companies/drop-bulk` | POST | `companyService` |
 | `/api/companies/promote-bulk` | POST | `companyService` |
 | `/api/companies/stream` | GET | `companyService` |
