@@ -12,6 +12,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "3636a534b9fd1b239b655b6c275bf6be2b7be73d",
+    "date": "2026-10-21",
+    "subject": "Add Redis monitoring make targets; log Copilot subagent split as tech debt",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "8ef7756678599fa6b3dc8bb0543b3f133eabd10b",
+    "date": "2026-10-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
     "date": "2026-10-20",
     "subject": "Slide thumbnails are now hidden by default in Presentation view",
