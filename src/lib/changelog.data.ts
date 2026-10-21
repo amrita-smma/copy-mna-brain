@@ -42,6 +42,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "f036f51692e94f950f0a8a7a3dbe9aed495b555d",
+    "date": "2026-10-21",
+    "subject": "CloudWatch health probes and Slack alarms for Neo4j and Redis",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1ff967e379c1c7ebd5146fc8b1494825cf7297ee",
+    "date": "2026-10-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
     "date": "2026-10-20",
     "subject": "Slide thumbnails are now hidden by default in Presentation view",
