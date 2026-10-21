@@ -39,12 +39,15 @@ function build() {
   const companyService = { promote: vi.fn(), dropDeal: vi.fn() };
   const aiScreeningService = {
     enqueue: vi.fn(),
+    findInFlightCompanyIds: vi.fn().mockResolvedValue(new Set()),
     screenMatchedTracks: vi.fn().mockResolvedValue({ groups: GROUPS, screened: 3, tracks: TRACKS }),
   };
   const trackMatchingService = { runSync: vi.fn() };
   const companyAnalysisService = {
-    generateIfMissing: vi.fn().mockResolvedValue({ status: 'exists' }),
+    generateNowIfMissing: vi.fn().mockResolvedValue({ status: 'exists' }),
+    findCompanyIdsWithCard: vi.fn().mockResolvedValue(new Set()),
   };
+  const companyRelationshipService = { linkRelatedCompanies: vi.fn().mockResolvedValue([]) };
 
   const service = new PendingAutoScanService(
     WS,
@@ -55,6 +58,7 @@ function build() {
     aiScreeningService as never,
     trackMatchingService as never,
     companyAnalysisService as never,
+    companyRelationshipService as never,
   );
   return {
     service,
@@ -65,6 +69,7 @@ function build() {
     aiScreeningService,
     trackMatchingService,
     companyAnalysisService,
+    companyRelationshipService,
   };
 }
 
@@ -154,6 +159,35 @@ describe('PendingAutoScanService.scanNow', () => {
       triggeredByUserId: 'user-1',
     });
     expect(t.workspaceService.getPendingAutomation).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendingAutoScanService.previewScanNow', () => {
+  it('returns zeros without further reads when nothing is pending', async () => {
+    t.companyRepo.findActiveIdsByStage.mockResolvedValue([]);
+
+    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 0, missingCards: 0 });
+    expect(t.aiScreeningService.findInFlightCompanyIds).not.toHaveBeenCalled();
+    expect(t.companyAnalysisService.findCompanyIdsWithCard).not.toHaveBeenCalled();
+  });
+
+  it('counts the companies Scan now would queue and which of them lack a Company Card', async () => {
+    t.companyRepo.findActiveIdsByStage.mockResolvedValue(['a', 'b', 'c', 'd']);
+    t.aiScreeningService.findInFlightCompanyIds.mockResolvedValue(new Set(['d']));
+    t.companyAnalysisService.findCompanyIdsWithCard.mockResolvedValue(new Set(['a']));
+
+    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 3, missingCards: 2 });
+    expect(t.companyRepo.findActiveIdsByStage).toHaveBeenCalledWith('unreviewed');
+    expect(t.aiScreeningService.findInFlightCompanyIds).toHaveBeenCalledWith(['a', 'b', 'c', 'd']);
+    expect(t.companyAnalysisService.findCompanyIdsWithCard).toHaveBeenCalledWith(['a', 'b', 'c']);
+  });
+
+  it('skips the card lookup when every pending company is already queued', async () => {
+    t.companyRepo.findActiveIdsByStage.mockResolvedValue(['a', 'b']);
+    t.aiScreeningService.findInFlightCompanyIds.mockResolvedValue(new Set(['a', 'b']));
+
+    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 0, missingCards: 0 });
+    expect(t.companyAnalysisService.findCompanyIdsWithCard).not.toHaveBeenCalled();
   });
 });
 
@@ -329,21 +363,31 @@ describe('PendingAutoScanService.processCompany', () => {
     expect(t.companyService.promote).toHaveBeenCalled();
   });
 
-  it('queues the Company Card for a company that has none, as the task user', async () => {
-    t.companyAnalysisService.generateIfMissing.mockResolvedValue({ status: 'queued', runId: 'run-1' });
+  it('generates a missing Company Card before matching and screening', async () => {
+    const related = [{ name: 'Beta', relation_type: 'SUPPLIER' }];
+    t.companyAnalysisService.generateNowIfMissing.mockResolvedValue({
+      status: 'generated',
+      companyName: 'Acme',
+      relatedCompanies: related,
+    });
+    t.companyRelationshipService.linkRelatedCompanies.mockResolvedValue(['"Beta" (SUPPLIER)']);
+    t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany({ matched_track_ids: [] }));
+    t.trackMatchingService.runSync.mockResolvedValue({ matchedTrackIds: ['t1'], via: 'llm' });
     t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
 
-    const result = await t.service.processCompany(COMPANY_ID, {
-      force: true,
-      triggeredByUserId: 'user-7',
-    });
+    const result = await t.service.processCompany(COMPANY_ID, { force: true });
 
-    expect(t.companyAnalysisService.generateIfMissing).toHaveBeenCalledWith(COMPANY_ID, {
+    expect(t.companyAnalysisService.generateNowIfMissing).toHaveBeenCalledWith(COMPANY_ID, {
       source: 'pending_scan',
-      triggeredByUserId: 'user-7',
     });
-    expect(result.steps).toContain('Company Card was missing; queued its generation');
-    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalled();
+    const cardOrder = t.companyAnalysisService.generateNowIfMissing.mock.invocationCallOrder[0];
+    expect(cardOrder).toBeLessThan(t.trackMatchingService.runSync.mock.invocationCallOrder[0]);
+    expect(cardOrder).toBeLessThan(
+      t.aiScreeningService.screenMatchedTracks.mock.invocationCallOrder[0],
+    );
+    expect(t.companyRelationshipService.linkRelatedCompanies).toHaveBeenCalledWith('Acme', related);
+    expect(result.steps[0]).toBe('Company Card was missing; generated it before screening');
+    expect(result.steps).toContain('Linked related companies: "Beta" (SUPPLIER)');
   });
 
   it('adds no card step when the company already has a Company Card', async () => {
@@ -351,13 +395,24 @@ describe('PendingAutoScanService.processCompany', () => {
 
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
-    expect(t.companyAnalysisService.generateIfMissing).toHaveBeenCalledTimes(1);
+    expect(t.companyAnalysisService.generateNowIfMissing).toHaveBeenCalledTimes(1);
+    expect(t.companyRelationshipService.linkRelatedCompanies).not.toHaveBeenCalled();
     expect(result.steps.some((s) => s.includes('Company Card'))).toBe(false);
   });
 
-  it('still screens when queueing the Company Card fails', async () => {
+  it('notes a card run that is already executing and still screens', async () => {
+    t.companyAnalysisService.generateNowIfMissing.mockResolvedValue({ status: 'already_running' });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.steps).toContain('Company Card generation already in progress');
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalled();
+  });
+
+  it('still screens when generating the Company Card fails', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    t.companyAnalysisService.generateIfMissing.mockRejectedValue(new Error('queue down'));
+    t.companyAnalysisService.generateNowIfMissing.mockRejectedValue(new Error('agent down'));
     t.screeningRepo.findByCompanyIds.mockResolvedValue([
       screening('k1', 'pass'),
       screening('k2', 'pass'),
@@ -367,16 +422,33 @@ describe('PendingAutoScanService.processCompany', () => {
     const result = await t.service.processCompany(COMPANY_ID, { force: false });
 
     expect(result.outcome).toBe('promoted');
-    expect(result.steps).toContain('Could not queue Company Card generation: queue down');
+    expect(result.steps).toContain('Could not generate the Company Card: agent down');
     errSpy.mockRestore();
   });
 
-  it('does not queue a Company Card for a company no longer pending', async () => {
+  it('still screens when linking related companies fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    t.companyAnalysisService.generateNowIfMissing.mockResolvedValue({
+      status: 'generated',
+      companyName: 'Acme',
+      relatedCompanies: [],
+    });
+    t.companyRelationshipService.linkRelatedCompanies.mockRejectedValue(new Error('neo4j down'));
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: false });
+
+    expect(result.steps).toContain('Company Card was missing; generated it before screening');
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('does not generate a Company Card for a company no longer pending', async () => {
     t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany({ status: 'dropped' }));
 
     await t.service.processCompany(COMPANY_ID, { force: false });
 
-    expect(t.companyAnalysisService.generateIfMissing).not.toHaveBeenCalled();
+    expect(t.companyAnalysisService.generateNowIfMissing).not.toHaveBeenCalled();
   });
 
   it('judges each track by its pass rule from the scan', async () => {

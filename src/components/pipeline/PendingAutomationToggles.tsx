@@ -1,19 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, ScanSearch } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   getPendingAutomation,
+  getScanNowPreview,
   savePendingAutomation,
   scanPendingNow,
 } from "@/lib/api/pendingAutomation";
 import {
   DEFAULT_PENDING_AUTOMATION,
+  formatScanEstimate,
   normalizePendingAutomation,
   type PendingAutomation,
+  type ScanNowPreview,
 } from "@/lib/sourcing/pendingAutomation";
 
 interface PendingAutomationTogglesProps {
@@ -48,6 +61,11 @@ export default function PendingAutomationToggles({
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // What Scan now would queue, fetched each time the confirmation opens.
+  // `null` while loading; `"error"` when the estimate could not be fetched.
+  const [preview, setPreview] = useState<ScanNowPreview | "error" | null>(null);
+  const previewRequestRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +103,22 @@ export default function PendingAutomationToggles({
     }
   };
 
+  const openConfirm = async () => {
+    const requestId = ++previewRequestRef.current;
+    setPreview(null);
+    setConfirmOpen(true);
+    try {
+      const data = await getScanNowPreview();
+      if (previewRequestRef.current === requestId) setPreview(data);
+    } catch (err) {
+      console.error("Failed to estimate the scan:", err);
+      if (previewRequestRef.current === requestId) setPreview("error");
+    }
+  };
+
   const handleScanNow = async () => {
+    if (scanning) return;
+    setConfirmOpen(false);
     setScanning(true);
     try {
       const { queued, alreadyQueued } = await scanPendingNow();
@@ -166,7 +199,7 @@ export default function PendingAutomationToggles({
         data-testid={`${testIdPrefix}-scan-now-button`}
         className="gap-2"
         disabled={scanning || pendingCount === 0}
-        onClick={handleScanNow}
+        onClick={() => void openConfirm()}
         title="Match and AI-screen every company in Pending Confirmation now, generating any missing Company Card"
       >
         {scanning ? (
@@ -176,6 +209,64 @@ export default function PendingAutomationToggles({
         )}
         Scan now
       </Button>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent data-testid={`${testIdPrefix}-scan-now-confirm`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {preview && preview !== "error"
+                ? `Scan ${plural(preview.companies)} now?`
+                : "Scan Pending Confirmation now?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription
+              data-testid={`${testIdPrefix}-scan-now-estimate`}
+            >
+              {preview === null ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Estimating…
+                </span>
+              ) : preview === "error" ? (
+                `This AI-screens the ${plural(pendingCount)} waiting in Pending Confirmation. The time estimate is unavailable.`
+              ) : preview.companies === 0 ? (
+                "Every company in Pending Confirmation is already queued for AI screening."
+              ) : (
+                <>
+                  {`This AI-screens ${plural(preview.companies)} in Pending Confirmation` +
+                    (preview.missingCards > 0
+                      ? `, generating the Company Card first for the ${preview.missingCards} without one`
+                      : "") +
+                    "."}
+                  <span className="mt-2 block">
+                    Total estimated time:{" "}
+                    <strong className="font-semibold text-foreground">
+                      {formatScanEstimate(preview)}
+                    </strong>
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`${testIdPrefix}-scan-now-cancel`}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid={`${testIdPrefix}-scan-now-confirm-button`}
+              disabled={
+                scanning ||
+                preview === null ||
+                (preview !== "error" && preview.companies === 0)
+              }
+              onClick={(e) => {
+                e.preventDefault();
+                void handleScanNow();
+              }}
+            >
+              Start scan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
 } from '@/lib/screening/verdict';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CompanyAnalysisService } from './companyAnalysisService';
+import type { CompanyRelationshipService } from './companyRelationshipService';
 import { CompanyPipelineRequirementsError, type CompanyService } from './companyService';
 import type { TrackMatchingService } from './trackMatchingService';
 import type { WorkspaceService } from './workspaceService';
@@ -44,7 +45,7 @@ const isActivePending = (c: Company | null): c is Company =>
  * Every scan is an `ai_screening` AI Workforce task, one per company
  * (`AIScreeningService.enqueue`), so it shows up — and can be followed,
  * retried or cancelled — in AI Workforce. The task's `run_ai_screening` tool
- * calls {@link processCompany}: queue its Company Card when it has none, match
+ * calls {@link processCompany}: generate its Company Card first when it has none, match
  * the company to tracks (when it has none), screen it against each matched
  * track's criteria, then promote it to L0 on an overall `pass` (when the
  * workspace has auto promote on) or drop it on a `fail` (when it has auto drop
@@ -60,6 +61,7 @@ export class PendingAutoScanService {
     private readonly aiScreeningService: AIScreeningService,
     private readonly trackMatchingService: TrackMatchingService,
     private readonly companyAnalysisService: CompanyAnalysisService,
+    private readonly companyRelationshipService: CompanyRelationshipService,
   ) {}
 
   /**
@@ -116,6 +118,25 @@ export class PendingAutoScanService {
   }
 
   /**
+   * What Scan now would queue right now, for its confirmation dialog: the
+   * active Pending Confirmation companies not already queued or scanning, and
+   * how many of those have no Company Card yet (each of those generates one
+   * before it is screened, so it takes longer).
+   */
+  async previewScanNow(): Promise<{ companies: number; missingCards: number }> {
+    const ids = await this.companyRepo.findActiveIdsByStage(UNREVIEWED_STAGE);
+    if (ids.length === 0) return { companies: 0, missingCards: 0 };
+    const inFlight = await this.aiScreeningService.findInFlightCompanyIds(ids);
+    const toScan = ids.filter((id) => !inFlight.has(id));
+    if (toScan.length === 0) return { companies: 0, missingCards: 0 };
+    const withCard = await this.companyAnalysisService.findCompanyIdsWithCard(toScan);
+    return {
+      companies: toScan.length,
+      missingCards: toScan.filter((id) => !withCard.has(id)).length,
+    };
+  }
+
+  /**
    * Card → match → screen → (optionally) drop/promote one company. Runs inside
    * its AI Workforce task. `triggeredByUserId` is the task's user — who pressed Scan
    * now / Run AI Screening, or who moved the company into Pending Confirmation
@@ -139,10 +160,10 @@ export class PendingAutoScanService {
       return done({ outcome: 'skipped' });
     }
 
-    // 0. Company Card — a company that never had one gets it queued as its own
-    //    AI Workforce task, so the scan leaves the row fully worked up.
-    //    Best-effort: a failed enqueue must not cost the screening.
-    await this.ensureCompanyCard(companyId, opts.triggeredByUserId ?? null, steps);
+    // 0. Company Card — a company that never had one gets it generated first,
+    //    inline, so it exists before the company is matched and screened.
+    //    Best-effort: a failed generation must not cost the screening.
+    await this.ensureCompanyCard(companyId, steps);
 
     // 1. Match — only when nothing is matched yet (a Smart Files row arrives
     //    with the extraction agent's suggested tracks already persisted).
@@ -237,25 +258,33 @@ export class PendingAutoScanService {
   }
 
   /**
-   * Queue the Company Card for a company that has never had one generated.
-   * Leaves an existing card alone (a stage move already refreshes those) and
-   * doesn't stack a second run on one already in flight.
+   * Generate the Company Card for a company that has never had one, before
+   * it is screened, and link the related companies it surfaces. Leaves an
+   * existing card alone (a stage move already refreshes those).
    */
-  private async ensureCompanyCard(
-    companyId: string,
-    triggeredByUserId: string | null,
-    steps: string[],
-  ): Promise<void> {
+  private async ensureCompanyCard(companyId: string, steps: string[]): Promise<void> {
     try {
-      const result = await this.companyAnalysisService.generateIfMissing(companyId, {
+      const result = await this.companyAnalysisService.generateNowIfMissing(companyId, {
         source: 'pending_scan',
-        triggeredByUserId,
       });
-      if (result.status === 'queued') steps.push('Company Card was missing; queued its generation');
-      else if (result.status === 'already_running') steps.push('Company Card generation already in progress');
+      if (result.status === 'already_running') {
+        steps.push('Company Card generation already in progress');
+        return;
+      }
+      if (result.status !== 'generated') return;
+      steps.push('Company Card was missing; generated it before screening');
+      try {
+        const linked = await this.companyRelationshipService.linkRelatedCompanies(
+          result.companyName,
+          result.relatedCompanies,
+        );
+        if (linked.length > 0) steps.push(`Linked related companies: ${linked.join('; ')}`);
+      } catch (err) {
+        console.error('Error linking related companies during pending scan:', err);
+      }
     } catch (err) {
-      console.error('Error queueing company card during pending scan:', err);
-      steps.push(`Could not queue Company Card generation: ${(err as Error).message}`);
+      console.error('Error generating company card during pending scan:', err);
+      steps.push(`Could not generate the Company Card: ${(err as Error).message}`);
     }
   }
 }

@@ -426,6 +426,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         aiScreeningService(),
         trackMatchingService(),
         companyAnalysisService(),
+        companyRelationshipService(),
       ),
   );
   const fileService = lazy(() => {

@@ -227,6 +227,11 @@ export class AIScreeningService {
     return result;
   }
 
+  /** The subset of `companyIds` with a screening task queued or running, in one query. */
+  findInFlightCompanyIds(companyIds: string[]): Promise<Set<string>> {
+    return this.queueRepo.findActiveCompanyIds(AI_SCREENING_AGENT_NAME, companyIds);
+  }
+
   /**
    * A Pending Confirmation company's Run AI Screening action: queue the same
    * forced scan Scan now runs, for one company — match tracks when none are
@@ -438,7 +443,7 @@ export class AIScreeningService {
     const name = displayName(company);
     const scope =
       opts.mode === 'pending_scan'
-        ? 'It queues the Company Card if the company has none, matches the company to tracks if ' +
+        ? 'It first generates the Company Card if the company has none, matches the company to tracks if ' +
           "it has none, screens it against each matched track's criteria, and promotes it to L0 on " +
           'a pass (when the workspace has auto promote on) or drops it on a fail (when it has auto ' +
           'drop on).'

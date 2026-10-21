@@ -10,17 +10,25 @@ above the table on Pipeline while its Pending Confirmation chip is active:
 | **Auto-scan** | A company entering Pending Confirmation is matched to tracks (investment theses) and AI-screened against each matched track's criteria. Only companies that arrive after it is switched on — the ones already waiting are left alone (use Scan now for those). |
 | **Auto promote** | After a scan: an overall **pass** promotes the company to L0. Off → a pass is left pending. Requires Auto-scan. |
 | **Auto drop** | After a scan: an overall **fail** drops the company. Off → a fail is left pending. Requires Auto-scan. |
-| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto promote / auto drop still apply afterwards when they are on. |
+| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto promote / auto drop still apply afterwards when they are on. Asks for confirmation first, showing how many companies will be scanned and the total estimated time (see below). |
 
 **Inconclusive** (or no matched track with criteria) always leaves the company
 pending for a human. Every scan also makes sure the company has a **Company
-Card**: one that has never had a completed card gets a generation queued (see
-step 2 below).
+Card** *before* it is screened: one that has never had a completed card gets it
+generated first, inside the scan (see step 2 below).
 
 Settings live on `workspaces.pending_auto_scan` / `pending_auto_promote` /
 `pending_auto_drop` (`GET/PUT /api/pending-automation`, body
 `{ autoScan, autoPromote, autoDrop }`). Scan now is
 `POST /api/pending-automation/scan`.
+
+**Scan now confirmation.** The button opens a confirmation dialog that fetches
+`GET /api/pending-automation/scan` (`PendingAutoScanService.previewScanNow`):
+`{ companies, missingCards }` — the active pending companies not already
+queued, and how many of those have no completed Company Card. The dialog shows
+the company count and a total estimate, `estimateScanMinutes` in
+`src/lib/sourcing/pendingAutomation.ts`: 54s of AI screening per company plus
+93s per missing Company Card, rounded to the nearest minute ("~15 minutes").
 
 ## AI screening runs on the AI Workforce
 
@@ -53,10 +61,16 @@ tab reads.
    other Workforce tasks. The task's instruction tells the agent to call the
    `run_ai_screening` tool once with `mode`:
    - `pending_scan` → `PendingAutoScanService.processCompany`: skip unless
-     still active in Pending Confirmation; queue the Company Card when the
-     company has no completed card and no card run in flight
-     (`CompanyAnalysisService.generateIfMissing` — a separate `company_card`
-     Workforce task, best-effort, never blocks the scan); match tracks inline when nothing is
+     still active in Pending Confirmation; generate the Company Card first,
+     inline, when the company has no completed card
+     (`CompanyAnalysisService.generateNowIfMissing`, then
+     `CompanyRelationshipService.linkRelatedCompanies` for the related
+     companies it surfaced). It is inline rather than a separate `company_card`
+     task because the queue runs one task at a time — a card queued from inside
+     the scan could not start until the scan had already screened. A card run
+     still waiting in the queue for that company is cancelled as superseded; one
+     already executing is left alone. Best-effort: a failed card is noted in the
+     task's steps and screening goes ahead. Then match tracks inline when nothing is
      matched; screen; compute the verdict over the current matched tracks'
      current criteria (`companyScreeningVerdict`); re-read the toggles and
      re-check the company is still pending; then `promote(…, 'unreviewed',

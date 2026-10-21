@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runGenerateCompanyCard, linkByName, createDb, createContainer } =
+const { runGenerateCompanyCard, linkRelatedCompanies, createDb, createContainer } =
   vi.hoisted(() => ({
     runGenerateCompanyCard: vi.fn(),
-    linkByName: vi.fn(),
+    linkRelatedCompanies: vi.fn(),
     createDb: vi.fn(),
     createContainer: vi.fn(),
   }));
@@ -25,13 +25,10 @@ function call(company_id: string) {
 describe("generate_company_card (workforce tool)", () => {
   beforeEach(() => {
     runGenerateCompanyCard.mockReset();
-    linkByName.mockReset().mockResolvedValue({
-      source: { row: { id: "src", target: "Acme" }, created: false },
-      target: { row: { id: "tgt", target: "Beta" }, created: false },
-    });
+    linkRelatedCompanies.mockReset().mockResolvedValue([]);
     createDb.mockReset().mockReturnValue({});
     createContainer.mockReset().mockReturnValue({
-      companyRelationshipService: { linkByName },
+      companyRelationshipService: { linkRelatedCompanies },
     });
   });
 
@@ -44,32 +41,27 @@ describe("generate_company_card (workforce tool)", () => {
     expect(runGenerateCompanyCard).not.toHaveBeenCalled();
   });
 
-  it("generates the card and links each related company", async () => {
+  it("generates the card and links its related companies", async () => {
+    const related = [
+      { name: "Beta", relation_type: "SUPPLIER", notes: "wafers" },
+      { name: "Gamma", relation_type: "INVESTED_IN" },
+    ];
     runGenerateCompanyCard.mockResolvedValue({
       analysis: { id: "analysis-1" },
       companyName: "Acme",
-      relatedCompanies: [
-        { name: "Beta", relation_type: "SUPPLIER", notes: "wafers" },
-        { name: "Gamma", relation_type: "INVESTED_IN" },
-      ],
+      relatedCompanies: related,
     });
+    linkRelatedCompanies.mockResolvedValue(['"Beta" (SUPPLIER)', '"Gamma" (INVESTED_IN)']);
 
     const result = await call("co-1");
 
     expect(runGenerateCompanyCard).toHaveBeenCalledWith({ companyId: "co-1" }, { db: {} });
-    expect(linkByName).toHaveBeenCalledTimes(2);
-    expect(linkByName).toHaveBeenNthCalledWith(1, {
-      sourceName: "Acme",
-      targetName: "Beta",
-      type: "SUPPLIER",
-      notes: "wafers",
-      evidence: undefined,
-    });
+    expect(linkRelatedCompanies).toHaveBeenCalledWith("Acme", related);
     expect(String(result)).toMatch(/Generated the AI Company Card for "Acme"/);
     expect(String(result)).toMatch(/Linked 2 related companies/);
   });
 
-  it("skips a related company that is the same as the analysed company", async () => {
+  it("says so when no related company was linked", async () => {
     runGenerateCompanyCard.mockResolvedValue({
       analysis: { id: "analysis-1" },
       companyName: "Acme",
@@ -78,7 +70,6 @@ describe("generate_company_card (workforce tool)", () => {
 
     const result = await call("co-1");
 
-    expect(linkByName).not.toHaveBeenCalled();
     expect(String(result)).toMatch(/No related companies were surfaced/);
   });
 
@@ -88,7 +79,7 @@ describe("generate_company_card (workforce tool)", () => {
       companyName: "Acme",
       relatedCompanies: [{ name: "Beta", relation_type: "SUPPLIER" }],
     });
-    linkByName.mockRejectedValueOnce(new Error("neo4j down"));
+    linkRelatedCompanies.mockResolvedValue(['"Beta" — link failed: neo4j down']);
 
     const result = await call("co-1");
 

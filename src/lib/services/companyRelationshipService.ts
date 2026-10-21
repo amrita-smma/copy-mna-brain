@@ -3,6 +3,7 @@ import type { RelationType } from '@/lib/repositories/companyRelationRepository'
 import { DISCOVERED_STAGE } from '@/lib/constants';
 import type { CompanyService } from './companyService';
 import type { CompanyGraphService } from './companyGraphService';
+import type { RelatedCompany } from '@/lib/jobs/handlers/companyAnalysis';
 
 /** One resolved side of a relationship plus whether we created it. */
 export interface ResolvedCompany {
@@ -116,6 +117,39 @@ export class CompanyRelationshipService {
     });
 
     return { source, target };
+  }
+
+  /**
+   * Link every related company a Company Card surfaced to the analysed
+   * company, skipping blanks and self-references. Best-effort per company: a
+   * failed link is reported in its line and does not stop the rest. Returns
+   * one human-readable line per attempted link.
+   */
+  async linkRelatedCompanies(
+    companyName: string,
+    relatedCompanies: RelatedCompany[],
+  ): Promise<string[]> {
+    const linked: string[] = [];
+    for (const rc of relatedCompanies) {
+      const name = rc.name?.trim();
+      if (!name || name.toLowerCase() === companyName.toLowerCase()) continue;
+      try {
+        const { target } = await this.linkByName({
+          sourceName: companyName,
+          targetName: name,
+          type: rc.relation_type,
+          notes: rc.notes?.trim() || undefined,
+          evidence: rc.evidence?.trim() || undefined,
+        });
+        linked.push(
+          `"${target.row.target}" (${rc.relation_type}${target.created ? ', new discovered' : ''})`,
+        );
+      } catch (err) {
+        console.error(`[companyRelationship] failed to link "${name}":`, err);
+        linked.push(`"${name}" — link failed: ${(err as Error).message}`);
+      }
+    }
+    return linked;
   }
 
   /**

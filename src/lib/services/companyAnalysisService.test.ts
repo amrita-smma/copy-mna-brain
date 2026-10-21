@@ -3,19 +3,29 @@ import type { CompanyAnalysisRepository, CompanyRepository } from '@/lib/reposit
 import type { Tables } from '@/lib/repositories';
 import { CompanyAnalysisService, COMPANY_CARD_AGENT_NAME } from './companyAnalysisService';
 
-const { enqueueAgentRun, findActiveByCompanyId, findActiveCompanyIds, findQueueRowById } =
-  vi.hoisted(() => ({
-    enqueueAgentRun: vi.fn(),
-    findActiveByCompanyId: vi.fn(),
-    findActiveCompanyIds: vi.fn(),
-    findQueueRowById: vi.fn(),
-  }));
+const {
+  enqueueAgentRun,
+  findActiveByCompanyId,
+  findActiveCompanyIds,
+  findQueueRowById,
+  cancelById,
+  generateCompanyCard,
+} = vi.hoisted(() => ({
+  enqueueAgentRun: vi.fn(),
+  findActiveByCompanyId: vi.fn(),
+  findActiveCompanyIds: vi.fn(),
+  findQueueRowById: vi.fn(),
+  cancelById: vi.fn(),
+  generateCompanyCard: vi.fn(),
+}));
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
+vi.mock('@/lib/jobs/handlers/companyAnalysis', () => ({ generateCompanyCard }));
 vi.mock('@/lib/repositories', () => ({
   AiWorkforceQueueRepository: class {
     findActiveByCompanyId = findActiveByCompanyId;
     findActiveCompanyIds = findActiveCompanyIds;
     findById = findQueueRowById;
+    cancelById = cancelById;
   },
   isTerminalWorkforceStatus: (status: string) =>
     ['succeeded', 'failed', 'rejected', 'timed_out'].includes(status),
@@ -47,10 +57,11 @@ const findCompletedByCompanyId = vi.fn();
 const findById = vi.fn();
 const deleteByCompanyId = vi.fn();
 const findIdAndNameByIds = vi.fn();
+const findCompletedCompanyIds = vi.fn();
 
 function makeService(): CompanyAnalysisService {
   return new CompanyAnalysisService(
-    { findCompletedByCompanyId, deleteByCompanyId } as unknown as CompanyAnalysisRepository,
+    { findCompletedByCompanyId, findCompletedCompanyIds, deleteByCompanyId } as unknown as CompanyAnalysisRepository,
     { findById, findIdAndNameByIds } as unknown as CompanyRepository,
     {} as never,
     'workspace-1',
@@ -127,51 +138,81 @@ describe('CompanyAnalysisService.dispatch', () => {
   });
 });
 
-describe('CompanyAnalysisService.generateIfMissing', () => {
+describe('CompanyAnalysisService.generateNowIfMissing', () => {
   let service: CompanyAnalysisService;
+  const related = [{ name: 'Beta', relation_type: 'SUPPLIER' }];
 
   beforeEach(() => {
-    findCompletedByCompanyId.mockReset();
-    findById.mockReset().mockResolvedValue({ id: 'company-1', target: 'Acme Corp' });
+    findCompletedByCompanyId.mockReset().mockResolvedValue(null);
     findActiveByCompanyId.mockReset().mockResolvedValue(null);
+    cancelById.mockReset().mockResolvedValue({ id: 'queue-1' });
     enqueueAgentRun.mockReset();
+    generateCompanyCard.mockReset().mockResolvedValue({
+      analysis: makeAnalysis(),
+      companyName: 'Acme',
+      relatedCompanies: related,
+    });
     service = makeService();
   });
 
   it('does nothing when a completed card already exists', async () => {
     findCompletedByCompanyId.mockResolvedValue(makeAnalysis({ status: 'completed' }));
 
-    await expect(service.generateIfMissing('company-1')).resolves.toEqual({ status: 'exists' });
+    await expect(service.generateNowIfMissing('company-1')).resolves.toEqual({ status: 'exists' });
     expect(findActiveByCompanyId).not.toHaveBeenCalled();
-    expect(enqueueAgentRun).not.toHaveBeenCalled();
+    expect(generateCompanyCard).not.toHaveBeenCalled();
   });
 
-  it('does not stack a run on one already in flight', async () => {
-    findCompletedByCompanyId.mockResolvedValue(null);
-    findActiveByCompanyId.mockResolvedValue({ id: 'queue-1', status: 'running' });
+  it('generates the card inline in this workspace, without queueing a separate run', async () => {
+    await expect(
+      service.generateNowIfMissing('company-1', { source: 'pending_scan' }),
+    ).resolves.toEqual({ status: 'generated', companyName: 'Acme', relatedCompanies: related });
+    expect(generateCompanyCard).toHaveBeenCalledWith(
+      { companyId: 'company-1', source: 'pending_scan' },
+      { db: {}, workspaceId: 'workspace-1' },
+    );
+    expect(enqueueAgentRun).not.toHaveBeenCalled();
+    expect(cancelById).not.toHaveBeenCalled();
+  });
 
-    await expect(service.generateIfMissing('company-1')).resolves.toEqual({
-      status: 'already_running',
+  it('cancels a card run still waiting in the queue and generates inline instead', async () => {
+    findActiveByCompanyId.mockResolvedValue({ id: 'queue-1', status: 'pending' });
+
+    await expect(service.generateNowIfMissing('company-1')).resolves.toMatchObject({
+      status: 'generated',
     });
     expect(findActiveByCompanyId).toHaveBeenCalledWith(COMPANY_CARD_AGENT_NAME, 'company-1');
-    expect(enqueueAgentRun).not.toHaveBeenCalled();
+    expect(cancelById).toHaveBeenCalledWith('queue-1', {
+      reason: expect.stringMatching(/Superseded/),
+    });
+    expect(generateCompanyCard).toHaveBeenCalledTimes(1);
   });
 
-  it('queues a first-time card run owned by the given user', async () => {
-    findCompletedByCompanyId.mockResolvedValue(null);
-    enqueueAgentRun.mockResolvedValue({ runId: 'run-1', created: true });
+  it('leaves a card run that is already executing alone', async () => {
+    findActiveByCompanyId.mockResolvedValue({ id: 'queue-1', status: 'running' });
 
-    await expect(
-      service.generateIfMissing('company-1', { source: 'pending_scan', triggeredByUserId: 'user-7' }),
-    ).resolves.toEqual({ status: 'queued', runId: 'run-1' });
-    const [, input] = enqueueAgentRun.mock.calls[0];
-    expect(input).toMatchObject({
-      agentName: COMPANY_CARD_AGENT_NAME,
-      triggerMeta: { company_id: 'company-1', source: 'pending_scan', reason: null },
-      triggeredByUserId: 'user-7',
+    await expect(service.generateNowIfMissing('company-1')).resolves.toEqual({
+      status: 'already_running',
     });
-    // A first generation, not a refresh.
-    expect(input.input.prompt).not.toMatch(/REGENERATION/);
+    expect(cancelById).not.toHaveBeenCalled();
+    expect(generateCompanyCard).not.toHaveBeenCalled();
+  });
+
+  it('propagates a generation failure to the caller', async () => {
+    generateCompanyCard.mockRejectedValue(new Error('agent unavailable'));
+
+    await expect(service.generateNowIfMissing('company-1')).rejects.toThrow('agent unavailable');
+  });
+});
+
+describe('CompanyAnalysisService.findCompanyIdsWithCard', () => {
+  it('delegates to the batched repository lookup', async () => {
+    findCompletedCompanyIds.mockReset().mockResolvedValue(new Set(['c1']));
+
+    await expect(makeService().findCompanyIdsWithCard(['c1', 'c2'])).resolves.toEqual(
+      new Set(['c1']),
+    );
+    expect(findCompletedCompanyIds).toHaveBeenCalledWith(['c1', 'c2']);
   });
 });
 

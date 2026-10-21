@@ -247,7 +247,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/jobs/[id]` | GET | `jobService` |
 | `/api/market-screening` | GET, POST | — |
 | `/api/pending-automation` | GET, PUT | `workspaceService` |
-| `/api/pending-automation/scan` | POST | `pendingAutoScanService` |
+| `/api/pending-automation/scan` | GET, POST | `pendingAutoScanService` |
 | `/api/pipeline-heading` | GET, PUT | `workspaceService` |
 | `/api/pipeline-required-fields` | GET, PUT | `workspaceService` |
 | `/api/pipeline-stages` | GET, POST, PATCH | `pipelineStageService` |

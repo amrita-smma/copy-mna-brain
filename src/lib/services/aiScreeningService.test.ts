@@ -84,6 +84,18 @@ beforeEach(() => {
   t = build();
 });
 
+describe('AIScreeningService.findInFlightCompanyIds', () => {
+  it('asks the queue which companies have a screening task in flight', async () => {
+    t.queueRepo.findActiveCompanyIds.mockResolvedValue(new Set(['c2']));
+
+    await expect(t.service.findInFlightCompanyIds(['c1', 'c2'])).resolves.toEqual(new Set(['c2']));
+    expect(t.queueRepo.findActiveCompanyIds).toHaveBeenCalledWith(AI_SCREENING_AGENT_NAME, [
+      'c1',
+      'c2',
+    ]);
+  });
+});
+
 describe('AIScreeningService.enqueue', () => {
   it('returns without a query when given no companies', async () => {
     const result = await t.service.enqueue([], { mode: 'pending_scan', force: true });

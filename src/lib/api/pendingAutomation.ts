@@ -1,5 +1,5 @@
 import { apiRequest } from '@/lib/api/client';
-import type { PendingAutomation } from '@/lib/sourcing/pendingAutomation';
+import type { PendingAutomation, ScanNowPreview } from '@/lib/sourcing/pendingAutomation';
 
 /** The active workspace's Pending Confirmation automation toggles. */
 export function getPendingAutomation(): Promise<PendingAutomation> {
@@ -25,4 +25,12 @@ export function scanPendingNow(): Promise<{ queued: number; alreadyQueued: numbe
   return apiRequest<{ queued: number; alreadyQueued: number }>('/api/pending-automation/scan', {
     method: 'POST',
   });
+}
+
+/**
+ * What Scan now would queue right now: the companies not already queued and
+ * how many of them have no Company Card yet. Feeds the confirmation dialog.
+ */
+export function getScanNowPreview(): Promise<ScanNowPreview> {
+  return apiRequest<ScanNowPreview>('/api/pending-automation/scan');
 }

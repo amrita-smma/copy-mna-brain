@@ -2,11 +2,14 @@ import type { CompanyAnalysisRepository, CompanyRepository } from '@/lib/reposit
 import type { Tables } from '@/lib/repositories';
 import type { DbClient } from '@/lib/repositories';
 import { AiWorkforceQueueRepository, isTerminalWorkforceStatus } from '@/lib/repositories';
-import type { CompanyAnalysisPayload } from '@/lib/jobs/handlers/companyAnalysis';
+import type { CompanyAnalysisPayload, RelatedCompany } from '@/lib/jobs/handlers/companyAnalysis';
 import { enqueueAgentRun } from '@/lib/workforce';
 
 /** agent_name recorded on the AI Workforce queue row for card-generation runs. */
 export const COMPANY_CARD_AGENT_NAME = 'company_card';
+
+/** Card run statuses that have not started executing yet. */
+const QUEUED_CARD_STATUSES = new Set<string>(['pending', 'resume_ready']);
 
 export class CompanyAnalysisService {
   constructor(
@@ -272,32 +275,54 @@ export class CompanyAnalysisService {
     return { runId };
   }
 
+  /** The subset of `companyIds` that already have a completed Company Card, in one query. */
+  findCompanyIdsWithCard(companyIds: string[]): Promise<Set<string>> {
+    return this.companyAnalysisRepo.findCompletedCompanyIds(companyIds);
+  }
+
   /**
-   * Generate the Company Card only when the company has never had a completed
-   * one — the Pending Confirmation scan's "make sure there is a card" step.
+   * Generate the Company Card right now, inside the caller's run, when the
+   * company has never had a completed one — the Pending Confirmation scan's
+   * first step, so screening runs against a company that has a card.
    *
-   * Unlike {@link dispatch} it also skips a company whose card run is already
-   * queued or executing (e.g. the regeneration a stage move into Pending
-   * Confirmation just enqueued), so a scan never stacks a duplicate run.
+   * The AI Workforce runs one task at a time, so a card *queued* from inside a
+   * scan could not start until the scan had finished. The card is therefore
+   * generated inline; a card run already queued for the company (e.g. by the
+   * stage move that brought it into Pending Confirmation) is cancelled as
+   * superseded rather than run twice. A run that is already executing is left
+   * alone.
+   *
+   * Returns the related companies the card surfaced; linking them into the
+   * relationship graph is the caller's job (`CompanyRelationshipService`).
    */
-  async generateIfMissing(
+  async generateNowIfMissing(
     companyId: string,
-    opts?: { source?: string | null; triggeredByUserId?: string | null },
+    opts?: { source?: string | null },
   ): Promise<
-    { status: 'exists' } | { status: 'already_running' } | { status: 'queued'; runId: string }
+    | { status: 'exists' }
+    | { status: 'already_running' }
+    | { status: 'generated'; companyName: string; relatedCompanies: RelatedCompany[] }
   > {
     const existing = await this.companyAnalysisRepo.findCompletedByCompanyId(companyId);
     if (existing) return { status: 'exists' };
 
     const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const active = await queueRepo.findActiveByCompanyId(COMPANY_CARD_AGENT_NAME, companyId);
-    if (active) return { status: 'already_running' };
+    if (active) {
+      if (!QUEUED_CARD_STATUSES.has(active.status)) return { status: 'already_running' };
+      await queueRepo.cancelById(active.id, {
+        reason: 'Superseded: the Pending Confirmation scan generated the Company Card first',
+      });
+    }
 
-    const { runId } = await this.enqueueCardRun(companyId, {
-      source: opts?.source ?? null,
-      triggeredByUserId: opts?.triggeredByUserId ?? null,
-    });
-    return { status: 'queued', runId };
+    // Resolved lazily to keep this service off the agent/tool import cycle
+    // (see TECH_DEBT.md "Runtime import cycle").
+    const { generateCompanyCard } = await import('@/lib/jobs/handlers/companyAnalysis');
+    const { companyName, relatedCompanies } = await generateCompanyCard(
+      { companyId, source: opts?.source ?? undefined },
+      { db: this.db, workspaceId: this.workspaceId },
+    );
+    return { status: 'generated', companyName, relatedCompanies };
   }
 
   /**

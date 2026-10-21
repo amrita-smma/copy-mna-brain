@@ -106,6 +106,58 @@ describe('CompanyRelationshipService.linkByName', () => {
   });
 });
 
+describe('CompanyRelationshipService.linkRelatedCompanies', () => {
+  let service: CompanyRelationshipService;
+  let linkByName: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    service = makeService();
+    linkByName = vi.spyOn(service, 'linkByName').mockImplementation(async (input) => ({
+      source: { row: { id: 'src', target: input.sourceName }, created: false },
+      target: { row: { id: 'tgt', target: input.targetName }, created: input.targetName === 'Gamma' },
+    }) as never);
+  });
+
+  it('links each related company from the analysed company', async () => {
+    const lines = await service.linkRelatedCompanies('Acme', [
+      { name: 'Beta', relation_type: 'SUPPLIER', notes: ' wafers ' },
+      { name: 'Gamma', relation_type: 'INVESTED_IN' },
+    ]);
+
+    expect(linkByName).toHaveBeenCalledTimes(2);
+    expect(linkByName).toHaveBeenNthCalledWith(1, {
+      sourceName: 'Acme',
+      targetName: 'Beta',
+      type: 'SUPPLIER',
+      notes: 'wafers',
+      evidence: undefined,
+    });
+    expect(lines).toEqual(['"Beta" (SUPPLIER)', '"Gamma" (INVESTED_IN, new discovered)']);
+  });
+
+  it('skips blank names and the analysed company itself', async () => {
+    const lines = await service.linkRelatedCompanies('Acme', [
+      { name: ' acme ', relation_type: 'PARTNER' },
+      { name: '  ', relation_type: 'PARTNER' },
+    ]);
+
+    expect(linkByName).not.toHaveBeenCalled();
+    expect(lines).toEqual([]);
+  });
+
+  it('reports a failed link and keeps linking the rest', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    linkByName.mockRejectedValueOnce(new Error('neo4j down'));
+
+    const lines = await service.linkRelatedCompanies('Acme', [
+      { name: 'Beta', relation_type: 'SUPPLIER' },
+      { name: 'Delta', relation_type: 'PARTNER' },
+    ]);
+
+    expect(lines).toEqual(['"Beta" — link failed: neo4j down', '"Delta" (PARTNER)']);
+  });
+});
+
 describe('CompanyRelationshipService.combineCompanies', () => {
   let service: CompanyRelationshipService;
 

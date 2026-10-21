@@ -11,8 +11,31 @@ import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/works
  * the auto-scan toggle says. Auto promote / auto drop still apply afterwards
  * when they are on. Companies already queued or scanning are skipped.
  *
+ * GET  → `{ data: { companies, missingCards } }` — what a Scan now would queue
+ *        right now and how many of those have no Company Card yet, for the
+ *        confirmation dialog's time estimate.
  * POST → 202 `{ data: { queued, alreadyQueued } }`.
  */
+export async function GET() {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const db = createDb();
+    const workspaceId = await getActiveWorkspaceIdOrThrow();
+    const { pendingAutoScanService } = createContainer(db, workspaceId);
+    const data = await pendingAutoScanService.previewScanNow();
+    return NextResponse.json({ data });
+  } catch (error: unknown) {
+    if (error instanceof NoActiveWorkspaceError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    console.error(error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 export async function POST() {
   try {
     const session = await auth();

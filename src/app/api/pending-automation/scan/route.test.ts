@@ -1,13 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { authMock, createDbMock, createContainerMock, getActiveWorkspaceIdOrThrowMock, scanNowMock } =
-  vi.hoisted(() => ({
-    authMock: vi.fn(),
-    createDbMock: vi.fn(),
-    createContainerMock: vi.fn(),
-    getActiveWorkspaceIdOrThrowMock: vi.fn(),
-    scanNowMock: vi.fn(),
-  }));
+const {
+  authMock,
+  createDbMock,
+  createContainerMock,
+  getActiveWorkspaceIdOrThrowMock,
+  scanNowMock,
+  previewScanNowMock,
+} = vi.hoisted(() => ({
+  authMock: vi.fn(),
+  createDbMock: vi.fn(),
+  createContainerMock: vi.fn(),
+  getActiveWorkspaceIdOrThrowMock: vi.fn(),
+  scanNowMock: vi.fn(),
+  previewScanNowMock: vi.fn(),
+}));
 
 vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
@@ -17,7 +24,7 @@ vi.mock('@/lib/workspace', async () => {
   return { ...actual, getActiveWorkspaceIdOrThrow: getActiveWorkspaceIdOrThrowMock };
 });
 
-import { POST } from './route';
+import { GET, POST } from './route';
 import { NoActiveWorkspaceError } from '@/lib/workspace';
 
 beforeEach(() => {
@@ -25,8 +32,32 @@ beforeEach(() => {
   createDbMock.mockReset().mockReturnValue({});
   getActiveWorkspaceIdOrThrowMock.mockReset().mockResolvedValue('w1');
   scanNowMock.mockReset().mockResolvedValue({ queued: 7, alreadyQueued: 1 });
+  previewScanNowMock.mockReset().mockResolvedValue({ companies: 5, missingCards: 2 });
   createContainerMock.mockReset().mockReturnValue({
-    pendingAutoScanService: { scanNow: scanNowMock },
+    pendingAutoScanService: { scanNow: scanNowMock, previewScanNow: previewScanNowMock },
+  });
+});
+
+describe('GET /api/pending-automation/scan', () => {
+  it('returns 401 without a session', async () => {
+    authMock.mockResolvedValueOnce(null);
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(previewScanNowMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the Scan now preview for the active workspace', async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { companies: 5, missingCards: 2 } });
+    expect(createContainerMock).toHaveBeenCalledWith({}, 'w1');
+    expect(previewScanNowMock).toHaveBeenCalled();
+  });
+
+  it('returns 403 without an active workspace', async () => {
+    getActiveWorkspaceIdOrThrowMock.mockRejectedValueOnce(new NoActiveWorkspaceError());
+    const res = await GET();
+    expect(res.status).toBe(403);
   });
 });
 

@@ -55,6 +55,21 @@ describe('CompanyAnalysisRepository', () => {
     await expect(repo.findByCompanyId('company-1')).resolves.toBeNull();
   });
 
+  it('findCompletedCompanyIds returns an empty set without hitting the DB when the id list is empty', async () => {
+    await expect(repo.findCompletedCompanyIds([])).resolves.toEqual(new Set());
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('findCompletedCompanyIds returns the ids that have a completed card', async () => {
+    const orderBy = vi.fn().mockResolvedValueOnce([{ company_id: 'c1' }, { company_id: 'c3' }]);
+    (mockDb as unknown as { orderBy: typeof orderBy }).orderBy = orderBy;
+
+    await expect(repo.findCompletedCompanyIds(['c1', 'c2', 'c3'])).resolves.toEqual(
+      new Set(['c1', 'c3']),
+    );
+    expect(orderBy).toHaveBeenCalledTimes(1);
+  });
+
   it('insert writes the row without stamping a workspace_id', async () => {
     const row = { id: 'a1', company_id: 'company-1', status: 'pending' };
     mockDb.returning.mockResolvedValueOnce([row]);
