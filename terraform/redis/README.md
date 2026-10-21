@@ -92,3 +92,59 @@ redis-cli -h "$(terraform output -raw public_ip)" -p 6379 ping
   are separate resources and are kept.
 - **Size:** `redis_maxmemory` is the only knob that should ever need raising;
   the instance class in `variables.tf` only if CPU is pinned.
+
+## Monitoring
+
+Nothing collects Redis metrics over time: this is a container on EC2, not
+ElastiCache, and there is no CloudWatch agent, so the EC2 console shows only
+CPU and network. To see memory, keys or clients, ask Redis itself. The
+`Makefile` wraps the useful `redis-cli` calls:
+
+```bash
+make init-staging        # or init-production: picks which Redis you are looking at
+make help                # list the targets
+make redis-health        # start here
+```
+
+You need `redis-cli` locally (`brew install redis`) and AWS credentials that can
+read the Terraform state. `redis-shell` and `redis-host` also need the
+[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
+The targets read the host, password and CA from `terraform output`. The CA is
+cached at `.terraform/redis-ca.pem`, which `make init-*` clears. Delete it by
+hand after re-issuing the CA.
+
+`make redis-health` prints a one-screen summary:
+
+```
+version      7.4.1 (up 3 days)
+memory       1.21M of 256.00M (0.5%), peak 1.80M
+keys (db0)   keys=42,expires=42,avg_ttl=31204,subexpiry=0
+clients      6 connected, 0 blocked, 0 rejected since start
+keys gone    18234 expired, 0 evicted since start
+throughput   12 ops/s now, 9120334 commands since start
+pub/sub      3 channels, 0 patterns
+```
+
+It adds a warning once memory passes 80% of `maxmemory`.
+
+| Question | Target | What to look at |
+|---|---|---|
+| Space remaining | `redis-memory` | `used_memory_human` against `maxmemory_human`. With `noeviction`, a full store **rejects writes**; raise `redis_maxmemory` before that. |
+| How many keys now | `redis-keys` | `keys=` and `expires=`. Every key the app writes has a TTL, so the two should match. A gap means something writes without an expiry. |
+| Keys added / expired | `redis-stats`, `redis-commands` | Redis has no "keys ever added" counter. Use `calls=` on the write commands (`cmdstat_set`, …) plus `expired_keys`. `evicted_keys` should stay 0. |
+| What is using memory | `redis-memkeys`, `redis-bigkeys` | Largest keys. Both use `SCAN`, so they are safe on the live server. |
+| Who is connected | `redis-clients` | `connected_clients` and one line per connection. |
+| Pub/sub fan-out | `redis-pubsub` | Each channel with its subscriber count (the SSE streams). |
+| Slow commands | `redis-slowlog` | Commands slower than 10ms. |
+| Live view | `redis-live` | Keys, memory, clients and requests every second. |
+| Every command | `redis-monitor` | Streams all traffic. It slows the server, so run it briefly. |
+| Ad hoc | `redis-cli` | An interactive session with the connection already set up. |
+| The host | `redis-host`, `redis-shell` | Box memory and disk, `docker stats`, container health and recent unit logs over SSM. |
+
+Every counter resets when the container restarts, including on an instance
+replacement, which also empties the store. `uptime_in_days` tells you how far
+back the numbers go.
+
+The password goes to `redis-cli` through `REDISCLI_AUTH`, so it stays off the
+command line and out of shell history. It is still in that process's
+environment, which your own user can read (`ps eww`, `/proc/<pid>/environ`).

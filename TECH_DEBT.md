@@ -403,6 +403,57 @@ turn-one cache write plus 0.1x on every tool-loop iteration.
 
 ---
 
+## The Copilot is one monolithic agent instead of an orchestrator with subagents
+
+**Area:** `src/lib/agents/analysis/runtime.ts` (the single `createAgent` call),
+`src/lib/agents/analysis/flavors/*`, `src/lib/agents/analysis/tools/*`.
+
+**What it is:** every Copilot flavor runs one agent that holds the whole tool
+set and the whole system prompt for the whole conversation. A turn that only
+looks up a company still carries the insight-editing, email, fund and workforce
+tools and their guidance. Every intermediate tool result from a multi-step task
+(search hits, schema dumps, company details, CRM rows) also stays in that one
+context for the rest of the turn and for every later turn, so long research
+tasks get slower, cost more, and crowd out the user's own messages.
+
+**Why we took it:** one agent was the simplest thing that worked. Tools and
+flavors were added to it one at a time, and none of those additions was big
+enough on its own to justify an orchestration layer.
+
+**Relation to the entry above:** that entry shrinks the *fixed* context of the
+one agent (guides behind skills, tool search, deferred tools). This entry is
+about splitting the *work*, which also bounds the per-task context the fixed-
+context fixes cannot touch. Do the cheap fixes above first. They are not
+alternatives.
+
+**Trigger to revisit:** any of:
+- a common task (company research, insight drafting) regularly runs more than
+  ~10 tool calls in one turn, or hits context limits
+- the next flavor or the next large tool group is added
+- per-turn latency or token cost on the Copilot becomes a complaint
+
+**Intended fix:**
+1. Keep a thin orchestrator agent that holds the conversation, routing guidance
+   and a small set of always-needed tools (company lookup, task progress).
+2. Split the domain work into subagents, each its own folder under
+   `src/lib/agents/<name>/` per the agent design pattern, with only its own tools
+   and prompt. Candidate boundaries follow the existing tool groups: research and
+   market context, pipeline operations (add/drop/update companies), insights and
+   company cards, fund and portfolio analysis, email and outbound.
+3. Expose each subagent to the orchestrator as a tool that takes a task brief
+   and returns a **condensed result**, not its raw tool transcript. The bounded
+   handoff is where the saving comes from.
+4. Keep streaming end to end: surface subagent progress through the existing
+   stream so the user still sees work happening.
+5. Long-running subagent work goes through the jobs / AI Workforce queue
+   (which already has a `waiting_for_subagent` status) rather than blocking the
+   request.
+6. Measure before and after on a fixed set of real conversations: tokens per
+   turn, tool calls per turn, latency, and answer quality. Subagents add a model
+   call per handoff, so a split that does not cut total tokens is not worth it.
+
+---
+
 ## File naming in agent `tools/` encodes kind by case instead of by folder
 
 **Area:** `src/lib/agents/*/tools/` (worst in `analysis`, ~75 files), the
