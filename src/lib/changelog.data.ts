@@ -58,6 +58,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "5b6912432392238ade68475fa23a08376067de22",
+    "date": "2026-10-21",
+    "subject": "Scan confirmation shows a total time estimate and auto-generates missing Company Cards before screening",
+    "category": "improvement"
+  },
+  {
+    "hash": "afe5233659b93524ec0a5d768d32439f8a5b03fa",
+    "date": "2026-10-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
     "date": "2026-10-20",
     "subject": "Slide thumbnails are now hidden by default in Presentation view",
