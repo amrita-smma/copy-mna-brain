@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b2e91038cd540fc5b599ec455cb1652f1b46d612",
+    "date": "2026-10-21",
+    "subject": "AI-Discovered Companies now shows contacts in place of financials",
+    "category": "improvement"
+  },
+  {
     "hash": "3de90662fd38b61ae16cde95713a86ecab8e3ced",
     "date": "2026-10-20",
     "subject": "Slide thumbnails are now hidden by default in Presentation view",
@@ -129,6 +135,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "43190583003484722d133b960dffa8ff149c03bd",
+    "date": "2026-10-20",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "8ba6c364f153698df5368cbbc9037a5d09e40afb",
     "date": "2026-10-20",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
