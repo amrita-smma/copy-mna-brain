@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ListChecks } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
+import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import { cn } from '@/lib/utils';
 import { isTaskOverdue, useUserTasks } from '@/hooks/useUserTasks';
 import { TaskList } from './TaskList';
@@ -15,6 +16,7 @@ import { TaskList } from './TaskList';
  */
 export function TasksWidget() {
   const [open, setOpen] = useState(false);
+  const { revealConsole } = useLayoutControl();
   const { tasks, now } = useUserTasks();
   const overdue = tasks.filter((t) => isTaskOverdue(t, now)).length;
 
@@ -44,7 +46,12 @@ export function TasksWidget() {
           <p className="text-sm font-semibold">Tasks</p>
           <WorkspaceLink
             href="/tasks"
-            onClick={() => setOpen(false)}
+            // Dock a full-screen copilot so the tasks page isn't opened
+            // behind it, out of sight.
+            onClick={() => {
+              setOpen(false);
+              revealConsole();
+            }}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             View all

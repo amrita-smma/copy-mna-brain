@@ -490,6 +490,7 @@ function CollapsedBotRail() {
 function SidebarUserFooter() {
   const { user, signOut } = useAuth();
   const { setTheme } = useTheme();
+  const { revealConsole } = useLayoutControl();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
@@ -528,9 +529,15 @@ function SidebarUserFooter() {
               </>
             )}
             {/* A real link, not an onSelect push, so the destination is
-                middle-clickable and prefetched like every other nav entry. */}
+                middle-clickable and prefetched like every other nav entry.
+                The copilot may be sitting full-screen over the console, so dock
+                it — otherwise the profile opens behind it, out of sight. */}
             <DropdownMenuItem asChild>
-              <WorkspaceLink href="/profile" className="cursor-pointer">
+              <WorkspaceLink
+                href="/profile"
+                onClick={revealConsole}
+                className="cursor-pointer"
+              >
                 <CircleUser className="mr-2 h-4 w-4" />
                 Profile
               </WorkspaceLink>
