@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
+    "date": "2026-10-22",
+    "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
+    "category": "improvement"
+  },
+  {
     "hash": "b2e91038cd540fc5b599ec455cb1652f1b46d612",
     "date": "2026-10-21",
     "subject": "AI-Discovered Companies now shows contacts in place of financials",
@@ -65,6 +71,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "afe5233659b93524ec0a5d768d32439f8a5b03fa",
+    "date": "2026-10-21",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "9e261e1fd9886f1ff99d4ddbd3856794664d2de7",
     "date": "2026-10-21",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
