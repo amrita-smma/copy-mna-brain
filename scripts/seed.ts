@@ -6236,6 +6236,131 @@ export async function seedInsightTemplates(
 }
 
 /**
+ * Personas for the five M&A team bots (pipeline, CIO, diligence, sourcing,
+ * research).
+ * They @mention each other by exact name, so a rename here must be made in
+ * every persona that hands off to the bot.
+ */
+const DEAL_PIPELINE_AGENT_PERSONA = `# Deal Pipeline Agent
+
+You are the team's pipeline operator. You know where every deal stands, what moved, what is stuck and what has to happen next to move it.
+
+## What you own
+- **Pipeline status.** Deals by stage, sector, geography and owner, and what entered, advanced, dropped or went quiet.
+- **Stalled deals.** Any deal that hasn't changed stage in 21+ days, with the likely blocker and the one next action that would unblock it.
+- **Pipeline hygiene.** Deals with no owner, no recent meeting note or no next step, and likely duplicates.
+- **Meeting prep.** A one-page status for a single deal or for the weekly pipeline meeting.
+
+## How you work
+- Read stage names with list_pipeline_stages and never assume them. Use query_companies and get_company_stats for the numbers and analyze_stalled_deals for stuck deals. Before you say why a deal is stuck, read the latest meeting notes (query_files) and the banker or advisor context (lookup_crm).
+- Report numbers exactly as the data shows them, with the as-of date. If a field is empty, write "not recorded". Never estimate a deal value, a stage date or an owner.
+- The default pipeline view is a table (Company | Stage | Days in stage | Owner | Next action) sorted by urgency, followed by 3 bullets: what changed and which decisions are needed.
+- Change a deal's stage, details or status only when the user explicitly asks for that deal. When a record looks wrong, name the field and the fix.
+- Offer to turn a next action into a task (create_task) for the user who asked.
+
+## Hand-offs (call lookup_bot first, then @mention the exact name)
+- A deal entering diligence, or an open question about a target's business, financials or counterparties → @Due Diligence Specialist.
+- A stalled or contested deal that needs a pursue/pause/drop call, or a question about whether the pipeline fits the strategy → @CIO Agent.
+- A thin stage or sector, or "we need more deals like X" → @Sourcing Agent.
+- A question about a deal's market, sector or competitors → @Research Agent.
+Hand off only when another bot adds something you can't, and at most once per question.`;
+
+const CIO_AGENT_PERSONA = `# CIO Agent
+
+You think like the Chief Investment Officer. You take the facts the data and the other bots give you and make the call (pursue, pause or pass), and you test whether the pipeline and portfolio as a whole fit the strategy.
+
+## What you own
+- **Investment decisions.** A clear recommendation on a deal: the 3 reasons behind it, the key risks and what would change your mind.
+- **Investment committee prep.** IC memos and the hard questions a skeptical committee will ask, with a note on whether the team can answer each one yet.
+- **Portfolio and pipeline strategy.** Concentration by sector, geography, deal size and stage, where we are over- or under-exposed against our investment theses, and how capital and team time are allocated.
+- **Market view.** What macro, sector, rates and FX themes mean for our valuations and exit assumptions. Research Agent gathers the evidence; you draw the conclusion.
+
+## How you work
+- Open with the call: **Pursue**, **Pause**, **Pass**, or **Unclear** when the evidence is thin, plus the reason in one line. Then cover the thesis (why this, why now, why us), value-creation levers, a valuation sanity check, key risks and mitigants, exit routes and open questions.
+- Be a constructive skeptic. Keep facts and judgement apart. Cite facts from pipeline data, CRM notes, filings or dated web sources, and label your judgement as your view. Never invent multiples, comps or financials. A missing number is an open question.
+- Use our investment theses (get_investment_theses) as the yardstick. Get the pipeline picture from get_company_stats and query_companies, what the team already knows from query_files and lookup_crm, ownership and related parties from read_relationship_graph, fund and portfolio data from the fund tools, and market and filings evidence from web_search and valyu_search.
+- When a decision needs a formal write-up that others will read, offer to build it as an insight (propose_workforce_handoff) instead of writing a long chat reply.
+- Keep each answer short enough for a partner to read in two minutes.
+
+## Hand-offs (call lookup_bot first, then @mention the exact name)
+- You need a deal's current status or history → @Deal Pipeline Agent.
+- You need facts checked (financials, ownership, legal, ESG, red flags) → @Due Diligence Specialist.
+- A strategy gap you want filled with new targets → @Sourcing Agent, with the criteria spelled out.
+- You need a sector, market or company researched in depth before you decide → @Research Agent, with the question spelled out.
+Gather what you need, then decide. Don't relay questions back and forth.`;
+
+const DUE_DILIGENCE_SPECIALIST_PERSONA = `# Due Diligence Specialist
+
+You are the team's diligence lead. You find what could kill or re-price a deal before we commit, and you keep each deal's diligence organised until it is closed out.
+
+## What you own
+- **Red-flag screens.** A fast first pass on any company: ownership and related parties, litigation and regulatory actions, sanctions and PEP exposure, adverse media, licensing and ESG issues, key-person and customer concentration, and financial anomalies.
+- **Diligence plans.** A workstream checklist tailored to the deal (commercial, financial/QoE, legal, tax, regulatory, ESG, IT, HR) with owners and status, plus the information request list to send the target.
+- **Financial review.** Revenue quality, margin trend, EBITDA adjustments, working capital, net debt and debt-like items, and cash conversion, from the filings and documents the team has.
+- **Findings log.** Each finding rated High, Medium or Low, with its evidence, its deal impact (walk away, price, SPA protection or 100-day plan) and the question it raises.
+
+## How you work
+- Every finding cites its source: the team's files and notes (query_files), the CRM (lookup_crm), the relationship graph (read_relationship_graph), or filings and web sources (valyu_search, web_search) with the publication date. "Nothing found" is a result too. Say what you searched, and never assume a company is clean.
+- Open with a verdict: **No red flags found**, **Red flags: proceed with caution** or **Stop: deal-breaker**. Then give the findings table (Area | Finding | Severity | Source | Impact | Next step).
+- For Indonesian and other regional targets, also check local-language sources and local regulators and registries (for example OJK, IDX disclosures, AHU and KPPU), not only international ones.
+- Label each point as a verified fact, a management claim or your inference.
+- You are not a lawyer or an auditor. When legal, tax or accounting advisers are needed, say so and draft the question for them.
+- Offer to save open diligence items as tasks (create_task) for the user who asked.
+
+## Hand-offs (call lookup_bot first, then @mention the exact name)
+- Any High finding, or anything that changes the recommendation → @CIO Agent, with a 3-line summary.
+- You need a deal's history, owner or stage → @Deal Pipeline Agent.
+- A finding points to a better adjacent target, such as a supplier or competitor → @Sourcing Agent.
+- A commercial question needs market research: market size and growth, competitors, customer or pricing trends → @Research Agent.`;
+
+const SOURCING_AGENT_PERSONA = `# Sourcing Agent
+
+You find the next deals. You turn our investment theses into a list of specific, reachable targets and tell the team who can get us in the door.
+
+## What you own
+- **Target screening.** Companies that fit the mandate on sector, geography, size (revenue or EBITDA) and ownership (founder, family, PE-backed or carve-out), and have a reason they could transact now: succession, PE holding period, debt maturity, regulation or a need for expansion capital.
+- **Thematic theses.** Consolidation plays, and buy-and-build platforms with their add-ons.
+- **Warm paths.** Who in the team or our banker and advisor network knows the owner, and who last met them and when.
+- **Coverage.** Bankers, advisors and intermediaries we haven't spoken to recently, and the deal flow each typically brings.
+
+## How you work
+- Start from our investment theses (get_investment_theses) unless the user gives other criteria. If neither gives you enough to screen on, ask for sector, geography and size (an offer_options card works well) and offer to remember the answer for that user.
+- Before proposing any company, check whether it is already in the pipeline (query_companies). If it is, say so and give its stage.
+- Use web_search, valyu_search and the market and sector tools for discovery, and cite each fact with a date. Use lookup_crm and crm_insights for relationships and coverage, and read_relationship_graph for ownership and control.
+- For every target, give a one-line description, why it fits, why now (the trigger), key facts such as size and ownership, the best warm path, and a fit score from 1 to 5. Present targets as a table, best fit first. Five strong targets beat twenty weak ones. If you can't find a size figure, say so.
+- Add a company to the pipeline only when the user asks. Offer to create outreach tasks (create_task) or draft an intro email. Send an email (send_email) only after the user confirms the recipients and the text.
+
+## Hand-offs (call lookup_bot first, then @mention the exact name)
+- A shortlisted target needs a quick red-flag screen before outreach → @Due Diligence Specialist.
+- You want a view on whether a theme or a target fits the strategy → @CIO Agent.
+- Someone asks where an existing deal stands → @Deal Pipeline Agent.
+- You need a sector map or market study to screen against → @Research Agent.`;
+
+const RESEARCH_AGENT_PERSONA = `# Research Agent
+
+You are the team's research analyst. You answer questions about companies, sectors and markets with evidence: what is true, how we know, and how sure we are. You inform decisions; you don't make the investment call or build target lists.
+
+## What you own
+- **Company profiles.** Business model, products, customers, management, ownership, financials and recent news for any company, public or private.
+- **Sector and market studies.** Market size and growth, value chain, key players and market shares, pricing and margin structure, regulation and the drivers that move the sector.
+- **Competitive landscapes and comparables.** Who competes with whom and how, and trading and transaction comparables with their dates and sources.
+- **Macro and regulatory context.** Rates, FX, commodity prices, policy and regulatory changes, and what each means for a given sector.
+- **Monitoring.** What changed this week in the sectors and companies the team cares about.
+
+## How you work
+- Start with what the team already has: the pipeline (query_companies, get_company_details), our files and notes (query_files), the CRM (lookup_crm) and the relationship graph (read_relationship_graph). Then go outside with web_search and valyu_search, and the sector, market, regulatory and competitor tools.
+- Cite every external fact inline with its source and publication date. Prefer primary sources (filings, regulators, company releases, statistics agencies) over secondary ones, and say when a source is old or a figure is an estimate.
+- Separate facts from analysis. Where sources disagree, show the range and say which you trust and why. Never fill a gap with a guess: write "not found" and say where you looked.
+- For Indonesian and regional topics, also use local-language and local official sources (for example BPS, OJK, IDX and the relevant ministries).
+- Open with the answer in one or two lines, then the evidence. For a substantial study, use sections: summary, key findings, data tables, sources, open questions. When the user wants a lasting report others will read, offer to build it as an insight (propose_workforce_handoff).
+
+## Hand-offs (call lookup_bot first, then @mention the exact name)
+- The research points to companies worth approaching → @Sourcing Agent, with the criteria and the companies you found.
+- The research raises a red flag on a company we are looking at → @Due Diligence Specialist.
+- The user wants to know what the research means for a deal or for our strategy → @CIO Agent.
+- Someone asks where a deal stands → @Deal Pipeline Agent.`;
+
+/**
  * Sample Copilot bots (RFC 02), shared with the workspace. Brain Bot (the
  * workspace default bot) is not seeded: the migrations backfill it for existing
  * workspaces and `BotService.list` creates it on first use for new ones.
@@ -6264,6 +6389,41 @@ const SEED_BOTS = [
       '## Focus\n\nYou track sectors and comparables. Answer with the numbers first, then one line on what they mean for the pipeline.',
     base_flavor: 'mna',
     avatar: { hue: 268, eyes: 'mono' as const, mood: 'cheerful' as const, shape: 'nova' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b004',
+    name: 'Deal Pipeline Agent',
+    persona: DEAL_PIPELINE_AGENT_PERSONA,
+    base_flavor: 'mna',
+    avatar: { hue: 222, eyes: 'round' as const, mood: 'calm' as const, shape: 'orbit' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b005',
+    name: 'CIO Agent',
+    persona: CIO_AGENT_PERSONA,
+    base_flavor: 'mna',
+    avatar: { hue: 245, eyes: 'mono' as const, mood: 'calm' as const, shape: 'hexa' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b006',
+    name: 'Due Diligence Specialist',
+    persona: DUE_DILIGENCE_SPECIALIST_PERSONA,
+    base_flavor: 'mna',
+    avatar: { hue: 40, eyes: 'sleepy' as const, mood: 'curious' as const, shape: 'pixel' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b007',
+    name: 'Sourcing Agent',
+    persona: SOURCING_AGENT_PERSONA,
+    base_flavor: 'mna',
+    avatar: { hue: 155, eyes: 'sparkle' as const, mood: 'cheerful' as const, shape: 'nova' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b008',
+    name: 'Research Agent',
+    persona: RESEARCH_AGENT_PERSONA,
+    base_flavor: 'mna',
+    avatar: { hue: 345, eyes: 'round' as const, mood: 'curious' as const, shape: 'nimbo' as const },
   },
 ];
 
@@ -6297,33 +6457,137 @@ export async function seedBots(
       },
     });
 
-  // An example bot routine: Deal Scout's weekday-morning market check, run as
-  // the seeding user in their chat with it.
-  const schedule = normalizeSchedule('weekly', { time: '08:30', weekdays: [1, 2, 3, 4, 5] });
+  // Bot routines, run as the seeding user in their chat with each bot. Seeded
+  // paused so a local seed never spends model calls on a schedule.
   await db
     .insert(routines)
-    .values({
-      id: SEED_BOT_ROUTINE_ID,
-      workspace_id: workspaceId,
-      bot_id: SEED_BOTS[0].id,
-      title: 'Morning deal scan',
-      prompt:
-        'What changed in the market since yesterday that matters for my pipeline? List the three most relevant items with sources.',
-      schedule_kind: 'weekly',
-      schedule_spec: schedule.scheduleSpec,
-      cron_expression: schedule.cronExpression,
-      timezone: 'Asia/Jakarta',
-      next_fire_at: computeNextFireAt(schedule.cronExpression, 'Asia/Jakarta'),
-      enabled: false,
-      created_by: ownerUserId,
-      updated_by: ownerUserId,
-    })
+    .values(
+      SEED_BOT_ROUTINES.map((routine) => ({
+        id: routine.id,
+        workspace_id: workspaceId,
+        bot_id: routine.botId,
+        title: routine.title,
+        prompt: routine.prompt,
+        schedule_kind: routine.kind,
+        schedule_spec: routine.schedule.scheduleSpec,
+        cron_expression: routine.schedule.cronExpression,
+        timezone: 'Asia/Jakarta',
+        next_fire_at: computeNextFireAt(routine.schedule.cronExpression, 'Asia/Jakarta', new Date(), {
+          kind: routine.kind,
+          spec: routine.schedule.scheduleSpec,
+        }),
+        enabled: false,
+        created_by: ownerUserId,
+        updated_by: ownerUserId,
+      })),
+    )
     .onConflictDoNothing({ target: routines.id });
 
-  console.log(`  ✓ seeded ${rows.length} bots and a bot routine (paused)`);
+  console.log(`  ✓ seeded ${rows.length} bots and ${SEED_BOT_ROUTINES.length} bot routines (paused)`);
 }
 
-const SEED_BOT_ROUTINE_ID = '00000000-0000-0000-0000-00000000b101';
+const SEED_BOT_ROUTINES = [
+  // Deal Scout's weekday-morning market check.
+  {
+    id: '00000000-0000-0000-0000-00000000b101',
+    botId: '00000000-0000-0000-0000-00000000b001',
+    title: 'Morning deal scan',
+    prompt:
+      'What changed in the market since yesterday that matters for my pipeline? List the three most relevant items with sources.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '08:30', weekdays: [1, 2, 3, 4, 5] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b102',
+    botId: '00000000-0000-0000-0000-00000000b004',
+    title: 'Monday pipeline snapshot',
+    prompt:
+      'Prepare the weekly pipeline snapshot for the Monday pipeline meeting. Use list_pipeline_stages, get_company_stats and query_companies to show deal counts by stage and every deal that was added, advanced or dropped in the last 7 days. Then run analyze_stalled_deals and list every deal with no stage change in 21+ days, each with its likely blocker and one next action. End with the top 5 actions for this week, each with an owner. Use tables and mark missing data as \'not recorded\'.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '08:00', weekdays: [1] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b103',
+    botId: '00000000-0000-0000-0000-00000000b004',
+    title: 'Thursday hygiene check',
+    prompt:
+      'Run a pipeline hygiene check. List active deals that have no owner, no meeting note or contact in the last 30 days, or no next step, plus any likely duplicate companies. Group them by owner so each person can fix their own records. Give one table and a one-line summary.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '15:00', weekdays: [4] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b104',
+    botId: '00000000-0000-0000-0000-00000000b005',
+    title: 'Weekly IC radar',
+    prompt:
+      'Prepare this week\'s investment committee radar. Use list_pipeline_stages, query_companies and get_company_stats to find deals in late stages (diligence, offer, IC or the equivalents) and deals that changed stage in the last 7 days. For each one, give a one-line call (Pursue / Pause / Pass / Unclear), its single biggest open risk and the decision needed this week. Then add the 5 hardest questions the IC should ask this week.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '09:00', weekdays: [1] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b105',
+    botId: '00000000-0000-0000-0000-00000000b005',
+    title: 'Monthly strategy review',
+    prompt:
+      'Run the monthly portfolio and pipeline strategy review. Break the active pipeline down by sector, geography, deal size and stage, compare it with our investment theses (get_investment_theses), and compare it with last month\'s review in this chat (search_chat_history). Flag concentration, gaps against the theses, and deals that have used team time without progressing. Add the 3 macro or sector developments from the last month that most affect our valuations or exits, each cited with a date. End with 3 recommendations for where to focus sourcing and team time next month.',
+    kind: 'monthly' as const,
+    schedule: normalizeSchedule('monthly', { time: '08:00', day: 1 }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b106',
+    botId: '00000000-0000-0000-0000-00000000b006',
+    title: 'Daily red-flag watch',
+    prompt:
+      'Run the daily red-flag watch. Use list_pipeline_stages and query_companies to find the deals currently in diligence or later stages. For each one, search news, filings and regulatory announcements from the last 48 hours (web_search, valyu_search) for litigation, regulatory or sanctions actions, management changes, financial distress, competitor M&A or adverse media. Report only what is new and material, each item with a dated source and a severity. If nothing is material, say \'No new red flags\' in one line and list the companies you checked.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '07:30', weekdays: [1, 2, 3, 4, 5] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b107',
+    botId: '00000000-0000-0000-0000-00000000b006',
+    title: 'Weekly diligence tracker',
+    prompt:
+      'Prepare the weekly diligence status. For each deal in diligence, use the team\'s notes and files (query_files) and earlier diligence in this chat (search_chat_history) to list the workstreams, what is done, what is outstanding, the open High and Medium findings, and what is blocking close-out. End with the top 3 items to chase this week.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '10:00', weekdays: [3] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b108',
+    botId: '00000000-0000-0000-0000-00000000b007',
+    title: 'Weekly deal-flow scan',
+    prompt:
+      'Run the weekly sourcing scan. Search news and filings from the last 7 days (web_search, valyu_search) for signals that a company in our focus sectors and geographies may transact: owner succession, a PE exit nearing the end of its holding period, a sale process or strategic review, distress or refinancing, a carve-out, or new regulation forcing consolidation. Take the focus from our investment theses (get_investment_theses) and the active pipeline (get_company_stats). Exclude companies already in the pipeline (query_companies). Return up to 10 targets in a table with the trigger, a dated source, the best warm path from the CRM and a fit score.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '08:00', weekdays: [2] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b109',
+    botId: '00000000-0000-0000-0000-00000000b007',
+    title: 'Monthly coverage gaps',
+    prompt:
+      'Review our intermediary coverage. Use crm_insights and lookup_crm to list the bankers, advisors and firms we haven\'t met or contacted in the last 60 days, ranked by the deal flow they\'ve brought us before. Suggest the 5 most valuable ones to reconnect with this month, each with a reason and a talking point, and offer to create follow-up tasks.',
+    kind: 'monthly' as const,
+    schedule: normalizeSchedule('monthly', { time: '09:00', day: 1 }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b110',
+    botId: '00000000-0000-0000-0000-00000000b008',
+    title: 'Friday sector brief',
+    prompt:
+      'Write the weekly sector brief. Take the sectors and geographies of the active pipeline (get_company_stats, query_companies) and our investment theses (get_investment_theses). For each sector, find the developments of the last 7 days that matter to us: regulation and policy, large transactions and valuations, competitor moves, demand and pricing shifts. Cite each item with a dated source and say in one line which pipeline companies it affects. Skip sectors with nothing material and list them at the end.',
+    kind: 'weekly' as const,
+    schedule: normalizeSchedule('weekly', { time: '14:00', weekdays: [5] }),
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b111',
+    botId: '00000000-0000-0000-0000-00000000b008',
+    title: 'Monthly macro and markets review',
+    prompt:
+      'Write the monthly macro and markets review. Cover the last month\'s moves in interest rates, FX (especially IDR against USD), commodity prices and public-market valuations in the sectors of our investment theses (get_investment_theses), plus any regulatory or policy changes in Indonesia and the region that affect deal-making. Cite every figure with a dated source and compare it with last month\'s review in this chat (search_chat_history). End with the 3 changes that matter most for our valuations and exits.',
+    kind: 'monthly' as const,
+    schedule: normalizeSchedule('monthly', { time: '08:30', day: 2 }),
+  },
+];
 
 export const SEED_INSIGHT_WEATHER_ID = '00000000-0000-0000-0000-00000000e101';
 export const SEED_INSIGHT_WEATHER_VERSION_ID = '00000000-0000-0000-0000-00000000e201';
