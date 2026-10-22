@@ -13,7 +13,7 @@ vi.mock('@/auth', () => ({ auth: authFn }));
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/repositories')>();
   class MockRoutinesRepository {
-    findById = findById;
+    findWorkforceRoutineById = findById;
     listRuns = listRuns;
   }
   return {

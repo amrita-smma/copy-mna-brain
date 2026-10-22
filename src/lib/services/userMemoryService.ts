@@ -101,7 +101,7 @@ const MAX_LIST_LIMIT = 200;
  * hangs rather than fails would hold the user's turn open indefinitely. A
  * timeout is treated exactly like a failure: no memories, turn proceeds.
  */
-export const RECALL_TIMEOUT_MS = 4_000;
+export const RECALL_TIMEOUT_MS = 6_000;
 
 /**
  * Statements per `add` call. mem0 compares a batch against at most 10 existing
@@ -234,11 +234,14 @@ export class UserMemoryService {
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      // The client is built before the clock starts: on a cold serverless
+      // start that is the mem0 module import, which has nothing to do with
+      // how long the search takes and used to eat most of the budget.
+      const client = await this.client();
       const recall = (async () => {
-        const client = await this.client();
         const { results } = await client.search(trimmed, {
-          userId: this.userId,
-          limit: MAX_RECALLED_MEMORIES,
+          filters: { user_id: this.userId },
+          topK: MAX_RECALLED_MEMORIES,
         });
         return formatRecalledMemories(results.map(toRecalled));
       })();
@@ -505,17 +508,63 @@ function toRecalled(item: MemoryClientItem) {
   return { id: item.id, memory: item.memory, score: item.score };
 }
 
-/** Case- and whitespace-insensitive match, so trivial reformatting is not "drift". */
-function isOneOf(candidate: string | undefined, allowed: string[]): boolean {
+/**
+ * Whether what mem0 wrote is one of our facts, allowing for how mem0's own
+ * extraction pass restates a statement even when told not to: it drops or
+ * adds a "User …" / "The user …" subject, re-cases, re-punctuates. A result
+ * that says the same thing in other words is kept; only content that is not
+ * in the extracted set at all is "drift" and removed. (Deleting a restated
+ * fact lost the memory altogether: the original was never stored.)
+ */
+export function isOneOf(candidate: string | undefined, allowed: string[]): boolean {
   const normalized = normalizeFact(candidate);
   if (!normalized) return false;
-  return allowed.some((fact) => normalizeFact(fact) === normalized);
+  const candidateTokens = tokens(normalized);
+  return allowed.some((fact) => {
+    const known = normalizeFact(fact);
+    if (!known) return false;
+    if (known === normalized) return true;
+    // One is the other with a word or two added ("short answers" → "short, concise answers").
+    if (known.includes(normalized) || normalized.includes(known)) return true;
+    // Otherwise nearly the same words: a topic-adjacent restatement ("interested in
+    // Indonesian coal assets" for "covers Indonesian coal and nickel") does not pass.
+    const knownTokens = tokens(known);
+    return shared(candidateTokens, knownTokens) >= SAME_FACT_MIN_SHARED && overlap(candidateTokens, knownTokens) >= SAME_FACT_OVERLAP;
+  });
 }
+
+/** Share of the larger word set that both have in common, for `isOneOf`. */
+const SAME_FACT_OVERLAP = 0.75;
+/** And at least this many words in common, so two short facts cannot pass on one word. */
+const SAME_FACT_MIN_SHARED = 2;
 
 function normalizeFact(value: string | undefined): string {
   return String(value ?? '')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
-    .replace(/[.]+$/, '');
+    .replace(/[.]+$/, '')
+    // mem0 writes "User …" / "The user …" / "They …"; our facts are subjectless.
+    .replace(/^(?:the user|user|they|he|she)(?:'s| is| are| has| have)? /, '');
+}
+
+const STOP_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'in', 'on', 'for', 'with', 'is', 'are']);
+
+function tokens(text: string): Set<string> {
+  return new Set(
+    text
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 1 && !STOP_WORDS.has(t)),
+  );
+}
+
+function shared(a: Set<string>, b: Set<string>): number {
+  let common = 0;
+  for (const t of a) if (b.has(t)) common++;
+  return common;
+}
+
+function overlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  return shared(a, b) / Math.max(a.size, b.size);
 }

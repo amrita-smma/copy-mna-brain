@@ -147,7 +147,8 @@ describe.each(KEYS)('getSectorAgentSpec(%s)', (key) => {
     expect(systemPrompt).toContain(INSIGHT_AUTHORING_GUIDE);
     expect(systemPrompt).toContain(CONSOLE_NAVIGATION_GUIDE);
     expect(systemPrompt).toContain(COMPANY_MENTIONS_PROMPT_GUIDE);
-    expect(systemPrompt).toContain('## Grounding: Internal Records and the Outside World');
+    expect(systemPrompt).toContain('## Offer the Next Action');
+    expect(systemPrompt).not.toContain('## Grounding: Internal Records and the Outside World');
     // The console guide refers to this section by name.
     expect(systemPrompt).toContain('## Adding a New Company (Chat-Initiated)');
     expect(systemPrompt).not.toContain('## Reporting Format');

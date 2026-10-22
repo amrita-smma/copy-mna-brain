@@ -4,9 +4,15 @@ Long-running compute (AI screening, market screening, slide generation) is
 dispatched via `JobDispatcher`/`dispatchJob`, which inserts a row into the
 `jobs` table and schedules the work via Next.js `after()`. The runner
 transitions the row through `pending → running → completed | failed | timed_out`,
-and every state change is appended to `job_logs`. Transactional email is the one
-async path that runs through Vercel Queues instead — see the forgot-password
-section above for the rationale.
+and every state change is appended to `job_logs`. Two async paths do not run
+under `after()`: transactional email goes through Vercel Queues (see the
+forgot-password section above for the rationale), and a Copilot bot's
+background turn (`bot_message` / `bot_reply` / `bot_routine`) is handed over
+as a request to our own `POST /api/internal/bot-messages`, which starts a
+Vercel Workflow run in its own invocation — it still gets a `jobs` row, a
+`job_logs` entry for the hand-off and the same `runJob` transitions, but
+nothing nests inside the dispatching request (see
+`docs/features/copilot-bots.md`, *A background turn is a Workflow run*).
 
 **Investment Tracks & matching.** Investment theses are managed as multiple
 **Tracks** (backed by the `investment_thesis` table; `title` = name, `content` =
@@ -92,6 +98,9 @@ forever; if the runner process crashes mid-work, a job can get stuck in
 `running`. A background sweep (`JobService.cleanupStuckJobs`) transitions any
 `pending` or `running` rows whose age exceeds `timeout_seconds + buffer` into
 `timed_out`, writing a `job_logs` entry that records the forced transition.
+(A bot turn's Workflow step that is killed mid-run also leaves `running`; its
+retry fails the row itself and closes the bot request, so the sweep is only
+the backstop there.)
 
 The sweep is driven by **Vercel Cron**: `vercel.json` schedules
 `GET /api/cron/cleanup-jobs` hourly, and the route calls `runSchedulerIfDue`

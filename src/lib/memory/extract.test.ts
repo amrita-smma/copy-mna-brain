@@ -73,6 +73,12 @@ describe('buildExtractionPrompt', () => {
     expect(prompt).toContain('…');
   });
 
+  it('tells the extractor that a coverage fact is durable and a this-week fact is not', () => {
+    expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain(
+      '"Covers Indonesian coal and nickel" passes. "Is looking at Acme this week" does not.',
+    );
+  });
+
   it('keeps a short reply whole so a bare confirmation can be resolved', () => {
     const prompt = buildExtractionPrompt('yes', 'Shall I focus on Indonesian coal?');
 

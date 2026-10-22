@@ -2,7 +2,7 @@
  * Wraps a sector agent's role-neutral prompt (`<agent>/prompt.ts`) with the
  * scaffolding its role needs:
  *   - chat — the sector's CoPilot conventions plus the sector-neutral guides
- *     the general CoPilot uses (grounding, console navigation, insight
+ *     the general CoPilot uses (next-action follow-ups, console navigation, insight
  *     authoring, company mentions), imported from analysis/index.ts so there
  *     is one copy of each;
  *   - workforce — a sector workforce identity and tool catalogue plus the
@@ -22,7 +22,7 @@ import {
   WORKFORCE_QUESTION_TOOL_GUIDE,
   WORKFORCE_REPORTING_FORMAT,
   WORKFORCE_TRACE_TOOLS_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from '@/lib/agents/analysis';
 import { COMPANY_MENTIONS_PROMPT_GUIDE } from '@/lib/navigation/companyMentions';
 import { getSectorAgent } from './registry';
@@ -95,7 +95,7 @@ export function composeSectorRolePrompt(
     return `${sectorPrompt}
 
 ${sectorChatGuide(agent.handle)}
-${buildExternalEvidenceGuide()}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${COMPANY_MENTIONS_PROMPT_GUIDE}`;

@@ -24,6 +24,7 @@ import {
   primaryKey,
   real,
   vector,
+  customType,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -78,6 +79,11 @@ export const jobType = pgEnum("job_type", [
   "deal_document_processing",
   "company_vote",
   "pending_auto_scan",
+  "chat_message_embedding",
+  "bot_message",
+  "bot_routine",
+  "bot_task_summary",
+  "bot_reply",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const screeningState = pgEnum("screening_state", [
@@ -2972,6 +2978,9 @@ export const routines = pgTable(
     // system pauses and never a routine a person switched off.
     paused_reason: text().$type<"agent_deprecated" | "agent_incompatible">(),
     paused_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Set for a Copilot bot's routine: it messages that bot as its creator
+    // instead of queueing a workforce run. NULL for workforce routines.
+    bot_id: uuid().references(() => bots.id, { onDelete: "cascade" }),
   },
   (table) => {
     return {
@@ -2994,6 +3003,9 @@ export const routines = pgTable(
         "btree",
         table.workspace_id.asc().nullsLast().op("uuid_ops"),
       ),
+      idxRoutinesBotId: index("idx_routines_bot_id")
+        .using("btree", table.bot_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`bot_id IS NOT NULL AND archived_at IS NULL`),
       routinesCreatedByFkey: foreignKey({
         columns: [table.created_by],
         foreignColumns: [users.id],
@@ -3019,6 +3031,213 @@ export const routines = pgTable(
       allowReadAccessOnRoutines: pgPolicy(
         "Allow read access on routines",
         { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+/** Look of a bot's animated avatar (bots.avatar). Empty object = defaults. */
+export type BotAvatarConfig = {
+  hue?: number;
+  eyes?: "round" | "sleepy" | "sparkle" | "mono";
+  mood?: "cheerful" | "calm" | "curious";
+  /** "apex" is Brain Bot's own body; the app sets it, users cannot pick it. */
+  shape?: "nova" | "hexa" | "nimbo" | "orbit" | "pixel" | "apex";
+};
+
+// A Copilot bot (RFC 02): a named assistant built on a Copilot flavour, with
+// its own persona and an animated avatar. Every bot has every skill in the
+// in-code catalogue (src/lib/bots/skills.ts). Each user has one permanent thread per bot
+// (copilot_chats.bot_id). owner_user_id is NULL for the workspace's default bot.
+export const bots = pgTable(
+  "bots",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    owner_user_id: uuid().references(() => users.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    /** Deprecated: superseded by persona_md; kept for one release. */
+    system_prompt: text().default("").notNull(),
+    /** The bot's persona: its owner's instructions (markdown). Blank until
+     *  they tell the bot who it is. */
+    persona_md: text().default("").notNull(),
+    base_flavor: text().default("mna").notNull(),
+    avatar: jsonb().$type<BotAvatarConfig>().default({}).notNull(),
+    // 'private' (owner only) | 'workspace' (every member)
+    visibility: text().default("private").notNull(),
+    is_default: boolean().default(false).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    archived_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      idxBotsWorkspaceArchived: index("idx_bots_workspace_archived").using(
+        "btree",
+        table.workspace_id.asc().nullsLast().op("uuid_ops"),
+        table.archived_at.asc().nullsLast().op("timestamptz_ops"),
+      ),
+      uqBotsWorkspaceDefault: uniqueIndex("uq_bots_workspace_default")
+        .using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops"))
+        .where(sql`is_default`),
+    };
+  },
+);
+
+/** One note a bot keeps about one user (`bot_user_memories.notes`); the client-safe twin is `BotMemoryNote`. */
+export type BotMemoryNoteJson = { text: string; created_at: string };
+
+/**
+ * What one bot remembers about one user: the notes the user asked it to keep
+ * (preferences, standing requests), as a jsonb array; one row per user per
+ * bot. Read into that user's turns with that bot only — the persona is the
+ * bot's behaviour for everyone, this is what is particular to one person.
+ */
+export const botUserMemories = pgTable(
+  "bot_user_memories",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    bot_id: uuid()
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notes: jsonb().$type<BotMemoryNoteJson[]>().default([]).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      uqBotUserMemoriesBotUser: uniqueIndex("uq_bot_user_memories_bot_user").using(
+        "btree",
+        table.bot_id.asc().nullsLast().op("uuid_ops"),
+        table.user_id.asc().nullsLast().op("uuid_ops"),
+      ),
+    };
+  },
+);
+
+/** Each user's pinned bots, in order (one row per user per workspace); unpinned bots sort by activity. */
+export const botOrders = pgTable(
+  "bot_orders",
+  {
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    bot_ids: uuid().array().default([]).notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      pk: primaryKey({ columns: [table.user_id, table.workspace_id] }),
+    };
+  },
+);
+
+/**
+ * A bot's task log: a one-line summary of each task it did. `source` is how
+ * the task reached it — the user's chat, an @mention, or a routine. Readers
+ * see their own tasks plus every routine run (`BotTaskLogRepository`).
+ */
+// A request one bot made to another by @mention (see
+// src/lib/services/botRequestService.ts): closed by the answering bot's job,
+// and the last close in a group dispatches one bot_reply turn to the asker.
+export const botRequests = pgTable(
+  "bot_requests",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The asking turn: every request one reply made shares it. */
+    group_id: uuid().notNull(),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    from_bot_id: uuid()
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    from_bot_name: text().notNull(),
+    from_chat_id: uuid()
+      .notNull()
+      .references(() => copilotChats.id, { onDelete: "cascade" }),
+    to_bot_id: uuid()
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    to_bot_name: text().notNull(),
+    ask: text().notNull(),
+    answer: text(),
+    status: text().$type<"pending" | "done" | "failed" | "timed_out">().default("pending").notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    closed_at: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (table) => {
+    return {
+      botRequestsStatusChk: check(
+        "bot_requests_status_check",
+        sql`status IN ('pending', 'done', 'failed', 'timed_out')`,
+      ),
+      idxBotRequestsGroup: index("idx_bot_requests_group").using("btree", table.group_id),
+      idxBotRequestsPending: index("idx_bot_requests_pending")
+        .using("btree", table.created_at)
+        .where(sql`status = 'pending'`),
+    };
+  },
+);
+
+export const botTaskLogs = pgTable(
+  "bot_task_logs",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    bot_id: uuid()
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    chat_id: uuid().references(() => copilotChats.id, { onDelete: "cascade" }),
+    routine_id: uuid().references(() => routines.id, { onDelete: "set null" }),
+    source: text().$type<"chat" | "mention" | "routine">().notNull(),
+    summary: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      botTaskLogsSourceChk: check(
+        "bot_task_logs_source_check",
+        sql`source IN ('chat', 'mention', 'routine')`,
+      ),
+      idxBotTaskLogsBotCreated: index("idx_bot_task_logs_bot_created").using(
+        "btree",
+        table.bot_id.asc().nullsLast().op("uuid_ops"),
+        table.created_at.desc().nullsFirst().op("timestamptz_ops"),
+        table.id.desc().nullsFirst().op("uuid_ops"),
       ),
     };
   },
@@ -3056,9 +3275,29 @@ export const copilotChats = pgTable(
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    // The bot this thread belongs to (RFC 02). A bot thread is permanent: the
+    // partial unique index below allows one per user per bot. NULL for
+    // legacy, non-bot chats.
+    bot_id: uuid().references(() => bots.id, { onDelete: "cascade" }),
+    // When the latest assistant reply was stored, and when the user last read
+    // the thread. Unread = last_message_at > last_read_at.
+    last_message_at: timestamp({ withTimezone: true, mode: "string" }),
+    last_read_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Set once the thread's checkpoint history is copied into copilot_messages.
+    history_imported_at: timestamp({ withTimezone: true, mode: "string" }),
+    // Per-thread turn lock (a background bot turn vs an interactive one).
+    busy_until: timestamp({ withTimezone: true, mode: "string" }),
   },
   (table) => {
     return {
+      uqCopilotChatsUserBot: uniqueIndex("uq_copilot_chats_user_bot")
+        .using(
+          "btree",
+          table.user_id.asc().nullsLast().op("uuid_ops"),
+          table.workspace_id.asc().nullsLast().op("uuid_ops"),
+          table.bot_id.asc().nullsLast().op("uuid_ops"),
+        )
+        .where(sql`bot_id IS NOT NULL`),
       idxCopilotChatsWorkspaceId: index(
         "idx_copilot_chats_workspace_id",
       ).using("btree", table.workspace_id.asc().nullsLast().op("uuid_ops")),
@@ -3090,6 +3329,52 @@ export const copilotChats = pgTable(
       allowReadAccessOnCopilotChats: pgPolicy(
         "Allow read access on copilot_chats",
         { as: "permissive", for: "select", to: ["public"] },
+      ),
+    };
+  },
+);
+
+/** Postgres `tsvector`, for the generated full-text column on copilot_messages. */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+// The Copilot's chat history as rows (one user row and one assistant row per
+// turn), so history pages, survives summarization and checkpoint compaction,
+// and is searchable. See the copilot_messages migration.
+export const copilotMessages = pgTable(
+  "copilot_messages",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    seq: bigint({ mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    chat_id: uuid()
+      .notNull()
+      .references(() => copilotChats.id, { onDelete: "cascade" }),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bot_id: uuid().references(() => bots.id, { onDelete: "set null" }),
+    role: text().$type<"user" | "assistant">().notNull(),
+    author_bot_id: uuid().references(() => bots.id, { onDelete: "set null" }),
+    parts: jsonb().$type<unknown[]>().default([]).notNull(),
+    text: text().default("").notNull(),
+    embedding: vector({ dimensions: 1024 }),
+    search: tsvector().generatedAlwaysAs(sql`to_tsvector('simple', coalesce(text, ''))`),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      idxCopilotMessagesChatSeq: index("idx_copilot_messages_chat_seq").using(
+        "btree",
+        table.chat_id.asc().nullsLast().op("uuid_ops"),
+        table.seq.desc().nullsFirst(),
       ),
     };
   },

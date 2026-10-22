@@ -41,8 +41,8 @@ describe('SERVER_TOOLS', () => {
   });
 
   it('leaves web_search headroom for a search per company mentioned', () => {
-    // guides.ts owes a freshness search to every company that surfaces in a
-    // turn, plus further angles on the ones the answer turns on, so the spend
+    // The prompts search per company in play (workforce.ts owes a freshness
+    // search to every company it touches, plus further angles), so the spend
     // scales with the companies in play: a turn over eight of them starts at
     // eight searches. 30 was sized before that rule existed.
     expect(byName('web_search')?.max_uses).toBeGreaterThanOrEqual(MIN_WEB_SEARCH_MAX_USES);

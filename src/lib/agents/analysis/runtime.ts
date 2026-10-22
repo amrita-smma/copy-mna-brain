@@ -8,7 +8,7 @@
  * that pass neither.
  */
 import { ChatAnthropic } from "@langchain/anthropic";
-import { createAgent, humanInTheLoopMiddleware } from "langchain";
+import { createAgent, type AgentMiddleware } from "langchain";
 import { AIMessage, BaseMessage } from "@langchain/core/messages";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
@@ -29,6 +29,25 @@ import { EFFORT_TIERS, type EffortChoice } from "./effort";
  * may reference user-attached documents by their uploaded file id.
  */
 const FILES_API_BETA = "files-api-2025-04-14" as const;
+
+/**
+ * Middleware handed to `createAgent`: HITL for workforce graphs, history
+ * summarization for permanent bot threads.
+ */
+export type AgentMiddlewareList = ReadonlyArray<AgentMiddleware>;
+
+/**
+ * A per-turn replacement for the graph's prompt, tools and middleware. A
+ * Copilot bot thread (RFC 02) runs on its base flavour's cached graph and
+ * swaps these in per turn, so the graph cache stays keyed by flavour and never
+ * grows per bot.
+ */
+export interface AgentTurnOverride {
+  systemPrompt: string;
+  toolList: ToolList;
+  middleware?: AgentMiddlewareList;
+  contextEditing?: boolean;
+}
 
 export interface AgentConfig {
   apiKey: string;
@@ -53,6 +72,8 @@ export interface InvokeOptions {
    * thread and its checkpoint are unaffected; the next turn gets them back.
    */
   withheldTools?: readonly string[];
+  /** Replace the graph's prompt, tools and middleware for this turn only. */
+  override?: AgentTurnOverride;
 }
 
 /**
@@ -77,6 +98,12 @@ export interface InvokeConfig {
    * cancels the in-flight model request and halts graph execution.
    */
   signal?: AbortSignal;
+  /**
+   * Extra LangChain callback handlers for this run, merged ahead of the
+   * Langfuse ones (`withLangfuseCallbacks`). The bots' presence detector
+   * rides here.
+   */
+  callbacks?: unknown[];
 }
 
 export interface InvokeResult {
@@ -107,7 +134,7 @@ export function createLocalAgent(
   additionalSystemContext?: string,
   toolList: ToolList = defaultChatToolList(),
   systemPrompt: string = CHAT_SYSTEM_PROMPT,
-  middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
+  middleware: AgentMiddlewareList = [],
 ): ReturnType<typeof createAgent> {
   const tier = EFFORT_TIERS[config.effort ?? 'medium'];
   const modelId = tier.model;
@@ -255,15 +282,13 @@ export class AgentGraph {
   private defaultAgent: ReturnType<typeof createAgent>;
   private toolList: ToolList;
   private systemPrompt: string;
-  private middleware: ReadonlyArray<
-    ReturnType<typeof humanInTheLoopMiddleware>
-  >;
+  private middleware: AgentMiddlewareList;
 
   constructor(
     config: AgentConfig,
     toolList: ToolList = defaultChatToolList(),
     systemPrompt: string = CHAT_SYSTEM_PROMPT,
-    middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
+    middleware: AgentMiddlewareList = [],
   ) {
     this.config = { ...config };
     this.toolList = toolList;
@@ -281,7 +306,19 @@ export class AgentGraph {
   private getAgent(
     additionalSystemContext?: string,
     withheldTools: readonly string[] = [],
+    override?: AgentTurnOverride,
   ): ReturnType<typeof createAgent> {
+    if (override) {
+      return createLocalAgent(
+        override.contextEditing === undefined
+          ? this.config
+          : { ...this.config, contextEditing: override.contextEditing },
+        additionalSystemContext,
+        withoutTools(override.toolList, withheldTools),
+        override.systemPrompt,
+        override.middleware ?? this.middleware,
+      );
+    }
     if (!additionalSystemContext && withheldTools.length === 0) {
       return this.defaultAgent;
     }
@@ -292,6 +329,16 @@ export class AgentGraph {
       this.systemPrompt,
       this.middleware,
     );
+  }
+
+  /** The graph's own tool list (a bot turn builds its override on top of it). */
+  getToolList(): ToolList {
+    return this.toolList;
+  }
+
+  /** The graph's own system prompt (a bot turn layers its prompt around it). */
+  getSystemPrompt(): string {
+    return this.systemPrompt;
   }
 
   async getState(config: import('@langchain/core/runnables').RunnableConfig) {
@@ -324,7 +371,11 @@ export class AgentGraph {
     logger.debug("🚀 AGENT INVOCATION STARTED");
 
     try {
-      const agent = this.getAgent(inputs.additionalSystemContext, inputs.withheldTools);
+      const agent = this.getAgent(
+      inputs.additionalSystemContext,
+      inputs.withheldTools,
+      inputs.override,
+    );
       logger.debug(`📨 Sending ${inputs.messages.length} message(s) to agent`);
       if (inputs.additionalSystemContext) {
         logger.debug("📎 Additional system context provided");
@@ -435,7 +486,11 @@ export class AgentGraph {
     inputs: InvokeOptions,
     config?: any,
   ): Promise<AsyncGenerator<unknown, void, unknown>> {
-    const agent = this.getAgent(inputs.additionalSystemContext, inputs.withheldTools);
+    const agent = this.getAgent(
+      inputs.additionalSystemContext,
+      inputs.withheldTools,
+      inputs.override,
+    );
     const mergedConfig = withLangfuseCallbacks({
       ...config,
       metadata: { ...(config?.metadata ?? {}), ...this.traceMetadata() },

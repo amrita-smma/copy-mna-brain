@@ -8,11 +8,31 @@ reminder time; it belongs to one user in one workspace and nobody else can see i
 - **Profile → items tab → "Needs your attention"** — the list sits above the
   vote / approval cards. The section badge counts open tasks plus action items.
 - **Sidebar footer tasks button** (desktop), next to the "what's new" bell. Opens
-  the same list in a popover; a red count marks overdue reminders.
+  the same list in a popover; a red count marks overdue reminders. Its "View
+  all" opens the page below.
+- **`/tasks`, "Your tasks"** (`src/views/Tasks.tsx`): the list as a full page
+  under the shared `PageHeader`, with a red *N overdue* badge beside the title.
+  On mobile it is pinned on the bot home beside Timeline — a glass tile whose
+  icon turns red and wears a red count when a reminder has passed — and the
+  shell floats the back button over it like every other mobile page.
 
-Both are `TaskList` (`src/components/tasks/`) over one react-query cache
-(`useUserTasks`), so an edit in one appears in the other at once. Mutations are
+All three are `TaskList` (`src/components/tasks/`) over one react-query cache
+(`useUserTasks`), so an edit in one appears in the others at once. Mutations are
 optimistic and roll back with a toast on failure.
+
+## The bots manage them too
+
+Every Copilot bot has the `tasks` skill (`src/lib/bots/skills.ts`): `list_tasks`
+(open tasks with reminders, overdue ones flagged, and the current time so a
+relative reminder can be worked out; completed ones on request), `create_task`
+(title plus an optional ISO reminder), `update_task` (rename, re-time or clear
+the reminder, complete or reopen) and `delete_task`. All four act for the
+chatting user (`configurable.userId`) through `UserTaskService`, the same path
+the API takes, and **apply at once: no approval card and no Workforce hand-off** —
+a to-do is the user's own note, not a job. A task is named by id or by title; a
+phrase that matches more than one task is refused rather than guessed
+(`resolveTaskRef` in `tools/taskRef.ts`). The fixed instructions say so to every
+bot, and that only long-running work (building an insight) goes to the Workforce.
 
 ## Data and API
 

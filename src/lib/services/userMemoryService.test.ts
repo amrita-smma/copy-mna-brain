@@ -90,10 +90,11 @@ describe('UserMemoryService.recallForTurn', () => {
 
     expect(block).toContain('- Focuses on Indonesian coal');
     expect(block).toContain('- Prefers short answers');
-    expect(client.search).toHaveBeenCalledWith(
-      'What about Acme?',
-      expect.objectContaining({ userId: USER }),
-    );
+    // mem0 3.x rejects a top-level userId on search; the user goes in filters.
+    expect(client.search).toHaveBeenCalledWith('What about Acme?', {
+      filters: { user_id: USER },
+      topK: expect.any(Number),
+    });
   });
 
   it('returns null without calling mem0 for a blank query', async () => {
@@ -309,6 +310,35 @@ describe('UserMemoryService.rememberTurn', () => {
 
     expect(await makeService().rememberTurn(turn)).toBe(1);
     expect(repo.deleteByIds).not.toHaveBeenCalled();
+  });
+
+  it('keeps a fact mem0 restated with a subject or in other words, since the original was never stored', async () => {
+    extractFacts.mockResolvedValue(['Covers Indonesian coal and nickel', 'Prefers short answers']);
+    client.add.mockResolvedValue({
+      results: [
+        { id: 'm1', memory: 'User covers Indonesian coal and nickel.' },
+        { id: 'm2', memory: 'The user prefers short, concise answers' },
+      ],
+    });
+
+    expect(await makeService().rememberTurn(turn)).toBe(2);
+    expect(repo.deleteByIds).not.toHaveBeenCalled();
+  });
+
+  it('still removes content that is not in the extracted set, including a topic-adjacent restatement', async () => {
+    extractFacts.mockResolvedValue(['Covers Indonesian coal and nickel']);
+    client.add.mockResolvedValue({
+      results: [
+        { id: 'm1', memory: 'User covers Indonesian coal and nickel' },
+        { id: 'm2', memory: 'User is bidding $420m for Acme' },
+        { id: 'm3', memory: 'Primarily interested in Indonesian coal assets' },
+      ],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await makeService().rememberTurn(turn)).toBe(1);
+    expect(repo.deleteByIds).toHaveBeenCalledWith(USER, ['m2', 'm3']);
+    spy.mockRestore();
   });
 });
 

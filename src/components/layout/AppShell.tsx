@@ -20,7 +20,6 @@ import {
   MessageSquarePlus,
   Minimize2,
   MoreHorizontal,
-  PenLine,
   Sun,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -41,11 +40,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { BrandMark, BrandWordmark } from '@/components/BrandMark';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
-import { useChatActions } from '@/components/chat/ChatProvider';
+import { useChatActions, useChatThread } from '@/components/chat/ChatProvider';
+import { BotAvatar } from '@/components/bots/BotAvatar';
+import { PrimaryStar } from '@/components/bots/PrimaryStar';
+import { ThoughtCloud } from '@/components/bots/ThoughtCloud';
+import { UnreadDot } from '@/components/bots/UnreadDot';
 import { NavigationActionHandler } from '@/components/chat/NavigationActionHandler';
 import { AICopilotPane, COPILOT_DEFAULT_WIDTH } from './AICopilotPane';
 import { LayoutControlProvider, useLayoutControl } from './LayoutControlContext';
 import { MobileShell } from './MobileShell';
+import { MobileBotApp, MOBILE_BOT_QUERY_PARAM } from '@/components/mobile/MobileBotApp';
 import { PageContextProvider } from './PageContextProvider';
 import { SidebarPagesNav } from './SidebarPagesNav';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -76,8 +80,8 @@ import {
  * view, which remounted the whole thing on every navigation.)
  *
  * Navigation between pages lives in the sidebar as collapsible sections —
- * "Deal Flow" and "Intelligence" (`SidebarPagesNav`) above "Chat History"
- * (`ChatSidebar`). There is no tab strip over the console, and no
+ * "Bots" (`ChatSidebar`, with the Bots page as its "Manage" row) above "Deal
+ * Flow" and "Intelligence" (`SidebarPagesNav`). There is no tab strip over the console, and no
  * History/Pages toggle inside the sidebar: both made pages and chats mutually
  * exclusive.
  *
@@ -108,7 +112,7 @@ export function AppShell({
   // deeplinks both point at it.
   const isLandingRoute = logicalPath === '/' || logicalPath.startsWith('/chat');
   const activeTab = findTabByPath(logicalPath);
-  // Chat history is the whole point of the sidebar now, so it starts open. New
+  // The bot list is the whole point of the sidebar now, so it starts open. New
   // key rather than reusing `layout:sidebar-open`, whose stored `false` was a
   // sensible default for a strip of nav icons and a bad one for a chat list.
   const [isSidebarOpen, setIsSidebarOpen] = useLocalStorage('layout:sidebar-open-v2', true);
@@ -163,8 +167,18 @@ export function AppShell({
   // NOT done for tab routes: there the copilot is a docked side pane, and
   // focusing it would pull the caret away from the page the user opened.
   useEffect(() => {
-    if (isLandingRoute) focusComposer();
-  }, [isLandingRoute, focusComposer]);
+    if (!isLandingRoute) return;
+    // Mobile bot home has no composer mounted; focusing would retry against a
+    // missing textarea until the user opens a bot (MobileBotApp calls focus then).
+    if (
+      isMobile &&
+      typeof window !== 'undefined' &&
+      !new URLSearchParams(window.location.search).get(MOBILE_BOT_QUERY_PARAM)
+    ) {
+      return;
+    }
+    focusComposer();
+  }, [isLandingRoute, focusComposer, isMobile]);
 
   // `setIsCopilotExpanded` / `setIsMainExpanded` are `useLocalStorage` setters,
   // stable across renders, so listing them costs nothing.
@@ -198,7 +212,7 @@ export function AppShell({
     setIsCopilotExpanded(false);
   }, [setIsCopilotExpanded]);
 
-  // Put the copilot full-screen. Starting a new chat should land the user in
+  // Put the copilot full-screen. Picking a bot should land the user in
   // the conversation rather than in a cramped docked pane. On the landing route
   // `copilotExpanded` is already derived true, so this is a no-op there.
   const handleExpandCopilot = useCallback(() => {
@@ -216,11 +230,10 @@ export function AppShell({
     [handleRevealConsole, pushWorkspace],
   );
 
-  // Mobile (PWA) experience: drop the desktop sidebar/chrome in favour of an
-  // Instagram-style bottom nav with three destinations — the activity feed
-  // (dashboard), the AI chat, and company search (master data). The Chat tab
-  // renders the full-screen AI CoPilot (with chat history in a slide-in
-  // drawer); every other tab renders its page content above the bottom nav.
+  // Mobile (PWA) experience: no sidebar, no docked pane, no bottom nav. The
+  // landing is a bot home (Timeline and Profile pinned above the bots); a bot
+  // opens its chat full-screen, and every other page carries a back bar to the
+  // home.
   if (isMobile) {
     return (
       <ProtectedRoute initialUser={initialUser}>
@@ -232,17 +245,7 @@ export function AppShell({
               so the handler is mounted on both shells. */}
           <NavigationActionHandler onNavigate={pushWorkspace} />
           <MobileShell isChatRoute={isLandingRoute}>
-            {isLandingRoute ? (
-              <AICopilotPane
-                isExpanded
-                onToggleExpand={() => {}}
-                hideExpandToggle
-                showHistoryButton
-                className="border-l-0"
-              />
-            ) : (
-              children
-            )}
+            {isLandingRoute ? <MobileBotApp /> : children}
           </MobileShell>
         </PageContextProvider>
       </ProtectedRoute>
@@ -257,7 +260,7 @@ export function AppShell({
           <NavigationActionHandler onNavigate={handleAgentNavigate} />
           {/* Wraps the WHOLE shell, not just the panes: the console's pages
               reach for `focusCopilot`, the chat inside the copilot pane reaches
-              for `revealConsole`, and the sidebar's "New chat" buttons — which
+              for `revealConsole`, and the sidebar's bot buttons — which
               live outside SidebarInset — reach for `expandCopilot`. */}
           <LayoutControlProvider
             revealCopilot={() => setIsMainExpanded(false)}
@@ -304,12 +307,12 @@ export function AppShell({
                   the chat list has its own ScrollArea, and two nested scroll
                   containers give the sidebar a second, half-broken scrollbar. */}
               <SidebarContent className="min-h-0 overflow-hidden">
-                {/* A list of chat titles has nothing to render at icon width,
-                    so the collapsed rail offers "new chat" plus the pages as a
+                {/* The bot list's names don't fit at icon width, so the
+                    collapsed rail offers the bots plus the pages as a
                     flat strip of icons. The pages matter: the grouped, labelled
                     sections live inside the expanded sidebar, so without this
                     the collapsed rail would leave no way to reach a page. */}
-                <CollapsedNewChatButton />
+                <CollapsedBotRail />
                 <SidebarPagesNav
                   iconOnly
                   className="hidden group-data-[state=collapsed]:block"
@@ -428,30 +431,46 @@ export function AppShell({
   );
 }
 
-/** The icon-rail stand-in for the chat list: start a new conversation. */
-function CollapsedNewChatButton() {
-  const { newChat } = useChatActions();
+/** The icon-rail stand-in for the bot list: one avatar per bot. */
+function CollapsedBotRail() {
+  const { bots, activeBot } = useChatThread();
+  const { selectBot } = useChatActions();
   const { expandCopilot } = useLayoutControl();
+  if (bots.length === 0) return null;
   return (
-    <div className="hidden justify-center p-2 group-data-[state=collapsed]:flex">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              newChat();
-              expandCopilot();
-            }}
-            className="h-8 w-8 p-0"
-          >
-            <PenLine className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          <p>New chat</p>
-        </TooltipContent>
-      </Tooltip>
+    <div className="hidden flex-col items-center gap-1 p-2 group-data-[state=collapsed]:flex">
+      {bots.map((bot) => (
+        <Tooltip key={bot.id}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={[bot.name, bot.is_default && 'primary bot', bot.unread && bot.id !== activeBot?.id && 'new messages']
+                .filter(Boolean)
+                .join(', ')}
+              aria-current={bot.id === activeBot?.id ? 'true' : undefined}
+              onClick={() => {
+                selectBot(bot.id);
+                expandCopilot();
+              }}
+              className={cn('h-8 w-8 p-0', bot.id === activeBot?.id && 'bg-muted')}
+            >
+              <span className="relative">
+                <BotAvatar avatar={bot.avatar} size="xs" trackCursor={false} />
+                {bot.is_default && <PrimaryStar className="-bottom-1 -right-1" />}
+                {bot.busy ? (
+                  <ThoughtCloud className="-right-3 -top-2" label={`${bot.name} is responding`} />
+                ) : (
+                  bot.unread && bot.id !== activeBot?.id && <UnreadDot className="h-2 w-2" />
+                )}
+              </span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{bot.name}</p>
+          </TooltipContent>
+        </Tooltip>
+      ))}
     </div>
   );
 }

@@ -17,8 +17,16 @@ output "redis_url" {
 }
 
 output "redis_ca_pem" {
-  description = "Value for the app's REDIS_CA_PEM: the private CA the server certificate chains to. Not secret, but multiline — paste as-is."
+  description = "The private CA the server certificate chains to (PEM). The app accepts it as REDIS_CA_PEM as-is, but prefer redis_ca_pem_base64 for a hosting dashboard."
   value       = tls_self_signed_cert.ca.cert_pem
+}
+
+# Dashboards do not always keep a pasted multiline value intact (Vercel
+# previews lost the newlines, and the TLS handshake failed). One base64 line
+# survives anything; the app decodes it (`readCaPem` in src/lib/server/redis.ts).
+output "redis_ca_pem_base64" {
+  description = "Value for the app's REDIS_CA_PEM: the same CA, base64-encoded on one line."
+  value       = base64encode(tls_self_signed_cert.ca.cert_pem)
 }
 
 output "instance_id" {

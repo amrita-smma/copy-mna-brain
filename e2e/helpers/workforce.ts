@@ -581,8 +581,9 @@ export interface CopilotChatOptions {
 
 /**
  * Intercept the CoPilot chat endpoints so the escalation flow is deterministic:
- * - GET  /api/copilot/chats[/...]      → empty sidebar / history
- * - POST /api/chat/cache-check         → no cache hit (always sends)
+ * - GET  /api/bots                     → one default bot
+ * - POST /api/bots/:id/thread          → that bot's permanent thread
+ * - GET  /api/copilot/chats/:id/messages → empty history
  * - POST /api/chat                     → first call streams the handoff card
  *                                        (if `handoff` set), later calls stream
  *                                        a plain inline answer
@@ -650,15 +651,32 @@ export const mockCopilotChat = async (page: Page, opts: CopilotChatOptions = {})
 
   let chatCalls = 0;
 
-  await page.route('**/api/copilot/chats**', (route) => {
+  await page.route('**/api/bots**', (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith('/messages')) return json(route, { messages: [] });
-    if (path.endsWith('/fork')) return json(route, { data: { chatId: 'forked-1' } });
-    return json(route, { chats: [] });
+    if (path.endsWith('/thread')) return json(route, { data: { chatId: 'copilot-chat-1' } });
+    return json(route, {
+      data: [
+        {
+          id: 'default-bot',
+          name: 'Copilot',
+          persona_md: '',
+          base_flavor: 'mna',
+          skills: [],
+          avatar: { hue: 222, eyes: 'round', mood: 'cheerful', shape: 'pixel' },
+          visibility: 'workspace',
+          is_default: true,
+          owner_user_id: null,
+          can_edit: false,
+          unread: false,
+          created_at: '2026-10-01T00:00:00Z',
+          updated_at: '2026-10-01T00:00:00Z',
+        },
+      ],
+    });
   });
 
-  await page.route('**/api/chat/cache-check', (route) =>
-    json(route, { data: { hit: false } }),
+  await page.route('**/api/copilot/chats/*/messages**', (route) =>
+    json(route, { messages: [], nextCursor: null }),
   );
 
   await page.route('**/api/chat', async (route) => {

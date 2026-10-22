@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dispatcherTick, reapStuckRuns, fireDueRoutines, createDbFn } = vi.hoisted(() => ({
+const { dispatcherTick, reapStuckRuns, fireDueRoutines, sweepBotRequests, sweepUnembeddedChatMessages, createDbFn } = vi.hoisted(() => ({
   dispatcherTick: vi.fn(),
   reapStuckRuns: vi.fn(),
   fireDueRoutines: vi.fn(),
+  sweepBotRequests: vi.fn(),
+  sweepUnembeddedChatMessages: vi.fn(),
   createDbFn: vi.fn(),
 }));
 
 vi.mock('@/lib/workforce', () => ({ dispatcherTick, reapStuckRuns }));
 vi.mock('@/lib/routines', () => ({ fireDueRoutines }));
+vi.mock('@/lib/bots/requestSweep', () => ({ sweepBotRequests }));
+vi.mock('@/lib/chat/embeddingSweep', () => ({ sweepUnembeddedChatMessages }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbFn }));
 
 import { GET } from './route';
@@ -36,6 +40,8 @@ describe('GET /api/cron/dispatch', () => {
     reapStuckRuns.mockResolvedValue({ reaped: [], scanned: 0 });
     fireDueRoutines.mockResolvedValue({ scanned: 0, fired: [], errors: [] });
     dispatcherTick.mockResolvedValue({ outcome: 'empty' });
+    sweepBotRequests.mockReset().mockResolvedValue({ timedOut: 0, workspaces: 0 });
+    sweepUnembeddedChatMessages.mockReset().mockResolvedValue({ queued: 0, workspaces: 0 });
   });
 
   afterEach(() => {
@@ -76,6 +82,36 @@ describe('GET /api/cron/dispatch', () => {
     expect(body.routines).toEqual({ scanned: 0, fired: [], errors: [] });
     expect(body.dispatch).toEqual({ outcome: 'claimed', runId: 'r-claimed' });
     expect(fireDueRoutines).toHaveBeenCalledTimes(1);
+    expect(sweepBotRequests).toHaveBeenCalledWith({});
+    expect(body.botRequests).toEqual({ timedOut: 0, workspaces: 0 });
+    expect(sweepUnembeddedChatMessages).toHaveBeenCalledWith({});
+    expect(body.embeddings).toEqual({ queued: 0, workspaces: 0 });
+  });
+
+  it('backfills chat-history vectors on each tick, and a failed sweep does not fail the tick', async () => {
+    delete process.env.CRON_SECRET;
+    sweepUnembeddedChatMessages.mockResolvedValueOnce({ queued: 7, workspaces: 2 });
+    expect((await (await GET(makeRequest())).json()).embeddings).toEqual({ queued: 7, workspaces: 2 });
+
+    sweepUnembeddedChatMessages.mockRejectedValueOnce(new Error('db down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect((await res.json()).embeddings).toEqual({ queued: 0, workspaces: 0 });
+    error.mockRestore();
+  });
+
+  it('times out stale bot requests on each tick, and a failed sweep does not fail the tick', async () => {
+    delete process.env.CRON_SECRET;
+    sweepBotRequests.mockResolvedValueOnce({ timedOut: 2, workspaces: 1 });
+    expect((await (await GET(makeRequest())).json()).botRequests).toEqual({ timedOut: 2, workspaces: 1 });
+
+    sweepBotRequests.mockRejectedValueOnce(new Error('redis down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect((await res.json()).botRequests).toEqual({ timedOut: 0, workspaces: 0 });
+    error.mockRestore();
   });
 
   it('is open when CRON_SECRET is unset (local dev)', async () => {

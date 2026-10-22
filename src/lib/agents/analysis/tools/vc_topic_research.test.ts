@@ -119,6 +119,7 @@ describe("get_company_profile", () => {
       {
         title: "Stripe Company Overview",
         url: "https://example.com/stripe",
+        published: "2024-01-15",
       },
     ]);
   });
@@ -265,6 +266,7 @@ describe("get_sector_context", () => {
       {
         title: "Southeast Asia B2B SaaS Report 2024",
         url: "https://example.com/sea-saas",
+        published: "2024-05-10",
       },
     ]);
   });

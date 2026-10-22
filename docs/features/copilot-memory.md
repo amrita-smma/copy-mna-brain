@@ -6,6 +6,17 @@ they work with) is about the person, so it follows them into every workspace the
 belong to. `user_memories.workspace_id` records only where a memory was *formed*
 and is never part of a read or delete predicate.
 
+This is the *inferred* memory. The Copilot bots also keep an *explicit* one,
+per user **per bot**: the notes a user asks a bot to remember about them
+("remind me about stalled deals on Fridays", "answer in Bahasa"), saved by the
+bot with `update_bot remember` the moment they ask, stored as a jsonb array in
+`bot_user_memories` (one row per user per bot), and read into that user's
+turns with that bot only — alongside, and after, the mem0 recall. It is not
+behind the mem0 switches, since the user asked for each note by name, and it
+is edited on the bot dialog's Memory tab. See *Memory* in
+[`copilot-bots.md`](copilot-bots.md). The rest of this page is about the
+inferred, per-user memory.
+
 Two switches gate it, and **both** must be on:
 
 - **`users.copilot_memory_enabled`** — the user's own setting, owned from the
@@ -176,10 +187,22 @@ user-supplied influence, and the Memory tab as the place it stays reviewable.
   rides on the per-turn system context, never on the thread's messages, so a
   fact the user later corrects does not survive in a checkpoint. The block tells
   the model the memories are recollections, not evidence, and that the user wins
-  a contradiction. Recall is on the turn's critical path, so it is bounded by
-  `RECALL_TIMEOUT_MS` (4s) as well as wrapped in a `catch` — a provider that
+  a contradiction — and to let a relevant note shape the answer rather than
+  answering generically (a passing "since you cover …" is fine; the list is
+  read back only on request). The query is the user's words; a short
+  follow-up ("ok do that") searches with the previous user turn in front of it
+  (`recallQueryFor`, `src/lib/memory/recallQuery.ts`), since a few words embed
+  to nearly nothing. Recall is on the turn's critical path, so it is bounded by
+  `RECALL_TIMEOUT_MS` (6s) as well as wrapped in a `catch` — a provider that
   *hangs* rather than fails would otherwise hold the turn open; a timeout is
-  treated exactly like a failure.
+  treated exactly like a failure. The mem0 client is built before the clock
+  starts: on a cold start that is the module import, which has nothing to do
+  with how long the search takes.
+- **Background turns recall too.** A bot answering an @mention, a routine or
+  another bot's reply (`runBotTurn`, via the `recallMemory` dep that
+  `runBotMessage` wires from `UserMemoryService.recallForTurn`) gets the same
+  block as an interactive turn, after the workspace context. Background turns
+  do not *remember*: what a bot says to another bot is not the user speaking.
 - **Remember** — in an `after()` hook once the response has streamed, reading
   the persisted turn (`extractLastTurn`) rather than the request body so it sees
   the answer actually given, then through the extraction gate above. Deliberately
@@ -187,6 +210,15 @@ user-supplied influence, and the Memory tab as the place it stays reviewable.
 
 Both are best-effort by construction. A recall or write failure is logged and the
 turn stands.
+
+Two things that quietly starved memory, fixed on the bots branch: the
+extractor's durability example read backwards ("Is looking at Acme this week"
+was the one that *passed*), so it kept momentary facts and dropped coverage
+facts; and the drift check after `add` deleted anything mem0 had restated —
+mem0's own pass writes "User covers …" even when told not to rephrase, and the
+original was never stored, so the memory vanished. `isOneOf` now treats a
+result that says the same thing (modulo a subject and small rewording) as ours
+and removes only content that is not in the extracted set at all.
 
 ## Profile → Memory
 

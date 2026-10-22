@@ -30,7 +30,7 @@ export function InsightHost({
   listTab = 'insights',
 }: InsightHostProps) {
   const push = useWorkspacePush();
-  const { newChat, prefillComposer, setInsightTemplate, focusComposer } = useChatActions();
+  const { prefillComposer, setInsightTemplate, focusComposer } = useChatActions();
 
   // Pointing the copilot at part of the document is a MODE, armed from the
   // toolbar. The picker inside the frame does let a plain click on a real
@@ -49,18 +49,15 @@ export function InsightHost({
 
   // "Create with Copilot" hands off to the chat composer via the
   // `/insight-template` slash command; "Upload HTML file" is the one creation
-  // path with its own page (`/insight/upload`). Both chat paths start a fresh
-  // chat first — otherwise the request lands in whatever unrelated thread the
-  // provider still holds.
+  // path with its own page (`/insight/upload`). Both chat paths go to the
+  // active bot's permanent thread.
   const handleNewInsight = () => {
-    newChat();
+    setInsightTemplate(null);
     push('/chat');
     prefillComposer(`${INSIGHT_TEMPLATE_TRIGGER} `);
   };
 
   const handleUseTemplate = (tpl: { id: string; name: string }) => {
-    // newChat clears the template, so it must run before setInsightTemplate.
-    newChat();
     setInsightTemplate(tpl);
     push('/chat');
     focusComposer();

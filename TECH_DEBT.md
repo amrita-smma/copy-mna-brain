@@ -6,6 +6,131 @@ trigger to revisit, and the intended fix.
 
 ---
 
+## `job_type` is repaired after every migrate run
+
+**Area:** `scripts/migrate.ts`, `scripts/reconcileEnums.ts`,
+`data-pipeline/migrations/20260724130200_drop_legacy_email_pipeline.sql`.
+
+**What it is:** that pipeline migration drops and recreates `public.job_type`
+from a literal list of seven values. The migrate script applies the whole app
+folder before the whole pipeline folder, so on a database built from scratch
+(a fresh local stack, a reset preview branch, a new environment) the rebuild
+runs after the app's later migrations and discards every job type they added
+— `deal_document_processing`, `company_vote`, `pending_auto_scan`,
+`chat_message_embedding`, the `bot_*` types — while their migration rows stay
+recorded. Environments migrated incrementally over time never noticed. The
+repair is a step at the end of `scripts/migrate.ts` that re-adds whatever
+`src/lib/db/schema.ts` lists; it is idempotent and a no-op elsewhere.
+
+**Why we took it:** applied migrations are never edited
+(`.claude/rules/drizzle-migrations.md`), and a new migration in either folder
+cannot fix the ordering: an app migration would still run before the rebuild
+on a fresh database.
+
+**Trigger to revisit:** when the migrations are squashed into a baseline, or
+when the two folders are merged into one ordered sequence.
+
+**Intended fix:** a single ordered migration history, with the enum rebuild
+expressed against the live label list. Then drop the reconcile step.
+
+---
+
+## Approval (HITL) card outcomes live only in the browser that clicked
+
+**Area:** `src/components/chat/ApprovalCardShell.tsx` (`useApprovalResolution`)
+and every card on it — `BotChangeApprovalCard`, `BotRoutineApprovalCard`,
+`InsightCreateApprovalCard`, `InsightEditApprovalCard`,
+`InsightRefreshApprovalCard`, `OptionCard`, `ReportPlanCard`.
+
+**What it is:** when the user approves or cancels a card, the outcome
+("Created Atlas.", "Cancelled — nothing was changed.") is written to
+`localStorage` under a per-approval key (`bot_change_resolved_<id>`,
+`bot_routine_resolved_<id>`, …) and nowhere else. The transcript row that
+carries the card is the agent's message with its encoded marker, which never
+changes. So the same thread opened in another browser, on the phone, or after
+clearing site data shows the card **pending again**: the buttons are live, and
+a second Approve re-runs the action (a second bot, a second routine). The
+state also never reaches the agent: a later turn cannot know whether the user
+acted.
+
+**Why we took it:** the first cards (insight approvals) needed a resolved
+state without a schema change, and `localStorage` gave one in an afternoon.
+Every later card copied the hook.
+
+**Trigger to revisit:** the first report of a duplicate created from a card,
+or the first feature that needs the agent to know a card's outcome (a bot
+that asks "did you approve that?"), or the mobile app being used alongside
+desktop by the same people — which is now.
+
+**Intended fix:** record the resolution server-side, keyed by `approval_id`,
+and read it with the thread: a small `approval_resolutions` table (workspace,
+user, approval id, outcome, acted at) written by the route the card already
+calls (bots, routines, insights) or by a dedicated `POST /api/approvals/:id`,
+returned alongside the thread's history page so a reloaded transcript on any
+device renders the card settled, and pushed over the bots' SSE stream
+(`reply`-style event) so an open tab elsewhere settles at once. Then
+`useApprovalResolution` reads the server state first and keeps
+`localStorage` only as the optimistic flash. The marker payloads already carry
+`approval_id`, so no transcript rewrite is needed.
+
+---
+
+## Copilot memory is per user, not per bot, and its retrieval is a first cut
+
+**Area:** `src/lib/services/userMemoryService.ts`, `src/lib/memory/*`
+(`client.ts`, `extract.ts`, `prompt.ts`, `recallQuery.ts`, `vectorStore.ts`),
+`user_memories`.
+
+**What it is:** a memory is a fact about the user, keyed by `user_id` only.
+The workspace is stamped on the row as provenance and never used to filter;
+no bot, agent or thread scope exists. So what the user tells Deal Scout is
+recalled by every other bot and in every workspace, which is sometimes right
+(preferences) and sometimes not (a mandate confided to one bot). Retrieval is
+one automatic injection per turn — top 8 by mem0's blended score with its
+default 0.1 threshold, queried by the current message (plus the previous user
+turn when short), bounded by a 6 s budget and dropped silently on failure.
+Writes go through a Haiku extraction gate, then mem0's own extraction pass,
+then a word-overlap heuristic (`isOneOf`) that decides whether what mem0
+wrote is still "our" fact. The vector store is our own Drizzle/pgvector
+table with mem0's dedup comparing against at most 10 neighbours per add.
+
+**Why we took it:** it ships the useful case — a bot that remembers the
+user's focus and preferences — on infrastructure we already run, and the
+bots branch fixed the parts that made it silently useless (an inverted
+extractor example, drift deletion, single-message queries, no recall in
+background turns). "Good enough" was the bar; "scalable and per bot" was not.
+
+**What exists per bot:** the explicit notes a user asks a bot to keep
+(`bot_user_memories`, `BotMemoryService`, `update_bot remember`) are scoped
+per user per bot, so a standing request to one bot stays with that bot. That
+covers the "remember X" case by construction; the inferred mem0 memory above
+is still per user across every bot, and the two are not reconciled (a
+preference said in passing lands in mem0, a preference asked for lands on
+the bot).
+
+**Trigger to revisit:** a user with hundreds of memories (recall quality and
+the 10-neighbour dedup both degrade), a workspace where bots are deliberately
+specialised and cross-talk of memories is wrong, a second recall consumer
+(the Workforce), the first privacy question about a memory formed in one
+workspace surfacing in another, or a user confused by the same preference
+living in both stores.
+
+**Intended fix, in order of value:** (1) scope — add `bot_id` (and honour
+`workspace_id`) as optional filters with a per-bot setting for "private
+memory" versus the user's shared memory, and read both layers on recall;
+(2) evaluation — a small fixture of turns with expected memories and expected
+recalls, run in CI, so the extractor prompt and the overlap heuristic can be
+changed without guessing; (3) retrieval — a score threshold and a per-memory
+decay/last-used stamp so stale notes fall out, and a recall tool the model
+can call for "what do you remember about X" beyond the top 8; (4) write path
+— replace the overlap heuristic with `infer: false` plus our own dedup by
+similarity, so mem0 stores exactly the sentence we extracted; (5) scale —
+index and partition `user_memories` by user, and measure the Bedrock embed
+calls per turn (query, entities, dedup) before enabling memory for every
+workforce run.
+
+---
+
 ## Unused auto-scan queue columns and screening job types
 
 **Area:** `companies.auto_scan_requested_at` / `companies.auto_scan_force`,
@@ -498,6 +623,30 @@ folder-wide convention (they mirror their registered tool names); otherwise
 rename them too — the point is one rule, stated in `CLAUDE.md`, not two
 implicit ones.
 
+## Bots: deprecated `bots.system_prompt` and the history import
+
+**Area:** Copilot bots (`docs/features/copilot-bots.md`), `src/lib/services/chatHistoryService.ts`.
+
+**What it is:** two leftovers from moving bot history and personas into their
+own homes.
+
+1. **`bots.system_prompt` is still a column.** Superseded by `persona_md`; the
+   API still accepts it as an alias, and the persona falls back to it for a row
+   whose `persona_md` is empty.
+2. **Pre-table threads are imported lazily.** A thread with no
+   `copilot_messages` rows is copied from its checkpoint on first read or
+   write (`history_imported_at`). A page load racing that thread's first new
+   turn can store that turn twice.
+
+**Why we took it:** dropping a column needs a two-phase migration, and a
+one-off backfill of every checkpoint thread is a job of its own.
+
+**Trigger to revisit:** one release after `persona_md` shipped, or the first
+report of a duplicated message.
+
+**Intended fix:** drop `bots.system_prompt` and the alias; run one backfill
+job that imports every remaining thread, then remove the lazy import.
+
 ## Smaller items
 
 **36 endpoints are `fetch`ed inline from views/components**, bypassing the
@@ -580,7 +729,14 @@ no new infrastructure, and each stream was added for one view at a time.
 next one), stream routes showing up in function-duration or slow-query
 dashboards, or tabs hitting the per-origin connection limit on HTTP/1.1.
 
-**Fix:** one workspace-scoped stream driven by Redis, not by polling.
+**Fix:** one workspace-scoped stream driven by Redis, not by polling. The
+pieces now exist for the Copilot bots and are the pattern to extend: the
+client in `src/lib/server/redis.ts` (`getRedis`, `createRedisSubscriber`),
+the channels `ws:<workspaceId>` / `ws:<workspaceId>:user:<userId>` in
+`src/lib/bots/presence.ts`, the publish-on-write calls in `BotService`, and
+the route `GET /api/bots/events` (snapshot on connect, pub/sub after, a
+reconcile tick, 240 s lifetime) with `ChatProvider` as its one client. See
+`docs/features/copilot-bots.md` § Live presence.
 
 - **Publish on write.** Each service that changes live state (workforce queue
   status transitions and `markFailureSeen`, screening state/result writes, AI

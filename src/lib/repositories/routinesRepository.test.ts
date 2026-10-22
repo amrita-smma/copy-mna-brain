@@ -220,6 +220,62 @@ describe('RoutinesRepository', () => {
     expect(mockDb.where).not.toHaveBeenCalledWith(undefined);
   });
 
+  it('list() leaves out bot routines', async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+    await repo.list();
+    expect(dialect.sqlToQuery(mockDb.where.mock.calls[0][0] as SQL).sql).toContain('"routines"."bot_id" is null');
+  });
+
+  it('findWorkforceRoutineById hides a bot routine', async () => {
+    mockDb.limit.mockResolvedValueOnce([{ id: 'rt-1', bot_id: 'bot-1' }]);
+    expect(await repo.findWorkforceRoutineById('rt-1')).toBeNull();
+    mockDb.limit.mockResolvedValueOnce([{ id: 'rt-2', bot_id: null }]);
+    expect(await repo.findWorkforceRoutineById('rt-2')).toEqual({ id: 'rt-2', bot_id: null });
+  });
+
+  it("listForBot reads the bot's live routines in this workspace with their creators' names", async () => {
+    mockDb.orderBy.mockResolvedValueOnce([{ id: 'rt-1', created_by_name: 'Ana' }]);
+
+    expect(await repo.listForBot('bot-1')).toEqual([{ id: 'rt-1', created_by_name: 'Ana' }]);
+
+    const where = dialect.sqlToQuery(mockDb.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toContain('"routines"."workspace_id" = $1');
+    expect(where.sql).toContain('"routines"."bot_id" = $2');
+    expect(where.sql).toContain('"routines"."archived_at" is null');
+    expect(where.params).toEqual(['workspace-1', 'bot-1']);
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+  });
+
+  it("listForBot and findForBot narrow to one creator's routines when asked (Brain Bot)", async () => {
+    mockDb.orderBy.mockResolvedValueOnce([]);
+    await repo.listForBot('bot-1', { createdBy: 'ana' });
+    const list = dialect.sqlToQuery(mockDb.where.mock.calls[0][0] as SQL);
+    expect(list.sql).toContain('"routines"."created_by" = $3');
+    expect(list.params).toEqual(['workspace-1', 'bot-1', 'ana']);
+
+    mockDb.limit.mockResolvedValueOnce([]);
+    expect(await repo.findForBot('bot-1', 'rt-1', { createdBy: 'ana' })).toBeNull();
+    const find = dialect.sqlToQuery(mockDb.where.mock.calls[1][0] as SQL);
+    expect(find.sql).toContain('"routines"."created_by" = $');
+    expect(find.params).toContain('ana');
+  });
+
+  it('advanceIfDue fires only while the routine is still due at that instant', async () => {
+    mockDb.returning.mockResolvedValueOnce([{ id: 'rt-1' }]).mockResolvedValueOnce([]);
+    const firedAt = new Date('2026-05-18T06:00:30Z');
+
+    expect(await repo.advanceIfDue('rt-1', '2026-05-18T06:00:00Z', firedAt, '2026-05-19T06:00:00Z')).toBe(true);
+    expect(await repo.advanceIfDue('rt-1', '2026-05-18T06:00:00Z', firedAt, '2026-05-19T06:00:00Z')).toBe(false);
+
+    expect(mockDb.set).toHaveBeenCalledWith({
+      last_fired_at: '2026-05-18T06:00:30.000Z',
+      next_fire_at: '2026-05-19T06:00:00Z',
+    });
+    const where = dialect.sqlToQuery(mockDb.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toContain('"routines"."next_fire_at" = $2');
+    expect(where.params).toEqual(['rt-1', '2026-05-18T06:00:00Z']);
+  });
+
   it('update throws when row is missing', async () => {
     mockDb.returning.mockResolvedValueOnce([]);
 

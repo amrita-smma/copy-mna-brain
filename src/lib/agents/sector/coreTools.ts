@@ -8,8 +8,8 @@
  *
  * Why these:
  *   - Research: web_search / web_fetch (the only way to the public sector
- *     sources) and valyu_search (filings, research; named by the shared
- *     grounding and workforce evidence guides).
+ *     sources) and valyu_search (filings, research; named by the workforce
+ *     evidence guide).
  *   - Internal record: get_data_schema, query_companies, get_company_stats,
  *     get_company_details (cohort members and deals already on file — the
  *     company-mentions guide names query_companies / get_company_stats), and

@@ -82,4 +82,7 @@ todo.md
 /graft/
 .herdr-*
 .review-implementation.md
+
+# Workflow SDK's Local World (bot turns, AI Workforce runs under `next dev`)
+.workflow-data/
 .next

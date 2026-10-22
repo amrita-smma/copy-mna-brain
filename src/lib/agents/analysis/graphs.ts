@@ -7,7 +7,6 @@
  * the registry (`./flavors`), not through a branch per flavor.
  */
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { humanInTheLoopMiddleware } from "langchain";
 import pg from "pg";
 
 import { logger } from "../logger";
@@ -17,7 +16,7 @@ import {
   rdsIamAuthToken,
   rdsIamDbAuthFromEnv,
 } from "@/lib/server/db";
-import { AgentGraph, createLocalAgent } from "./runtime";
+import { AgentGraph, createLocalAgent, type AgentMiddlewareList } from "./runtime";
 import { type EffortChoice } from "./effort";
 import {
   CHAT_SYSTEM_PROMPT,
@@ -113,7 +112,7 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
 export async function buildAgentGraph(
   toolList: ToolList,
   systemPrompt: string,
-  middleware: ReadonlyArray<ReturnType<typeof humanInTheLoopMiddleware>> = [],
+  middleware: AgentMiddlewareList = [],
   useCheckpointer = true,
   effort: EffortChoice = 'medium',
   contextEditing?: boolean,

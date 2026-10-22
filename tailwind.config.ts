@@ -142,6 +142,12 @@ export default {
           "0%": { transform: "translateX(-100%)" },
           "100%": { transform: "translateX(100%)" },
         },
+        // A seamless right-to-left loop over a track that holds its content
+        // twice: at -50% the second copy is exactly where the first began.
+        "marquee": {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(-50%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -152,6 +158,7 @@ export default {
         "slide-in": "slide-in 0.3s ease-out",
         "pulse-subtle": "pulse-subtle 2s ease-in-out infinite",
         "shimmer": "shimmer 1.6s linear infinite",
+        "marquee": "marquee 30s linear infinite",
       },
     },
   },

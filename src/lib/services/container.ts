@@ -34,7 +34,12 @@ import {
   EmailRepository,
   EmployerTeamRepository,
   AiWorkforceQueueRepository,
+  BotRepository,
+  BotMemoryRepository,
+  BotTaskLogRepository,
+  BotRequestRepository,
   CopilotChatsRepository,
+  CopilotMessageRepository,
   AlphasenseToolCallRepository,
   DashboardActivityRepository,
   DashboardInsightsRepository,
@@ -120,6 +125,13 @@ import { CrmContactEnrichmentService } from './crmContactEnrichmentService';
 import { CompanyContactDiscoveryService } from './companyContactDiscoveryService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
+import { BotService, type BotMessageJob } from './botService';
+import { BotMemoryService } from './botMemoryService';
+import { BotRoutineService } from './botRoutineService';
+import { BotTaskLogService } from './botTaskLogService';
+import { BotRequestService } from './botRequestService';
+import { ChatHistoryService } from './chatHistoryService';
+import { CheckpointCompactionService } from './checkpointCompactionService';
 import { AlphasenseToolCallService } from './alphasenseToolCallService';
 import { DashboardActivityService } from './dashboardActivityService';
 import { DashboardInsightsService } from './dashboardInsightsService';
@@ -184,6 +196,13 @@ export interface Container {
   companyContactDiscoveryService: CompanyContactDiscoveryService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
+  chatHistoryService: ChatHistoryService;
+  checkpointCompactionService: CheckpointCompactionService;
+  botService: BotService;
+  botMemoryService: BotMemoryService;
+  botRoutineService: BotRoutineService;
+  botTaskLogService: BotTaskLogService;
+  botRequestService: BotRequestService;
   alphasenseToolCallService: AlphasenseToolCallService;
   dashboardActivityService: DashboardActivityService;
   dashboardInsightsService: DashboardInsightsService;
@@ -511,6 +530,112 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const copilotChatsRepo = lazy(() => new CopilotChatsRepository(db, workspaceId));
   const copilotChatsService = lazy(() => new CopilotChatsService(copilotChatsRepo()));
+  // A bot's background turn (`bot_message` for an @mention, `bot_reply` for the
+  // fan-in answer, `bot_routine` for a routine's message) is handed over as an
+  // HTTP request to our own `POST /api/internal/bot-messages`, which starts the
+  // Workflow run in its own invocation — never work nested in this one.
+  const dispatchBotMessage = async (job: BotMessageJob) => {
+    const { sendBotMessage } = await import('@/lib/bots/botMessageClient');
+    return sendBotMessage({ workspaceId, job });
+  };
+  const botService = lazy(
+    () =>
+      new BotService(new BotRepository(db, workspaceId), copilotChatsRepo(), {
+        getCopilotAgent: () => workspaceService().getCopilotAgent(workspaceId),
+        dispatchBotMessage,
+        getUser: (userId) => userRepo().findById(userId),
+        openRequests: (input) => botRequestService().open(input),
+        publishBotsChanged: async (userId) => {
+          // Lazy: the live-state layer pulls in the Redis client.
+          const { publishBotsChanged } = await import('@/lib/bots/presence');
+          return publishBotsChanged(workspaceId, userId);
+        },
+        // A new bot's greeting: seeded into the user's thread checkpoint, which
+        // the history imports on its first read, and left unread.
+        greet: async ({ userId, bot, text }) => {
+          const chat = await copilotChatsRepo().findOrCreateBotThread(userId, bot.id, bot.name);
+          // Lazy: the agent runtime's tools build this container.
+          const [{ getChatAgentGraph }, { toChatAgentKey }, { AIMessage }] = await Promise.all([
+            import('@/lib/chat/chatAgent'),
+            import('@/lib/chat/chatAgentKey'),
+            import('@langchain/core/messages'),
+          ]);
+          // Every graph shares one checkpointer, so any flavour writes the thread.
+          const agent = await getChatAgentGraph(toChatAgentKey(chat.agent_key));
+          if (!agent) throw new Error('No chat agent to write the greeting with');
+          const existing = await agent.getMessages(chat.id);
+          if (existing.length > 0) return;
+          await agent.seedMessages(chat.id, [new AIMessage(text)]);
+          await copilotChatsRepo().stampMessage(chat.id, { read: false });
+        },
+      }),
+  );
+  const botRoutineService = lazy(
+    () =>
+      new BotRoutineService({
+        routinesRepo: routinesRepo(),
+        botService: botService(),
+        isMember: (userId) => workspaceService().isMember(userId, workspaceId),
+        dispatchBotMessage,
+      }),
+  );
+  const botTaskLogService = lazy(
+    () =>
+      new BotTaskLogService({
+        repo: new BotTaskLogRepository(db, workspaceId),
+        botService: botService(),
+        dispatchSummary: async (entry) => {
+          const { BOT_TASK_SUMMARY_TIMEOUT_SECONDS, runBotTaskSummary } = await import(
+            '@/lib/jobs/handlers/botTaskSummary'
+          );
+          return jobDispatcher().dispatch({
+            type: 'bot_task_summary',
+            payload: { botId: entry.botId, userId: entry.userId, source: entry.source, routineId: entry.routine?.id ?? null },
+            timeoutSeconds: BOT_TASK_SUMMARY_TIMEOUT_SECONDS,
+            work: ({ db: jobDb }) => runBotTaskSummary({ db: jobDb, workspaceId, entry }),
+          });
+        },
+      }),
+  );
+  const botRequestService = lazy(
+    () =>
+      new BotRequestService({
+        workspaceId,
+        repo: new BotRequestRepository(db, workspaceId),
+        dispatchBotMessage,
+      }),
+  );
+  // What a bot remembers about one user: notes per user per bot, read into
+  // that user's turns with it (the chat route and the background turn).
+  const botMemoryService = lazy(
+    () =>
+      new BotMemoryService({
+        repo: new BotMemoryRepository(db, workspaceId),
+        bots: botService(),
+      }),
+  );
+  const chatHistoryService = lazy(
+    () =>
+      new ChatHistoryService({
+        messages: new CopilotMessageRepository(db, workspaceId),
+        chats: copilotChatsRepo(),
+        dispatchEmbedding: async (messageIds) => {
+          // Lazy: the handler pulls in the Bedrock SDK.
+          const { CHAT_MESSAGE_EMBEDDING_TIMEOUT_SECONDS, runChatMessageEmbedding } = await import(
+            '@/lib/jobs/handlers/chatMessageEmbedding'
+          );
+          return jobDispatcher().dispatch({
+            type: 'chat_message_embedding',
+            payload: { messageIds },
+            timeoutSeconds: CHAT_MESSAGE_EMBEDDING_TIMEOUT_SECONDS,
+            work: ({ db: jobDb }) => runChatMessageEmbedding({ db: jobDb, workspaceId, messageIds }),
+          });
+        },
+      }),
+  );
+  const checkpointCompactionService = lazy(
+    () => new CheckpointCompactionService(new AgentCheckpointRepository(db)),
+  );
 
   const alphasenseToolCallRepo = lazy(() => new AlphasenseToolCallRepository(db, workspaceId));
   const alphasenseToolCallService = lazy(
@@ -835,6 +960,13 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get companyContactDiscoveryService() { return companyContactDiscoveryService(); },
     get aiWorkforceService() { return aiWorkforceService(); },
     get copilotChatsService() { return copilotChatsService(); },
+    get chatHistoryService() { return chatHistoryService(); },
+    get checkpointCompactionService() { return checkpointCompactionService(); },
+    get botService() { return botService(); },
+    get botMemoryService() { return botMemoryService(); },
+    get botRoutineService() { return botRoutineService(); },
+    get botTaskLogService() { return botTaskLogService(); },
+    get botRequestService() { return botRequestService(); },
     get alphasenseToolCallService() { return alphasenseToolCallService(); },
     get dashboardActivityService() { return dashboardActivityService(); },
     get dashboardInsightsService() { return dashboardInsightsService(); },

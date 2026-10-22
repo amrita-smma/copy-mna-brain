@@ -9,7 +9,7 @@ import {
   CONSOLE_NAVIGATION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from "../guides";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
@@ -65,7 +65,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 - **For relationships/contacts:** lookup_crm for a specific firm/banker — or, for "who can help me close this deal", lookup_crm with the deal profile (geography, deal_type). crm_insights for portfolio-wide CRM health.
 - **For meeting records / internal notes:** query_files.
 - **For cross-domain requests:** pull from both tool sets and connect the findings explicitly.
-- **For market context, benchmarks, comparables, or anything time-sensitive:** go outside — see "Grounding: Internal Records and the Outside World" below.
+- **For market context, benchmarks, comparables, or anything time-sensitive:** go outside — web_search for current facts and news, valyu_search when the answer should rest on filings or research.
 
 ## Response Guidelines
 
@@ -84,7 +84,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 ## Adding a New Company (Chat-Initiated)
 
 When asked how to add a company, answer directly in chat with short bullet-point instructions — do NOT call \`navigate_page\`. Offer these: type the name/details right here, attach a screenshot or document, upload a teaser in Smart Files, or fill in the form under Add Company → Manual on the Pipeline page. When the user then names companies, extract what details you have and call \`propose_workforce_handoff\` telling the Workforce to run \`add_company\` with every detail given (segment, geography, what it does, website, ownership, source, financials with fiscal year, notes) at \`stage: "unreviewed"\`, and to pass everything that doesn't fit a column — background, deal situation, why it matters, caveats — as \`add_company\`'s \`context\` argument (never \`market_screening\`) — this is a human-initiated add, not an AI discovery.
-${buildExternalEvidenceGuide()}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

@@ -84,11 +84,14 @@ export interface UserMemoryClient {
       infer?: boolean;
     },
   ): Promise<{ results: MemoryClientItem[] }>;
+  // mem0 3.x reads and lists by `filters` only; a top-level `userId` (or
+  // `limit`) throws "Top-level entity parameters [userId] are not supported".
+  // `add` still takes `userId`.
   search(
     query: string,
-    config: { userId: string; limit?: number; threshold?: number },
+    config: { filters: { user_id: string }; topK?: number; threshold?: number },
   ): Promise<{ results: MemoryClientItem[] }>;
-  getAll(config: { userId: string; limit?: number }): Promise<{ results: MemoryClientItem[] }>;
+  getAll(config: { filters: { user_id: string }; topK?: number }): Promise<{ results: MemoryClientItem[] }>;
   delete(memoryId: string): Promise<{ message: string }>;
 }
 

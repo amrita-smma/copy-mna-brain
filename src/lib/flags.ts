@@ -24,8 +24,6 @@ export const companyGraphEnabled = booleanFlag("COMPANY_GRAPH_ENABLED");
 
 export const insightsDashboardEnabled = booleanFlag("INSIGHTS_DASHBOARD_ENABLED");
 
-export const chatCacheEnabled = booleanFlag("CHAT_CACHE_ENABLED");
-
 export const fundManagementEnabled = booleanFlag("FUND_MANAGEMENT_ENABLED");
 
 export const ledgerEnabled = booleanFlag("LEDGER_ENABLED");

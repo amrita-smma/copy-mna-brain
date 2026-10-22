@@ -11,7 +11,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
-import { aiWorkforceQueue, insights, routines } from '@/lib/db/schema';
+import { aiWorkforceQueue, insights, routines, users } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from './types';
 import { ACTIVE_WORKFORCE_STATUSES } from './aiWorkforceQueueRepository';
 
@@ -27,6 +27,9 @@ export type RoutineListRow = RoutineRow & {
   insight_name: string | null;
   insight_agent_key: string | null;
 };
+
+/** A bot's routine, with its creator's name for the bot's Routines tab. */
+export type BotRoutineRow = RoutineRow & { created_by_name: string | null };
 
 export interface InsightRefreshTarget {
   name: string;
@@ -190,11 +193,23 @@ export class RoutinesRepository {
     return map;
   }
 
-  /** This workspace's own routines plus legacy pre-tenancy rows with no workspace_id. */
+  /**
+   * A workforce routine by id: null for a bot's routine, which only the bot's
+   * own routes manage (`BotRoutineService`).
+   */
+  async findWorkforceRoutineById(id: string): Promise<RoutineRow | null> {
+    const row = await this.findById(id);
+    return row && row.bot_id === null ? row : null;
+  }
+
+  /**
+   * This workspace's own workforce routines plus legacy pre-tenancy rows with
+   * no workspace_id. Bot routines are listed per bot (`listForBot`).
+   */
   async list(opts: { includeArchived?: boolean } = {}): Promise<RoutineListRow[]> {
     const where = opts.includeArchived
-      ? this.scopeCond()
-      : and(this.scopeCond(), isNull(routines.archived_at));
+      ? and(this.scopeCond(), isNull(routines.bot_id))
+      : and(this.scopeCond(), isNull(routines.bot_id), isNull(routines.archived_at));
     return this.db
       .select({
         ...getTableColumns(routines),
@@ -205,6 +220,40 @@ export class RoutinesRepository {
       .leftJoin(insights, eq(insights.id, routines.insight_id))
       .where(where)
       .orderBy(desc(routines.created_at));
+  }
+
+  /**
+   * A bot's live routines, oldest first, each with its creator's name. With
+   * `createdBy`, only that user's (Brain Bot's routines are each user's own).
+   */
+  async listForBot(botId: string, opts: { createdBy?: string } = {}): Promise<BotRoutineRow[]> {
+    const conditions = [eq(routines.workspace_id, this.workspaceId), eq(routines.bot_id, botId), isNull(routines.archived_at)];
+    if (opts.createdBy) conditions.push(eq(routines.created_by, opts.createdBy));
+    return this.db
+      .select({ ...getTableColumns(routines), created_by_name: users.name })
+      .from(routines)
+      .leftJoin(users, eq(users.id, routines.created_by))
+      .where(and(...conditions))
+      .orderBy(asc(routines.created_at), asc(routines.id));
+  }
+
+  /** One of a bot's live routines, or null; with `createdBy`, only if that user made it. */
+  async findForBot(botId: string, id: string, opts: { createdBy?: string } = {}): Promise<BotRoutineRow | null> {
+    const [row] = await this.db
+      .select({ ...getTableColumns(routines), created_by_name: users.name })
+      .from(routines)
+      .leftJoin(users, eq(users.id, routines.created_by))
+      .where(
+        and(
+          eq(routines.id, id),
+          eq(routines.workspace_id, this.workspaceId),
+          eq(routines.bot_id, botId),
+          isNull(routines.archived_at),
+          opts.createdBy ? eq(routines.created_by, opts.createdBy) : undefined,
+        ),
+      )
+      .limit(1);
+    return row ?? null;
   }
 
   async update(id: string, patch: RoutineUpdate): Promise<RoutineRow> {
@@ -277,6 +326,38 @@ export class RoutinesRepository {
         next_fire_at: nextFireAt,
       })
       .where(eq(routines.id, id));
+  }
+
+  /**
+   * Record a fire only if the routine is still due at `dueAt` — a conditional
+   * advance, so of two ticks that both claimed it, exactly one wins. True for
+   * the winner, which then sends the routine's message. Bot routines fire
+   * this way: they leave no workforce run whose idempotency key would
+   * collapse a double fire. Unscoped by id, like markFired.
+   */
+  async advanceIfDue(id: string, dueAt: string, firedAt: Date, nextFireAt: string): Promise<boolean> {
+    const rows = await this.db
+      .update(routines)
+      .set({ last_fired_at: firedAt.toISOString(), next_fire_at: nextFireAt })
+      .where(and(eq(routines.id, id), eq(routines.next_fire_at, dueAt)))
+      .returning({ id: routines.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Undo {@link advanceIfDue} when the message could not be queued — the
+   * routine stays due at `dueAt` so the next tick can retry.
+   */
+  async revertFireAdvance(
+    id: string,
+    advancedNextFireAt: string,
+    dueAt: string,
+    lastFiredAt: string | null,
+  ): Promise<void> {
+    await this.db
+      .update(routines)
+      .set({ next_fire_at: dueAt, last_fired_at: lastFiredAt })
+      .where(and(eq(routines.id, id), eq(routines.next_fire_at, advancedNextFireAt)));
   }
 
   /**

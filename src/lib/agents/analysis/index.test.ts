@@ -837,12 +837,10 @@ describe('getAgentGraph — advisory desk flavors', () => {
   });
 });
 
-// The four chat flavors used to carry their own, mutually inconsistent search
-// policies — "web search is a fallback for when the DB is empty" in one section
-// and "always search for anything market-shaped" in the next — which let the
-// agent settle on re-reading internal records. They now share one grounding
-// block that makes external research a default step.
-describe('external evidence grounding (chat flavors)', () => {
+// The chat flavors share one closing habit — offer the next action as a
+// follow-up question — and no longer carry a dedicated external research
+// section; each flavor's own prompt still says when to search.
+describe('shared chat guidance (chat flavors)', () => {
   beforeEach(() => {
     resetAgent();
     mocks.createAgent.mockClear();
@@ -869,94 +867,35 @@ describe('external evidence grounding (chat flavors)', () => {
     'capital_markets',
   ] as const;
 
-  it.each(FLAVORS)('gives the %s flavor the shared grounding section', async (flavor) => {
+  it.each(FLAVORS)('tells the %s flavor to offer its next action as a follow-up question', async (flavor) => {
     const prompt = await promptFor(flavor);
 
-    expect(prompt).toContain('## Grounding: Internal Records and the Outside World');
-    // Research is the default mode; the internal record is a guideline.
-    expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
-    expect(prompt).toMatch(/the internal record is a \*\*guideline\*\*/);
-    // A detected company means an external search in that same turn.
-    expect(prompt).toMatch(/The moment a company is detected in a request/);
-    expect(prompt).toMatch(/run at least one external search in that same turn/);
-    expect(prompt).toMatch(/when the internal record looks complete/);
-    // Fire it alongside the internal read rather than after discovering a gap.
-    expect(prompt).toMatch(/Search while you pull internal data, not after it/);
-    // The bookkeeping carve-out stops where a company name starts, so a stage
-    // breakdown that names companies is not an exemption from the rule below.
-    expect(prompt).toMatch(
-      /that exemption lapses the moment such an answer names a company/,
-    );
+    expect(prompt).toContain('## Offer the Next Action');
+    expect(prompt).toMatch(/end with \*\*one short follow-up question that offers that step\*\*/);
+    // Writes, sends and long runs wait for a yes unless the user already asked.
+    expect(prompt).toMatch(/Ask before you take any action that writes, sends, or starts a long run/);
+    expect(prompt).toMatch(/Never a generic "Anything else\?"/);
   });
 
-  it.each(FLAVORS)('tells the %s flavor not to re-narrate records it already read', async (flavor) => {
+  it.each(FLAVORS)('drops the dedicated external research section from the %s flavor', async (flavor) => {
     const prompt = await promptFor(flavor);
 
-    expect(prompt).toMatch(/Don't repeat yourself/);
-    expect(prompt).toMatch(/something the user doesn't already have/);
-    expect(prompt).toMatch(/the new work is almost always external/);
+    expect(prompt).not.toContain('## Grounding: Internal Records and the Outside World');
+    expect(prompt).not.toMatch(/Every company mentioned gets a freshness search/);
+    expect(prompt).not.toContain('## External Research');
+    // No cross-reference is left pointing at the removed section.
+    expect(prompt).not.toMatch(/"Grounding/);
   });
 
-  it.each(FLAVORS)('tells the %s flavor to date internal figures and surface contradictions', async (flavor) => {
-    const prompt = await promptFor(flavor);
-
-    expect(prompt).toMatch(/They do not tell you what is true today/);
-    expect(prompt).toMatch(/lead with the contradiction and call the record stale/);
-    expect(prompt).toMatch(/Never report "not found" or "no data" on the strength of internal tools alone/);
-  });
-
-  // The search_news tool was removed with the news lake's retirement from the
-  // agents: recent-news questions now go to web_search, run from several
-  // angles, in every flavor.
   it.each(FLAVORS)('never names search_news to the %s flavor', async (flavor) => {
     const prompt = await promptFor(flavor);
 
     expect(prompt).not.toMatch(/search_news/);
-    // The rest of the grounding block still applies.
-    expect(prompt).toMatch(/Research is the default, not a step and not a fallback/);
-    expect(prompt).toMatch(/valyu_search/);
-  });
-
-  it.each(FLAVORS)('tells the %s flavor to run web_search aggressively for news', async (flavor) => {
-    const prompt = await promptFor(flavor);
-
-    expect(prompt).toMatch(/News lives on the open web/);
-    expect(prompt).toMatch(/run \`web_search\` aggressively/);
-  });
-
-  // Every company that surfaces in a turn owes a latest-news search in that
-  // same turn, whatever the question was — the rule this branch exists for.
-  it.each(FLAVORS)('owes the %s flavor a freshness search per company mentioned', async (flavor) => {
-    const prompt = await promptFor(flavor);
-
-    expect(prompt).toMatch(/Every company mentioned gets a freshness search — no exceptions/);
-    expect(prompt).toMatch(/the user typed it, an attached document or screenshot carries it/);
-    expect(prompt).toMatch(/run in the SAME turn and BEFORE you write a sentence about it/);
-    // Not conditional on the question being a research question, and a full
-    // row is the reason to search rather than a reason to skip.
-    expect(prompt).toMatch(/still owes three freshness searches/);
-    expect(prompt).toMatch(/a complete-looking row raises the obligation rather than retiring it/);
-    expect(prompt).toMatch(
-      /If you have not searched a company this turn, you do not know its current state/,
-    );
-  });
-
-  it.each(FLAVORS)('keeps the %s flavor from stopping at one search, or searching fifty rows', async (flavor) => {
-    const prompt = await promptFor(flavor);
-
-    expect(prompt).toMatch(/One angle is the floor, not the job/);
-    expect(prompt).toMatch(/as several \`web_search\` calls in the same turn/);
-    // The bound that keeps a long list from spending the whole max_uses budget.
-    expect(prompt).toMatch(/a fifty-row table owes searches on the companies you discuss by name/);
-    // A pull from earlier in the conversation is not a freshness check.
-    expect(prompt).toMatch(/search it again rather than leaning on a stale pull/);
   });
 
   it.each(FLAVORS)('drops the old fallback-only framing from the %s flavor', async (flavor) => {
     const prompt = await promptFor(flavor);
 
-    // The two headings that carried the contradictory policies are gone, and so
-    // is the search_news-before-the-web precedence rule they each restated.
     expect(prompt).not.toMatch(/CRITICAL: Automatic Web Search Fallback/);
     expect(prompt).not.toMatch(/External Search Fallback/);
     expect(prompt).not.toMatch(/Precedence rule for recent market news/);
@@ -988,30 +927,17 @@ describe('external evidence grounding (chat flavors)', () => {
     expect(prompt).not.toMatch(/Workspace Fallback & External Subjects/);
   });
 
-  // The VC flavor prefers five focused topic tools that no other flavor has, so
-  // the shared block must route to them rather than past them.
-  it('routes the vc flavor to its topic tools inside the shared grounding block', async () => {
-    const prompt = await promptFor('vc');
-
-    expect(prompt).toMatch(
-      /The five focused topic tools \(`get_company_profile`[\s\S]*?\) are the first stop/,
-    );
-    expect(prompt).toMatch(/and the topic-tool routing above/);
-  });
-
   it.each(['mna', 'investment', 'combined'] as const)(
     'does not name the vc-only topic tools to the %s flavor',
     async (flavor) => {
       const prompt = await promptFor(flavor);
 
       expect(prompt).not.toMatch(/get_sector_context/);
-      expect(prompt).not.toMatch(/first stop for the standard diligence dimensions/);
     },
   );
 
-  // "Dynamic tool selection" used to read as a licence to skip research, which
-  // contradicted the grounding block injected into the same prompt.
-  it('scopes the vc no-rigid-script rule so it does not cancel the grounding block', async () => {
+  // "Dynamic tool selection" used to read as a licence to skip research.
+  it('scopes the vc no-rigid-script rule so it does not cancel research', async () => {
     const prompt = await promptFor('vc');
 
     expect(prompt).toMatch(/rather than working through a fixed module sequence or evaluation checklist/);
@@ -1038,8 +964,8 @@ describe('external evidence grounding (chat flavors)', () => {
     const prompt = await promptFor('mna');
 
     expect(prompt).toMatch(/Fire both in the same turn, and lead with the current external picture/);
-    // "Governs every read in this list" contradicted the block's own carve-out
-    // for pure-bookkeeping questions.
+    // "Governs every read in this list" contradicted the carve-out for
+    // pure-bookkeeping questions.
     expect(prompt).not.toMatch(/governs every read in this list/);
   });
 });

@@ -1,22 +1,34 @@
 'use client';
 
 import { useEffect, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
+import { ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MobileBottomNav } from './MobileBottomNav';
+import { WorkspaceLink } from '@/components/WorkspaceLink';
+import { LiquidGlassButton } from '@/components/ui/liquid-glass';
+import { findTabByPath, toLogicalPath } from '@/lib/navigation/consoleTabs';
 import { useVisualViewport } from '@/hooks/use-visual-viewport';
 
+/** Mobile names for the pages pinned on the bot home. */
+const MOBILE_PAGE_TITLES: Record<string, string> = {
+  '/dashboard': 'Timeline',
+  '/tasks': 'Your tasks',
+  '/profile': 'Profile',
+};
+
+function mobilePageTitle(logicalPath: string): string {
+  const exact = MOBILE_PAGE_TITLES[logicalPath];
+  if (exact) return exact;
+  return findTabByPath(logicalPath)?.label ?? '';
+}
+
 /**
- * Full-bleed mobile (PWA) shell with ChatGPT-like keyboard behavior.
+ * Full-bleed mobile (PWA) shell with ChatGPT-like keyboard behavior. There is
+ * no bottom nav: the chat landing is the bot home, and every other page (the
+ * Timeline, Profile, anything a bot navigated to) gets a back bar to it.
  *
- * When the keyboard is closed:
- * - Content fills the screen above the bottom nav
- * - Bottom nav is visible at the bottom
- *
- * When a chat textbox is focused:
- * - Entire mobile frame snaps to the visual viewport (space above keyboard)
- * - Bottom nav remains pinned at the bottom of that visible frame
- * - Chat input remains in the main area, directly above the nav
- * - Only chat content scrolls
+ * When a chat textbox is focused, the entire mobile frame snaps to the visual
+ * viewport (the space above the keyboard) and only the chat content scrolls.
  */
 export function MobileShell({
   isChatRoute,
@@ -58,24 +70,49 @@ export function MobileShell({
       style={{
         top: shellTop,
         height: shellHeight,
-        // In keyboard mode the bottom nav is hidden, so the main area takes the
-        // entire visible frame above the keyboard.
-        gridTemplateRows: isKeyboardMode ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) auto',
+        gridTemplateRows: 'minmax(0, 1fr)',
       }}
     >
+      {!isChatRoute && <MobilePageBar />}
       <main
         className={cn(
           'min-h-0 min-w-0 flex flex-col',
-          isChatRoute ? 'overflow-hidden' : 'overflow-auto',
+          isChatRoute
+            ? 'overflow-hidden'
+            : // The page scrolls the full height; its top clears the floating back button.
+              'overflow-auto pb-[env(safe-area-inset-bottom)] pt-[calc(env(safe-area-inset-top)+3.75rem)]',
         )}
       >
         {children}
       </main>
-      {!isKeyboardMode && (
-        <div className="shrink-0">
-          <MobileBottomNav />
-        </div>
-      )}
     </div>
+  );
+}
+
+/**
+ * A page's floating back button on mobile: liquid glass over the page, which
+ * scrolls the full height beneath it. The page's own header carries its title;
+ * the button carries the name for screen readers.
+ */
+function MobilePageBar() {
+  const title = mobilePageTitle(toLogicalPath(usePathname()));
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(env(safe-area-inset-top)+4rem)] bg-gradient-to-b from-background/90 to-transparent"
+      />
+      <nav
+        aria-label={title ? `${title} navigation` : 'Page navigation'}
+        className="pointer-events-none absolute left-0 top-0 z-30 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]"
+        data-testid="mobile-page-bar"
+      >
+        <LiquidGlassButton asChild className="pointer-events-auto">
+          <WorkspaceLink href="/chat" aria-label="Back to bots" data-testid="mobile-page-back">
+            <ChevronLeft className="!h-6 !w-6 -translate-x-px" />
+          </WorkspaceLink>
+        </LiquidGlassButton>
+      </nav>
+    </>
   );
 }

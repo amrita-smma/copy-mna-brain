@@ -43,6 +43,20 @@ export class JobRepository {
     });
   }
 
+  /**
+   * Claim a `pending` job for a runner: pending → running in one statement, so
+   * two deliveries of the same work (a redelivered workflow step) cannot both
+   * run it. Null when the row is not pending — already claimed, or finished.
+   */
+  async claimPending(id: string): Promise<Job | null> {
+    const [row] = await this.db
+      .update(jobs)
+      .set({ status: 'running', started_at: new Date().toISOString() } as TablesUpdate<'jobs'>)
+      .where(and(eq(jobs.id, id), eq(jobs.status, 'pending')))
+      .returning();
+    return row ?? null;
+  }
+
   async markCompleted(id: string, result: unknown): Promise<Job> {
     return this.updateStatus(id, {
       status: 'completed',
@@ -58,6 +72,20 @@ export class JobRepository {
       completed_at: new Date().toISOString(),
       error,
     });
+  }
+
+  /**
+   * Fail a job only while it is still `running` — for a runner that found the
+   * work abandoned by an earlier attempt. Null when the row has moved on (the
+   * earlier attempt finished after all), so the caller does nothing further.
+   */
+  async failIfRunning(id: string, error: string): Promise<Job | null> {
+    const [row] = await this.db
+      .update(jobs)
+      .set({ status: 'failed', completed_at: new Date().toISOString(), error } as TablesUpdate<'jobs'>)
+      .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
+      .returning();
+    return row ?? null;
   }
 
   async markTimedOut(id: string, error: string): Promise<Job> {

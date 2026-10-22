@@ -31,8 +31,8 @@ through the registry and does not branch per flavor, and `workspaceService`'s
 `COPILOT_AGENTS` / `normalizeCopilotAgent` are derived from the same key list
 (via `flavors/keys.ts`, which imports nothing, so validating the column never
 drags the LangChain agent stack into a route). What still needs wiring by hand
-is the user-facing copy: the admin-portal picker, and the chat welcome message
-and suggestions.
+is the user-facing copy: the admin-portal picker, and the flavor's starting
+prompts in the chat's suggestion carousel (`ChatSuggestions.tsx`).
 
 The eight flavors:
 
@@ -180,27 +180,37 @@ The eight flavors:
   prompts' hashes. Persisted via `workspaces.copilot_agent =
   'investment_banking'` / `'capital_markets'` — no migration needed.
 
-## Search policy: a freshness search per company
+## Follow-up questions: offer the next action
 
-Every chat flavor and the sector chat agents append
-`buildExternalEvidenceGuide()` (`src/lib/agents/analysis/guides.ts`); the
-Workforce and the sector workforce agents append `WORKFORCE_EVIDENCE_GUIDE`
-(`src/lib/agents/analysis/workforce.ts`). Both state the same floor:
+Every chat flavor and the sector chat agents append `NEXT_ACTION_GUIDE`
+(`src/lib/agents/analysis/guides.ts`, "## Offer the Next Action"). When an
+answer leaves a step the agent could take with its own tools (an approval
+card, a card-section edit, a Workforce handoff, an email or export, an insight,
+opening a page, a deeper look at a named company), it closes with one short,
+specific question offering that step, e.g. "Want me to put these three stalled
+deals on a drop card?". It asks before anything that writes, sends or starts a
+long run unless the user already asked for it outright, never closes with a
+generic "Anything else?", and skips the question when no action follows.
 
-- **A company mentioned is a company searched.** The moment a company surfaces
-  in a turn — typed by the user, carried by an attachment, returned by an
-  internal tool, or about to be written into the answer — it owes at least one
-  `web_search` for its latest news, in that same turn, before the agent writes
-  a sentence about it. It applies whatever the question was (a stage count that
-  names three companies owes three searches) and a complete-looking internal row
-  raises the obligation rather than retiring it.
-- **One angle is the floor.** For a company the answer turns on, further
-  `web_search` calls follow from other angles — counterparties, sector,
-  comparables — in the same turn.
-- **Bounded by what the answer is about, not by row count.** A fifty-row table
-  owes searches on the companies the agent discusses by name (typically three to
-  ten), not on all fifty. A pull from an earlier turn is not a freshness check
-  for this one.
+There is no longer a dedicated, shared external research section in the chat
+prompts (the old `buildExternalEvidenceGuide` "Grounding" block was removed).
+Each flavor's own prompt still says when to search; the M&A flavor keeps its
+"Default Posture: Research First" section.
+
+## Search policy (Workforce)
+
+The Workforce and the sector workforce agents append `WORKFORCE_EVIDENCE_GUIDE`
+(`src/lib/agents/analysis/workforce.ts`), which owes a freshness search to
+every company a run touches:
+
+- **A company touched is a company searched.** The moment a company appears in
+  the instruction, a record read, a file queried or the report being written, it
+  owes at least one `web_search` for its latest news before the agent writes
+  about it.
+- **One angle is the floor.** For a company the verdict turns on, further
+  `web_search` calls follow from other angles in the same turn.
+- **On bulk runs,** one freshness search per company; extra angles go first
+  when a run is tight.
 
 Background prompts carry the same rule where they touch one company:
 `aiScreening` searches before evaluating a criterion rather than only when a

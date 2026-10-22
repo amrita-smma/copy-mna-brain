@@ -107,9 +107,9 @@ it returns, or the nav item flickers between states.
 | Add business logic | A service in `src/lib/services/` + wire into `container.ts` (+ `.test.ts`) |
 | Expose it over HTTP | `src/app/api/<route>/route.ts` |
 | Call it from the UI | A wrapper in `src/lib/api/`, then the view |
-| Add a privileged M2M endpoint | `src/app/api/auth/<route>/` **and** the `matcher` in `src/proxy.ts` |
+| Add a privileged M2M endpoint | `src/app/api/auth/<route>/` **and** the `matcher` in `src/proxy.ts`; the app calling itself goes under `src/app/api/internal/`, gated the same way (`X-Api-Secret: $ADMIN_SECRET`, helpers in `src/lib/server/internalApi.ts`) |
 | Add a copilot tool | `src/lib/agents/<agent>/tools/<tool>.ts` + register in `tools/index.ts` (+ `.test.ts`) |
-| Run something slowly/async | `job_type` enum + `src/lib/jobs/handlers/` + dispatch via `JobDispatcher` |
+| Run something slowly/async | `job_type` enum + `src/lib/jobs/handlers/` + dispatch via `JobDispatcher`. A bot's background turn: POST it to `/api/internal/bot-messages` (`sendBotMessage`), which starts a Workflow run — never work nested in the caller's `after()` |
 | Gate a feature | `src/lib/flags.ts`, then thread the boolean through page → view → layout |
 | Add seed data | Extend `scripts/seed.ts`. Do not add a new seeder. |
 
@@ -117,6 +117,22 @@ Every backend change under `src/lib` needs unit tests. After any backend change,
 check for N+1 queries before you finish — see below.
 
 ## Things that will bite you
+
+**Redis is live state only.** `src/lib/server/redis.ts` (provisioned by
+`terraform/redis`) holds what expires on its own: which bot is thinking, Stop
+signals, pub/sub to the browsers' SSE streams. Never make correctness depend on
+it — the turn lock, history and checkpoints stay in Postgres, and every Redis
+write is wrapped so an outage degrades the live indicators, not chat.
+
+**Two migration folders, one fixed order.** `pnpm db:migrate` applies every
+pending app migration, then every pending pipeline migration, so on a database
+built from scratch a pipeline migration can run *after* newer app migrations.
+One pipeline migration rebuilds `public.job_type` from a fixed list and, on a
+fresh database, discarded every job type added since — the rows stayed
+recorded, so the first job of that type failed with `invalid input value for
+enum`. `scripts/migrate.ts` now re-adds the schema's values after both folders
+run; never recreate a shared type from a literal list
+(`.claude/rules/drizzle-migrations.md`).
 
 **N+1 queries are the #1 production hazard here.** Never call a per-id
 repository method inside a `.map`/`for`/`Promise.all` over a collection —

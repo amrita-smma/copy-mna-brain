@@ -65,6 +65,7 @@ import {
   ChevronRight,
   Archive,
 } from 'lucide-react';
+import { COPILOT_AGENT_KEYS, COPILOT_AGENT_LABELS } from '@/lib/agents/analysis/flavors/keys';
 
 function initialsFor(name: string) {
   return name
@@ -102,17 +103,11 @@ interface Workspace {
   deleted_at?: string | null;
 }
 
-/** The AI Copilot flavors, mirrored from the server's COPILOT_AGENTS. */
-const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'mna', label: 'M&A / Acquisitions' },
-  { value: 'investment', label: 'Funds & Investing' },
-  { value: 'combined', label: 'Combined (M&A + Investment)' },
-  { value: 'vc', label: 'VC / Growth Equity' },
-  { value: 'minority', label: 'Minority Stakes Portfolio Manager' },
-  { value: 'crowdfunding', label: 'Crowdfunding Agent' },
-  { value: 'investment_banking', label: 'Investment Banking Advisory' },
-  { value: 'capital_markets', label: 'Capital Markets (DCM / ECM)' },
-];
+/** The AI Copilot flavors, in registry order. */
+const COPILOT_AGENT_OPTIONS: { value: string; label: string }[] = COPILOT_AGENT_KEYS.map((value) => ({
+  value,
+  label: COPILOT_AGENT_LABELS[value],
+}));
 
 /** The display currencies, mirrored from the server's WORKSPACE_CURRENCIES. */
 const CURRENCY_OPTIONS: { value: string; label: string }[] = [

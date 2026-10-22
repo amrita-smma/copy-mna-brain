@@ -7,7 +7,7 @@ import {
   CONSOLE_NAVIGATION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from "../guides";
 import { financialEquityAnalysis } from "../tools";
 import { defaultChatToolList } from "./mna";
@@ -102,7 +102,7 @@ These are the lenses that make this Copilot different from a control-deal Copilo
 - When users ask vague questions, clarify what specific data they want
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner).
 - Check query_files when the question turns on internal history — what was discussed, what a memo concluded, what rights were negotiated. Files carry context no public source has, and they are point-in-time documents: what a memo said last year is evidence about last year.
-${buildExternalEvidenceGuide()}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

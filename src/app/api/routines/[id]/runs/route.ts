@@ -22,7 +22,7 @@ export async function GET(
     const { id } = await params;
     const db = createDb();
     const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
-    const existing = await repo.findById(id);
+    const existing = await repo.findWorkforceRoutineById(id);
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }

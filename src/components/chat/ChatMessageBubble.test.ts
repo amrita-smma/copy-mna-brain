@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { UIMessage } from '@ai-sdk/react';
 
 import { parseAssistantTurn } from './ChatMessageBubble';
+import { encodeApprovalMarker } from '@/lib/insights/approvalMarker';
+import { OPTION_CARD_MARKER, buildOptionCard } from '@/lib/chat/optionCards';
 
 /** A text part as the AI SDK streams it. */
 const text = (value: string, state: 'streaming' | 'done' = 'done') =>
@@ -52,6 +54,17 @@ describe('parseAssistantTurn', () => {
 
     expect(result.thinkingText).toBe('weighing it');
     expect(result.responseText).toBe('Here is the answer.');
+  });
+
+  it('treats a part loaded from stored history (no state) as finished, so the Pinged footer survives a reload', () => {
+    const stored = { type: 'text', text: 'I asked @Deal Scout to look.' } as unknown as UIMessage['parts'][number];
+    const result = parseAssistantTurn(parts(stored));
+
+    expect(result.isStreamingComplete).toBe(true);
+    expect(result.responseText).toBe('I asked @Deal Scout to look.');
+
+    const streaming = parseAssistantTurn(parts(text('I asked @Deal Scout', 'streaming')));
+    expect(streaming.isStreamingComplete).toBe(false);
   });
 
   it('treats an unclosed THINKING block as still-streaming thought', () => {
@@ -210,6 +223,23 @@ describe('parseAssistantTurn', () => {
     );
 
     expect(parseAssistantTurn(input)).toEqual(parseAssistantTurn(input));
+  });
+
+  it('reads each option card the bot offered, and ignores a malformed one', () => {
+    const card = buildOptionCard({
+      card_id: 'c1',
+      question: 'Which markets?',
+      mode: 'multi',
+      options: [{ label: 'Indonesia' }, { label: 'Vietnam' }],
+    });
+    const result = parseAssistantTurn(
+      parts(
+        tool('offer_options', `Showed the user a card.\n\n${encodeApprovalMarker(OPTION_CARD_MARKER, card)}`),
+        tool('offer_options', encodeApprovalMarker(OPTION_CARD_MARKER, { card_id: 'c2', question: 'q' })),
+        text('Pick the markets above.'),
+      ),
+    );
+    expect(result.optionCards).toEqual([card]);
   });
 
   it('handles an empty turn without throwing', () => {

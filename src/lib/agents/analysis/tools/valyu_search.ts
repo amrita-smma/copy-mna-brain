@@ -167,7 +167,8 @@ export async function executeValyuSearch({
     }
     outputLines.push("");
 
-    const citations: { title: string; url: string }[] = [];
+    // `published` (when the result has one) dates the source chip.
+    const citations: { title: string; url: string; published?: string }[] = [];
 
     response.results.forEach((result, i) => {
       const title = result.title || result.url || `Result ${i + 1}`;
@@ -190,7 +191,7 @@ export async function executeValyuSearch({
       if (snippet) outputLines.push(`\n${snippet}\n`);
 
       if (url && !citations.some((c) => c.url === url)) {
-        citations.push({ title, url });
+        citations.push({ title, url, ...(dateVal ? { published: String(dateVal) } : {}) });
       }
     });
 

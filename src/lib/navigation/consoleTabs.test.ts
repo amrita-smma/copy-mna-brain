@@ -105,7 +105,7 @@ describe('CONSOLE_TABS', () => {
   it('gates every tab on a key that exists in the feature catalog', () => {
     const catalogKeys = new Set(FEATURE_CATALOG.map((f) => f.key));
     for (const tab of CONSOLE_TABS) {
-      expect(catalogKeys, `${tab.slug} -> ${tab.flag}`).toContain(tab.flag);
+      if (tab.flag) expect(catalogKeys, `${tab.slug} -> ${tab.flag}`).toContain(tab.flag);
     }
   });
 
@@ -134,9 +134,9 @@ describe('visibleConsoleTabs', () => {
     expect(slugs).toEqual(CONSOLE_TAB_SLUGS.filter((s) => s !== 'dashboard'));
   });
 
-  it('returns an empty list when every flag is off', () => {
+  it('keeps only the always-on tabs when every flag is off', () => {
     const allOff = Object.fromEntries(CONSOLE_TABS.map((t) => [t.flag, false]));
-    expect(visibleConsoleTabs(allOff)).toEqual([]);
+    expect(visibleConsoleTabs(allOff).map((t) => t.slug)).toEqual(['bots']);
   });
 });
 
@@ -165,9 +165,17 @@ describe('groupedConsoleTabs', () => {
 
   // Every tab must be reachable from the nav — a tab filed under a group the
   // sidebar doesn't render would be a page with no way in.
+  // The Bots section's tabs are linked from `ChatSidebar` instead.
   it('loses no visible tab', () => {
     const grouped = groupedConsoleTabs({}).flatMap((g) => g.tabs.map((t) => t.slug));
-    expect(new Set(grouped)).toEqual(new Set(CONSOLE_TAB_SLUGS));
+    const botSection = CONSOLE_TABS.filter((t) => t.group === 'bots').map((t) => t.slug);
+    expect(botSection).toEqual(['bots']);
+    expect(new Set([...grouped, ...botSection])).toEqual(new Set(CONSOLE_TAB_SLUGS));
+  });
+
+  it('leaves the Bots page out of the page-nav sections', () => {
+    const grouped = groupedConsoleTabs({}).flatMap((g) => g.tabs.map((t) => t.slug));
+    expect(grouped).not.toContain('bots');
   });
 
   it('respects feature flags', () => {
@@ -180,10 +188,11 @@ describe('groupedConsoleTabs', () => {
     const intelligenceOff = Object.fromEntries(
       CONSOLE_TABS.filter((t) => t.group === 'intelligence').map((t) => [t.flag, false]),
     );
-    expect(groupedConsoleTabs(intelligenceOff).map((g) => g.id)).toEqual(['deal-flow']);
+    const groups = groupedConsoleTabs(intelligenceOff);
+    expect(groups.map((g) => g.id)).toEqual(['deal-flow']);
   });
 
-  it('returns no groups when every flag is off', () => {
+  it('renders no section when every flag is off', () => {
     const allOff = Object.fromEntries(CONSOLE_TABS.map((t) => [t.flag, false]));
     expect(groupedConsoleTabs(allOff)).toEqual([]);
   });

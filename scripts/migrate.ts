@@ -42,6 +42,16 @@ async function main() {
       migrationsSchema: 'drizzle_pipeline',
     });
     console.log('✓ pipeline migrations applied');
+    // The pipeline folder runs after the app folder, and one pipeline
+    // migration rebuilds `public.job_type` from a fixed list: on a database
+    // built from scratch that discards every value the app's later migrations
+    // added, with their rows still recorded. Re-add what the schema knows —
+    // a no-op elsewhere. See scripts/reconcileEnums.ts.
+    const { reconcileJobTypeEnum } = await import('./reconcileEnums');
+    const added = await reconcileJobTypeEnum(client);
+    console.log(
+      added.length > 0 ? `✓ job_type enum repaired: added ${added.join(', ')}` : '✓ job_type enum complete',
+    );
   } finally {
     await client.end();
   }

@@ -18,12 +18,27 @@ export interface FireResult {
   errors: Array<{ routineId: string; message: string }>;
 }
 
+/** Fires one due bot routine (`BotRoutineService.fire`), in its own workspace. */
+export type FireBotRoutine = (
+  db: DbClient,
+  routine: RoutineRow,
+  now: Date,
+) => Promise<{ status: 'fired' | 'skipped' | 'paused'; reason?: string }>;
+
+/** The real one: a container for the routine's workspace. Lazy, to keep the services graph out of this module. */
+const fireBotRoutineInWorkspace: FireBotRoutine = async (db, routine, now) => {
+  const { createContainer } = await import('@/lib/services/container');
+  return createContainer(db, routine.workspace_id ?? undefined).botRoutineService.fire(routine, now);
+};
+
 export interface FireDueRoutinesOptions {
   /**
    * The registry keys deprecated in this release. Injectable so tests can
    * supply a fixture while the shipped registry has no deprecated agent.
    */
   deprecatedAgentKeys?: () => string[];
+  /** Injectable for tests. */
+  fireBotRoutine?: FireBotRoutine;
 }
 
 /**
@@ -56,6 +71,10 @@ export interface FireDueRoutinesOptions {
  * 5. Computes the new next_fire_at from the routine's cron expression and
  *    updates last_fired_at + next_fire_at.
  *
+ * A bot's routine (`bot_id` set) takes none of the workforce steps: it is
+ * handed to `BotRoutineService.fire`, which sends its prompt to the bot as the
+ * routine's creator (and pauses it when that is no longer allowed).
+ *
  * Failures on one routine don't block the others — errors are collected and
  * the caller logs them.
  */
@@ -86,8 +105,25 @@ export async function fireDueRoutines(
     due.map((r) => r.id),
   );
 
+  const fireBotRoutine = options.fireBotRoutine ?? fireBotRoutineInWorkspace;
   for (const routine of due) {
     try {
+      if (routine.bot_id) {
+        const run = () => fireBotRoutine(db, routine, now);
+        const outcome = routine.workspace_id
+          ? await runWithWorkforceWorkspaceId(routine.workspace_id, run)
+          : await run();
+        if (outcome.status === 'fired') {
+          fired.push({ routineId: routine.id, runId: '', created: true });
+        } else {
+          if (outcome.status === 'paused') {
+            console.warn(`[fireDueRoutines] bot routine ${routine.id} paused: ${outcome.reason}`);
+          }
+          skipped.push({ routineId: routine.id, reason: outcome.reason ?? outcome.status });
+        }
+        continue;
+      }
+
       const target = routine.insight_id
         ? insightTargets.get(routine.insight_id)
         : undefined;

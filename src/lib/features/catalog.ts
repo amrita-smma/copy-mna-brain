@@ -10,7 +10,7 @@
  *
  * Two kinds of entries live here:
  *  - Flags with a code-level consumer, exported from `@/lib/flags` (e.g.
- *    `COMPANY_GRAPH_ENABLED`, `CHAT_CACHE_ENABLED`).
+ *    `COMPANY_GRAPH_ENABLED`, `INSIGHTS_DASHBOARD_ENABLED`).
  *  - Navigation features whose only gate is the sidebar in `SidebarPagesNav`
  *    (e.g. `PIPELINE_ENABLED`, `MASTER_DATA_ENABLED`). These default ON so the
  *    app is unchanged until an admin turns one off.
@@ -157,13 +157,6 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     key: 'CRM_GOOGLE_VAULT_SYNC',
     label: 'CRM Google Vault Sync',
     description: 'Ingest CRM correspondence from Google Vault into the workspace.',
-    defaultEnabled: false,
-    navItem: false,
-  },
-  {
-    key: 'CHAT_CACHE_ENABLED',
-    label: 'Chat Cache',
-    description: 'Cache and reuse Copilot chat responses to speed up repeat queries.',
     defaultEnabled: false,
     navItem: false,
   },

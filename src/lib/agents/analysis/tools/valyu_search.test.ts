@@ -146,6 +146,10 @@ describe("valyuSearch", () => {
     expect(result).toContain("Source Type: regulatory");
     expect(result).toContain("Date: 2024-05-10");
     expect(result).toContain("Relevance: 0.94");
+    // The source chip carries the date, so the transcript can show and flag it.
+    expect(result).toContain(
+      '<!-- CITATIONS_JSON:[{"title":"Quarterly SEC 10-Q Filing","url":"https://example.com/sec/10q","published":"2024-05-10"}] -->',
+    );
   });
 
   it("handles result with date fallback when publication_date is missing and omits absent metadata", async () => {

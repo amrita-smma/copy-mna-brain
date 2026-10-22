@@ -1,6 +1,7 @@
 import { GraphRecursionError } from '@langchain/langgraph';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 import type { UIMessageChunk, UIMessageStreamWriter } from 'ai';
+import { SUMMARIZATION_SOURCE } from '@/lib/bots/summary';
 
 type LangChainStreamChunk = Parameters<typeof toUIMessageStream>[0] extends AsyncIterable<infer U>
   ? U
@@ -86,6 +87,11 @@ export async function* tapEventStream<T = LangChainStreamChunk>(
   try {
     for await (const event of eventStream) {
       if (event && typeof event === 'object') {
+        // A permanent bot thread's summarization middleware calls a model
+        // mid-turn; its output is a checkpoint summary, not a reply.
+        if ((event as { metadata?: { lc_source?: unknown } }).metadata?.lc_source === SUMMARIZATION_SOURCE) {
+          continue;
+        }
         const eventName = (event as { event?: string }).event;
 
         if (eventName === 'on_chat_model_stream') {

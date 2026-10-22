@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 214 | `src/app/api/**/route.ts` |
-| Services | 84 | `src/lib/services/` |
-| Repositories | 75 | `src/lib/repositories/` |
+| API routes | 225 | `src/app/api/**/route.ts` |
+| Services | 91 | `src/lib/services/` |
+| Repositories | 80 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
-| Job handlers | 10 | `src/lib/jobs/handlers/` |
-| Feature flags | 11 | `src/lib/flags.ts` |
-| Pages | 44 | `src/app/**/page.tsx` |
-| Migrations (app) | 167 | `drizzle/migrations/` |
+| Job handlers | 13 | `src/lib/jobs/handlers/` |
+| Feature flags | 10 | `src/lib/flags.ts` |
+| Pages | 46 | `src/app/**/page.tsx` |
+| Migrations (app) | 181 | `drizzle/migrations/` |
 | Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -29,7 +29,6 @@ Resolve server-side in a page file, pass down as boolean props. See
 
 | Flag function | Env var |
 |---|---|
-| `chatCacheEnabled` | `CHAT_CACHE_ENABLED` |
 | `companyGraphEnabled` | `COMPANY_GRAPH_ENABLED` |
 | `corporateActionsEnabled` | `CORPORATE_ACTIONS_ENABLED` |
 | `crmGoogleVaultSyncEnabled` | `CRM_GOOGLE_VAULT_SYNC` |
@@ -67,6 +66,7 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `/sourcing` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
 | `/w/[workspaceSlug]` | _inline — see `src/app/w/[workspaceSlug]/page.tsx`_ |
 | `/w/[workspaceSlug]/ai-workforce/[[...taskSlug]]` | `src/views/AIWorkforce.tsx` |
+| `/w/[workspaceSlug]/bots` | `src/views/Bots.tsx` |
 | `/w/[workspaceSlug]/chat` | _inline — see `src/app/w/[workspaceSlug]/chat/page.tsx`_ |
 | `/w/[workspaceSlug]/companies/[id]` | `src/views/CompanyDetail.tsx` |
 | `/w/[workspaceSlug]/crm` | `src/views/CRM.tsx` |
@@ -88,6 +88,7 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `/w/[workspaceSlug]/profile` | `src/views/Profile.tsx` |
 | `/w/[workspaceSlug]/smart-files/[[...tab]]` | `src/views/SmartFiles.tsx` |
 | `/w/[workspaceSlug]/sourcing` | `src/views/Sourcing.tsx` |
+| `/w/[workspaceSlug]/tasks` | `src/views/Tasks.tsx` |
 | `/workspace` | _inline — see `src/app/workspace/page.tsx`_ |
 
 ## API routes
@@ -112,10 +113,20 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/auth/rss-feeds/import` | POST | `rssFeedService` |
 | `/api/auth/signup` | POST | `authService` |
 | `/api/auth/sso` | GET | `authService`, `workspaceService` |
-| `/api/chat` | POST | `chatAttachmentService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
+| `/api/bots` | GET, POST | `botService` |
+| `/api/bots/[id]` | GET, PATCH, DELETE | `botService` |
+| `/api/bots/[id]/memory` | GET, PUT | `botMemoryService` |
+| `/api/bots/[id]/read` | POST, DELETE | `botService` |
+| `/api/bots/[id]/routines` | GET, POST | `botRoutineService` |
+| `/api/bots/[id]/routines/[routineId]` | PATCH, DELETE | `botRoutineService` |
+| `/api/bots/[id]/routines/[routineId]/run` | POST | `botRoutineService` |
+| `/api/bots/[id]/tasks` | GET | `botTaskLogService` |
+| `/api/bots/[id]/thread` | POST | `botService` |
+| `/api/bots/events` | GET | `botService` |
+| `/api/bots/pins` | PUT | `botService` |
+| `/api/chat` | POST | `botMemoryService`, `botService`, `botTaskLogService`, `chatAttachmentService`, `chatHistoryService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
 | `/api/chat/attachments` | DELETE | `chatAttachmentService` |
 | `/api/chat/attachments/upload-url` | GET | `chatAttachmentService` |
-| `/api/chat/cache-check` | POST | `copilotChatsService`, `insightService` |
 | `/api/chat/improve-prompt` | POST | — |
 | `/api/client-health` | POST | `clientHealthService` |
 | `/api/companies` | GET, POST, PATCH, DELETE | `companyService` |
@@ -140,9 +151,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/company-analysis/cancel` | POST | `companyAnalysisService` |
 | `/api/company-slides` | GET, POST, PUT, DELETE | `slideService` |
 | `/api/consent` | POST | `consentService` |
-| `/api/copilot/chats` | GET, POST | `copilotChatsService` |
-| `/api/copilot/chats/[id]/messages` | GET | `copilotChatsService` |
-| `/api/copilot/chats/fork` | POST | `copilotChatsService` |
+| `/api/copilot/chats/[id]/messages` | GET | `chatHistoryService`, `copilotChatsService` |
+| `/api/copilot/chats/[id]/stop` | POST | `copilotChatsService` |
 | `/api/criterias` | GET, POST | `criteriaService` |
 | `/api/criterias/[id]` | PATCH, DELETE | `criteriaService` |
 | `/api/crm` | GET, POST | `crmService` |
@@ -166,6 +176,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/vault-export` | POST | — |
 | `/api/cron/cleanup-jobs` | GET | `jobService` |
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
+| `/api/cron/compact-checkpoints` | GET | `checkpointCompactionService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
 | `/api/cron/resurface-deals` | GET | `dealResurfaceService` |
@@ -241,6 +252,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/insights/[id]/rollback` | POST | `insightService` |
 | `/api/insights/[id]/save-as-template` | POST | `insightService`, `insightTemplateService` |
 | `/api/insights/upload` | POST | `insightService` |
+| `/api/internal/bot-messages` | POST | — |
 | `/api/investment-thesis` | GET, POST | `investmentThesisService` |
 | `/api/investment-thesis/[id]` | DELETE | `investmentThesisService` |
 | `/api/investment-thesis/active` | POST | `investmentThesisService` |
@@ -314,7 +326,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 69 keys. Wire new services in
+`Container` exposes 76 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -326,8 +338,15 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `apiChatConversationService.ts` | `ApiChatConversationNotFoundError`, `ApiChatConversationService` | ✅ |
 | `apiKeyService.ts` | `InvalidApiKeyError`, `InsufficientScopeError`, `ApiKeyNotFoundError`, `ApiKeyService` | ✅ |
 | `authService.ts` | `UserNotRegisteredError`, `AccountDeactivatedError`, `AuthService` | ✅ |
+| `botMemoryService.ts` | `BotMemoryService` | ✅ |
+| `botRequestService.ts` | `BotRequestService` | ✅ |
+| `botRoutineService.ts` | `BotRoutineValidationError`, `BotRoutineNotFoundError`, `BotRoutineService` | ✅ |
+| `botService.ts` | `BotValidationError`, `BotNotFoundError`, `BotForbiddenError`, `BotService` | ✅ |
+| `botTaskLogService.ts` | `BotTaskLogService` | ✅ |
 | `chatAttachmentService.ts` | `ChatAttachmentForbiddenError`, `ChatAttachmentService` | ✅ |
+| `chatHistoryService.ts` | `ChatHistoryService` | ✅ |
 | `chatService.ts` | `ChatService` | ✅ |
+| `checkpointCompactionService.ts` | `CheckpointCompactionService` | ✅ |
 | `clientHealthService.ts` | `ClientHealthService` | ✅ |
 | `companyAnalysisService.ts` | `CompanyAnalysisService` | ✅ |
 | `companyCardSlideService.ts` | `CompanyNotFoundForCardError`, `CompanyCardSlideService` | ✅ |
@@ -418,6 +437,10 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `apiChatConversationRepository.ts` | `ApiChatConversationRepository` | ✅ |
 | `apiKeyRepository.ts` | `ApiKeyRepository` | ✅ |
 | `appSettingsRepository.ts` | `AppSettingsRepository` | ✅ |
+| `botMemoryRepository.ts` | `BotMemoryRepository` | ✅ |
+| `botRepository.ts` | `BotRepository` | ✅ |
+| `botRequestRepository.ts` | `BotRequestRepository` | ✅ |
+| `botTaskLogRepository.ts` | `BotTaskLogRepository` | ✅ |
 | `companyAnalysisRepository.ts` | `CompanyAnalysisRepository` | ✅ |
 | `companyFinancialRepository.ts` | `CompanyFinancialRepository` | ✅ |
 | `companyFxAdjustmentRepository.ts` | `CompanyFxAdjustmentRepository` | ✅ |
@@ -428,6 +451,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `companySlidesRepository.ts` | `CompanySlidesRepository` | ✅ |
 | `companyVoteRepository.ts` | `CompanyVoteRepository` | ✅ |
 | `copilotChatsRepository.ts` | `CopilotChatsRepository` | ✅ |
+| `copilotMessageRepository.ts` | `CopilotMessageRepository` | ✅ |
 | `correspondentCurationRepository.ts` | `CorrespondentCurationRepository` | ✅ |
 | `correspondentRepository.ts` | `CorrespondentRepository` | ✅ |
 | `criteriaRepository.ts` | `CriteriaRepository` | ✅ |
@@ -497,7 +521,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 73 | 67/73 | ✅ |
+| `analysis` | 90 | 82/90 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 6 | 6/6 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
@@ -511,6 +535,6 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 Queue work through `JobDispatcher`; never block a request on slow I/O.
 
-**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`
+**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`, `chat_message_embedding`, `bot_message`, `bot_routine`, `bot_task_summary`, `bot_reply`
 
-**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`
+**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `botMessage`, `botTaskSummary`, `chatMessageEmbedding`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`

@@ -1,13 +1,8 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
 import { copilotChats } from '@/lib/db/schema';
 import type { DbClient } from './types';
 
 export type CopilotChatRow = typeof copilotChats.$inferSelect;
-
-export interface ListByUserOptions {
-  limit?: number;
-  offset?: number;
-}
 
 export class CopilotChatsRepository {
   constructor(
@@ -16,51 +11,50 @@ export class CopilotChatsRepository {
   ) {}
 
   /**
-   * One page of the user's chat history, most recently active first.
-   *
-   * Paged rather than unbounded: a long-lived account accumulates thousands of
-   * conversations, and the sidebar only ever shows the top of the list. `limit`
-   * is applied by the caller (the service asks for one extra row to detect a
-   * further page); omitting it returns everything, which only callers that
-   * genuinely need the whole set should do.
-   *
-   * `last_active_at` alone is not a stable sort key — chats touched in the same
-   * transaction share a timestamp and could otherwise swap between pages,
-   * duplicating one row and hiding another. `id` breaks the tie deterministically.
+   * The user's permanent thread with a bot, created on first open. The partial
+   * unique index on `(user_id, workspace_id, bot_id)` turns a concurrent
+   * first open's insert into a no-op, so this never makes a second thread. One
+   * query when the thread exists. Bot threads always run on the general agent, so sector
+   * auto-pinning never applies to them.
    */
-  async listByUser(
+  async findOrCreateBotThread(
     userId: string,
-    { limit, offset }: ListByUserOptions = {},
-  ): Promise<CopilotChatRow[]> {
-    const base = this.db
+    botId: string,
+    title: string,
+  ): Promise<CopilotChatRow> {
+    const existing = await this.findBotThread(userId, botId);
+    if (existing) return existing;
+    const [inserted] = await this.db
+      .insert(copilotChats)
+      .values({
+        user_id: userId,
+        workspace_id: this.workspaceId,
+        bot_id: botId,
+        agent_key: 'general',
+        title,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (inserted) return inserted;
+    // A concurrent open inserted it between the read and the write.
+    const raced = await this.findBotThread(userId, botId);
+    if (!raced) throw new Error(`Bot thread for bot ${botId} could not be created`);
+    return raced;
+  }
+
+  private async findBotThread(userId: string, botId: string): Promise<CopilotChatRow | null> {
+    const [row] = await this.db
       .select()
       .from(copilotChats)
       .where(
         and(
           eq(copilotChats.user_id, userId),
-          isNull(copilotChats.archived_at),
           eq(copilotChats.workspace_id, this.workspaceId),
+          eq(copilotChats.bot_id, botId),
         ),
       )
-      .orderBy(desc(copilotChats.last_active_at), desc(copilotChats.id));
-    const paged = limit === undefined ? base : base.limit(limit);
-    return offset ? paged.offset(offset) : paged;
-  }
-
-  /**
-   * Insert a chat. `agentKey` pre-pins the thread's agent (a fork carries its
-   * source's); omitted, the thread is unresolved until its first turn.
-   */
-  async create(userId: string, agentKey?: string): Promise<CopilotChatRow> {
-    const [row] = await this.db
-      .insert(copilotChats)
-      .values({
-        user_id: userId,
-        workspace_id: this.workspaceId,
-        ...(agentKey ? { agent_key: agentKey } : {}),
-      })
-      .returning();
-    return row;
+      .limit(1);
+    return row ?? null;
   }
 
   async getById(id: string): Promise<CopilotChatRow | null> {
@@ -76,25 +70,6 @@ export class CopilotChatsRepository {
     await this.db
       .update(copilotChats)
       .set({ last_active_at: sql`now()` })
-      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
-  }
-
-  async setTitle(id: string, title: string): Promise<void> {
-    await this.db
-      .update(copilotChats)
-      .set({ title })
-      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
-  }
-
-  /**
-   * Pin the thread's effort tier. Written once when Auto routes a new thread,
-   * and again when the user picks a tier explicitly. Later turns read it off
-   * the row `assertOwnedBy` already loads, so reuse costs no extra query.
-   */
-  async setEffortTier(id: string, tier: string): Promise<void> {
-    await this.db
-      .update(copilotChats)
-      .set({ effort_tier: tier })
       .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 
@@ -126,46 +101,103 @@ export class CopilotChatsRepository {
     return existing?.agent_key ?? null;
   }
 
-  /** Persist the chat's first user message and the hash used for cache lookups. */
-  async recordFirstMessage(
-    id: string,
-    message: string,
-    hash: string,
-  ): Promise<void> {
+  /**
+   * Claim the one-time copy of the thread's checkpoint history into
+   * copilot_messages. True for exactly one caller; later calls (and a
+   * concurrent one that lost) get false.
+   */
+  async claimHistoryImport(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(copilotChats)
+      .set({ history_imported_at: sql`now()` })
+      .where(
+        and(
+          eq(copilotChats.id, id),
+          eq(copilotChats.workspace_id, this.workspaceId),
+          isNull(copilotChats.history_imported_at),
+        ),
+      )
+      .returning({ id: copilotChats.id });
+    return rows.length > 0;
+  }
+
+  /** Undo a failed checkpoint import so a later request can retry. */
+  async clearHistoryImport(id: string): Promise<void> {
     await this.db
       .update(copilotChats)
-      .set({ first_user_message: message, first_user_message_hash: hash })
+      .set({ history_imported_at: null })
       .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 
   /**
-   * Find the most recently active, non-archived chat whose first user message
-   * matches the given hash. Scoped to this workspace only — a cached answer
-   * may reference this workspace's proprietary company/thesis data, so it
-   * must never be reused across workspaces even though it's not scoped to a
-   * single user. Returns null when there's no match.
-   *
-   * Also scoped to the agent the new chat would run on: an answer a sector
-   * agent produced must never be offered to a general-CoPilot chat, or the
-   * reverse.
+   * A reply was stored. `read` also marks the thread read — the user watched
+   * an interactive turn; a background reply leaves it unread.
    */
-  async findLatestFirstMessageMatch(
-    hash: string,
-    agentKey: string,
-  ): Promise<CopilotChatRow | null> {
-    const [row] = await this.db
-      .select()
+  async stampMessage(id: string, { read }: { read: boolean }): Promise<void> {
+    await this.db
+      .update(copilotChats)
+      .set({
+        last_message_at: sql`now()`,
+        ...(read ? { last_read_at: sql`now()` } : {}),
+      })
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
+  }
+
+  async markRead(id: string): Promise<void> {
+    await this.db
+      .update(copilotChats)
+      .set({ last_read_at: sql`now()` })
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
+  }
+
+  /** Put the unread dot back: the latest reply counts as unseen again. */
+  async markUnread(id: string): Promise<void> {
+    await this.db
+      .update(copilotChats)
+      .set({ last_read_at: null })
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
+  }
+
+  /**
+   * Take the thread's turn lock for `ttlSeconds`. Atomic: true only when the
+   * lock was free (or had expired), so two turns never write one checkpoint
+   * thread at once. The TTL frees a lock whose holder died.
+   */
+  async claimTurn(id: string, ttlSeconds: number): Promise<boolean> {
+    const rows = await this.db
+      .update(copilotChats)
+      .set({ busy_until: sql`now() + make_interval(secs => ${ttlSeconds})` })
+      .where(
+        and(
+          eq(copilotChats.id, id),
+          eq(copilotChats.workspace_id, this.workspaceId),
+          or(isNull(copilotChats.busy_until), lt(copilotChats.busy_until, sql`now()`)),
+        ),
+      )
+      .returning({ id: copilotChats.id });
+    return rows.length > 0;
+  }
+
+  /** Whether a turn holds the thread's lock right now. */
+  async isTurnRunning(id: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: copilotChats.id })
       .from(copilotChats)
       .where(
         and(
-          eq(copilotChats.first_user_message_hash, hash),
-          eq(copilotChats.agent_key, agentKey),
-          isNull(copilotChats.archived_at),
+          eq(copilotChats.id, id),
           eq(copilotChats.workspace_id, this.workspaceId),
+          gt(copilotChats.busy_until, sql`now()`),
         ),
       )
-      .orderBy(desc(copilotChats.last_active_at))
       .limit(1);
-    return row ?? null;
+    return rows.length > 0;
+  }
+
+  async releaseTurn(id: string): Promise<void> {
+    await this.db
+      .update(copilotChats)
+      .set({ busy_until: null })
+      .where(and(eq(copilotChats.id, id), eq(copilotChats.workspace_id, this.workspaceId)));
   }
 }

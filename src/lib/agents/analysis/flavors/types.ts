@@ -9,6 +9,7 @@ import type {
   workforceOnlyTools,
   investmentTools,
   vcTools,
+  botTools,
   AnthropicServerTool,
 } from "../tools";
 import type { financialEquityAnalysis } from "../tools/financial_equity_analysis";
@@ -30,6 +31,7 @@ export type ToolList = Array<
   | (typeof workforceOnlyTools)[number]
   | (typeof investmentTools)[number]
   | (typeof vcTools)[number]
+  | (typeof botTools)[number]
   // In no array above: @minority adds it to the M&A chat list and the
   // workforce list appends it, rather than it belonging to one shared base.
   | typeof financialEquityAnalysis

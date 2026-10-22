@@ -1,6 +1,20 @@
 "use client";
 
-import { TrendingUp, Briefcase, Activity, Timer, Search, Droplets, Target, Globe, FileText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  TrendingUp,
+  Briefcase,
+  Activity,
+  Timer,
+  Search,
+  Droplets,
+  Target,
+  Globe,
+  FileText,
+  Sparkles,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -246,12 +260,10 @@ const COMBINED_SUGGESTIONS: ChatSuggestion[] = [
   },
 ];
 
-export function ChatSuggestions({ className }: { className?: string }) {
-  const { sendWithCacheCheck, prefillComposer, focusComposer } = useChatActions();
-  const { status } = useChatStatus();
+/** The starting points for the workspace's Copilot flavor, plus the insight-template opener. */
+function useChatSuggestions(): ChatSuggestion[] {
   const agentType = useCopilotAgent();
-  const isBusy = status === "streaming" || status === "submitted";
-  const baseSuggestions =
+  const base =
     agentType === "vc"
       ? VC_SUGGESTIONS
       : agentType === "investment"
@@ -267,40 +279,165 @@ export function ChatSuggestions({ className }: { className?: string }) {
                 : agentType === "capital_markets"
                   ? CAPITAL_MARKETS_SUGGESTIONS
                   : MNA_SUGGESTIONS;
-  const suggestions = [...baseSuggestions, INSIGHT_TEMPLATE_SUGGESTION];
+  return [...base, INSIGHT_TEMPLATE_SUGGESTION];
+}
 
+/** localStorage key: the user folded the suggestions away (per browser, every bot). */
+const COLLAPSED_STORAGE_KEY = "copilot.suggestionsCollapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCollapsed(collapsed: boolean): void {
+  try {
+    if (collapsed) window.localStorage.setItem(COLLAPSED_STORAGE_KEY, "1");
+    else window.localStorage.removeItem(COLLAPSED_STORAGE_KEY);
+  } catch {
+    // Private mode or blocked storage: the fold still works for this page.
+  }
+}
+
+/**
+ * Seconds each suggestion takes to cross: slow enough to read in passing. One
+ * full loop is this times the number of suggestions.
+ */
+const SECONDS_PER_SUGGESTION = 6;
+
+function SuggestionChips({
+  suggestions,
+  disabled,
+  onPick,
+  decorative = false,
+  className,
+}: {
+  suggestions: readonly ChatSuggestion[];
+  disabled: boolean;
+  onPick: (suggestion: ChatSuggestion) => void;
+  /** The seamless-loop copy: visible, clickable, but not announced or tabbable. */
+  decorative?: boolean;
+  className?: string;
+}) {
   return (
-    <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}>
+    <div className={cn("flex shrink-0 gap-2", className)} aria-hidden={decorative || undefined}>
       {suggestions.map((suggestion) => {
         const Icon = suggestion.icon;
         return (
           <button
             key={suggestion.label}
             type="button"
-            disabled={isBusy}
-            onClick={() => {
-              if (suggestion.prefillOnly) {
-                prefillComposer(suggestion.prompt);
-                focusComposer();
-              } else {
-                sendWithCacheCheck(suggestion.prompt);
-              }
-            }}
+            disabled={disabled}
+            tabIndex={decorative ? -1 : undefined}
+            onClick={() => onPick(suggestion)}
             className={cn(
-              "group flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2.5 text-left",
-              "transition-colors hover:border-blue-500/50 hover:bg-blue-500/5",
+              "liquid-glass liquid-glass-quiet liquid-glass-control flex shrink-0 items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3 text-left",
               "disabled:pointer-events-none disabled:opacity-50",
             )}
           >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-              <Icon className="h-4 w-4 text-blue-500" />
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500/10">
+              <Icon className="h-3.5 w-3.5 text-blue-500" />
             </span>
-            <span className="text-sm font-medium text-foreground">
-              {suggestion.label}
-            </span>
+            <span className="whitespace-nowrap text-xs font-medium text-foreground">{suggestion.label}</span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The starting points as a slow carousel above the composer: the chips drift
+ * right to left in a seamless loop, pausing under the pointer or keyboard
+ * focus, and scroll by hand instead when the system asks for reduced motion.
+ * The small × at the far right (in the send button's column) folds them away
+ * into it; the sparkle it becomes brings them back. The fold is remembered per
+ * browser. It stays through the conversation: the chips are shortcuts, not a
+ * landing, so sending a message does not take them away.
+ */
+export function ChatSuggestionsCarousel({ className }: { className?: string }) {
+  const { sendText, prefillComposer, focusComposer } = useChatActions();
+  const { status } = useChatStatus();
+  const suggestions = useChatSuggestions();
+  const isBusy = status === "streaming" || status === "submitted";
+  // Read after mount: the server has no storage, and the first paint must
+  // match it.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    const stored = readCollapsed();
+    if (stored) setCollapsed(true);
+  }, []);
+  const toggle = () => {
+    setCollapsed((current) => {
+      writeCollapsed(!current);
+      return !current;
+    });
+  };
+
+  const pick = (suggestion: ChatSuggestion) => {
+    if (suggestion.prefillOnly) {
+      prefillComposer(suggestion.prompt);
+      focusComposer();
+    } else {
+      sendText(suggestion.prompt);
+    }
+  };
+
+  return (
+    <div className={cn("flex min-h-7 items-center gap-2", className)} data-testid="chat-suggestions">
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            key="track"
+            className={cn(
+              "relative min-w-0 flex-1 overflow-hidden",
+              // The ends fade out, so chips enter and leave softly.
+              "[mask-image:linear-gradient(to_right,transparent,black_1.5rem,black_calc(100%_-_1.5rem),transparent)]",
+              "motion-reduce:overflow-x-auto motion-reduce:[scrollbar-width:none]",
+            )}
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
+            <div
+              className={cn(
+                "flex w-max gap-2 py-0.5 animate-marquee",
+                "hover:[animation-play-state:paused] focus-within:[animation-play-state:paused]",
+                "motion-reduce:animate-none",
+              )}
+              style={{ animationDuration: `${suggestions.length * SECONDS_PER_SUGGESTION}s` }}
+            >
+              <SuggestionChips suggestions={suggestions} disabled={isBusy} onPick={pick} />
+              {/* The same chips once more: by the time the first set has
+                  scrolled out, the second is where the first began, and the
+                  loop restarts without a jump. Not under reduced motion,
+                  where the row scrolls by hand instead. */}
+              <SuggestionChips
+                suggestions={suggestions}
+                disabled={isBusy}
+                onPick={pick}
+                decorative
+                className="motion-reduce:hidden"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Show suggestions" : "Hide suggestions"}
+        title={collapsed ? "Show suggestions" : "Hide suggestions"}
+        data-testid="chat-suggestions-toggle"
+        className="liquid-glass liquid-glass-quiet liquid-glass-control ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+      >
+        {collapsed ? <Sparkles className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+      </button>
     </div>
   );
 }

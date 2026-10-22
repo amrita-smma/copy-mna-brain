@@ -8,7 +8,7 @@ import {
   CONSOLE_NAVIGATION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from "../guides";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
@@ -70,7 +70,7 @@ You may narrow \`search_investments\` with \`types\` when the user is explicit (
 5. **For investor/LP questions** ("who are our LPs?", "which investor has the most capital deployed?"): use query_investors.
 6. **For capital-source questions** ("what are our sources of capital?", "which pool has the best MOIC?"): use query_fund_sources.
 7. **For movement-level questions** ("what did we pay into Fund II this year?", "every distribution from Startech", "what happened on the Akulaku position?", "which rows still need checking?"): use query_ledger_entries. It reads the posted rows themselves, with signs taken from the position holder — negative cash means they paid, positive means they received.
-8. **For market context, benchmarks, or comparables**: go outside — web_search for a quick read (e.g. "typical net TVPI for a 2021-vintage growth fund", "median hold period for software buyouts"), valyu_search when the answer should rest on filings or research. See "Grounding: Internal Records and the Outside World" below.
+8. **For market context, benchmarks, or comparables**: go outside — web_search for a quick read (e.g. "typical net TVPI for a 2021-vintage growth fund", "median hold period for software buyouts"), valyu_search when the answer should rest on filings or research.
 9. **When unsure what data exists**: call get_fund_data_schema first.
 10. **For internal documents or meeting notes**: use query_files to find relevant files by company, tag, or keyword.
 11. **For counterparty or relationship questions**: use lookup_crm for a specific firm/banker, or crm_insights for portfolio-wide CRM health.
@@ -92,7 +92,7 @@ You may narrow \`search_investments\` with \`types\` when the user is explicit (
 - **Never guess what a name refers to.** Resolve every user-supplied name with search_investments first, then drill in with the tool that matches the resolved type (get_fund_asset_details for a holding, query_funds / query_fund_assets for a fund, query_investors for an LP, query_fund_sources for a capital source). Pass \`fund_asset_id\` rather than a name whenever you have it.
 - **Never report "not found" from a single tool.** A name missing from query_fund_assets may still be a fund, an LP, or a capital source — that is exactly what search_investments is for. Only once it comes back empty may you say the entity isn't in the portfolio, and then go looking with query_files and an external search.
 - send_email recipients are restricted to registered platform users. Use lookup_user to resolve a name to an email before calling send_email.
-${buildExternalEvidenceGuide()}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}`;

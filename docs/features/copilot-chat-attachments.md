@@ -25,9 +25,10 @@ Lifecycle:
   S3 object persists, the file is re-referenced on **every subsequent turn** of
   the conversation.
 - **Cleanup (done / stopped / disconnected).** The per-turn Anthropic upload is
-  ephemeral: it is deleted once the streamed response drains (`after()`), and
-  also on `req.signal` abort — which covers the UI's stop button and a dropped
-  SSE connection. Teardown is idempotent so both paths are safe.
+  ephemeral: it is deleted once the turn finishes (`after()`, which waits for
+  the server-side drain of the stream). Not on `req.signal` abort: a turn keeps
+  running after the browser disconnects and may still read the upload; Stop
+  ends the turn, which then cleans up the same way. Teardown is idempotent.
 - **Multi-turn.** Because each turn's Anthropic upload is deleted, the `file`
   block persisted in the checkpointed history would 404 when the next turn
   replays it. So on every follow-up turn `AgentGraph.rewriteFileReferences`

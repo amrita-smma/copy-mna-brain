@@ -34,7 +34,7 @@ export function workspaceInitials(name: string) {
 
 /**
  * Mobile (PWA) workspace switcher sheet. Opened from the workspace dropdown
- * under the user's name on the profile page — the bottom nav's Profile tab is
+ * under the user's name on the profile page — the bot home's Profile row is
  * a link to that page, not a trigger for this.
  *
  * `trigger` is rendered as the drawer's trigger (it must forward a ref and

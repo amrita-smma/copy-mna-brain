@@ -48,11 +48,10 @@
  *
  * Research here is always the multientity kind, and the prompts make the spend
  * scale with the number of companies in play rather than with the question.
- * `guides.ts` owes a freshness search to EVERY company that surfaces in a turn
- * — typed by the user, carried by an attachment, returned by an internal tool,
- * or about to be written into the answer — and several further angles on the
- * ones the answer turns on; `workforce.ts` owes the same per company it
- * touches. A turn discussing eight companies therefore starts at eight
+ * The chat flavors are research-led (an external search on almost every
+ * question that touches a company), and `workforce.ts` owes a freshness search
+ * to EVERY company a run touches, plus further angles on the ones the verdict
+ * turns on. A turn discussing eight companies therefore starts at eight
  * searches before any angle is added. A cap of 5 was set when external search
  * was an occasional step, and 30 was set before the per-company rule; against
  * these prompts a single request walks through either. Every further search
@@ -85,8 +84,8 @@ export const CODE_EXECUTION_CALLER = "code_execution_20260120";
 export const MIN_SERVER_TOOL_MAX_USES = 25;
 
 /**
- * The same line for `web_search` specifically, which the per-company freshness
- * rule above spends several times faster than any other server tool.
+ * The same line for `web_search` specifically, which the research-led prompts
+ * above spends several times faster than any other server tool.
  */
 export const MIN_WEB_SEARCH_MAX_USES = 60;
 

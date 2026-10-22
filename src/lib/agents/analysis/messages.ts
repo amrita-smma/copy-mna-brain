@@ -112,3 +112,11 @@ export function extractLastTurn(messages: BaseMessage[]): {
 }
 
 export { HumanMessage, AIMessage };
+
+/** The id of the thread's latest user message: tells whether a turn landed. */
+export function lastHumanMessageId(messages: BaseMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]._getType() === 'human') return (messages[i] as { id?: string }).id ?? `#${i}`;
+  }
+  return null;
+}

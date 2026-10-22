@@ -18,10 +18,14 @@
  * destination without deciding where it belongs is a type error instead of a
  * page that quietly renders in no section — i.e. is unreachable from the nav.
  */
-export type ConsoleTabGroupId = 'deal-flow' | 'intelligence';
+export type ConsoleTabGroupId = 'deal-flow' | 'intelligence' | 'bots';
 
-/** The sidebar's section headers, in display order. */
-export const CONSOLE_TAB_GROUPS: { id: ConsoleTabGroupId; label: string }[] = [
+/**
+ * The sidebar's page-nav section headers (`SidebarPagesNav`), in display order.
+ * `bots` is not among them: the sidebar's Bots section (`ChatSidebar`) lists the
+ * bots themselves and links its own pages ("Manage") beneath them.
+ */
+export const CONSOLE_TAB_GROUPS: { id: Exclude<ConsoleTabGroupId, 'bots'>; label: string }[] = [
   { id: 'deal-flow', label: 'Deal Flow' },
   { id: 'intelligence', label: 'Intelligence' },
 ];
@@ -35,8 +39,9 @@ export interface ConsoleTab {
   label: string;
   /** Which collapsible sidebar section lists this tab. */
   group: ConsoleTabGroupId;
-  /** Feature key from `@/lib/features/catalog` gating this tab's visibility. */
-  flag: string;
+  /** Feature key from `@/lib/features/catalog` gating this tab's visibility.
+   *  Omitted for a page every workspace has. */
+  flag?: string;
   /** One line telling the agent when this page is the right destination. */
   purpose: string;
 }
@@ -135,6 +140,13 @@ export const CONSOLE_TABS: ConsoleTab[] = [
     purpose: 'Generated slide decks and company one-pagers.',
   },
   {
+    slug: 'bots',
+    path: '/bots',
+    label: 'Bots',
+    group: 'bots',
+    purpose: 'Create and edit Copilot bots — their name, look, system prompt and routines.',
+  },
+  {
     slug: 'ai-workforce',
     path: '/ai-workforce',
     label: 'AI Workforce',
@@ -165,7 +177,7 @@ export const CONSOLE_TAB_SLUGS = CONSOLE_TABS.map((tab) => tab.slug);
  * disagree about what is reachable.
  */
 export function visibleConsoleTabs(flags: Record<string, boolean>): ConsoleTab[] {
-  return CONSOLE_TABS.filter((tab) => flags[tab.flag] ?? true);
+  return CONSOLE_TABS.filter((tab) => !tab.flag || (flags[tab.flag] ?? true));
 }
 
 /**
@@ -177,7 +189,7 @@ export function visibleConsoleTabs(flags: Record<string, boolean>): ConsoleTab[]
  */
 export function groupedConsoleTabs(
   flags: Record<string, boolean>,
-): { id: ConsoleTabGroupId; label: string; tabs: ConsoleTab[] }[] {
+): { id: Exclude<ConsoleTabGroupId, 'bots'>; label: string; tabs: ConsoleTab[] }[] {
   const visible = visibleConsoleTabs(flags);
   return CONSOLE_TAB_GROUPS.map((group) => ({
     ...group,

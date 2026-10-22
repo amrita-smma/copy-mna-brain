@@ -81,7 +81,7 @@ export const MEMORY_EXTRACTION_SYSTEM_PROMPT = [
   '',
   '- "Make this a table" is a request for this turn. "Always give me tables" is how this',
   '  person likes to be answered.',
-  '- "Is looking at Acme this week" passes. "Covers Indonesian coal and nickel" does not.',
+  '- "Covers Indonesian coal and nickel" passes. "Is looking at Acme this week" does not.',
   '',
   'Almost every exchange yields nothing. That is the normal, correct outcome. You are not',
   'summarising the conversation and you are not capturing what was discussed; you are',

@@ -147,6 +147,19 @@ describe('tapEventStream', () => {
     ]);
   });
 
+  it("drops a bot thread's summarization model call so its summary never reaches the reply", async () => {
+    const summarizing = {
+      ...modelChunk('sum-1', [{ type: 'text', text: 'Summary of earlier turns' }]),
+      metadata: { lc_source: 'summarization' },
+    };
+    const reply = modelChunk('r1', [{ type: 'text', text: 'Hello' }]);
+
+    const { yielded, written } = await tap([summarizing, reply]);
+
+    expect(yielded).toEqual([reply]);
+    expect(written).toEqual([]);
+  });
+
   it('writes nothing for a chunk with neither thinking nor text', async () => {
     const { written, yielded } = await tap([
       { event: 'on_chat_model_stream', run_id: 'run-1', data: { chunk: {} } },

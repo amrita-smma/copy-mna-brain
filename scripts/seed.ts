@@ -44,6 +44,8 @@ import {
   flFundingSources,
   flInvestmentTypes,
   insightTemplates,
+  bots,
+  routines,
   insights,
   insightVersions,
 } from '../src/lib/db/schema';
@@ -58,6 +60,7 @@ import type { DealType } from '../src/lib/companies/dealTypes';
 import type { CopilotAgentType } from '../src/lib/agents/analysis';
 import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
 import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
+import { computeNextFireAt, normalizeSchedule } from '../src/lib/routines/schedule';
 import { normalizeCanonicalName } from '../src/lib/fundLedger/normalizeIdentity';
 import { insightContentHash } from '../src/lib/insights/contentHash';
 
@@ -5150,6 +5153,7 @@ async function main() {
     await seedFofPortfolio(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedInsightTemplates(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedInsights(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
+    await seedBots(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
 
     console.log('done.');
   } finally {
@@ -6230,6 +6234,96 @@ export async function seedInsightTemplates(
 
   console.log(`  ✓ seeded ${rows.length} insight templates`);
 }
+
+/**
+ * Sample Copilot bots (RFC 02), shared with the workspace. Brain Bot (the
+ * workspace default bot) is not seeded: the migrations backfill it for existing
+ * workspaces and `BotService.list` creates it on first use for new ones.
+ */
+const SEED_BOTS = [
+  {
+    id: '00000000-0000-0000-0000-00000000b001',
+    name: 'Deal Scout',
+    persona:
+      '## Focus\n\nYou hunt for new deals. Lead with what changed in the market this month, then which pipeline companies it affects.\n\n## Style\n\nKeep answers short and list sources.',
+    base_flavor: 'mna',
+    avatar: { hue: 152, eyes: 'sparkle' as const, mood: 'curious' as const, shape: 'orbit' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b002',
+    name: 'CRM Concierge',
+    persona:
+      '## Focus\n\nYou look after relationships. When asked about a firm or banker, summarise coverage, the last touchpoint and who on the team should follow up.',
+    base_flavor: 'mna',
+    avatar: { hue: 28, eyes: 'round' as const, mood: 'calm' as const, shape: 'hexa' as const },
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000b003',
+    name: 'Market Watch',
+    persona:
+      '## Focus\n\nYou track sectors and comparables. Answer with the numbers first, then one line on what they mean for the pipeline.',
+    base_flavor: 'mna',
+    avatar: { hue: 268, eyes: 'mono' as const, mood: 'cheerful' as const, shape: 'nova' as const },
+  },
+];
+
+export async function seedBots(
+  db: DbClient,
+  workspaceId: string = MNA_WORKSPACE_ID,
+  ownerUserId: string,
+): Promise<void> {
+  // Every bot has every skill; a seeded bot is already set up, so it carries
+  // a persona (a new one starts blank and asks its owner who it is).
+  const rows = SEED_BOTS.map(({ persona, ...bot }) => ({
+    ...bot,
+    persona_md: persona,
+    workspace_id: workspaceId,
+    owner_user_id: ownerUserId,
+    visibility: 'workspace',
+    is_default: false,
+  }));
+
+  await db
+    .insert(bots)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: bots.id,
+      set: {
+        name: sql`excluded.name`,
+        persona_md: sql`excluded.persona_md`,
+        base_flavor: sql`excluded.base_flavor`,
+        avatar: sql`excluded.avatar`,
+        archived_at: null,
+      },
+    });
+
+  // An example bot routine: Deal Scout's weekday-morning market check, run as
+  // the seeding user in their chat with it.
+  const schedule = normalizeSchedule('weekly', { time: '08:30', weekdays: [1, 2, 3, 4, 5] });
+  await db
+    .insert(routines)
+    .values({
+      id: SEED_BOT_ROUTINE_ID,
+      workspace_id: workspaceId,
+      bot_id: SEED_BOTS[0].id,
+      title: 'Morning deal scan',
+      prompt:
+        'What changed in the market since yesterday that matters for my pipeline? List the three most relevant items with sources.',
+      schedule_kind: 'weekly',
+      schedule_spec: schedule.scheduleSpec,
+      cron_expression: schedule.cronExpression,
+      timezone: 'Asia/Jakarta',
+      next_fire_at: computeNextFireAt(schedule.cronExpression, 'Asia/Jakarta'),
+      enabled: false,
+      created_by: ownerUserId,
+      updated_by: ownerUserId,
+    })
+    .onConflictDoNothing({ target: routines.id });
+
+  console.log(`  ✓ seeded ${rows.length} bots and a bot routine (paused)`);
+}
+
+const SEED_BOT_ROUTINE_ID = '00000000-0000-0000-0000-00000000b101';
 
 export const SEED_INSIGHT_WEATHER_ID = '00000000-0000-0000-0000-00000000e101';
 export const SEED_INSIGHT_WEATHER_VERSION_ID = '00000000-0000-0000-0000-00000000e201';

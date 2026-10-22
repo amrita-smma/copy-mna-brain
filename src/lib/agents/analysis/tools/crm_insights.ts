@@ -4,6 +4,7 @@ import type { RunnableConfig } from "@langchain/core/runnables";
 import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { EmailRepository, EmployerRepository } from "@/lib/repositories";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 // A firm is "stale" once we haven't exchanged an email with it in this many
 // days. Mirrors CRMService.insights so the chatbot and the CRM dashboard report
@@ -21,10 +22,12 @@ export const crmInsights = tool(
     logger.debug("🔧 TOOL CALLED: crm_insights()");
 
     try {
-      const workspaceId = config?.configurable?.workspaceId;
-      if (!workspaceId) {
-        throw new Error("workspaceId is required in the runnable config");
-      }
+      // The workspace of the request (or of the background job running this
+      // turn), like every other workspace-scoped tool. No caller puts a
+      // workspaceId in `configurable`, so requiring one there failed every call;
+      // an explicit one still wins.
+      const workspaceId =
+        (config?.configurable?.workspaceId as string | undefined) || (await getActiveWorkspaceId());
 
       const db = createDb();
       const employerRepo = new EmployerRepository(db);

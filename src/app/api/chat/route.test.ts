@@ -6,36 +6,46 @@ const {
   createContainerMock,
   resolveChatAgentGraphMock,
   invokeMock,
-  assertOwnedByMock,
-  createChatMock,
-  setEffortTierMock,
   touchLastActiveMock,
   getCopilotAgentMock,
   buildContextMock,
-  chatCacheEnabledMock,
   copilotMemoryEnabledMock,
   extractLastTurnMock,
   recallForTurnMock,
   rememberTurnMock,
   userMemoryServiceMock,
+  botMemoryPromptContextMock,
   withBackgroundDbMock,
+  openThreadMock,
+  openDefaultThreadMock,
+  mentionContextMock,
+  dispatchMentionsMock,
+  recordTaskMock,
+  routeEffortMock,
+  shouldRouteMock,
+  buildBotTurnOverrideMock,
 } = vi.hoisted(() => ({
+  openThreadMock: vi.fn(),
+  openDefaultThreadMock: vi.fn(),
+  mentionContextMock: vi.fn(),
+  dispatchMentionsMock: vi.fn(),
+  recordTaskMock: vi.fn(),
+  routeEffortMock: vi.fn(),
+  shouldRouteMock: vi.fn(),
+  buildBotTurnOverrideMock: vi.fn(),
   authMock: vi.fn(),
   createContainerMock: vi.fn(),
   resolveChatAgentGraphMock: vi.fn(),
   invokeMock: vi.fn(),
-  assertOwnedByMock: vi.fn(),
-  createChatMock: vi.fn(),
-  setEffortTierMock: vi.fn(),
   touchLastActiveMock: vi.fn(),
   getCopilotAgentMock: vi.fn(),
   buildContextMock: vi.fn(),
-  chatCacheEnabledMock: vi.fn(),
   copilotMemoryEnabledMock: vi.fn(),
   extractLastTurnMock: vi.fn(),
   recallForTurnMock: vi.fn(),
   rememberTurnMock: vi.fn(),
   userMemoryServiceMock: vi.fn(),
+  botMemoryPromptContextMock: vi.fn(),
   // Runs the callback against the same container double the request used, so a
   // background write can be asserted the way a foreground one is.
   withBackgroundDbMock: vi.fn(async (fn: (db: unknown) => Promise<unknown>) => fn({})),
@@ -65,31 +75,28 @@ vi.mock('@/lib/agents/analysis', () => ({
       return 'ai';
     }
   },
-  extractFirstTurn: vi.fn(() => ({ userText: '', assistantText: '' })),
   extractLastTurn: extractLastTurnMock,
-  asEffortChoice: (v: unknown) => (typeof v === 'string' ? v : null),
   asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
   EFFORT_TIERS: { low: { turnBudgetMs: 30_000 }, medium: { turnBudgetMs: 60_000 } },
 }));
 vi.mock('@ai-sdk/langchain', () => ({ toBaseMessages: vi.fn(async () => []) }));
 vi.mock('@/lib/flags', () => ({
-  chatCacheEnabled: chatCacheEnabledMock,
   copilotMemoryEnabled: copilotMemoryEnabledMock,
   sourceOfFundsEnabled: vi.fn(async () => true),
 }));
+vi.mock('@/lib/bots/threadMiddleware', () => ({ buildBotTurnOverride: buildBotTurnOverrideMock }));
 // Partial: only the network-touching drain is stubbed. `runWithLangfuseUser`
 // stays real so the attribution assertion below exercises the actual store.
 vi.mock('@/lib/langfuse', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   flushLangfuse: vi.fn(),
 }));
-vi.mock('@/lib/chat/title', () => ({ generateChatTitle: vi.fn() }));
 // The real tier resolution (escalate-only, the open-insight floor); only the
 // routing call is stubbed.
 vi.mock('@/lib/chat/effortRouter', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  routeEffort: vi.fn(),
-  shouldRoute: () => false,
+  routeEffort: routeEffortMock,
+  shouldRoute: shouldRouteMock,
 }));
 vi.mock('@/lib/chat/thinkingStream', () => ({
   isGraphRecursionError: () => false,
@@ -103,10 +110,29 @@ vi.mock('@/lib/chat/turnBudget', async (importOriginal) => ({
   withBudgetWrapUp: vi.fn(),
 }));
 vi.mock('@/lib/chat/chatAgent', () => ({ resolveChatAgentGraph: resolveChatAgentGraphMock }));
+// The live-state layer (Redis): stubbed so a turn's presence, Stop watch and
+// reply push can be asserted without a Redis.
+const presence = vi.hoisted(() => {
+  const handle = { setPhase: vi.fn(), done: vi.fn(async () => undefined) };
+  const stop = { controller: new AbortController(), dispose: vi.fn() };
+  return {
+    handle,
+    stop,
+    startTurnPresence: vi.fn(() => handle),
+    watchStop: vi.fn(() => ({ signal: stop.controller.signal, dispose: stop.dispose })),
+    publishReply: vi.fn(async () => undefined),
+  };
+});
+vi.mock('@/lib/bots/presence', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  startTurnPresence: presence.startTurnPresence,
+  watchStop: presence.watchStop,
+  publishReply: presence.publishReply,
+}));
 
 import { POST } from './route';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
-import { buildBudgetNotice } from '@/lib/chat/turnBudget';
+import { buildBudgetNotice, withBudgetWrapUp } from '@/lib/chat/turnBudget';
 import {
   CHAT_ATTACHMENTS_KWARG,
   WHOLE_DOCUMENT_TOOL_NAMES,
@@ -118,7 +144,6 @@ import {
   formatInsightSelectionBlock,
 } from '@/lib/insights/selectionAttachment';
 import { getLangfuseUserId } from '@/lib/langfuseUser';
-import { generateChatTitle } from '@/lib/chat/title';
 
 const CHAT_ID = '11111111-2222-4333-8444-555555555555';
 const INSIGHT_ID = '99999999-8888-4777-8666-555555555555';
@@ -135,18 +160,32 @@ function chatRequest(body: Record<string, unknown>) {
 }
 
 describe('POST /api/chat', () => {
+  const claimTurnMock = vi.fn();
+  const releaseTurnMock = vi.fn();
+  const persistTurnMock = vi.fn();
+  const persistQuestionMock = vi.fn();
+  const discardQuestionMock = vi.fn();
   const copilotChatsService = {
-    assertOwnedBy: assertOwnedByMock,
-    create: createChatMock,
-    setEffortTier: setEffortTierMock,
     touchLastActive: touchLastActiveMock,
-    setTitle: vi.fn(),
+    claimTurn: claimTurnMock,
+    releaseTurn: releaseTurnMock,
+  };
+  // The workspace default bot and the user's thread with it: where a turn that
+  // names no bot runs.
+  const defaultBot = {
+    id: 'dddddddd-2222-4333-8444-555555555555',
+    name: 'Copilot',
+    base_flavor: 'investment',
+    persona_md: '',
+    skills: [],
   };
   const getChatContextMock = vi.fn();
   const insightService = { findBoundAgent: vi.fn(), getChatContext: getChatContextMock };
   const getMessagesMock = vi.fn();
+  const streamEventsMock = vi.fn();
   const graph = {
     invoke: invokeMock,
+    streamEvents: streamEventsMock,
     getMessages: getMessagesMock,
     rewriteFileReferences: vi.fn(),
     repairCorruptServerToolCalls: vi.fn(),
@@ -158,15 +197,21 @@ describe('POST /api/chat', () => {
 
   beforeEach(() => {
     authMock.mockReset().mockResolvedValue({ user: { id: 'u1', email: 'a@b.c', name: 'A' } });
-    assertOwnedByMock
-      .mockReset()
-      .mockResolvedValue({ id: CHAT_ID, title: 'T', effort_tier: 'medium', agent_key: null });
-    createChatMock.mockReset();
-    setEffortTierMock.mockReset();
+    openDefaultThreadMock.mockReset().mockResolvedValue({
+      bot: defaultBot,
+      chat: { id: CHAT_ID, title: 'Copilot', effort_tier: null, agent_key: 'general', bot_id: defaultBot.id },
+    });
+    routeEffortMock.mockReset();
+    claimTurnMock.mockReset().mockResolvedValue(true);
+    streamEventsMock.mockReset().mockResolvedValue({});
+    releaseTurnMock.mockReset().mockResolvedValue(undefined);
+    persistTurnMock.mockReset().mockResolvedValue(undefined);
+    persistQuestionMock.mockReset().mockResolvedValue('q-row');
+    discardQuestionMock.mockReset().mockResolvedValue(undefined);
+    shouldRouteMock.mockReset().mockReturnValue(false);
     touchLastActiveMock.mockReset();
     getCopilotAgentMock.mockReset().mockResolvedValue('investment');
     buildContextMock.mockReset().mockResolvedValue('WORKSPACE CONTEXT');
-    chatCacheEnabledMock.mockReset().mockResolvedValue(false);
     copilotMemoryEnabledMock.mockReset().mockResolvedValue(false);
     recallForTurnMock.mockReset().mockResolvedValue(null);
     rememberTurnMock.mockReset().mockResolvedValue(0);
@@ -174,14 +219,23 @@ describe('POST /api/chat', () => {
     userMemoryServiceMock
       .mockReset()
       .mockReturnValue({ recallForTurn: recallForTurnMock, rememberTurn: rememberTurnMock });
+    botMemoryPromptContextMock.mockReset().mockResolvedValue(null);
     withBackgroundDbMock.mockClear();
     vi.mocked(after).mockClear();
+    presence.handle.setPhase.mockClear();
+    presence.handle.done.mockClear();
+    presence.stop.controller = new AbortController();
+    presence.stop.dispose.mockClear();
+    presence.startTurnPresence.mockClear();
+    presence.watchStop.mockClear();
+    presence.publishReply.mockClear();
     invokeMock.mockReset().mockResolvedValue({ messages: [] });
     resolveChatAgentGraphMock.mockReset();
     getChatContextMock.mockReset().mockResolvedValue(null);
     getMessagesMock.mockReset().mockResolvedValue([]);
     graph.rewriteFileReferences.mockReset();
     graph.repairCorruptServerToolCalls.mockReset();
+    graph.repairOrphanedToolCalls.mockReset();
     ownedRefsMock.mockReset().mockImplementation((refs: unknown) =>
       (refs as Array<{ key: string }>).filter((r) => r.key.startsWith('chat-attachments/ws-1/')),
     );
@@ -199,7 +253,25 @@ describe('POST /api/chat', () => {
       insightService,
       workspaceService: { getCopilotAgent: getCopilotAgentMock },
       userMemoryService: userMemoryServiceMock,
+      botMemoryService: { promptContext: botMemoryPromptContextMock },
+      botService: {
+        openThread: openThreadMock,
+        openDefaultThread: openDefaultThreadMock,
+        mentionContext: mentionContextMock,
+        dispatchMentions: dispatchMentionsMock,
+      },
+      chatHistoryService: {
+        persistTurn: persistTurnMock,
+        persistQuestion: persistQuestionMock,
+        discardQuestion: discardQuestionMock,
+      },
+      botTaskLogService: { record: recordTaskMock },
     });
+    openThreadMock.mockReset();
+    mentionContextMock.mockReset().mockResolvedValue('');
+    dispatchMentionsMock.mockReset().mockResolvedValue([]);
+    recordTaskMock.mockReset().mockResolvedValue(undefined);
+    buildBotTurnOverrideMock.mockReset().mockReturnValue({ systemPrompt: 'BOT', toolList: [] });
   });
 
   const resolve = (over: { agentKey?: string; notice?: string | null; firstTurn?: boolean } = {}) =>
@@ -210,11 +282,6 @@ describe('POST /api/chat', () => {
       firstTurn: false,
       ...over,
     });
-  /** A new thread (no chat_id) with the response cache flag on. */
-  const newCachedThread = () => {
-    createChatMock.mockResolvedValue({ id: CHAT_ID, title: 'T', effort_tier: null, agent_key: null });
-    chatCacheEnabledMock.mockResolvedValue(true);
-  };
   const systemContext = () => invokeMock.mock.calls[0][0].additionalSystemContext;
 
   it('runs the turn on the graph the resolver picked for this thread and page', async () => {
@@ -222,7 +289,6 @@ describe('POST /api/chat', () => {
 
     const res = await POST(
       chatRequest({
-        chat_id: CHAT_ID,
         page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
       }),
     );
@@ -230,7 +296,7 @@ describe('POST /api/chat', () => {
     expect(res.status).toBe(200);
     expect(resolveChatAgentGraphMock).toHaveBeenCalledWith(
       {
-        chat: expect.objectContaining({ id: CHAT_ID, agent_key: null }),
+        chat: expect.objectContaining({ id: CHAT_ID }),
         pageContext: expect.objectContaining({ insightId: INSIGHT_ID }),
         effort: 'medium',
         flavour: 'investment',
@@ -239,41 +305,6 @@ describe('POST /api/chat', () => {
       { workspaceId: 'ws-1', copilotChatsService, insightService },
     );
     expect(res.headers.get('X-Chat-Agent')).toBe('bangun');
-  });
-
-  describe('effort floor on an open insight', () => {
-    const lowThread = () =>
-      assertOwnedByMock.mockResolvedValue({ id: CHAT_ID, title: 'T', effort_tier: 'low', agent_key: null });
-    const onInsight = { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID };
-
-    it('raises an Auto thread on low to medium when an insight is open, and stores it', async () => {
-      lowThread();
-      resolve();
-
-      await POST(chatRequest({ chat_id: CHAT_ID, page_context: onInsight }));
-
-      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
-      expect(setEffortTierMock).toHaveBeenCalledWith(CHAT_ID, 'medium');
-    });
-
-    it('leaves an Auto thread on low when no insight is open', async () => {
-      lowThread();
-      resolve();
-
-      await POST(chatRequest({ chat_id: CHAT_ID }));
-
-      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
-      expect(setEffortTierMock).not.toHaveBeenCalled();
-    });
-
-    it('never overrides a tier the user picked by hand', async () => {
-      lowThread();
-      resolve();
-
-      await POST(chatRequest({ chat_id: CHAT_ID, effort: 'low', page_context: onInsight }));
-
-      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
-    });
   });
 
   it('runs the turn under the signed-in user so its Langfuse traces are attributed', async () => {
@@ -287,54 +318,16 @@ describe('POST /api/chat', () => {
       return { messages: [] };
     });
 
-    await POST(chatRequest({ chat_id: CHAT_ID }));
+    await POST(chatRequest({}));
 
     expect(userDuringTurn).toBe('u1');
     expect(getLangfuseUserId()).toBeUndefined();
   });
 
-  it('keeps the fire-and-forget title generation attributed after the turn returns', async () => {
-    // Why `generateAndSaveTitle` needs no re-entry of its own: it is started
-    // inside the scope and settles after `handleChatTurn` has returned, and the
-    // store follows that async chain. Contrast the v1 SSE drain, where the
-    // consumer is *built* outside the scope and inherits nothing.
-    resolve();
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test');
-    assertOwnedByMock.mockResolvedValue({
-      id: CHAT_ID,
-      title: null,
-      effort_tier: 'medium',
-      agent_key: null,
-    });
-    let userDuringTitle: string | undefined;
-    let settleTitle: (() => void) | undefined;
-    const titleStarted = new Promise<void>((started) => {
-      vi.mocked(generateChatTitle).mockImplementation(async () => {
-        started();
-        // Held open until the handler has returned, so the assertion cannot
-        // pass on a title that resolved while the scope was still on the stack.
-        await new Promise<void>((resolve) => {
-          settleTitle = resolve;
-        });
-        userDuringTitle = getLangfuseUserId();
-        return 'A title';
-      });
-    });
-
-    await POST(chatRequest({ chat_id: CHAT_ID }));
-    await titleStarted;
-    expect(getLangfuseUserId()).toBeUndefined();
-    settleTitle?.();
-    await vi.waitFor(() => expect(userDuringTitle).toBeDefined());
-
-    expect(userDuringTitle).toBe('u1');
-    vi.unstubAllEnvs();
-  });
-
   it('leaves an unauthenticated request unattributed and unanswered', async () => {
     authMock.mockResolvedValue(null);
 
-    const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+    const res = await POST(chatRequest({}));
 
     expect(res.status).toBe(401);
     expect(invokeMock).not.toHaveBeenCalled();
@@ -346,7 +339,7 @@ describe('POST /api/chat', () => {
     // session decrypt out from under the route's error shape.
     authMock.mockRejectedValue(Object.assign(new Error('JWEDecryptionFailed'), { status: 401 }));
 
-    const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+    const res = await POST(chatRequest({}));
 
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ error: 'JWEDecryptionFailed' });
@@ -355,7 +348,7 @@ describe('POST /api/chat', () => {
   it("passes the thread's agent to tools via configurable.agent_key", async () => {
     resolve({ agentKey: 'dikti' });
 
-    await POST(chatRequest({ chat_id: CHAT_ID }));
+    await POST(chatRequest({}));
 
     const [inputs, config] = invokeMock.mock.calls[0];
     expect(config.configurable.agent_key).toBe('dikti');
@@ -365,7 +358,7 @@ describe('POST /api/chat', () => {
   it('appends the no-sector-agent notice to the system context on the turn that carries it', async () => {
     resolve({ notice: 'NO AGENT NOTICE', firstTurn: true });
 
-    await POST(chatRequest({ chat_id: CHAT_ID }));
+    await POST(chatRequest({}));
 
     expect(systemContext()).toBe('WORKSPACE CONTEXT\n\nNO AGENT NOTICE');
   });
@@ -373,22 +366,10 @@ describe('POST /api/chat', () => {
   it('returns 500 when the resolved agent graph is unavailable', async () => {
     resolveChatAgentGraphMock.mockResolvedValue({ graph: null, agentKey: 'general', notice: null, firstTurn: false });
 
-    const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+    const res = await POST(chatRequest({}));
 
     expect(res.status).toBe(500);
     expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['caches an ordinary first turn', null, true],
-    ['does not cache a first turn that carried the no-sector-agent notice', 'NO AGENT NOTICE', false],
-  ])('%s', async (_label, notice, cached) => {
-    newCachedThread();
-    resolve({ agentKey: notice ? 'general' : 'bangun', notice, firstTurn: true });
-
-    await POST(chatRequest({}));
-
-    expect(chatCacheEnabledMock.mock.calls.length > 0).toBe(cached);
   });
 
   describe('the open insight as context (MB-550)', () => {
@@ -406,7 +387,7 @@ describe('POST /api/chat', () => {
       getChatContextMock.mockResolvedValue(context);
       resolve({ agentKey: 'bangun' });
 
-      await POST(chatRequest({ chat_id: CHAT_ID, page_context: insightPage }));
+      await POST(chatRequest({ page_context: insightPage }));
 
       expect(getChatContextMock).toHaveBeenCalledWith('ws-1', INSIGHT_ID);
       const [inputs] = invokeMock.mock.calls[0];
@@ -419,7 +400,7 @@ describe('POST /api/chat', () => {
       getChatContextMock.mockResolvedValue(context);
       resolve({ notice: 'NO AGENT NOTICE', firstTurn: true });
 
-      await POST(chatRequest({ chat_id: CHAT_ID, page_context: insightPage }));
+      await POST(chatRequest({ page_context: insightPage }));
 
       expect(systemContext()).toMatch(/^WORKSPACE CONTEXT\n\nNO AGENT NOTICE\n\n## The insight open on screen\n/);
     });
@@ -427,7 +408,7 @@ describe('POST /api/chat', () => {
     it('reads no outline when no insight is open', async () => {
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID, page_context: { tabSlug: null, path: '/pipeline' } }));
+      await POST(chatRequest({ page_context: { tabSlug: null, path: '/pipeline' } }));
 
       expect(getChatContextMock).not.toHaveBeenCalled();
       expect(systemContext()).toBe('WORKSPACE CONTEXT');
@@ -438,9 +419,9 @@ describe('POST /api/chat', () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       getChatContextMock.mockResolvedValueOnce(null);
-      await POST(chatRequest({ chat_id: CHAT_ID, page_context: insightPage }));
+      await POST(chatRequest({ page_context: insightPage }));
       getChatContextMock.mockRejectedValueOnce(new Error('db down'));
-      const res = await POST(chatRequest({ chat_id: CHAT_ID, page_context: insightPage }));
+      const res = await POST(chatRequest({ page_context: insightPage }));
 
       expect(res.status).toBe(200);
       expect(invokeMock.mock.calls[0][0].additionalSystemContext).toBe('WORKSPACE CONTEXT');
@@ -448,15 +429,6 @@ describe('POST /api/chat', () => {
       consoleError.mockRestore();
     });
 
-    it('does not cache a first turn made on an insight', async () => {
-      newCachedThread();
-      getChatContextMock.mockResolvedValue(context);
-      resolve({ agentKey: 'bangun', firstTurn: true });
-
-      await POST(chatRequest({ page_context: insightPage }));
-
-      expect(chatCacheEnabledMock).not.toHaveBeenCalled();
-    });
   });
 
   describe('large documents and the zero-work timeout', () => {
@@ -465,23 +437,26 @@ describe('POST /api/chat', () => {
     const inputs = () => invokeMock.mock.calls[0][0];
 
     it('reads the thread once, and passes that read to the file-reference rewrite', async () => {
-      resolve();
-
-      await POST(chatRequest({ chat_id: CHAT_ID }));
-
-      expect(getMessagesMock).toHaveBeenCalledTimes(1);
-      expect(getMessagesMock).toHaveBeenCalledWith(CHAT_ID);
-      expect(graph.rewriteFileReferences).toHaveBeenCalledWith(CHAT_ID, [], []);
-      expect(graph.repairCorruptServerToolCalls).toHaveBeenCalledWith(CHAT_ID, []);
-    });
-
-    it('does not read history on a brand-new thread', async () => {
-      createChatMock.mockResolvedValue({ id: CHAT_ID, title: 'T', effort_tier: null, agent_key: null });
+      const history = [new HumanMessage('earlier')];
+      getMessagesMock.mockResolvedValue(history);
       resolve();
 
       await POST(chatRequest({}));
 
-      expect(getMessagesMock).not.toHaveBeenCalled();
+      expect(getMessagesMock).toHaveBeenCalledTimes(1);
+      expect(getMessagesMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(graph.rewriteFileReferences).toHaveBeenCalledWith(CHAT_ID, [], history);
+      expect(graph.repairCorruptServerToolCalls).toHaveBeenCalledWith(CHAT_ID, history);
+    });
+
+    it('repairs nothing on a thread with no history yet', async () => {
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(getMessagesMock).toHaveBeenCalledTimes(1);
+      expect(graph.rewriteFileReferences).not.toHaveBeenCalled();
+      expect(graph.repairOrphanedToolCalls).not.toHaveBeenCalled();
     });
 
     it('after a zero-work timeout, tells this turn to hand off and withholds the whole-document tools', async () => {
@@ -491,7 +466,7 @@ describe('POST /api/chat', () => {
       ]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(inputs().additionalSystemContext).toBe(`WORKSPACE CONTEXT\n\n${ZERO_WORK_FOLLOW_UP_CONTEXT}`);
       expect(inputs().withheldTools).toEqual([...WHOLE_DOCUMENT_TOOL_NAMES]);
@@ -504,7 +479,7 @@ describe('POST /api/chat', () => {
       ]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(inputs().additionalSystemContext).toBe(`WORKSPACE CONTEXT\n\n${TIMED_OUT_FOLLOW_UP_CONTEXT}`);
       expect(inputs().withheldTools).toEqual([...WHOLE_DOCUMENT_TOOL_NAMES]);
@@ -514,7 +489,7 @@ describe('POST /api/chat', () => {
       getMessagesMock.mockResolvedValue([new HumanMessage('rank them'), new AIMessage('Here is the ranking.')]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(inputs().additionalSystemContext).toBe('WORKSPACE CONTEXT');
       expect(inputs().withheldTools).toEqual([]);
@@ -527,7 +502,7 @@ describe('POST /api/chat', () => {
       ]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(ownedRefsMock).toHaveBeenCalledWith([HTML_REF]);
       expect(config().configurable.priorAttachments).toEqual([HTML_REF]);
@@ -541,7 +516,7 @@ describe('POST /api/chat', () => {
       ]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(config().configurable.priorAttachments).toEqual([]);
     });
@@ -554,7 +529,7 @@ describe('POST /api/chat', () => {
       });
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID, attachments: [HTML_REF] }));
+      await POST(chatRequest({ attachments: [HTML_REF] }));
 
       expect(attachmentPrepareMock).toHaveBeenCalledWith([HTML_REF], { largeHtml: 'outline' });
       const [human] = inputs().messages;
@@ -575,7 +550,6 @@ describe('POST /api/chat', () => {
 
       await POST(
         chatRequest({
-          chat_id: CHAT_ID,
           messages: [
             {
               role: 'user',
@@ -603,7 +577,6 @@ describe('POST /api/chat', () => {
 
       await POST(
         chatRequest({
-          chat_id: CHAT_ID,
           messages: [
             {
               role: 'user',
@@ -625,7 +598,6 @@ describe('POST /api/chat', () => {
     };
     const selectionRequest = () =>
       chatRequest({
-        chat_id: CHAT_ID,
         page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
         messages: [
           {
@@ -666,7 +638,7 @@ describe('POST /api/chat', () => {
     it('leaves a turn without a selection on the plain text path', async () => {
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(attachmentPrepareMock).not.toHaveBeenCalled();
       expect(invokeMock.mock.calls[0][1].configurable.originalUserQuestion).toBe(
@@ -686,7 +658,7 @@ describe('POST /api/chat', () => {
     it('does nothing at all when the memory flag is off', async () => {
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
       await runAfterCallbacks();
 
       expect(recallForTurnMock).not.toHaveBeenCalled();
@@ -699,13 +671,35 @@ describe('POST /api/chat', () => {
       recallForTurnMock.mockResolvedValue('## What you remember about this user\n\n- Covers coal');
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
 
       expect(userMemoryServiceMock).toHaveBeenCalledWith('u1');
       expect(recallForTurnMock).toHaveBeenCalledWith('How is this developer doing?');
       expect(systemContext()).toBe(
         'WORKSPACE CONTEXT\n\n## What you remember about this user\n\n- Covers coal',
       );
+    });
+
+    it('adds the notes the user asked this bot to keep after the mem0 memories, whatever the memory flag says', async () => {
+      // Explicit notes are not behind the mem0 switch: the user asked for each by name.
+      copilotMemoryEnabledMock.mockResolvedValue(false);
+      botMemoryPromptContextMock.mockResolvedValue('## What this user asked you to remember\n\n- Answer in Bahasa');
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(botMemoryPromptContextMock).toHaveBeenCalledWith('u1', expect.any(String));
+      expect(systemContext()).toBe('WORKSPACE CONTEXT\n\n## What this user asked you to remember\n\n- Answer in Bahasa');
+    });
+
+    it('runs the turn without the notes when their lookup fails', async () => {
+      botMemoryPromptContextMock.mockRejectedValue(new Error('db down'));
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(200);
+      expect(systemContext()).toBe('WORKSPACE CONTEXT');
     });
 
     it('places the memories before the open insight\u2019s outline', async () => {
@@ -723,7 +717,6 @@ describe('POST /api/chat', () => {
 
       await POST(
         chatRequest({
-          chat_id: CHAT_ID,
           page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
         }),
       );
@@ -739,7 +732,7 @@ describe('POST /api/chat', () => {
       resolve();
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+      const res = await POST(chatRequest({}));
 
       expect(res.status).toBe(200);
       expect(systemContext()).toBe('WORKSPACE CONTEXT');
@@ -749,9 +742,10 @@ describe('POST /api/chat', () => {
     it('records the finished turn after the response, from the persisted messages', async () => {
       copilotMemoryEnabledMock.mockResolvedValue(true);
       extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: 'the answer' });
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue([new HumanMessage({ id: 'h', content: 'q' })]);
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
       expect(rememberTurnMock).not.toHaveBeenCalled();
 
       await runAfterCallbacks();
@@ -771,7 +765,7 @@ describe('POST /api/chat', () => {
       extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: '   ' });
       resolve();
 
-      await POST(chatRequest({ chat_id: CHAT_ID }));
+      await POST(chatRequest({}));
       await runAfterCallbacks();
 
       expect(rememberTurnMock).not.toHaveBeenCalled();
@@ -784,11 +778,431 @@ describe('POST /api/chat', () => {
       resolve();
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const res = await POST(chatRequest({ chat_id: CHAT_ID }));
+      const res = await POST(chatRequest({}));
       await expect(runAfterCallbacks()).resolves.not.toThrow();
 
       expect(res.status).toBe(200);
       spy.mockRestore();
+    });
+  });
+
+  describe('the turn lock and chat history', () => {
+    const runAfter = async () => {
+      for (const call of vi.mocked(after).mock.calls) {
+        const task = call[0];
+        await (typeof task === 'function' ? task() : task);
+      }
+    };
+
+    it('409s while a background turn (a mention or a routine) holds this thread, and runs nothing', async () => {
+      claimTurnMock.mockResolvedValue(false);
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain('Copilot is working on a background task');
+      expect(invokeMock).not.toHaveBeenCalled();
+    });
+
+    it('holds the lock for the turn and releases it once the response is done', async () => {
+      resolve();
+
+      await POST(chatRequest({}));
+      expect(claimTurnMock).toHaveBeenCalledWith(CHAT_ID, 600);
+      expect(releaseTurnMock).not.toHaveBeenCalled();
+
+      await runAfter();
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+    });
+
+    it('stores the finished turn in the chat history as read', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      const finalMessages = [new HumanMessage({ id: 'h-new', content: 'q' })];
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
+      resolve();
+
+      await POST(chatRequest({}));
+      await runAfter();
+
+      expect(persistTurnMock).toHaveBeenCalledWith({
+        chat: expect.objectContaining({ id: CHAT_ID }),
+        finalMessages,
+        interactive: true,
+        questionStored: true,
+      });
+    });
+
+    it('stores the question as soon as the turn is claimed, before the agent runs', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      getMessagesMock.mockResolvedValue([]);
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(persistQuestionMock).toHaveBeenCalledTimes(1);
+      const [call] = persistQuestionMock.mock.calls;
+      expect(call[0]).toMatchObject({ chat: expect.objectContaining({ id: CHAT_ID }), prior: [] });
+      expect(call[0].message).toBeInstanceOf(HumanMessage);
+      expect(persistQuestionMock.mock.invocationCallOrder[0]).toBeGreaterThan(claimTurnMock.mock.invocationCallOrder[0]);
+      const agentRan = streamEventsMock.mock.invocationCallOrder[0] ?? invokeMock.mock.invocationCallOrder[0];
+      expect(persistQuestionMock.mock.invocationCallOrder[0]).toBeLessThan(agentRan);
+    });
+
+    it('still answers when the question cannot be stored up front, and stores the whole turn at the end', async () => {
+      persistQuestionMock.mockRejectedValue(new Error('db hiccup'));
+      const finalMessages = [new HumanMessage({ id: 'h-new', content: 'q' })];
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      resolve();
+
+      const res = await POST(chatRequest({}));
+      await runAfter();
+
+      expect(res.status).toBe(200);
+      expect(persistTurnMock.mock.calls[0][0].questionStored).toBe(false);
+      spy.mockRestore();
+    });
+
+    const mentionRequest = (text: string) =>
+      chatRequest({ messages: [{ role: 'user', parts: [{ type: 'text', text }] }] });
+
+    it("pings the user's @mentions as soon as the message arrives", async () => {
+      dispatchMentionsMock.mockResolvedValue(['scout']);
+      resolve();
+
+      await POST(mentionRequest('@Scout look at this'));
+
+      expect(dispatchMentionsMock).toHaveBeenCalledTimes(1);
+      expect(dispatchMentionsMock).toHaveBeenCalledWith('u1', {
+        bot: { id: defaultBot.id, name: defaultBot.name },
+        userText: '@Scout look at this',
+      });
+    });
+
+    it("pings the user's @mentions even when the turn never reaches the thread", async () => {
+      // The turn fails before the agent runs: nothing new in the thread.
+      getMessagesMock.mockResolvedValue([]);
+      resolve();
+
+      await POST(mentionRequest('@Scout look'));
+      await runAfter();
+
+      expect(dispatchMentionsMock).toHaveBeenCalledTimes(1);
+      expect(dispatchMentionsMock).toHaveBeenCalledWith('u1', expect.objectContaining({ userText: '@Scout look' }));
+    });
+
+    it('does not ping when the message names no bot', async () => {
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue([new HumanMessage({ id: 'h-new', content: 'q' })]);
+      extractLastTurnMock.mockReturnValue({ userText: 'q', assistantText: 'a' });
+      resolve();
+
+      await POST(chatRequest({}));
+      expect(dispatchMentionsMock).not.toHaveBeenCalled();
+    });
+
+    it("hands the reply's @mentions on after the turn, skipping bots the user already pinged", async () => {
+      dispatchMentionsMock.mockResolvedValue(['scout']);
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue([new HumanMessage({ id: 'h-new', content: 'q' })]);
+      extractLastTurnMock.mockReturnValue({ userText: '@Scout look', assistantText: 'Asked @Atlas.' });
+      resolve();
+
+      await POST(mentionRequest('@Scout look'));
+      expect(dispatchMentionsMock).toHaveBeenCalledTimes(1);
+      await runAfter();
+
+      expect(dispatchMentionsMock).toHaveBeenLastCalledWith('u1', {
+        bot: { id: defaultBot.id, name: defaultBot.name },
+        replyText: 'Asked @Atlas.',
+        alreadyPinged: ['scout'],
+        // The asker's thread and turn: the group the requests behind these mentions share.
+        chatId: CHAT_ID,
+        turnId: expect.any(String),
+      });
+    });
+
+    it("queues the finished turn for the bot's task log", async () => {
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue([new HumanMessage({ id: 'h-new', content: 'q' })]);
+      extractLastTurnMock.mockReturnValue({ userText: 'Find targets', assistantText: 'Found three.' });
+      resolve();
+
+      await POST(chatRequest({}));
+      await runAfter();
+
+      expect(recordTaskMock).toHaveBeenCalledWith({
+        botId: defaultBot.id,
+        userId: 'u1',
+        chatId: CHAT_ID,
+        source: 'chat',
+        routine: null,
+        question: 'Find targets',
+        answer: 'Found three.',
+        toolNames: [],
+      });
+    });
+
+    it('tells the bot which other bots it can @mention', async () => {
+      mentionContextMock.mockResolvedValue('<other_bots>');
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(mentionContextMock).toHaveBeenCalledWith('u1', defaultBot.id);
+      expect(systemContext()).toBe('WORKSPACE CONTEXT\n\n<other_bots>');
+    });
+
+    it('stores nothing when the turn never reached the thread, takes its question back out, and still releases the lock', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      const unchanged = [new HumanMessage({ id: 'h-old', content: 'old' })];
+      getMessagesMock.mockResolvedValue(unchanged);
+      resolve();
+
+      await POST(chatRequest({}));
+      await runAfter();
+
+      expect(persistTurnMock).not.toHaveBeenCalled();
+      expect(discardQuestionMock).toHaveBeenCalledWith('q-row');
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+    });
+
+    it('releases the lock and clears live presence when reading the history fails', async () => {
+      getMessagesMock.mockRejectedValue(new Error('checkpointer down'));
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(500);
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(presence.handle.done).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives the tools the chatting user and the bot, from the session', async () => {
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(invokeMock.mock.calls[0][1].configurable).toMatchObject({
+        userId: 'u1',
+        botId: defaultBot.id,
+      });
+    });
+  });
+
+  describe('bot threads (RFC 02)', () => {
+    const BOT_ID = 'bbbbbbbb-2222-4333-8444-555555555555';
+    const BOT_CHAT_ID = 'cccccccc-2222-4333-8444-555555555555';
+    const bot = {
+      id: BOT_ID,
+      name: 'Scout',
+      base_flavor: 'vc',
+      persona_md: 'Be brief.',
+      skills: ['crm'],
+    };
+    const botThread = (over: Record<string, unknown> = {}) =>
+      openThreadMock.mockResolvedValue({
+        bot,
+        chat: { id: BOT_CHAT_ID, title: 'Scout', effort_tier: 'high', agent_key: 'general', bot_id: BOT_ID, ...over },
+      });
+
+    it("runs on the bot's permanent thread and flavor, ignoring a posted chat_id", async () => {
+      botThread();
+      resolve();
+
+      const res = await POST(chatRequest({ bot_id: BOT_ID, chat_id: CHAT_ID }));
+
+      expect(res.status).toBe(200);
+      expect(openThreadMock).toHaveBeenCalledWith('u1', BOT_ID);
+      expect(openDefaultThreadMock).not.toHaveBeenCalled();
+      expect(resolveChatAgentGraphMock.mock.calls[0][0]).toMatchObject({
+        chat: expect.objectContaining({ id: BOT_CHAT_ID }),
+        flavour: 'vc',
+      });
+      expect(res.headers.get('X-Chat-Id')).toBe(BOT_CHAT_ID);
+    });
+
+    it("hands the bot's prompt, tools and middleware to the agent for this turn", async () => {
+      botThread();
+      resolve();
+
+      await POST(chatRequest({ bot_id: BOT_ID }));
+
+      expect(buildBotTurnOverrideMock).toHaveBeenCalledWith(graph, bot);
+      expect(invokeMock.mock.calls[0][0].override).toEqual({ systemPrompt: 'BOT', toolList: [] });
+    });
+
+    it('picks the effort tier per turn and never stores it on the thread', async () => {
+      // The thread row says 'high'; a permanent thread must not stay pinned there.
+      botThread({ effort_tier: 'high' });
+      resolve();
+
+      await POST(chatRequest({ bot_id: BOT_ID }));
+
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
+    });
+
+    it('runs on the workspace default bot when the turn names none', async () => {
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(openDefaultThreadMock).toHaveBeenCalledWith('u1');
+      expect(openThreadMock).not.toHaveBeenCalled();
+      expect(buildBotTurnOverrideMock).toHaveBeenCalledWith(graph, defaultBot);
+      expect(res.headers.get('X-Chat-Id')).toBe(CHAT_ID);
+    });
+
+    it('routes the effort tier per turn, raised to the open-insight floor', async () => {
+      shouldRouteMock.mockReturnValue(true);
+      routeEffortMock.mockResolvedValue('low');
+      resolve();
+
+      await POST(chatRequest({ page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID } }));
+      await POST(chatRequest({}));
+      await POST(chatRequest({ effort: 'low', page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID } }));
+
+      expect(resolveChatAgentGraphMock.mock.calls.map((c) => c[0].effort)).toEqual(['medium', 'low', 'low']);
+    });
+
+    it('reads the persisted history even on the first message after a reload', async () => {
+      botThread();
+      getMessagesMock.mockResolvedValue([new HumanMessage('earlier')]);
+      resolve();
+
+      await POST(chatRequest({ bot_id: BOT_ID }));
+
+      expect(getMessagesMock).toHaveBeenCalledWith(BOT_CHAT_ID);
+      expect(graph.repairOrphanedToolCalls).toHaveBeenCalledWith(BOT_CHAT_ID);
+    });
+
+    it('404s when the bot is not visible to the user', async () => {
+      const { BotNotFoundError } = await import('@/lib/services/botService');
+      openThreadMock.mockRejectedValue(new BotNotFoundError());
+
+      const res = await POST(chatRequest({ bot_id: BOT_ID }));
+
+      expect(res.status).toBe(404);
+      expect(invokeMock).not.toHaveBeenCalled();
+    });
+
+  });
+
+  // A turn outlives its browser connection: navigating away must not cut the
+  // reply off. Only the turn budget or an explicit Stop ends it early.
+  describe('a streamed turn after the browser disconnects', () => {
+    const runAfterCallbacks = async () => {
+      for (const [fn] of vi.mocked(after).mock.calls) {
+        await (fn as () => unknown)();
+      }
+    };
+    const streamRequest = (signal?: AbortSignal) =>
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'How is this developer doing?' }] }],
+        }),
+        signal,
+      });
+    /** The agent's UI stream: `count` text chunks, recording how many were read. */
+    const agentStream = (count: number) => {
+      const read = { chunks: 0, done: false };
+      let i = 0;
+      const stream = new ReadableStream({
+        pull(controller) {
+          if (i === 0) controller.enqueue({ type: 'text-start', id: 't' });
+          if (i < count) {
+            controller.enqueue({ type: 'text-delta', id: 't', delta: `chunk ${i}` });
+            i++;
+            read.chunks = i;
+            return;
+          }
+          controller.enqueue({ type: 'text-end', id: 't' });
+          read.done = true;
+          controller.close();
+        },
+      });
+      return { stream, read };
+    };
+    const turnSignal = () => streamEventsMock.mock.calls[0][1].signal as AbortSignal;
+
+    it('does not abort the agent when the request is aborted', async () => {
+      resolve();
+      vi.mocked(withBudgetWrapUp).mockReturnValue(agentStream(1).stream as never);
+      const client = new AbortController();
+
+      await POST(streamRequest(client.signal));
+      client.abort();
+
+      expect(turnSignal().aborted).toBe(false);
+    });
+
+    it('reads the agent to the end on the server after the client cancels its copy', async () => {
+      resolve();
+      const { stream, read } = agentStream(50);
+      vi.mocked(withBudgetWrapUp).mockReturnValue(stream as never);
+
+      const res = await POST(streamRequest());
+      await res.body!.cancel();
+      // The work queued with after() waits for the turn to finish.
+      await runAfterCallbacks();
+
+      expect(read).toEqual({ chunks: 50, done: true });
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+    });
+
+    it('aborts the agent when the Stop watch fires, never the request signal', async () => {
+      resolve();
+      // Still running: the agent has not produced its next chunk yet.
+      vi.mocked(withBudgetWrapUp).mockReturnValue(new ReadableStream({ pull: () => new Promise(() => {}) }) as never);
+
+      await POST(streamRequest());
+
+      expect(presence.watchStop).toHaveBeenCalledWith(CHAT_ID);
+      expect(turnSignal().aborted).toBe(false);
+      presence.stop.controller.abort();
+      expect(turnSignal().aborted).toBe(true);
+    });
+
+    it('shows the bot as live from the lock to after its release, and pushes the stored reply', async () => {
+      resolve();
+      const { stream } = agentStream(1);
+      vi.mocked(withBudgetWrapUp).mockReturnValue(stream as never);
+      getMessagesMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([new HumanMessage({ content: 'q', id: 'h1' }), new AIMessage('a')]);
+
+      const res = await POST(streamRequest());
+      const turnId = res.headers.get('X-Turn-Id');
+      expect(turnId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(presence.startTurnPresence).toHaveBeenCalledWith({
+        workspaceId: 'ws-1',
+        userId: 'u1',
+        chatId: CHAT_ID,
+        botId: defaultBot.id,
+        turnId,
+      });
+      // The presence detector rides on the agent run.
+      expect(streamEventsMock.mock.calls[0][1].callbacks).toHaveLength(1);
+
+      await res.body!.cancel();
+      await runAfterCallbacks();
+
+      expect(presence.publishReply).toHaveBeenCalledWith('ws-1', 'u1', { chatId: CHAT_ID, botId: defaultBot.id, turnId });
+      expect(presence.handle.done).toHaveBeenCalledTimes(1);
+      expect(presence.handle.done.mock.invocationCallOrder[0]).toBeGreaterThan(releaseTurnMock.mock.invocationCallOrder[0]);
+      expect(presence.stop.dispose).toHaveBeenCalled();
+    });
+
+    it('never goes live for a turn that lost the lock', async () => {
+      resolve();
+      claimTurnMock.mockResolvedValue(false);
+
+      const res = await POST(streamRequest());
+
+      expect(res.status).toBe(409);
+      expect(presence.startTurnPresence).not.toHaveBeenCalled();
     });
   });
 });

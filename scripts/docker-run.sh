@@ -4,7 +4,7 @@ set -euo pipefail
 # Start or stop an optional docker-compose stack used after docker-refresh:lite.
 #
 # Usage:
-#   bash scripts/docker-run.sh <mailhog|minio|langfuse> [down]
+#   bash scripts/docker-run.sh <mailhog|minio|langfuse|redis> [down]
 #   pnpm docker:run-mailhog
 #   pnpm docker:run-mailhog -- down
 
@@ -15,7 +15,7 @@ STACK="${1:-}"
 ACTION="${2:-up}"
 
 if [ -z "$STACK" ]; then
-  echo "Usage: $0 <mailhog|minio|langfuse> [down]"
+  echo "Usage: $0 <mailhog|minio|langfuse|redis> [down]"
   exit 1
 fi
 
@@ -35,13 +35,19 @@ case "$STACK" in
     UP_SERVICES=(minio minio-init)
     DOWN_SERVICES=(minio minio-init)
     ;;
+  redis)
+    # The app's own Redis (bot presence, Stop signals, live updates).
+    # REDIS_URL=redis://localhost:6379
+    UP_SERVICES=(redis)
+    DOWN_SERVICES=(redis)
+    ;;
   langfuse)
     # MinIO buckets (incl. `langfuse`) must exist before Langfuse workers start.
     UP_SERVICES=(minio minio-init langfuse-redis langfuse-clickhouse langfuse-worker langfuse-web)
     DOWN_SERVICES=(langfuse-redis langfuse-clickhouse langfuse-worker langfuse-web)
     ;;
   *)
-    echo "Unknown stack: $STACK (expected mailhog|minio|langfuse)"
+    echo "Unknown stack: $STACK (expected mailhog|minio|langfuse|redis)"
     exit 1
     ;;
 esac

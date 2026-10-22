@@ -15,6 +15,8 @@
  * than as a regex duplicated across the tool and the component.
  */
 
+import { BOT_CHANGE_APPROVAL_MARKER, BOT_MESSAGE_MARKER } from '@/lib/bots/approval';
+
 export const INSIGHT_CREATE_APPROVAL_MARKER = 'INSIGHT_CREATE_APPROVAL_JSON';
 export const INSIGHT_EDIT_APPROVAL_MARKER = 'INSIGHT_EDIT_APPROVAL_JSON';
 export const REPORT_PLAN_APPROVAL_MARKER = 'REPORT_PLAN_APPROVAL_JSON';
@@ -90,10 +92,13 @@ export function resolveApprovalPayload<T extends { html: string }>(
 }
 
 
-/** Removes every insight approval comment, so no payload renders as prose. */
+/** Every marker written with `encodeApprovalMarker`: the insight cards and the bot cards. */
+const ENCODED_MARKERS = [...INSIGHT_APPROVAL_MARKERS, BOT_CHANGE_APPROVAL_MARKER, BOT_MESSAGE_MARKER];
+
+/** Removes every encoded approval comment, so no payload renders as prose. */
 export function stripApprovalMarkers(text: string): string {
   let out = text;
-  for (const marker of INSIGHT_APPROVAL_MARKERS) {
+  for (const marker of ENCODED_MARKERS) {
     out = out.replace(
       new RegExp(`\\n*<!--\\s*${marker}:[A-Za-z0-9+/=\\s]*?-->`, 'gs'),
       '',

@@ -12,7 +12,7 @@ function ProfileLoading() {
 }
 
 /**
- * The profile page — reached from the mobile bottom nav's Profile tab, and on
+ * The profile page — pinned second on the mobile bot home, and reached on
  * desktop from the sidebar's account menu. The workspace switcher lives inside
  * it, under the user's name.
  *

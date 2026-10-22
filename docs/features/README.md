@@ -39,6 +39,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Copilot flavors (M&A, Investment, Combined, VC, Minority Stakes, Crowdfunding)](copilot-flavors.md) — 19KB
 - [Sector agents (`@minerba`, `@dikti`, `@bangun`)](sector-agents.md) — 882B
 - [In-app Copilot chat caching](copilot-chat-caching.md) — 2KB
+- [Copilot bots (one permanent thread per bot, every skill, set up through the chat, persona, history search, @mentions with reply-back between bots, live presence over Redis + SSE, routines, task log, verdict-first replies, dated citations, option cards, avatar)](copilot-bots.md) — 19KB
 - [In-app Copilot chat attachments](copilot-chat-attachments.md) — 6KB
 - [CoPilot memory (mem0, pgvector)](copilot-memory.md) — 20KB
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB

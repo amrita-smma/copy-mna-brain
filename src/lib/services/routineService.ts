@@ -316,7 +316,7 @@ export class RoutineService {
     input: UpdateRoutineInput,
     userId: string,
   ): Promise<RoutineRow> {
-    const existing = await this.routinesRepo.findById(id);
+    const existing = await this.routinesRepo.findWorkforceRoutineById(id);
     if (!existing) {
       throw new RoutineNotFoundError(`Routine ${id} not found`);
     }
@@ -461,7 +461,7 @@ export class RoutineService {
    * it within a minute) — force-running either would run the broken binding.
    */
   async prepareManualRun(id: string): Promise<ManualRunPlan> {
-    const routine = await this.routinesRepo.findById(id);
+    const routine = await this.routinesRepo.findWorkforceRoutineById(id);
     if (!routine) {
       throw new RoutineNotFoundError(`Routine ${id} not found`);
     }

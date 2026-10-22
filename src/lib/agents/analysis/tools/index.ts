@@ -20,6 +20,19 @@ import { valyuSearch } from "./valyu_search";
 import { alphasenseSearch } from "./alphasense_search";
 import { queryMeetingNotes } from "./query_files";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
+import { searchChatHistory } from "./search_chat_history";
+import { lookupBot } from "./lookup_bot";
+import { proposeCreateBot } from "./propose_create_bot";
+import { updateBot } from "./update_bot";
+import { listTasks } from "./list_tasks";
+import { createTask } from "./create_task";
+import { updateTask } from "./update_task";
+import { deleteTask } from "./delete_task";
+import { listRoutines } from "./list_routines";
+import { proposeCreateRoutine } from "./propose_create_routine";
+import { updateRoutine } from "./update_routine";
+import { deleteRoutine } from "./delete_routine";
+import { offerOptions } from "./offer_options";
 import { proposeBulkDropCompanies } from "./propose_bulk_drop_companies";
 import { proposeBulkPromoteCompanies } from "./propose_bulk_promote_companies";
 import { moveStage } from "./move_stage";
@@ -72,6 +85,9 @@ import { proposeReportPlan } from "./propose_report_plan";
 import { createInsight } from "./create_insight";
 import { editInsightSection } from "./edit_insight_section";
 import { replaceInsightDocument } from "./replace_insight_document";
+
+export { searchChatHistory, lookupBot, proposeCreateBot, updateBot, listRoutines, proposeCreateRoutine, updateRoutine, deleteRoutine, offerOptions };
+export { listTasks, createTask, updateTask, deleteTask };
 
 export {
   getDataSchema,
@@ -200,6 +216,28 @@ export const chatOnlyTools = [
   proposeInsightEdit,
   proposeInsightRefresh,
   proposeReportPlan,
+];
+
+/**
+ * Bot tools — in no flavour's list. A Copilot bot gets them per turn through
+ * its skills (`@/lib/bots/skills`): history search and option cards for every bot, the rest via
+ * the bot_builder, routines and tasks skills. They read the chatting user from
+ * the turn's `configurable`, so they only work inside a bot chat.
+ */
+export const botTools = [
+  searchChatHistory,
+  lookupBot,
+  proposeCreateBot,
+  updateBot,
+  listRoutines,
+  proposeCreateRoutine,
+  updateRoutine,
+  deleteRoutine,
+  offerOptions,
+  listTasks,
+  createTask,
+  updateTask,
+  deleteTask,
 ];
 
 /**

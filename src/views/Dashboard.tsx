@@ -1152,8 +1152,9 @@ export default function Dashboard({
     <>
       <div className="min-h-full animate-fade-in">
         <PageHeader
-          title="Dashboard"
-          subtitle="Real-time overview of your M&A deal pipeline"
+          /* On mobile this page is the Timeline pinned on the bot home. */
+          title={isMobile ? "Timeline" : "Dashboard"}
+          subtitle={isMobile ? undefined : "Real-time overview of your M&A deal pipeline"}
           actions={
             /* Global date range filter — desktop only; the mobile feed scrolls
                infinitely and has no date window. Two components: the active

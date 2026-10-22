@@ -23,7 +23,7 @@ import {
   CONSOLE_NAVIGATION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
 import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
@@ -161,7 +161,7 @@ ${MNA_PIPELINE_OPERATIONS_GUIDE}
 - When users ask vague questions, clarify the objective, the size and the timing before analysing — those three decide the route
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner)
 - Check query_files when the question turns on internal history — what a memo concluded, what price was already discussed, what a prior process found. Files are point-in-time documents: what a memo said last year is evidence about last year
-${buildExternalEvidenceGuide({ topicTools: true })}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

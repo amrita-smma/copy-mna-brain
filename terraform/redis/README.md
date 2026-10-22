@@ -56,12 +56,15 @@ Deliberate choices:
 make init-staging          # or init-production
 terraform apply
 
-terraform output -raw redis_url      # → REDIS_URL on Vercel (sensitive)
-terraform output -raw redis_ca_pem   # → REDIS_CA_PEM on Vercel (multiline, paste as-is)
+terraform output -raw redis_url             # → REDIS_URL on Vercel (sensitive)
+terraform output -raw redis_ca_pem_base64   # → REDIS_CA_PEM on Vercel (one line)
 ```
 
 Set both on the Vercel project (Production and Preview; previews may share the
-staging instance). The app reads them in `src/lib/server/redis.ts`.
+staging instance). Use the **base64** form of the CA for the dashboard: a
+pasted multiline PEM does not always keep its newlines (Vercel previews lost
+them and the handshake failed). The app accepts `REDIS_CA_PEM` as the PEM, as a
+PEM with `\n` escapes, or as base64 (`readCaPem` in `src/lib/server/redis.ts`).
 
 Check from outside AWS:
 

@@ -1,13 +1,9 @@
 import { type UIMessage } from "@ai-sdk/react";
-import { memo, useMemo, useState, useEffect } from "react";
+import { formatMessageTime, messageCreatedAt } from '@/lib/chat/messageTime';
+import { memo, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { User, ChevronDown, ChevronRight, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle } from "lucide-react";
+import { ChevronDown, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle, CalendarClock } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +36,23 @@ import { InsightRefreshApprovalCard } from "./InsightRefreshApprovalCard";
 import {
   ReportPlanCard,
 } from "./ReportPlanCard";
+import { BotChangeApprovalCard } from "./BotChangeApprovalCard";
+import { BotRoutineApprovalCard } from "./BotRoutineApprovalCard";
+import { OptionCard } from "./OptionCard";
+import { OPTION_CARD_MARKER, isOptionCardPayload, type OptionCardPayload } from "@/lib/chat/optionCards";
+import { STALE_SOURCE_MONTHS, isStaleSource, readPublishedDate } from "@/lib/chat/citations";
+import { BotMessageCard } from "./BotMessageCard";
+import {
+  BOT_CHANGE_APPROVAL_MARKER,
+  BOT_MESSAGE_MARKER,
+  isBotChangeApprovalPayload,
+  isBotMessagePayload,
+  isBotRoutineApprovalPayload,
+  BOT_ROUTINE_APPROVAL_MARKER,
+  type BotRoutineApprovalPayload,
+  type BotChangeApprovalPayload,
+  type BotMessagePayload,
+} from "@/lib/bots/approval";
 import { AttachedInsightTemplateCard } from "./AttachedInsightTemplateCard";
 import { readInsightTemplatePart } from "@/lib/insights/templateAttachment";
 import { AttachedInsightSelectionCard } from "./AttachedInsightSelectionCard";
@@ -50,9 +63,16 @@ import type {
   InsightRefreshApprovalPayload,
 } from "@/lib/insights/types";
 import type { ReportPlanApprovalPayload } from "@/lib/reports/plan";
-import { useChatActions, useChatComposer } from "./ChatProvider";
+import { useChatActions, useChatComposer, useChatThread } from "./ChatProvider";
+import { MentionPings } from "./MentionPings";
+import type { FromBot, FromRoutine } from "@/lib/chat/uiMessages";
 import { CompanyChip } from "./CompanyChip";
+import { ChipOverflow } from "./ChipOverflow";
 import { stripNavigateMarkers } from "@/lib/navigation/navigateAction";
+import { BotAvatar } from "@/components/bots/BotAvatar";
+import { ThinkingBubble } from "@/components/bots/ThoughtCloud";
+import type { AvatarState } from "@/lib/bots/avatarState";
+import type { BotAvatarConfig } from "@/lib/bots/types";
 import {
   parseCompanyMentions,
   selectMentionedCompanies,
@@ -88,7 +108,27 @@ const REPORT_PLAN_TOOL_NAME = "propose_report_plan";
 // propose_insight_refresh.ts. Carries no document, so — like the report plan —
 // its payload is used as-is rather than joined with the tool call's html.
 const INSIGHT_REFRESH_TOOL_NAME = "propose_insight_refresh";
-const PAYLOAD_ONLY_APPROVAL_TOOLS = new Set([REPORT_PLAN_TOOL_NAME, INSIGHT_REFRESH_TOOL_NAME]);
+// Bot tools (RFC 02). Their payloads carry no document either. Keep in sync
+// with propose_create_bot.ts, update_bot.ts and message_bot.ts.
+const PROPOSE_CREATE_BOT_TOOL_NAME = "propose_create_bot";
+const UPDATE_BOT_TOOL_NAME = "update_bot";
+// The name update_bot had before it also kept the user's notes; stored
+// history still carries its cards.
+const LEGACY_PROPOSE_UPDATE_BOT_TOOL_NAME = "propose_update_bot";
+const MESSAGE_BOT_TOOL_NAME = "message_bot";
+const PROPOSE_CREATE_ROUTINE_TOOL_NAME = "propose_create_routine";
+// Option cards (offer_options): clickable choices; see src/lib/chat/optionCards.ts.
+const OFFER_OPTIONS_TOOL_NAME = "offer_options";
+const PAYLOAD_ONLY_APPROVAL_TOOLS = new Set([
+  REPORT_PLAN_TOOL_NAME,
+  INSIGHT_REFRESH_TOOL_NAME,
+  PROPOSE_CREATE_BOT_TOOL_NAME,
+  UPDATE_BOT_TOOL_NAME,
+  LEGACY_PROPOSE_UPDATE_BOT_TOOL_NAME,
+  MESSAGE_BOT_TOOL_NAME,
+  PROPOSE_CREATE_ROUTINE_TOOL_NAME,
+  OFFER_OPTIONS_TOOL_NAME,
+]);
 
 // Delimiters: legacy thinking is between THINKING_START and THINKING_END; response is after THINKING_END.
 const THINKING_START_DELIMITER = "<!-- THINKING_START -->";
@@ -140,6 +180,11 @@ interface ChatMessageBubbleProps {
   className?: string;
   /** True only when this is the last message and the chat is actively streaming it. */
   isActive?: boolean;
+  /** The active bot's look (RFC 02); when set, a tiny avatar sits beside assistant turns. */
+  botAvatar?: BotAvatarConfig;
+  /** The active bot's name, for the "Deal Scout is thinking…" bubble. */
+  botName?: string;
+  avatarState?: AvatarState;
 }
 
 function ThinkingIndicator() {
@@ -187,13 +232,34 @@ function isRunningPptxSendEmail(part: {
   return Boolean(input && typeof input === "object" && input.presentation);
 }
 
-export function LoadingBubble() {
-  return (
-    <div className="flex mb-6">
-      {/* Thinking Indicator */}
-      <div className="flex-1 min-w-0 flex flex-col items-start px-5">
-        <ThinkingIndicator />
+/**
+ * Where the reply will land, before its first token: the bot's avatar with a
+ * thought cloud. `label` overrides the state's own wording (a background
+ * reply to another bot).
+ */
+export function LoadingBubble({
+  botAvatar,
+  botName,
+  state = 'thinking',
+  label,
+}: {
+  botAvatar?: BotAvatarConfig;
+  botName?: string;
+  state?: AvatarState;
+  label?: string;
+} = {}) {
+  if (!botAvatar) {
+    return (
+      <div className="flex mb-3">
+        <div className="flex-1 min-w-0 flex flex-col items-start px-5">
+          <ThinkingIndicator />
+        </div>
       </div>
+    );
+  }
+  return (
+    <div className="mb-3">
+      <ThinkingBubble avatar={botAvatar} name={botName} state={state} label={label} />
     </div>
   );
 }
@@ -308,6 +374,29 @@ function ChatMessageBubbleImpl(props: ChatMessageBubbleProps) {
   return <AssistantMessageBubble {...props} />;
 }
 
+/** The sending bot's avatar on a bot-to-bot message; a generic tile if it is gone. */
+/** When the message was written, under the bubble — bottom right of the user's, bottom left of a bot's; nothing when unknown. */
+function MessageTime({ message, className }: { message: { metadata?: unknown }; className?: string }) {
+  const date = messageCreatedAt(message);
+  if (!date) return null;
+  return (
+    <time
+      dateTime={date.toISOString()}
+      title={date.toLocaleString()}
+      data-testid="message-time"
+      className={cn('text-[10px] tabular-nums leading-none text-muted-foreground', className)}
+    >
+      {formatMessageTime(date)}
+    </time>
+  );
+}
+
+function FromBotAvatar({ botId }: { botId: string }) {
+  const { bots } = useChatThread();
+  const sender = bots.find((b) => b.id === botId);
+  return <BotAvatar avatar={sender?.avatar} size="xs" trackCursor={false} />;
+}
+
 function UserMessageBubble({ message }: { message: UIMessage }) {
   const parts = message?.parts || [];
   let textContent = parts
@@ -358,12 +447,58 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
     attachedTemplate !== null ||
     attachedSelection !== null;
 
-  return (
-    <div className="flex gap-4 mb-6 flex-row-reverse min-w-0">
-      <div className="flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center bg-primary">
-        <User className="h-5 w-5 text-primary-foreground" />
+  // How the message reached this bot when the user did not type it here: an
+  // @mention from another bot's reply, the user's own @mention in another
+  // bot's chat, or a routine.
+  const metadata = (message as { metadata?: { fromBot?: FromBot; fromRoutine?: FromRoutine } }).metadata;
+  const userMention = metadata?.fromBot?.kind === 'user_mention' ? metadata.fromBot : undefined;
+  const fromBot = metadata?.fromBot && !userMention ? metadata.fromBot : undefined;
+  const fromRoutine = metadata?.fromRoutine;
+
+  // Another bot's words (its reply back, or its hand-off to this bot) are a
+  // bot's message, so they read like one: the sender's avatar on the left,
+  // flat text on the page, no user bubble.
+  if (fromBot) {
+    return (
+      <div className="flex mb-3 min-w-0 gap-2" data-testid="bot-relay-message">
+        <div className="mt-1 shrink-0">
+          <FromBotAvatar botId={fromBot.id} />
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col items-start gap-1 px-0 md:px-2">
+          <span className="text-[11px] font-medium text-muted-foreground" data-testid="from-bot-label">
+            {fromBot.kind === 'bot_reply' ? `Reply from ${fromBot.name}` : `${fromBot.name} mentioned this bot`}
+          </span>
+          {textContent && (
+            <div className="w-full min-w-0 overflow-auto break-words text-sm">
+              <MarkdownRenderer content={textContent} linkSurface="copilot" />
+            </div>
+          )}
+          {textContent.includes('@') && <MentionPings text={textContent} fromUser />}
+          <MessageTime message={message} className="self-start" />
+        </div>
       </div>
-      <div className="flex-1 min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end gap-2">
+    );
+  }
+
+  return (
+    <div className="flex mb-3 flex-row-reverse min-w-0">
+      {/* The column hugs its text — a short message is a short bubble on the
+          right — and caps at the same width a long one always had. */}
+      <div className="min-w-0 max-w-full md:max-w-[80%] flex flex-col items-end gap-1.5">
+        {userMention && (
+          <span className="text-xs font-medium text-muted-foreground" data-testid="from-bot-label">
+            You mentioned this bot in your chat with {userMention.name}
+          </span>
+        )}
+        {fromRoutine && (
+          <span
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
+            data-testid="from-routine-label"
+          >
+            <CalendarClock className="h-3 w-3" />
+            Routine · {fromRoutine.title}
+          </span>
+        )}
         {hasAttachments && (
           <div className="flex flex-wrap justify-end gap-2 mb-1">
             {attachedTemplate && <AttachedInsightTemplateCard template={attachedTemplate} />}
@@ -408,7 +543,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
         )}
         
         {textContent && (
-          <div className="rounded-2xl px-5 py-4 w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground">
+          <div className="rounded-2xl px-4 py-2.5 max-w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground text-sm">
             <MarkdownRenderer
               content={textContent}
               linkSurface="copilot"
@@ -416,6 +551,8 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
             />
           </div>
         )}
+        {textContent.includes('@') && <MentionPings text={textContent} fromUser className="justify-end" />}
+        <MessageTime message={message} />
       </div>
     </div>
   );
@@ -440,7 +577,7 @@ export interface ParsedAssistantTurn {
   thinkingText: string;
   responseText: string;
   warnings: string[];
-  allCitations: { title: string; url: string }[];
+  allCitations: { title: string; url: string; published?: string }[];
   allMeetingNotes: MeetingNoteRef[];
   mentionedCompanies: CompanyMention[];
   workforceHandoff: WorkforceHandoffPayload | null;
@@ -450,6 +587,10 @@ export interface ParsedAssistantTurn {
   insightCreateApproval: InsightCreateApprovalPayload | null;
   reportPlanApproval: ReportPlanApprovalPayload | null;
   insightRefreshApproval: InsightRefreshApprovalPayload | null;
+  botChangeApprovals: BotChangeApprovalPayload[];
+  botRoutineApprovals: BotRoutineApprovalPayload[];
+  optionCards: OptionCardPayload[];
+  botMessages: BotMessagePayload[];
 }
 
 export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTurn {
@@ -461,8 +602,13 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
     (part) => part.type === "reasoning" && Boolean((part as any).text?.trim() || (part as any).reasoning?.trim())
   );
 
+  // A streaming part carries `state: "streaming"` until the SDK marks it
+  // "done". A part loaded from stored history carries no state at all — it is
+  // finished by definition — so only an explicit "streaming" counts as open.
+  // (Keying on `=== "done"` hid everything gated on this, such as the
+  // "Pinged" footer, after a refresh or a bot change.)
   const isStreamingComplete = parts.length > 0 &&
-    parts.filter((part) => part.type === "text" || part.type === "reasoning").every((part) => (part as any).state === "done");
+    parts.filter((part) => part.type === "text" || part.type === "reasoning").every((part) => (part as any).state !== "streaming");
 
   const hasRunningTools = parts.some(
     (part) => (part.type === "dynamic-tool" || part.type === "tool-invocation") &&
@@ -575,7 +721,7 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
   }
 
   // Extract citations from web_search / valyu_search tool results
-  const allCitations: { title: string; url: string }[] = [];
+  const allCitations: { title: string; url: string; published?: string }[] = [];
   // Extract files from query_files tool results - matches MeetingNote type
   const allMeetingNotes: MeetingNoteRef[] = [];
   let workforceHandoff: WorkforceHandoffPayload | null = null;
@@ -585,6 +731,11 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
   let insightCreateApproval: InsightCreateApprovalPayload | null = null;
   let reportPlanApproval: ReportPlanApprovalPayload | null = null;
   let insightRefreshApproval: InsightRefreshApprovalPayload | null = null;
+  // Several bot changes or messages can come out of one turn; each gets a card.
+  const botChangeApprovals: BotChangeApprovalPayload[] = [];
+  const botRoutineApprovals: BotRoutineApprovalPayload[] = [];
+  const optionCards: OptionCardPayload[] = [];
+  const botMessages: BotMessagePayload[] = [];
 
   const approvalSpecs = [
     {
@@ -690,6 +841,27 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
       }
     }
 
+    if (
+      toolName === PROPOSE_CREATE_BOT_TOOL_NAME ||
+      toolName === UPDATE_BOT_TOOL_NAME ||
+      toolName === LEGACY_PROPOSE_UPDATE_BOT_TOOL_NAME
+    ) {
+      const parsed = extractApprovalPayload(content, BOT_CHANGE_APPROVAL_MARKER);
+      if (isBotChangeApprovalPayload(parsed)) botChangeApprovals.push(parsed);
+    }
+    if (toolName === PROPOSE_CREATE_ROUTINE_TOOL_NAME) {
+      const parsed = extractApprovalPayload(content, BOT_ROUTINE_APPROVAL_MARKER);
+      if (isBotRoutineApprovalPayload(parsed)) botRoutineApprovals.push(parsed);
+    }
+    if (toolName === OFFER_OPTIONS_TOOL_NAME) {
+      const parsed = extractApprovalPayload(content, OPTION_CARD_MARKER);
+      if (isOptionCardPayload(parsed)) optionCards.push(parsed);
+    }
+    if (toolName === MESSAGE_BOT_TOOL_NAME) {
+      const parsed = extractApprovalPayload(content, BOT_MESSAGE_MARKER);
+      if (isBotMessagePayload(parsed)) botMessages.push(parsed);
+    }
+
     for (const spec of approvalSpecs) {
       if (toolName === spec.tool && !spec.has()) {
         const parsed = extractApprovalPayload(content, spec.marker);
@@ -767,6 +939,10 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
     insightCreateApproval,
     reportPlanApproval,
     insightRefreshApproval,
+    botChangeApprovals,
+    botRoutineApprovals,
+    optionCards,
+    botMessages,
   };
 }
 
@@ -797,16 +973,22 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     insightCreateApproval,
     reportPlanApproval,
     insightRefreshApproval,
+    botChangeApprovals,
+    botRoutineApprovals,
+    optionCards,
+    botMessages,
   } = parsed;
 
   const hasThinkingContent = thinkingText.trim().length > 0;
   const hasResponseContent = responseText.trim().length > 0;
 
-  // Show thinking indicator when: no text or reasoning content yet OR tools are running (but not if thinking
-  // is actively streaming). Also gated on isActive so that pressing Stop clears the spinner immediately —
-  // without this gate, hasRunningTools stays true on an aborted tool call indefinitely.
+  // Show the thinking bubble while no answer text exists yet, or while tools
+  // are running. Reasoning that is streaming in counts as "still thinking":
+  // it lives behind the collapsed details toggle, so the bubble is the only
+  // live sign. Gated on isActive so that pressing Stop clears it at once —
+  // without that gate, hasRunningTools stays true on an aborted tool call.
   const showThinking =
-    ((!hasTextContent && !hasReasoningContent) || hasRunningTools) &&
+    (!hasResponseContent || hasRunningTools) &&
     !isStreamingComplete &&
     (props.isActive ?? false);
 
@@ -814,23 +996,9 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
   const isGeneratingPptx = (props.isActive ?? false) && isPptxRunning;
 
   // Auto-collapse tool results when response text starts streaming
-  const [toolsCollapsed, setToolsCollapsed] = useState(false);
-
-  useEffect(() => {
-    // Collapse tools when we have text content
-    if (hasTextContent && !toolsCollapsed) {
-      setToolsCollapsed(true);
-    }
-  }, [hasTextContent]);
-
-  // Auto-collapse thinking when response text starts streaming
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (hasResponseContent && !thinkingCollapsed) {
-      setThinkingCollapsed(true);
-    }
-  }, [hasResponseContent]);
+  // The turn's thinking and tool traces: collapsed by default, behind one
+  // small toggle under the avatar, so the transcript is the answers.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Sending a follow-up (e.g. "Just answer here"). From the actions context,
   // which never changes identity: subscribing to the full chat context here
@@ -882,86 +1050,78 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
     setPreviewUrl(null);
   };
 
+  const hasDetails = toolParts.length > 0 || hasThinkingContent;
+
   // For assistant messages, render parts with switch statement
   return (
-    <div className="flex mb-6 min-w-0">
+    <div className="flex mb-3 min-w-0 gap-2">
+      {(props.botAvatar || hasDetails) && (
+        <div className="mt-1 flex shrink-0 flex-col items-center gap-1">
+          {props.botAvatar && (
+            <BotAvatar avatar={props.botAvatar} state={props.avatarState ?? 'idle'} size="xs" />
+          )}
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((open) => !open)}
+              aria-expanded={detailsOpen}
+              aria-label={detailsOpen ? 'Hide thinking and tools' : 'Show thinking and tools'}
+              title={detailsOpen ? 'Hide thinking and tools' : `Thinking${toolParts.length > 0 ? ` · ${toolParts.length} tool${toolParts.length > 1 ? 's' : ''}` : ''}`}
+              data-testid="chat-details-toggle"
+              className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {detailsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
+            </button>
+          )}
+        </div>
+      )}
       {/* Message Content — flat, full-width with symmetric horizontal padding */}
-      <div className="flex-1 min-w-0 flex flex-col items-start gap-2 px-0 md:px-2">
-        {/* Tool Results - All tools behind a single collapsible */}
-        {toolParts.length > 0 && (
-          <Collapsible
-            open={!toolsCollapsed}
-            onOpenChange={(open) => setToolsCollapsed(!open)}
-            className="w-full"
-          >
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-2 px-3 w-full bg-muted/40 rounded-lg border hover:bg-muted/60">
-              <Wrench className="h-4 w-4" />
-              <span className="font-medium">
-                {toolParts.length} tool{toolParts.length > 1 ? "s" : ""} used
-              </span>
-              {toolsCollapsed ? (
-                <ChevronRight className="h-4 w-4 ml-auto" />
-              ) : (
-                <ChevronDown className="h-4 w-4 ml-auto" />
-              )}
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="mt-2 space-y-2 max-h-64 overflow-y-auto rounded-lg bg-muted border p-3">
-                {toolParts.map((part, index) => (
-                  <ToolTrace key={`tool-${index}`} part={part} />
-                ))}
+      <div className="flex-1 min-w-0 flex flex-col items-start gap-1.5 px-0 md:px-2">
+        {/* Thinking and tool traces, behind the toggle under the avatar. */}
+        {hasDetails && detailsOpen && (
+          <div className="w-full rounded-lg border border-dashed bg-muted p-3 text-muted-foreground" data-testid="chat-details">
+            {hasThinkingContent && (
+              <div>
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide">
+                  <Brain className="h-3 w-3" /> Thinking
+                </div>
+                <MarkdownRenderer
+                  content={thinkingText}
+                  linkSurface="copilot"
+                  className="prose-sm text-xs [&_*]:text-muted-foreground"
+                />
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-        {/* Thinking Text - Agent reasoning about tools (collapsible, muted style) */}
-        {hasThinkingContent && (() => {
-          const tailLength = 120;
-          const plainTail = thinkingText.replace(/\s+/g, " ").trim();
-          const tailPreview =
-            plainTail.length > tailLength
-              ? "…" + plainTail.slice(-tailLength)
-              : plainTail;
-          return (
-          <Collapsible
-            open={!thinkingCollapsed}
-            onOpenChange={(open) => setThinkingCollapsed(!open)}
-            className="w-full"
-          >
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-2 px-3 w-full bg-muted/30 rounded-lg border border-dashed hover:bg-muted/50 text-left">
-              <Brain className="h-4 w-4 flex-shrink-0" />
-              <span className="font-medium flex-shrink-0">Thinking</span>
-              {thinkingCollapsed && tailPreview ? (
-                <span className="min-w-0 flex-1 truncate text-xs ml-1" title={tailPreview}>
-                  {tailPreview}
-                </span>
-              ) : null}
-              {thinkingCollapsed ? (
-                <ChevronRight className="h-4 w-4 flex-shrink-0 ml-auto" />
-              ) : (
-                <ChevronDown className="h-4 w-4 flex-shrink-0 ml-auto" />
-              )}
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="mt-2 rounded-lg bg-muted/20 border border-dashed p-4 text-muted-foreground">
-                <div className="text-sm">
-                  <MarkdownRenderer
-                    content={thinkingText}
-                    linkSurface="copilot"
-                    className="prose-sm [&_*]:text-muted-foreground"
-                  />
+            )}
+            {toolParts.length > 0 && (
+              <div className={hasThinkingContent ? 'mt-3' : undefined}>
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide">
+                  <Wrench className="h-3 w-3" /> {toolParts.length} tool{toolParts.length > 1 ? 's' : ''} used
+                </div>
+                <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border bg-card p-2">
+                  {toolParts.map((part, index) => (
+                    <ToolTrace key={`tool-${index}`} part={part} />
+                  ))}
                 </div>
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-          );
-        })()}
+            )}
+          </div>
+        )}
 
         {/* PPTX generation can take several minutes — prefer this over the generic spinner. */}
         {isGeneratingPptx ? (
           <PptxGeneratingNotice />
         ) : (
-          showThinking && <ThinkingIndicator />
+          showThinking &&
+          (props.botAvatar ? (
+            // The avatar is already beside this bubble; the cloud floats next to it.
+            <ThinkingBubble
+              showAvatar={false}
+              name={props.botName}
+              state={props.avatarState === 'working' ? 'working' : 'thinking'}
+            />
+          ) : (
+            <ThinkingIndicator />
+          ))
         )}
 
         {/* Warning banner(s) — agent surfaces concerns (e.g. weak EBITDA on an
@@ -991,8 +1151,8 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
         {/* Response Text - Final answer. Rendered as plain full-width text
             with no card/bubble, flat against the background. */}
         {hasResponseContent && (
-          <div className="w-full min-w-0 overflow-auto break-words">
-            <MarkdownRenderer content={responseText} linkSurface="copilot" evidenceMarkers />
+          <div className="w-full min-w-0 overflow-auto break-words text-sm">
+            <MarkdownRenderer content={responseText} linkSurface="copilot" evidenceMarkers citationPills />
           </div>
         )}
 
@@ -1034,29 +1194,45 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           <InsightRefreshApprovalCard payload={insightRefreshApproval} />
         )}
 
+        {/* Bot tools (RFC 02): proposed bot changes, and messages sent to other bots */}
+        {botChangeApprovals.map((p) => (
+          <BotChangeApprovalCard key={p.approval_id} payload={p} />
+        ))}
+        {botRoutineApprovals.map((p) => (
+          <BotRoutineApprovalCard key={p.approval_id} payload={p} />
+        ))}
+        {/* Clickable choices (offer_options); the pick is the user's next message. */}
+        {optionCards.map((p) => (
+          <OptionCard key={p.card_id} payload={p} />
+        ))}
+        {botMessages.map((p, i) => (
+          <BotMessageCard key={`${p.bot_id}-${i}`} payload={p} />
+        ))}
+        {isStreamingComplete && responseText.includes('@') && <MentionPings text={responseText} />}
+
         {/* One "Open <company>" chip per company the answer actually names,
             in the order it named them. Only companies a tool resolved to an id
             can appear here — see `companyMentions` for why the ids travel in a
             hidden manifest rather than being parsed out of the prose. */}
         {mentionedCompanies.length > 0 && (
-          <div className="flex w-full flex-wrap gap-1.5">
+          <ChipOverflow className="w-full">
             {mentionedCompanies.map((company) => (
               <CompanyChip key={company.id} company={company} prefix="Open" />
             ))}
-          </div>
+          </ChipOverflow>
         )}
 
         {/* Sources */}
         {props.sources && props.sources.length > 0 && (
           <div className="mt-2 text-xs text-muted-foreground">
             <p className="font-semibold mb-1">Sources:</p>
-            <div className="flex flex-wrap gap-2">
+            <ChipOverflow className="gap-2">
               {props.sources.map((source, i) => (
                 <div key={i} className="bg-muted px-2 py-1 rounded border">
                   {source.title || source.name || "Source"}
                 </div>
               ))}
-            </div>
+            </ChipOverflow>
           </div>
         )}
 
@@ -1064,22 +1240,36 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
         {allCitations.length > 0 && (
           <div className="mt-2">
             <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📚 Sources</p>
-            <div className="flex flex-wrap gap-1.5">
-              {allCitations.slice(0, 6).map((cite, i) => (
+            <ChipOverflow>
+              {allCitations.slice(0, 6).map((cite, i) => {
+                const published = readPublishedDate(cite.published);
+                const stale = published ? isStaleSource(published.date) : false;
+                return (
                 <a
                   key={i}
                   href={cite.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition-colors border border-blue-100 dark:border-blue-800"
+                  title={stale ? `Dated source: published over ${STALE_SOURCE_MONTHS} months ago` : undefined}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition-colors border border-blue-100 dark:border-blue-800",
+                    stale && "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900",
+                  )}
                 >
                   {cite.title.length > 35 ? cite.title.substring(0, 35) + "..." : cite.title}
+                  {published && (
+                    <span className="tabular-nums opacity-80">
+                      · {published.label}
+                      {stale ? " · dated" : ""}
+                    </span>
+                  )}
                   <svg className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </a>
-              ))}
-            </div>
+                );
+              })}
+            </ChipOverflow>
           </div>
         )}
 
@@ -1087,7 +1277,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
         {allMeetingNotes.length > 0 && (
           <div className="mt-2">
             <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📄 Files</p>
-            <div className="flex flex-wrap gap-1.5">
+            <ChipOverflow>
               {allMeetingNotes.slice(0, 6).map((note, i) => (
                 <button
                   key={i}
@@ -1098,9 +1288,10 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
                   {note.file_name?.length > 30 ? note.file_name.substring(0, 30) + "..." : note.file_name}
                 </button>
               ))}
-            </div>
+            </ChipOverflow>
           </div>
         )}
+        <MessageTime message={props.message} className="self-start" />
       </div>
 
       {/* Files Preview Dialog */}

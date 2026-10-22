@@ -14,6 +14,7 @@ import {
   Presentation,
   Receipt,
   Sparkles,
+  Bot,
   Users,
   X,
   type LucideIcon,
@@ -58,6 +59,7 @@ const TAB_ICONS: Record<string, LucideIcon> = {
   'smart-files': FileStack,
   presentation: Presentation,
   'ai-workforce': Sparkles,
+  bots: Bot,
   graph: Network,
 };
 

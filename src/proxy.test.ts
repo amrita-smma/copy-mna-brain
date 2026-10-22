@@ -115,6 +115,10 @@ describe('proxy /w/ consent gate', () => {
 });
 
 describe('classifyApiRoute', () => {
+  it('gates the internal bot-messages route (the app calling itself) on the shared secret', () => {
+    expect(classifyApiRoute('/api/internal/bot-messages')).toBe('secret');
+  });
+
   it('gates the admin signup route on the shared secret', () => {
     expect(classifyApiRoute('/api/auth/signup')).toBe('secret');
   });

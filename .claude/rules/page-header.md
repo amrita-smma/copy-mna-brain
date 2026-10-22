@@ -76,7 +76,8 @@ Leave alone:
   settings panel over it. A band would eat canvas.
 - **Record detail views** (`CompanyDetail`, `CompanySlides`, `InsightView`) —
   the `h1` is the record's name inside a document surface, not a page title.
-- **The chat landing** (`AICopilotPane`) — a centered greeting, by design.
+- **The chat** (`AICopilotPane`) — a transcript over a composer, with no title
+  at all, by design (an empty thread is the same view, empty).
 - **Auth and standalone pages** (login, reset-password, consent, workspace
   picker, admin portal) — they are outside `AppShell` and have no page chrome.
 

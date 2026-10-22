@@ -16,6 +16,7 @@ coverage
 playwright-report
 test-results
 tsconfig.tsbuildinfo
+.workflow-data
 
 # Env (compose injects via env_file / environment instead)
 .env

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { CopilotChatsRepository } from './copilotChatsRepository';
 
 interface MockDb {
@@ -13,6 +15,7 @@ interface MockDb {
   returning: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
+  onConflictDoNothing: ReturnType<typeof vi.fn>;
 }
 
 describe('CopilotChatsRepository', () => {
@@ -32,72 +35,15 @@ describe('CopilotChatsRepository', () => {
       returning: vi.fn(),
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
+      onConflictDoNothing: vi.fn().mockReturnThis(),
     };
     repo = new CopilotChatsRepository(mockDb as never, 'workspace-1');
-  });
-
-  it('listByUser returns rows ordered by last_active_at desc', async () => {
-    const rows = [
-      { id: 'c1', user_id: 'u1', title: 'A', last_active_at: '2026-05-08' },
-      { id: 'c2', user_id: 'u1', title: 'B', last_active_at: '2026-05-07' },
-    ];
-    mockDb.orderBy.mockResolvedValueOnce(rows);
-
-    const result = await repo.listByUser('u1');
-
-    expect(result).toEqual(rows);
-    expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
-    // No page requested → no LIMIT/OFFSET clause at all.
-    expect(mockDb.limit).not.toHaveBeenCalled();
-    expect(mockDb.offset).not.toHaveBeenCalled();
   });
 
   // last_active_at alone is not unique: chats touched in the same transaction
   // share a timestamp, and without a tiebreak Postgres may order them
   // differently per query — the same row would appear on two pages while
   // another never appears at all.
-  it('listByUser breaks ties on id so paging cannot duplicate or skip a row', async () => {
-    mockDb.orderBy.mockResolvedValueOnce([]);
-
-    await repo.listByUser('u1');
-
-    expect(mockDb.orderBy.mock.calls[0]).toHaveLength(2);
-  });
-
-  it('listByUser applies limit and offset when a page is requested', async () => {
-    const rows = [{ id: 'c3', user_id: 'u1' }];
-    mockDb.orderBy.mockReturnThis();
-    mockDb.limit.mockReturnThis();
-    mockDb.offset.mockResolvedValueOnce(rows);
-
-    const result = await repo.listByUser('u1', { limit: 31, offset: 30 });
-
-    expect(result).toEqual(rows);
-    expect(mockDb.limit).toHaveBeenCalledWith(31);
-    expect(mockDb.offset).toHaveBeenCalledWith(30);
-  });
-
-  it('listByUser skips the OFFSET clause for the first page', async () => {
-    const rows = [{ id: 'c1', user_id: 'u1' }];
-    mockDb.orderBy.mockReturnThis();
-    mockDb.limit.mockResolvedValueOnce(rows);
-
-    const result = await repo.listByUser('u1', { limit: 31, offset: 0 });
-
-    expect(result).toEqual(rows);
-    expect(mockDb.limit).toHaveBeenCalledWith(31);
-    expect(mockDb.offset).not.toHaveBeenCalled();
-  });
-
-  it('create returns the inserted row', async () => {
-    const row = { id: 'c1', user_id: 'u1', title: null };
-    mockDb.returning.mockResolvedValueOnce([row]);
-
-    const result = await repo.create('u1');
-
-    expect(result).toEqual(row);
-    expect(mockDb.values).toHaveBeenCalledWith({ user_id: 'u1', workspace_id: 'workspace-1' });
-  });
 
   it('getById returns the row when found', async () => {
     const row = { id: 'c1', user_id: 'u1' };
@@ -124,67 +70,6 @@ describe('CopilotChatsRepository', () => {
 
     expect(mockDb.update).toHaveBeenCalledTimes(1);
     expect(mockDb.set).toHaveBeenCalledTimes(1);
-  });
-
-  it('setTitle writes the title', async () => {
-    mockDb.where.mockResolvedValueOnce(undefined);
-
-    await repo.setTitle('c1', 'My title');
-
-    expect(mockDb.set).toHaveBeenCalledWith({ title: 'My title' });
-  });
-
-  it('setEffortTier pins the tier the thread runs at', async () => {
-    mockDb.where.mockResolvedValueOnce(undefined);
-
-    await repo.setEffortTier('c1', 'high');
-
-    expect(mockDb.set).toHaveBeenCalledWith({ effort_tier: 'high' });
-  });
-
-  it('recordFirstMessage writes the message and hash', async () => {
-    mockDb.where.mockResolvedValueOnce(undefined);
-
-    await repo.recordFirstMessage('c1', 'Hello there', 'abc123');
-
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
-    expect(mockDb.set).toHaveBeenCalledWith({
-      first_user_message: 'Hello there',
-      first_user_message_hash: 'abc123',
-    });
-  });
-
-  it('findLatestFirstMessageMatch returns the most recent match', async () => {
-    const row = { id: 'c1', first_user_message_hash: 'abc123' };
-    mockDb.orderBy.mockReturnThis();
-    mockDb.limit.mockResolvedValueOnce([row]);
-
-    const result = await repo.findLatestFirstMessageMatch('abc123', 'general');
-
-    expect(result).toEqual(row);
-    expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
-    expect(mockDb.limit).toHaveBeenCalledWith(1);
-  });
-
-  it('findLatestFirstMessageMatch returns null when there is no match', async () => {
-    mockDb.orderBy.mockReturnThis();
-    mockDb.limit.mockResolvedValueOnce([]);
-
-    const result = await repo.findLatestFirstMessageMatch('nohash', 'bangun');
-
-    expect(result).toBeNull();
-  });
-
-  it('create pre-pins the agent key when one is given', async () => {
-    mockDb.returning.mockResolvedValueOnce([{ id: 'c1', agent_key: 'bangun' }]);
-
-    await repo.create('u1', 'bangun');
-
-    expect(mockDb.values).toHaveBeenCalledWith({
-      user_id: 'u1',
-      workspace_id: 'workspace-1',
-      agent_key: 'bangun',
-    });
   });
 
   it('pinAgentKey writes the key and returns it when the thread was unresolved', async () => {
@@ -215,5 +100,90 @@ describe('CopilotChatsRepository', () => {
     mockDb.limit.mockResolvedValueOnce([]);
 
     await expect(repo.pinAgentKey('missing', 'bangun')).resolves.toBeNull();
+  });
+
+  describe('CopilotChatsRepository.findOrCreateBotThread', () => {
+    it('returns the existing bot thread in one query without inserting', async () => {
+      const thread = { id: 'chat-1', bot_id: 'bot-1' };
+      mockDb.limit.mockResolvedValueOnce([thread]);
+
+      await expect(repo.findOrCreateBotThread('u1', 'bot-1', 'Deal Scout')).resolves.toBe(thread);
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("creates the thread on first open, pinned to the general agent and titled with the bot's name", async () => {
+      const created = { id: 'chat-2', bot_id: 'bot-1' };
+      mockDb.limit.mockResolvedValueOnce([]);
+      mockDb.returning.mockResolvedValueOnce([created]);
+
+      await expect(repo.findOrCreateBotThread('u1', 'bot-1', 'Deal Scout')).resolves.toBe(created);
+      expect(mockDb.values).toHaveBeenCalledWith({
+        user_id: 'u1',
+        workspace_id: 'workspace-1',
+        bot_id: 'bot-1',
+        agent_key: 'general',
+        title: 'Deal Scout',
+      });
+      expect(mockDb.onConflictDoNothing).toHaveBeenCalled();
+    });
+
+    it('reads the row a concurrent open inserted when its own insert hits the unique index', async () => {
+      const raced = { id: 'chat-3', bot_id: 'bot-1' };
+      mockDb.limit.mockResolvedValueOnce([]).mockResolvedValueOnce([raced]);
+      mockDb.returning.mockResolvedValueOnce([]);
+
+      await expect(repo.findOrCreateBotThread('u1', 'bot-1', 'Deal Scout')).resolves.toBe(raced);
+    });
+  });
+
+  describe('CopilotChatsRepository turn lock, history import and unread', () => {
+    const dialect = new PgDialect();
+    const whereSql = () => dialect.sqlToQuery(mockDb.where.mock.calls[0][0] as SQL);
+
+    it('claims the turn lock only when it is free or expired', async () => {
+      mockDb.returning.mockResolvedValueOnce([{ id: 'c1' }]).mockResolvedValueOnce([]);
+
+      await expect(repo.claimTurn('c1', 600)).resolves.toBe(true);
+      await expect(repo.claimTurn('c1', 600)).resolves.toBe(false);
+
+      const where = whereSql();
+      expect(where.sql).toContain('"busy_until" is null or "copilot_chats"."busy_until" < now()');
+      expect(where.params).toEqual(['c1', 'workspace-1']);
+    });
+
+    it('reports whether a turn holds the lock right now', async () => {
+      mockDb.limit.mockResolvedValueOnce([{ id: 'c1' }]).mockResolvedValueOnce([]);
+
+      await expect(repo.isTurnRunning('c1')).resolves.toBe(true);
+      await expect(repo.isTurnRunning('c1')).resolves.toBe(false);
+
+      const where = whereSql();
+      expect(where.sql).toContain('"copilot_chats"."busy_until" > now()');
+      expect(where.params).toEqual(['c1', 'workspace-1']);
+    });
+
+    it('stamps a reply, and marks the thread read only for an interactive one', async () => {
+      await repo.stampMessage('c1', { read: true });
+      await repo.stampMessage('c1', { read: false });
+
+      expect(Object.keys(mockDb.set.mock.calls[0][0])).toEqual(['last_message_at', 'last_read_at']);
+      expect(Object.keys(mockDb.set.mock.calls[1][0])).toEqual(['last_message_at']);
+    });
+
+    it('releases the lock and marks read within this workspace', async () => {
+      await repo.releaseTurn('c1');
+      await repo.markRead('c1');
+
+      expect(mockDb.set.mock.calls[0][0]).toEqual({ busy_until: null });
+      expect(Object.keys(mockDb.set.mock.calls[1][0])).toEqual(['last_read_at']);
+      expect(whereSql().params).toEqual(['c1', 'workspace-1']);
+    });
+
+    it('marks a thread unread by clearing its read time, within this workspace', async () => {
+      await repo.markUnread('c1');
+
+      expect(mockDb.set.mock.calls[0][0]).toEqual({ last_read_at: null });
+      expect(whereSql().params).toEqual(['c1', 'workspace-1']);
+    });
   });
 });

@@ -34,7 +34,7 @@ export const navigatePage = tool(
     // the user to a page their workspace has disabled would land them on an
     // section that isn't in their tab strip, so refuse and say so instead.
     const flags = await resolveWorkspaceFeatureFlags();
-    if (flags[tab.flag] === false) {
+    if (tab.flag && flags[tab.flag] === false) {
       logger.debug(`✗ navigate_page blocked: ${tab.flag} disabled`);
       return `Cannot open **${tab.label}** — it is turned off for this workspace. Tell the user it isn't available and answer their question in chat instead.`;
     }

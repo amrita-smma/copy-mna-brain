@@ -32,7 +32,18 @@ export * from './topicRepository';
 export * from './emailRepository';
 export * from './employerTeamRepository';
 export * from './aiWorkforceQueueRepository';
+export * from './botRepository';
+export * from './botMemoryRepository';
+export * from './botTaskLogRepository';
+export {
+  BotRequestRepository,
+  findStaleBotRequests,
+  type BotRequestRow,
+  type BotRequestStatus,
+  type NewBotRequest,
+} from './botRequestRepository';
 export * from './copilotChatsRepository';
+export * from './copilotMessageRepository';
 export * from './apiKeyRepository';
 export * from './apiChatConversationRepository';
 export * from './alphasenseToolCallRepository';

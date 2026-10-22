@@ -15,10 +15,18 @@ import {
   type RefObject,
 } from "react";
 import { toast } from "sonner";
+import { sortBots } from "@/lib/bots/order";
+import { findBotMentions } from "@/lib/bots/mentions";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
-import { getPageContext, useOpenInsightAgent } from "@/lib/chat/pageContextStore";
-import { describeChatAgent, toChatAgentKey } from "@/lib/chat/chatAgentKey";
+import { mergeHistoryTail } from "@/lib/chat/historyMerge";
+import { sentNow } from "@/lib/chat/messageTime";
+import { getPageContext } from "@/lib/chat/pageContextStore";
+import { listBots, markBotRead, markBotUnread, openBotThread, savePinnedBots, stopChatTurn } from "@/lib/api/bots";
+import { useEventStream } from "@/hooks/useEventStream";
+import type { BotLiveEvent, BotPhase, BotPresence } from "@/lib/bots/presenceTypes";
+import { mergeKeptUnread } from '@/lib/bots/keptUnread';
+import type { BotDto } from "@/lib/bots/types";
 import posthog from "posthog-js";
 import { CHAT_ATTACHMENT_UPLOADED, chatAttachmentProperties } from "@/lib/posthog-chat";
 import {
@@ -55,10 +63,64 @@ const CHAT_API = "/api/chat";
 /**
  * How many animation frames `focusComposer` will wait for the composer to
  * appear before giving up. Generous enough to cover the copilot pane's 300ms
- * open animation (~18 frames at 60Hz) plus the remount that swaps the docked
- * composer for the empty state's hero one.
+ * open animation (~18 frames at 60Hz) plus the mount of the transcript's
+ * composer when a bot's thread opens.
  */
 const FOCUS_COMPOSER_MAX_FRAMES = 30;
+
+/**
+ * The bots' live state — who is thinking, a reply landing — is pushed over
+ * this stream (`GET /api/bots/events`, backed by
+ * Redis); nothing here polls. The snapshot it opens with is the bot list, so
+ * it also replaces the periodic list refresh.
+ */
+const BOT_EVENTS_URL = '/api/bots/events';
+/** How often, and how many times, a replaced turn is checked for having stopped. */
+const TURN_STOP_POLL_MS = 500;
+const TURN_STOP_POLL_ATTEMPTS = 30;
+
+/**
+ * Turns per older page, loaded as the user scrolls up. Opening a bot loads
+ * only its last few turns (the server's default page).
+ */
+const EARLIER_PAGE_TURNS = 10;
+
+const isLive = (status: string) => status === "streaming" || status === "submitted";
+
+/** `bots` with exactly `pinnedIds` pinned, in the server's list order. */
+function applyPins(bots: readonly BotDto[], pinnedIds: readonly string[]): BotDto[] {
+  const pinned = new Set(pinnedIds);
+  return sortBots(
+    bots.map((b) => (b.pinned === pinned.has(b.id) ? b : { ...b, pinned: pinned.has(b.id) })),
+    pinnedIds,
+  );
+}
+
+/** A message's text, for spotting @mentions. */
+function messageText(message: UIMessage | undefined): string {
+  return (message?.parts ?? [])
+    .map((p) => (p.type === 'text' ? p.text : ''))
+    .join('\n');
+}
+
+/** localStorage key remembering the bot the user last chatted with. */
+const ACTIVE_BOT_STORAGE_KEY = 'copilot.activeBotId';
+
+function readStoredBotId(): string | null {
+  try {
+    return window.localStorage.getItem(ACTIVE_BOT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeBotId(id: string): void {
+  try {
+    window.localStorage.setItem(ACTIVE_BOT_STORAGE_KEY, id);
+  } catch {
+    // Private mode or blocked storage: the default bot is picked next load.
+  }
+}
 
 /** Max size for a single chat attachment. Supports documents, images, and text. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -102,8 +164,12 @@ function parseChatError(err: Error): { title: string; description: string } {
   // the known types into user-friendly copy; fall back to the raw message.
   try {
     const payload = JSON.parse(err.message) as {
-      error?: { type?: string; message?: string };
+      error?: string | { type?: string; message?: string };
     };
+    // The chat route's own errors are `{ error: "<message>" }`.
+    if (typeof payload?.error === 'string') {
+      return { title: "Couldn't send your message", description: payload.error };
+    }
     switch (payload?.error?.type) {
       case 'overloaded_error':
         return {
@@ -139,7 +205,7 @@ function parseChatError(err: Error): { title: string; description: string } {
           title: 'Invalid request',
           description:
             payload.error?.message ||
-            'The request was rejected. Please try again or start a new chat.',
+            'The request was rejected. Please try again.',
         };
     }
   } catch {
@@ -149,35 +215,6 @@ function parseChatError(err: Error): { title: string; description: string } {
     title: 'Error while processing your request',
     description: err.message,
   };
-}
-
-export interface CopilotChatSummary {
-  id: string;
-  title: string | null;
-  last_active_at: string;
-  created_at: string;
-  effort_tier: string | null;
-  /**
-   * The agent the thread is pinned to (MB-549): a sector agent key or
-   * 'general'; null until the thread's first turn resolves it.
-   */
-  agent_key: string | null;
-}
-
-/**
- * Chats fetched per page. Kept in step with `CHAT_HISTORY_PAGE_SIZE` on the
- * server — the client sends it explicitly so the two can't silently disagree
- * about how far an offset advances.
- */
-const CHAT_PAGE_SIZE = 20;
-
-/** Mirrors `CHAT_HISTORY_MAX_PAGE_SIZE`; the server clamps to it regardless. */
-const CHAT_MAX_PAGE_SIZE = 100;
-
-interface ChatListResponse {
-  chats: CopilotChatSummary[];
-  hasMore?: boolean;
-  nextOffset?: number | null;
 }
 
 /**
@@ -196,42 +233,9 @@ export interface ChatAttachment {
   previewUrl?: string;
 }
 
-/**
- * A cached prior chat whose first message matches what the user is about to
- * send in a brand-new chat. Rendered inline as a dotted-bordered preview (see
- * CachedChatPreview) offering "continue from chat" or "start fresh".
- */
-export interface CachedChatHit {
-  chatId: string;
-  createdAt: string;
-  firstUserMessage: string;
-  firstAssistantMessage: string;
-  /** The message the user typed, replayed verbatim on "start fresh". */
-  pendingText: string;
-}
-
 interface ChatContextValue extends ReturnType<typeof useChat> {
+  /** The active bot's permanent thread, or null while it is being opened. */
   chatId: string | null;
-  setChatId: (id: string | null) => void;
-  newChat: () => void;
-  chats: CopilotChatSummary[];
-  activeChatEffortTier: string | null;
-  /**
-   * The agent the active thread is pinned to, or null when there is no thread
-   * yet or its pin isn't known on the client.
-   */
-  activeChatAgentKey: string | null;
-  refreshChats: () => Promise<void>;
-  /**
-   * Append the next page of chat history. The sidebar calls this when the
-   * user clicks "See More". No-op while a load is in flight or once every
-   * chat has been fetched.
-   */
-  loadMoreChats: () => Promise<void>;
-  /** Whether the server reported another page after the ones already loaded. */
-  hasMoreChats: boolean;
-  /** True while `loadMoreChats` is fetching, so the list can show a spinner. */
-  isLoadingMoreChats: boolean;
   isLoadingMessages: boolean;
   /**
    * Which chat the current `messages` array belongs to; `undefined` while a
@@ -258,19 +262,8 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   prefillComposer: (text: string) => void;
   /** The pending prefill, consumed by the composer. */
   composerDraft: { text: string; nonce: number } | null;
-  /**
-   * Send the first message of a chat with a cache pre-check. For a brand-new
-   * chat it looks up a prior chat that started with the same question and, on
-   * a hit, surfaces an inline cached preview instead of sending. Falls back to
-   * a normal send for existing chats or on lookup failure.
-   */
-  sendWithCacheCheck: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
-  /** The active cached-chat hit to preview inline, or null. */
-  cacheHit: CachedChatHit | null;
-  /** Fork the cached turn-1 into a new owned chat and focus the input. */
-  continueFromCached: () => void;
-  /** Discard the cached preview and run the agent on the original message. */
-  startFreshFromCached: () => void;
+  /** Send what the user typed (plus composer attachments) to the active bot. */
+  sendText: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
   /** Ref the active chat input registers so we can focus it programmatically. */
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
   /**
@@ -294,6 +287,28 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   insightTemplate: { id: string; name: string } | null;
   /** Select (or clear, with `null`) the insight-template chip. */
   setInsightTemplate: (tpl: { id: string; name: string } | null) => void;
+  /** Copilot bots (RFC 02): the user's visible bots, `[]` until loaded. */
+  bots: BotDto[];
+  activeBot: BotDto | null;
+  /** Switch to a bot and open its permanent thread. */
+  selectBot: (id: string) => void;
+  /** Reload the bot list (after the Bots page creates or edits one). */
+  refreshBots: () => Promise<void>;
+  /**
+   * Pin exactly these bots, in this order, and save. Pinned bots lead every
+   * list; the rest follow by newest activity.
+   */
+  setPinnedBots: (ids: string[]) => void;
+  /** Mark a bot's thread read or unread (the mobile swipe). */
+  setBotUnread: (id: string, unread: boolean) => void;
+  /**
+   * Mobile bot home: false while the picker is on screen so a poll does not
+   * auto-read the last opened bot. Desktop leaves this true (default).
+   */
+  setActiveBotThreadOnScreen: (onScreen: boolean) => void;
+  hasEarlierMessages: boolean;
+  isLoadingEarlier: boolean;
+  loadEarlierMessages: () => Promise<boolean>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -311,10 +326,10 @@ const ChatContext = createContext<ChatContextValue | null>(null);
  * often each slice actually changes:
  *
  *   useChatActions()  — callbacks only. Never changes after mount.
- *   useChatThread()   — the active thread + sidebar list. Changes on chat
- *                       switches and list refreshes.
- *   useChatComposer() — composer state (attachments, effort, draft, cache
- *                       hit). Changes on user input.
+ *   useChatThread()   — the active bot, its thread and the bot list. Changes
+ *                       on bot switches and list refreshes.
+ *   useChatComposer() — composer state (attachments, effort, draft). Changes
+ *                       on user input.
  *   useChatStatus()   — just `status`. Changes on turn boundaries.
  *
  * Use the narrowest one that covers what you need. `useChatContext()` is for
@@ -324,18 +339,22 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 
 type ChatHandle = ReturnType<typeof useChat>;
 
+/** `message` with a `createdAt` stamp in its metadata, keeping any it already carries. */
+function stampSent<M extends { metadata?: unknown } | undefined>(message: M): M {
+  if (!message) return message;
+  const metadata = (message.metadata ?? {}) as Record<string, unknown>;
+  return { ...message, metadata: { ...sentNow(), ...metadata } };
+}
+
 /**
  * Callbacks with no reactive dependencies, so this object is referentially
  * stable for the life of the provider. Subscribing to it costs nothing during
  * streaming.
  */
 export interface ChatActions {
-  setChatId: (id: string | null) => void;
-  newChat: () => void;
-  refreshChats: () => Promise<void>;
   analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
   prefillComposer: (text: string) => void;
-  sendWithCacheCheck: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
+  sendText: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
   focusComposer: () => void;
   addFiles: (files: File[]) => void;
   removeAttachment: (localId: string) => void;
@@ -346,19 +365,28 @@ export interface ChatActions {
   sendMessage: ChatHandle['sendMessage'];
   /** Stable wrapper around the AI SDK's `stop`. */
   stop: ChatHandle['stop'];
+  selectBot: (id: string) => void;
+  refreshBots: () => Promise<void>;
+  setPinnedBots: (ids: string[]) => void;
+  setBotUnread: (id: string, unread: boolean) => void;
+  setActiveBotThreadOnScreen: (onScreen: boolean) => void;
+  /** Prepend the previous page of the thread's history. Resolves false on no-op or error. */
+  loadEarlierMessages: () => Promise<boolean>;
 }
 
-/** The active thread and the sidebar's chat list. */
+/** The active bot, its thread, and the bot list. */
 export interface ChatThreadState {
   chatId: string | null;
-  chats: CopilotChatSummary[];
-  activeChatEffortTier: string | null;
-  activeChatAgentKey: string | null;
-  hasMoreChats: boolean;
-  isLoadingMoreChats: boolean;
-  loadMoreChats: () => Promise<void>;
   isLoadingMessages: boolean;
+  /** Whether older history exists before the oldest message on screen. */
+  hasEarlierMessages: boolean;
+  isLoadingEarlier: boolean;
   messagesChatId: string | null | undefined;
+  /** Visible bots, `[]` until loaded. `busy` is the bot's live state (Redis), not the DB lock. */
+  bots: BotDto[];
+  activeBot: BotDto | null;
+  /** What each live bot is doing, by id; absent when idle (a bot waiting on another bot shows nothing). */
+  livePhase: Record<string, BotPhase>;
 }
 
 /** Everything the composer owns, plus the optimistic attachment map. */
@@ -367,9 +395,6 @@ export interface ChatComposerState {
   effortChoice: ChatEffortChoice;
   insightTemplate: { id: string; name: string } | null;
   composerDraft: { text: string; nonce: number } | null;
-  cacheHit: CachedChatHit | null;
-  continueFromCached: () => void;
-  startFreshFromCached: () => void;
   optimisticAttachments: Record<string, ChatAttachment[]>;
 }
 
@@ -393,7 +418,7 @@ export function useChatActions(): ChatActions {
   return useNarrowChatContext(ChatActionsContext, 'useChatActions');
 }
 
-/** The active thread and chat list. Re-renders on chat switches, not on tokens. */
+/** The active bot and its thread. Re-renders on bot switches, not on tokens. */
 export function useChatThread(): ChatThreadState {
   return useNarrowChatContext(ChatThreadContext, 'useChatThread');
 }
@@ -414,49 +439,35 @@ interface ServerUIMessage {
   parts: { type: 'text'; text: string }[];
 }
 
+/** One page of a thread's stored history (`GET /api/copilot/chats/:id/messages`). */
+interface HistoryPage {
+  messages: ServerUIMessage[];
+  /** Cursor for the page before this one; null at the start of the thread. */
+  nextCursor: number | null;
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
 
-  // Active chat. `null` means "the next message will mint a new chat row on
-  // the server"; the server's response header (X-Chat-Id) tells us which.
+  // The active bot's permanent thread. `null` while it is being opened; the
+  // server resolves the thread from `bot_id` either way and reports it back
+  // via X-Chat-Id.
   const [chatId, setChatIdState] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
   chatIdRef.current = chatId;
-  // Tracks chat IDs we minted mid-stream via the X-Chat-Id response header,
-  // so the chat-load effect can skip its history fetch (and the destructive
-  // setMessages([]) that would wipe the in-flight stream). Reset on consume.
+  // A thread id learned mid-stream from the X-Chat-Id response header, so the
+  // load effect can skip its history fetch (and the destructive setMessages([])
+  // that would wipe the in-flight stream). Reset on consume.
   const justMintedChatIdRef = useRef<string | null>(null);
 
-  const [chats, setChats] = useState<CopilotChatSummary[]>([]);
-  // The tier the thread is actually running at, for consumers that need to
-  // inherit it (e.g. the workforce handoff card). `chats` is the paged sidebar
-  // list; a chat outside the loaded page yields null and the consumer falls back.
-  const activeChatEffortTier = useMemo(
-    () => chats.find((c) => c.id === chatId)?.effort_tier ?? null,
-    [chats, chatId],
-  );
-  // Agents the server reported via X-Chat-Agent this session, by chat id. The
-  // header can name the thread's agent the moment a turn starts, before the
-  // chat list refresh lands (or when the chat sits outside the loaded page).
-  const [reportedAgentKeys, setReportedAgentKeys] = useState<Record<string, string>>({});
-  const activeChatAgentKey = useMemo(
-    () =>
-      (chatId
-        ? reportedAgentKeys[chatId] ?? chats.find((c) => c.id === chatId)?.agent_key
-        : null) ?? null,
-    [chats, chatId, reportedAgentKeys],
-  );
-  const activeChatAgentKeyRef = useRef<string | null>(null);
-  activeChatAgentKeyRef.current = activeChatAgentKey;
-  const [hasMoreChats, setHasMoreChats] = useState(false);
-  const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
-  // The paging callbacks read the current list length to compute the next
-  // offset. Going through a ref keeps them stable across renders, so the
-  // sidebar's IntersectionObserver isn't torn down and rebuilt on every append.
-  const chatsRef = useRef<CopilotChatSummary[]>([]);
-  chatsRef.current = chats;
-  const loadingMoreRef = useRef(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  // Paging back through a long permanent thread: the cursor for the page before
+  // the oldest one loaded, or null when the start of the thread is on screen.
+  const [historyCursor, setHistoryCursor] = useState<number | null>(null);
+  const historyCursorRef = useRef<number | null>(null);
+  historyCursorRef.current = historyCursor;
+  const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
+  const loadingEarlierRef = useRef(false);
   // Which chat the CURRENT `messages` array belongs to — `undefined` while a
   // load is in flight, meaning "don't trust `messages` yet".
   //
@@ -468,16 +479,68 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // answer it from `chatId` alone. Always updated in the same batch as
   // `setMessages`, so it is never out of step with the array it describes.
   const [messagesChatId, setMessagesChatId] = useState<string | null | undefined>(null);
-  // A cached chat that started with the same first message as the one the user
-  // is about to send in a brand-new chat. Non-null while the inline cached
-  // preview is shown (offering "continue from chat" or "start fresh").
-  const [cacheHit, setCacheHit] = useState<CachedChatHit | null>(null);
+  const messagesChatIdRef = useRef<string | null | undefined>(null);
+  messagesChatIdRef.current = messagesChatId;
   // The active chat input registers itself here so "continue from chat" can
   // return focus to the chat bar.
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
-  // Indirection so the transport closure (memoized once) can always call the
-  // latest refreshChats without re-creating the transport.
-  const refreshChatsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  // Copilot bots (RFC 02). The active bot id is also held in a ref so the
+  // memoized-once transport sends the current one.
+  const [bots, setBots] = useState<BotDto[]>([]);
+  // For the build-once useChat callbacks (spotting a turn's @mentions).
+  const botsRef = useRef<BotDto[]>([]);
+  botsRef.current = bots;
+  const [activeBotId, setActiveBotId] = useState<string | null>(null);
+  const activeBotIdRef = useRef<string | null>(null);
+  activeBotIdRef.current = activeBotId;
+  // Latest bot whose thread is being opened; a slower earlier open is dropped.
+  const activeBotRequestRef = useRef<string | null>(null);
+  // The transport and useChat callbacks are built once; they reach the latest
+  // refreshBots through this.
+  const refreshBotsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  // Live state from the events stream, by bot id. `ownTurnId` is the turn this
+  // tab is streaming itself (from the chat route's X-Turn-Id): its presence
+  // is shown by the live avatar, not as a background cloud, and its reply
+  // needs no reload. Cleared when the user leaves the thread mid-reply, at
+  // which point the turn is, to this tab, a background one.
+  const [presence, setPresence] = useState<Record<string, BotPresence>>({});
+  const [ownTurnId, setOwnTurnId] = useState<string | null>(null);
+  const ownTurnIdRef = useRef<string | null>(null);
+  ownTurnIdRef.current = ownTurnId;
+  // A turn keeps running on the server when the user leaves its chat mid-
+  // reply. Its question, by thread, so coming back shows it under the
+  // thinking bubble. The server stores the question when the turn starts, so
+  // the reload normally already has it; this covers the moment before that
+  // row exists, and a store that failed.
+  const leftTurnsRef = useRef(new Map<string, UIMessage>());
+  // The thread on screen, so leaving it can tell which one was live.
+  const shownChatIdRef = useRef<string | null>(null);
+  // The user's latest pinned bots, and which pin change the server has caught
+  // up with. A list read while a save was in flight (or that started before the
+  // latest change) is re-pinned locally, so the strip never snaps back.
+  const botOrderRef = useRef<{ ids: string[]; seq: number; settledSeq: number }>({
+    ids: [],
+    seq: 0,
+    settledSeq: 0,
+  });
+  // The phase each bot shows: its running turn (not this tab's own). `busy`
+  // on the bots the consumers see is this, not the DB lock, so a refresh
+  // mid-turn and a crashed turn both read right. A bot waiting on another
+  // bot's answer is not running a turn and shows nothing.
+  const livePhase = useMemo<Record<string, BotPhase>>(() => {
+    const out: Record<string, BotPhase> = {};
+    for (const [botId, p] of Object.entries(presence)) if (p.turnId !== ownTurnId) out[botId] = p.phase;
+    return out;
+  }, [presence, ownTurnId]);
+  const liveBots = useMemo(
+    () => bots.map((b) => (b.busy === Boolean(livePhase[b.id]) ? b : { ...b, busy: Boolean(livePhase[b.id]) })),
+    [bots, livePhase],
+  );
+  const activeBot = useMemo(
+    () => liveBots.find((b) => b.id === activeBotId) ?? null,
+    [liveBots, activeBotId],
+  );
 
   // Composer attachments. Held in a ref too so the (memoized-once) transport
   // body can read the latest set on every send without re-creating the
@@ -552,7 +615,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           // up here.
           const pageContext = getPageContext();
           return {
-            ...(chatIdRef.current ? { chat_id: chatIdRef.current } : {}),
+            // Every turn runs on the bot's permanent thread (server-resolved).
+            ...(activeBotIdRef.current ? { bot_id: activeBotIdRef.current } : {}),
             ...(ready.length ? { attachments: ready } : {}),
             ...(mc !== 'auto' ? { effort: mc } : {}),
             ...(pageContext ? { page_context: pageContext } : {}),
@@ -563,31 +627,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             ...init,
             headers: buildWorkspaceHeaders(input, init?.headers),
           });
-          // Capture the chat_id minted server-side on the first message of a
-          // brand-new chat. Set it before the stream finishes so the next
-          // user message in the same session sticks to the same thread.
+          const turnId = res.headers.get('X-Turn-Id');
+          if (turnId) setOwnTurnId(turnId);
+          // The bot's thread, which a send made before the thread finished
+          // opening learns only from this header.
           const newId = res.headers.get('X-Chat-Id');
-          const agentKey = res.headers.get('X-Chat-Agent');
-          if (newId && agentKey) {
-            setReportedAgentKeys((prev) =>
-              prev[newId] === agentKey ? prev : { ...prev, [newId]: agentKey },
-            );
-          }
           if (newId && newId !== chatIdRef.current) {
             chatIdRef.current = newId;
             justMintedChatIdRef.current = newId;
             setChatIdState(newId);
-            // The in-flight messages now belong to the newly minted chat. Move
-            // the stamp with the id — the load effect skips its fetch for a
-            // just-minted chat, so nothing else will set it, and leaving it on
-            // the old value would make the rest of this live turn read as
-            // another chat's history.
+            // The in-flight messages now belong to this thread. Move the stamp
+            // with the id — the load effect skips its fetch for it, so nothing
+            // else will set it.
             setMessagesChatId(newId);
-            // Surface the new chat in the sidebar immediately. The row exists
-            // in the DB by the time headers arrive; the title will be pushed
-            // via the stream's `data-chat-title` part the moment Haiku
-            // resolves (see onData below).
-            void refreshChatsRef.current();
           }
           return res;
         },
@@ -611,26 +663,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const { title, description } = parseChatError(e);
       toast.error(title, { description, duration: 8000 });
     },
-    onData: (part) => {
-      // The server pushes the generated chat title via a transient
-      // `data-chat-title` part the moment Haiku resolves — update the matching
-      // chat row in the sidebar immediately, no polling, no waiting for the
-      // agent stream to finish.
-      if (part.type === 'data-chat-title') {
-        const payload = part.data as { chatId?: string; title?: string };
-        if (!payload?.chatId || !payload.title) return;
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === payload.chatId ? { ...c, title: payload.title ?? c.title } : c,
-          ),
-        );
-      }
-    },
+    // The turn's own bot moved to the top of the list (newest activity) and
+    // may have created or changed a bot: one re-read. Everything else — the
+    // bots it @mentioned starting, their replies — arrives on the stream.
     onFinish: () => {
-      // Catch-all refresh in case the data-chat-title part was missed (e.g.
-      // Haiku timed out server-side and the title landed via the `after()`
-      // hook instead).
-      void refreshChats();
+      void refreshBotsRef.current();
     },
   });
 
@@ -644,103 +681,55 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // AI SDK rebuilds its handle every render; going through the ref means the
   // identity of these two never changes while the call still lands on the
   // current handle.
+  // Every send through the wrapper is stamped with when it was sent (the
+  // bubble's timestamp), unless the caller stamped it already.
   const sendMessage = useCallback<ChatHandle['sendMessage']>(
-    (...args) => chatStateRef.current.sendMessage(...args),
+    (message, options) => chatStateRef.current.sendMessage(stampSent(message), options),
     [],
   );
-  const stopStream = useCallback<ChatHandle['stop']>(
-    (...args) => chatStateRef.current.stop(...args),
-    [],
-  );
-
-  /**
-   * Refetch the chat list from the top.
-   *
-   * Called whenever the list can have changed (a chat was created, renamed, or
-   * touched). It re-reads as many chats as are currently on screen rather than
-   * just the first page, so a user who has scrolled through several pages does
-   * not watch the list collapse back to thirty entries when a title lands.
-   */
-  const refreshChats = useCallback(async () => {
-    const loaded = Math.max(chatsRef.current.length, CHAT_PAGE_SIZE);
-    try {
-      const data = await apiRequest<ChatListResponse>(
-        `/api/copilot/chats?limit=${Math.min(loaded, CHAT_MAX_PAGE_SIZE)}`,
-      );
-      setChats(data.chats ?? []);
-      setHasMoreChats(Boolean(data.hasMore));
-    } catch (err) {
-      console.error('[chat] failed to load chat list:', err);
+  // Stop: the server turn outlives the request, so it is told to stop
+  // explicitly; aborting the fetch alone only detaches this tab from it.
+  const stopStream = useCallback<ChatHandle['stop']>((...args) => {
+    const id = chatIdRef.current;
+    if (id && isLive(chatStateRef.current.status)) {
+      void stopChatTurn(id).catch((err: unknown) => console.error('[chat] failed to stop the turn:', err));
     }
+    return chatStateRef.current.stop(...args);
   }, []);
-  refreshChatsRef.current = refreshChats;
 
-  /**
-   * Append the next page. Guarded by a ref rather than the `isLoadingMoreChats`
-   * state because a fast double-click on "See More" can fire before React
-   * commits the state update, which would fire two requests for the same
-   * offset and duplicate rows.
-   */
-  const loadMoreChats = useCallback(async () => {
-    if (loadingMoreRef.current || !hasMoreChats) return;
-    loadingMoreRef.current = true;
-    setIsLoadingMoreChats(true);
-    try {
-      const data = await apiRequest<ChatListResponse>(
-        `/api/copilot/chats?limit=${CHAT_PAGE_SIZE}&offset=${chatsRef.current.length}`,
-      );
-      // Dedupe on id: a chat touched between page loads shifts toward the top
-      // of the ordering, so the same row can appear in two consecutive pages.
-      setChats((prev) => {
-        const seen = new Set(prev.map((c) => c.id));
-        return [...prev, ...(data.chats ?? []).filter((c) => !seen.has(c.id))];
-      });
-      setHasMoreChats(Boolean(data.hasMore));
-    } catch (err) {
-      console.error('[chat] failed to load more chats:', err);
-    } finally {
-      loadingMoreRef.current = false;
-      setIsLoadingMoreChats(false);
-    }
-  }, [hasMoreChats]);
-
-  useEffect(() => {
-    // ChatProvider is mounted at the app root (providers.tsx), so this runs
-    // on every page including /login and the brief window before the
-    // session resolves — skip until we actually have a logged-in user to
-    // avoid a guaranteed 401 on every unauthenticated page load.
-    if (authLoading || !user) return;
-    void refreshChats();
-  }, [authLoading, user, refreshChats]);
-
-  // When chatId changes (user clicked a chat in the sidebar), load that
-  // chat's history from the server. Skip when we just minted this ID
-  // mid-stream from the server's X-Chat-Id header — in that case the stream
-  // belongs to THIS chat, so we don't want to abort or wipe it.
+  // When chatId changes (the user picked a bot), load that thread's history
+  // from the server. Skip when we just learned this ID mid-stream from the
+  // server's X-Chat-Id header — in that case the stream belongs to THIS
+  // thread, so we don't want to abort or wipe it.
   //
-  // On any other transition we abort the in-flight stream (chat.stop()) so
-  // the new chat's input is usable immediately. The server-side LangGraph
-  // run may halt too — we tolerate that; the checkpointer persists state at
-  // each step boundary. If the resumed chat's last persisted message is from
-  // the user (no assistant reply yet), we poll briefly so a late-arriving
-  // assistant reply (whether from a still-running agent or another client)
-  // shows up automatically.
+    // On any other transition we abort this tab's stream (chat.stop()) so the
+    // new bot's input is usable immediately; the server turn keeps running.
+    // If the resumed chat's last persisted message is from the user (no
+    // assistant reply yet), we poll briefly so a reply landing on the server
+    // shows up automatically.
   useEffect(() => {
     if (authLoading || !user) return;
 
-    // Any chat switch (including back to "new chat") drops a pending cached
-    // preview — it only ever applies to the brand-new chat it was raised for.
-    setCacheHit(null);
+    // Leaving a thread mid-reply only detaches from its stream: the turn runs
+    // on. Keep its question to show on return, and re-read the bots so its
+    // thinking bubble shows.
+    const leftId = shownChatIdRef.current;
+    shownChatIdRef.current = chatId;
+    if (leftId && leftId !== chatId && isLive(chatStateRef.current.status)) {
+      const question = [...chatStateRef.current.messages].reverse().find((m) => m.role === 'user');
+      if (question) leftTurnsRef.current.set(leftId, question);
+      // Its presence now shows as a cloud, and its reply is merged into the
+      // thread when the stream announces it.
+      setOwnTurnId(null);
+    }
+
     if (!chatId) {
       chatStateRef.current.stop();
       clearOptimisticAttachments();
       setMessages([]);
       setMessagesChatId(null);
+      setHistoryCursor(null);
       setIsLoadingMessages(false);
-      // Pick up any title that landed via the server's `after()` hook between
-      // the user aborting and now — the data-chat-title SSE chunk would have
-      // been dropped on abort.
-      void refreshChats();
       return;
     }
     if (justMintedChatIdRef.current === chatId) {
@@ -749,22 +738,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
     chatStateRef.current.stop();
     clearOptimisticAttachments();
-    void refreshChats();
 
     setMessages([]);
+    setHistoryCursor(null);
     // `undefined`, not `chatId`: these empty messages are not this chat's
     // history, they are a placeholder until the fetch below lands.
     setMessagesChatId(undefined);
     setIsLoadingMessages(true);
 
     let cancelled = false;
-    let pollTimer: ReturnType<typeof setTimeout> | undefined;
 
     const fetchMessages = async (): Promise<UIMessage[] | null> => {
       try {
-        const data = await apiRequest<{ messages: ServerUIMessage[] }>(
-          `/api/copilot/chats/${chatId}/messages`,
-        );
+        const data = await apiRequest<HistoryPage>(`/api/copilot/chats/${chatId}/messages`);
+        if (!cancelled) setHistoryCursor(data.nextCursor ?? null);
         return (data.messages ?? []) as unknown as UIMessage[];
       } catch (err) {
         console.error('[chat] failed to load chat messages:', err);
@@ -772,49 +759,33 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const lastIsUser = (msgs: UIMessage[]): boolean =>
-      msgs.length > 0 && msgs[msgs.length - 1].role === 'user';
-
     (async () => {
       const initial = await fetchMessages();
       if (cancelled) return;
-      if (initial) setMessages(initial);
+      // A turn left running: its question is stored only with the reply, so
+      // show the kept one until the stored turn includes it.
+      const left = leftTurnsRef.current.get(chatId);
+      if (left && initial) {
+        const lastUser = [...initial].reverse().find((m) => m.role === 'user');
+        if (lastUser && messageText(lastUser) === messageText(left)) leftTurnsRef.current.delete(chatId);
+      }
+      const kept = leftTurnsRef.current.get(chatId);
+      if (initial) setMessages(kept ? [...initial, kept] : initial);
       // Stamp the loaded history in the same batch as the messages it
       // describes, so consumers can tell "this chat's history" from "something
       // that just streamed in" without racing the two state updates.
       setMessagesChatId(chatId);
       setIsLoadingMessages(false);
 
-      // The chat is "in-flight" from the user's perspective if the last
-      // persisted message is theirs — i.e. the assistant reply hasn't
-      // checkpointed yet. Poll every 2s up to ~30s for an update.
-      if (!initial || !lastIsUser(initial)) return;
-
-      let attempts = 0;
-      const tick = async () => {
-        if (cancelled) return;
-        // Don't stomp on useChat's local state if the user has started a new
-        // send in this chat in the meantime.
-        if (chatStateRef.current.status !== 'ready') return;
-        attempts++;
-        const fresh = await fetchMessages();
-        if (cancelled) return;
-        if (fresh) {
-          setMessages(fresh);
-          if (!lastIsUser(fresh)) return; // assistant reply landed
-        }
-        if (attempts < 15) {
-          pollTimer = setTimeout(tick, 2000);
-        }
-      };
-      pollTimer = setTimeout(tick, 2000);
+      // A reply still running lands through the events stream (`reply`),
+      // which lays the thread's latest page over this one (`mergeLatestHistory`);
+      // nothing to poll for.
     })();
 
     return () => {
       cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [chatId, setMessages, refreshChats, authLoading, user, clearOptimisticAttachments]);
+  }, [chatId, setMessages, authLoading, user, clearOptimisticAttachments]);
 
   const setChatId = useCallback(
     (id: string | null) => {
@@ -823,6 +794,312 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  /**
+   * Prepend the page of history before the oldest message on screen. No-op at
+   * the start of the thread or while a load is in flight; a response that
+   * lands after the user switched bots is dropped.
+   */
+  const loadEarlierMessages = useCallback(async (): Promise<boolean> => {
+    const id = chatIdRef.current;
+    const before = historyCursorRef.current;
+    if (!id || before === null || loadingEarlierRef.current) return false;
+    loadingEarlierRef.current = true;
+    setIsLoadingEarlier(true);
+    try {
+      const data = await apiRequest<HistoryPage>(
+        `/api/copilot/chats/${id}/messages?before=${before}&turns=${EARLIER_PAGE_TURNS}`,
+      );
+      if (chatIdRef.current !== id) return false;
+      const earlier = (data.messages ?? []) as unknown as UIMessage[];
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        return [...earlier.filter((m) => !seen.has(m.id)), ...prev];
+      });
+      setHistoryCursor(data.nextCursor ?? null);
+      return true;
+    } catch (err) {
+      console.error('[chat] failed to load earlier messages:', err);
+      toast.error("Couldn't load earlier messages");
+      return false;
+    } finally {
+      loadingEarlierRef.current = false;
+      setIsLoadingEarlier(false);
+    }
+  }, [setMessages]);
+
+  /**
+   * Lay the thread's latest page over the messages on screen: what is new is
+   * appended, what is already shown keeps its object (and so its bubble), so
+   * a message from another bot arrives without the transcript being rebuilt.
+   * Skipped while the thread's history is still loading (that load reads the
+   * same page) and dropped if the user switched bots or started a turn
+   * meanwhile (the page would overwrite the stream). True when the page was
+   * laid over the thread — only then is the thread marked seen.
+   */
+  const mergeLatestHistory = useCallback(async (): Promise<boolean> => {
+    const id = chatIdRef.current;
+    if (!id || messagesChatIdRef.current !== id) return false;
+    try {
+      const data = await apiRequest<HistoryPage>(`/api/copilot/chats/${id}/messages`);
+      if (chatIdRef.current !== id || messagesChatIdRef.current !== id) return false;
+      if (isLive(chatStateRef.current.status)) return false;
+      const tail = (data.messages ?? []) as unknown as UIMessage[];
+      // An empty thread takes the page's cursor too; otherwise the cursor for
+      // the pages already loaded stands.
+      const wasEmpty = chatStateRef.current.messages.length === 0;
+      setMessages((prev) => mergeHistoryTail(prev, tail));
+      if (wasEmpty) setHistoryCursor(data.nextCursor ?? null);
+      return true;
+    } catch (err) {
+      console.error('[chat] failed to read the latest messages:', err);
+      return false;
+    }
+  }, [setMessages]);
+
+  // Bots the user marked unread by hand. The poll below clears the dot of the
+  // active bot (its thread is on screen), but on the mobile home the active
+  // bot is just the last one opened, so a hand-set dot must survive until the
+  // user opens that bot again.
+  const keptUnreadRef = useRef<Set<string>>(new Set());
+  /** False on the mobile bot picker; true while that bot's chat is visible. */
+  const activeBotThreadOnScreenRef = useRef(true);
+
+  const setActiveBotThreadOnScreen = useCallback((onScreen: boolean) => {
+    activeBotThreadOnScreenRef.current = onScreen;
+  }, []);
+
+  /** Clear a bot's unread dot: at once on screen, and on the server. */
+  const markBotSeen = useCallback((id: string) => {
+    setBots((prev) =>
+      prev.some((b) => b.id === id && b.unread)
+        ? prev.map((b) => (b.id === id ? { ...b, unread: false } : b))
+        : prev,
+    );
+    void markBotRead(id).catch((err) => console.error('[chat] failed to mark the bot read:', err));
+  }, []);
+
+  /** Set a bot's unread dot by hand: at once on screen, then on the server. */
+  const setBotUnread = useCallback(
+    (id: string, unread: boolean) => {
+      if (!unread) {
+        keptUnreadRef.current.delete(id);
+        markBotSeen(id);
+        return;
+      }
+      keptUnreadRef.current.add(id);
+      setBots((prev) => prev.map((b) => (b.id === id ? { ...b, unread: true } : b)));
+      void markBotUnread(id).catch((err) => {
+        console.error('[chat] failed to mark the bot unread:', err);
+        keptUnreadRef.current.delete(id);
+        setBots((prev) => prev.map((b) => (b.id === id ? { ...b, unread: false } : b)));
+      });
+    },
+    [markBotSeen],
+  );
+
+  /**
+   * Switch to a bot and open its permanent thread. The thread id comes back
+   * from the server (created on first open); setting it runs the history load
+   * effect above. A slower earlier open never overrides a newer pick.
+   */
+  const selectBot = useCallback(
+    (id: string) => {
+      const switching = activeBotIdRef.current !== id;
+      // Opening the bot is reading it: a hand-set unread dot no longer holds.
+      keptUnreadRef.current.delete(id);
+      activeBotIdRef.current = id;
+      setActiveBotId(id);
+      storeBotId(id);
+      activeBotRequestRef.current = id;
+      // Leave the previous bot's thread immediately: waiting for the new
+      // thread id would leave the old transcript visible under the new bot.
+      // Going through `null` (whose load-effect branch stops the stream and
+      // clears the transcript) also guarantees the effect re-runs when the id
+      // arrives, even if it equals the thread we were on before a quick
+      // A → B → A switch.
+      if (switching) setChatId(null);
+      void (async () => {
+        try {
+          const { chatId: threadId } = await openBotThread(id);
+          if (activeBotRequestRef.current !== id) return;
+          setChatId(threadId);
+          // Opening the thread loads all of it: nothing in it is unread now.
+          markBotSeen(id);
+        } catch (err) {
+          if (activeBotRequestRef.current !== id) return;
+          console.error('[chat] failed to open bot thread:', err);
+          toast.error("Couldn't open this bot's chat");
+        }
+      })();
+    },
+    [setChatId, markBotSeen],
+  );
+
+  /**
+   * Load the visible bots. On first load, opens the remembered bot, or the
+   * workspace default (the server creates it if the workspace has none).
+   */
+  /**
+   * Take a freshly read bot list (a fetch, or the events stream's snapshot)
+   * as the current one, and open the thread a background reply landed in.
+   * `pinSeqAtStart` is the pin change the read started under, so a list
+   * read while a pin save was in flight is re-pinned locally.
+   */
+  const applyBotList = useCallback((read: BotDto[], pinSeqAtStart: number, settledAtStart: boolean) => {
+    const list = mergeKeptUnread(read, keptUnreadRef.current);
+    const stale = !settledAtStart || botOrderRef.current.seq !== pinSeqAtStart;
+    setBots(stale ? applyPins(list, botOrderRef.current.ids) : list);
+    if (list.length === 0) {
+      activeBotIdRef.current = null;
+      setActiveBotId(null);
+      return;
+    }
+    const current = activeBotIdRef.current;
+    const active = current ? list.find((b) => b.id === current) : undefined;
+    if (active) {
+      // A background reply landed in the thread on screen (another bot
+      // messaged this one, or a turn the user left and came back to): lay it
+      // over the thread and clear the dot (once it is on screen: a merge that
+      // could not apply leaves the dot for the next read). Not while a turn
+      // is live — the page would overwrite it.
+      if (
+        activeBotThreadOnScreenRef.current &&
+        !isLive(chatStateRef.current.status) &&
+        active.unread &&
+        !keptUnreadRef.current.has(active.id)
+      ) {
+        if (chatIdRef.current) leftTurnsRef.current.delete(chatIdRef.current);
+        void mergeLatestHistory().then((merged) => {
+          if (merged) markBotSeen(active.id);
+        });
+      }
+      return;
+    }
+    const stored = readStoredBotId();
+    const pick =
+      list.find((b) => b.id === stored) ?? list.find((b) => b.is_default) ?? list[0];
+    selectBot(pick.id);
+  }, [selectBot, markBotSeen, mergeLatestHistory]);
+
+  /** Re-read the visible bots (after a save, on a `bots-changed` event, on return to the tab). */
+  const refreshBots = useCallback(async () => {
+    const order = botOrderRef.current;
+    const seqAtStart = order.seq;
+    const settledAtStart = order.settledSeq === order.seq;
+    let list: BotDto[];
+    try {
+      list = await listBots();
+    } catch (err) {
+      console.error('[chat] failed to load bots:', err);
+      return;
+    }
+    applyBotList(list, seqAtStart, settledAtStart);
+  }, [applyBotList]);
+  refreshBotsRef.current = refreshBots;
+
+  /** Re-pin and re-sort at once on screen, then save; a failed save reloads the server's order. */
+  const setPinnedBots = useCallback((ids: string[]) => {
+    const order = botOrderRef.current;
+    const seq = order.seq + 1;
+    botOrderRef.current = { ...order, ids, seq };
+    setBots((prev) => applyPins(prev, ids));
+    const settle = () => {
+      if (botOrderRef.current.seq === seq) botOrderRef.current.settledSeq = seq;
+    };
+    void savePinnedBots(ids).then(settle, (err) => {
+      console.error('[chat] failed to save the pinned bots:', err);
+      toast.error("Couldn't save the pinned bots");
+      settle();
+      if (botOrderRef.current.seq === seq) void refreshBotsRef.current();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    void refreshBots();
+  }, [authLoading, user, refreshBots]);
+
+  // The live state, pushed. The snapshot on (re)connect is authoritative —
+  // it is the bot list plus every live key — so a reconnect heals whatever an
+  // outage missed; the events in between are the fast path.
+  const onLiveEvent = useCallback(
+    (event: BotLiveEvent) => {
+      switch (event.type) {
+        case 'snapshot': {
+          const order = botOrderRef.current;
+          applyBotList(event.bots, order.seq, order.settledSeq === order.seq);
+          setPresence(Object.fromEntries(event.presence.map((p) => [p.botId, p])));
+          return;
+        }
+        case 'presence':
+          setPresence((prev) => {
+            if (event.phase === null) {
+              if (!(event.botId in prev)) return prev;
+              const { [event.botId]: _gone, ...rest } = prev;
+              return rest;
+            }
+            return {
+              ...prev,
+              [event.botId]: {
+                chatId: event.chatId,
+                botId: event.botId,
+                userId: user?.id ?? '',
+                phase: event.phase,
+                since: prev[event.botId]?.since ?? new Date().toISOString(),
+                turnId: event.turnId,
+              },
+            };
+          });
+          return;
+        case 'reply': {
+          // This tab streamed its own turn's reply; only another turn's is
+          // news. For the thread on screen the thread's latest page is laid
+          // over it right here — only the new messages are added, nothing
+          // already shown is rebuilt — so another bot's message appears
+          // without a refresh or a blip, and without depending on the list's
+          // unread flag; not while a turn streams (the page would overwrite
+          // it). Any other thread gets its dot from the list read.
+          if (event.turnId === ownTurnIdRef.current) return;
+          leftTurnsRef.current.delete(event.chatId);
+          const chatStatus = chatStateRef.current.status;
+          if (
+            event.chatId === chatIdRef.current &&
+            activeBotThreadOnScreenRef.current &&
+            (chatStatus === 'ready' || chatStatus === 'error')
+          ) {
+            // Marked seen only once the message is on screen; a merge that
+            // could not apply (the history still loading, a turn started
+            // meanwhile) leaves it to the list read, which shows the dot or
+            // merges once the thread is ready.
+            void mergeLatestHistory().then((merged) => {
+              if (merged) markBotSeen(event.botId);
+              else void refreshBotsRef.current();
+            });
+            return;
+          }
+          void refreshBotsRef.current();
+          return;
+        }
+        case 'bots-changed':
+          void refreshBotsRef.current();
+          return;
+      }
+    },
+    [applyBotList, markBotSeen, mergeLatestHistory, user?.id],
+  );
+  useEventStream<BotLiveEvent>(!authLoading && user ? BOT_EVENTS_URL : null, onLiveEvent);
+
+  // Mobile Safari suspends EventSource in the background: one re-read on
+  // return covers what the stream missed, until it reconnects with a snapshot.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshBots();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [authLoading, user, refreshBots]);
 
   // Best-effort S3 delete of a single attachment key (fire-and-forget).
   const deleteAttachmentObject = useCallback((key: string) => {
@@ -967,29 +1244,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         ...(insightTemplate ? [insightTemplatePart(insightTemplate)] : []),
         ...(insightSelection ? [insightSelectionPart(insightSelection)] : []),
       ],
+      metadata: sentNow(),
     });
     resetComposerAttachments();
   }, [resetComposerAttachments]);
 
-  // Drop every attachment and delete its S3 object. Called when starting a
-  // brand-new chat so the composer starts clean.
-  const clearAttachments = useCallback(() => {
-    setAttachments((prev) => {
-      for (const a of prev) {
-        if (a.key) deleteAttachmentObject(a.key);
-        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-      }
-      return [];
-    });
-  }, [deleteAttachmentObject]);
+  const sendText = useCallback(
+    (text: string, insightTemplate?: InsightTemplateAttachment) => {
+      sendWithAttachments(text, insightTemplate);
+    },
+    [sendWithAttachments],
+  );
 
   // Put the caret in the composer with the cursor at the end of whatever is
   // already there.
   //
   // Callers fire this in the same tick as the state change that reveals the
-  // composer (opening a new chat, landing on the chat route), at which point the
-  // textarea may not be mounted yet — the empty state and the transcript render
-  // separate composers, and the copilot pane animates open. So retry across a
+  // composer (switching bots, landing on the chat route), at which point the
+  // textarea may not be mounted yet — the transcript mounts its composer with
+  // the thread, and the copilot pane animates open. So retry across a
   // bounded number of frames until one lands. Bails if the user has meanwhile
   // put their cursor in some other text field, so this never steals focus from
   // a control they deliberately clicked.
@@ -1021,139 +1294,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(attempt);
   }, []);
 
-  const newChat = useCallback(() => {
-    setChatId(null);
-    setMessages([]);
-    // Same batch as the empty transcript so NavigationActionHandler does not
-    // see "chat B's stamp, no messages" for a frame.
-    setMessagesChatId(null);
-    // Starting a new chat discards any pending cached-chat preview.
-    setCacheHit(null);
-    clearAttachments();
-    clearOptimisticAttachments();
-    // A fresh chat shouldn't carry over a stale template selection.
-    setInsightTemplate(null);
-    // Pressing "New Chat" is always a prelude to typing one, so hand the caret
-    // over. Emptying the transcript swaps the docked composer for the empty
-    // state's hero one, so the focus has to survive that remount — which
-    // `focusComposer` handles.
-    focusComposer();
-  }, [setChatId, setMessages, clearAttachments, clearOptimisticAttachments, focusComposer]);
-
-  // Entry point for sending the FIRST message of a chat. For a brand-new chat
-  // (no chatId yet) it first asks the server whether the same question was
-  // already answered; on a hit it opens the warning dialog instead of sending.
-  // Any other case (existing chat, empty text, or lookup failure) sends
-  // immediately so caching never blocks the normal flow.
-  const sendWithCacheCheck = useCallback(async (text: string, insightTemplate?: InsightTemplateAttachment) => {
-    const trimmed = text.trim();
-    // A template-backed ask is never served from the cache: the cached chat's
-    // text alone can't say whether the same template was attached.
-    if (chatIdRef.current || !trimmed || insightTemplate) {
-      sendWithAttachments(text, insightTemplate);
-      return;
-    }
-    try {
-      const data = await apiRequest<{
-        hit?: boolean;
-        chatId?: string;
-        createdAt?: string;
-        firstUserMessage?: string;
-        firstAssistantMessage?: string;
-      }>('/api/chat/cache-check', {
-        method: 'POST',
-        // The page decides which agent a new chat would run on, and a cached
-        // answer is only offered from that same agent (MB-549).
-        body: JSON.stringify({ message: trimmed, page_context: getPageContext() }),
-      });
-      if (data?.hit && data.chatId) {
-        setCacheHit({
-          chatId: data.chatId,
-          createdAt: data.createdAt ?? '',
-          firstUserMessage: data.firstUserMessage ?? '',
-          firstAssistantMessage: data.firstAssistantMessage ?? '',
-          pendingText: text,
-        });
-        return;
-      }
-    } catch (err) {
-      console.error('[chat] cache-check failed:', err);
-    }
-    sendWithAttachments(text);
-  }, [sendWithAttachments]);
-
-  // "Continue from chat" — fork the cached turn-1 into a new chat owned by the
-  // current user, switch to it (the chat-load effect renders the seeded
-  // question + answer), and focus the chat bar so the user can keep typing.
-  // Never opens the source thread directly.
-  const continueFromCached = useCallback(async () => {
-    const hit = cacheHit;
-    setCacheHit(null);
-    if (!hit) return;
-    try {
-      const data = await apiRequest<{ chatId?: string }>(
-        '/api/copilot/chats/fork',
-        {
-          method: 'POST',
-          body: JSON.stringify({ sourceChatId: hit.chatId }),
-        },
-      );
-      if (!data?.chatId) throw new Error('fork returned no chatId');
-      await refreshChats();
-      setChatId(data.chatId);
-      // Defer focus until after the chat-load effect has re-rendered the input.
-      requestAnimationFrame(() => chatInputRef.current?.focus());
-    } catch (err) {
-      console.error('[chat] fork failed:', err);
-      toast.error("Couldn't open the cached chat", {
-        description: 'Please try again in a moment.',
-      });
-    }
-  }, [cacheHit, refreshChats, setChatId]);
-
-  // "Start fresh" — ignore the cache and send the original message as a new chat.
-  const startFreshFromCached = useCallback(() => {
-    const hit = cacheHit;
-    setCacheHit(null);
-    if (!hit) return;
-    sendWithAttachments(hit.pendingText);
-  }, [cacheHit, sendWithAttachments]);
-
-  // Switching insights switches the agent (MB-549, US-10 AC4). When the user
-  // opens an insight whose bound agent differs from the one the current thread
-  // is pinned to, the panel starts a new thread for it; the old thread is
-  // untouched and stays resumable from history on its own agent. Keyed on the
-  // open insight and its binding only — never on the active chat — so resuming
-  // an old thread from history while an insight is open does not bounce the
-  // user out of it. An empty thread needs nothing: its first turn resolves the
-  // agent on the server. A thread whose pin the client doesn't know, or one
-  // that is mid-response, is left alone.
-  const openInsight = useOpenInsightAgent();
-  const openInsightId = openInsight?.insightId ?? null;
-  const openInsightAgentKey = openInsight?.agentKey ?? null;
-  useEffect(() => {
-    if (!openInsightId || !chatIdRef.current) return;
-    const current = chatStateRef.current;
-    if (current.messages.length === 0) return;
-    if (current.status === 'streaming' || current.status === 'submitted') return;
-    const pinned = activeChatAgentKeyRef.current;
-    if (!pinned) return;
-    const target = toChatAgentKey(openInsightAgentKey);
-    if (toChatAgentKey(pinned) === target) return;
-
-    // Not `newChat()`: that also deletes the composer's uploaded files and
-    // grabs focus, neither of which a page navigation should do.
-    chatIdRef.current = null;
-    setChatIdState(null);
-    setMessages([]);
-    setMessagesChatId(null);
-    setCacheHit(null);
-    clearOptimisticAttachments();
-    toast.info(`New chat with ${describeChatAgent(target).label}`, {
-      description: 'This insight uses a different agent. Your previous chat is in history.',
-    });
-  }, [openInsightId, openInsightAgentKey, setMessages, clearOptimisticAttachments]);
-
   // A prompt that's queued behind a still-streaming response. Non-null while
   // the "stop & replace" confirmation dialog is open.
   const [pendingAnalysis, setPendingAnalysis] = useState<
@@ -1175,15 +1315,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const busy = status === "streaming" || status === "submitted";
       if (busy) {
         setPendingAnalysis({ text, options });
-      } else if (options?.insightSelection) {
-        // Never served from the cache: the text alone ("make it blue") can't
-        // say what was selected, so it would match an unrelated chat.
-        sendWithAttachments(text, undefined, options.insightSelection);
       } else {
-        void sendWithCacheCheck(text);
+        sendWithAttachments(text, undefined, options?.insightSelection);
       }
     },
-    [sendWithCacheCheck, sendWithAttachments],
+    [sendWithAttachments],
   );
 
   const confirmPendingAnalysis = useCallback(async () => {
@@ -1192,13 +1328,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (pending == null) return;
     const { text, options } = pending;
 
-    // Fully stop the in-flight run BEFORE starting the new turn. stop() aborts
-    // the fetch (which propagates to the server via req.signal), but we also
-    // wait for useChat's status to actually settle out of streaming/submitted —
-    // otherwise the new send races the dying run and both stream into the same
-    // thread concurrently (the cascade of duplicate thinking/tool blocks).
+    // Fully stop the in-flight run BEFORE starting the new turn. stopStream()
+    // tells the server turn to stop and aborts the fetch; we then wait for
+    // useChat's status to settle out of streaming/submitted and for the server
+    // turn to let go of the thread — otherwise the new send races the dying
+    // run (the cascade of duplicate thinking/tool blocks) or is refused.
+    const stoppingId = chatIdRef.current;
+    const wasLive = isLive(chatStateRef.current.status);
     try {
-      await chatStateRef.current.stop();
+      await stopStream();
     } catch {
       // stop() can reject if there's nothing in flight — safe to ignore.
     }
@@ -1220,7 +1358,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       check();
     });
 
-    if (!settled) {
+    // The server turn holds the thread until it has stored what it did; a
+    // Stop on a running turn reports `stopped: true` until then.
+    const released =
+      !wasLive || !stoppingId
+        ? true
+        : await (async () => {
+            for (let i = 0; i < TURN_STOP_POLL_ATTEMPTS; i++) {
+              await new Promise((r) => setTimeout(r, TURN_STOP_POLL_MS));
+              try {
+                if (!(await stopChatTurn(stoppingId)).stopped) return true;
+              } catch {
+                return true; // let the send report whatever is wrong
+              }
+            }
+            return false;
+          })();
+
+    if (!settled || !released) {
       toast.error("Couldn't stop the current response", {
         description: "Please try again in a moment.",
       });
@@ -1230,10 +1385,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const insightSelection = options?.insightSelection;
     chatStateRef.current.sendMessage(
       insightSelection
-        ? { parts: [{ type: "text", text }, insightSelectionPart(insightSelection)] }
-        : { text },
+        ? { parts: [{ type: "text", text }, insightSelectionPart(insightSelection)], metadata: sentNow() }
+        : { text, metadata: sentNow() },
     );
-  }, [pendingAnalysis]);
+  }, [pendingAnalysis, stopStream]);
 
   // Release every outstanding preview blob if the provider ever unmounts
   // (sign-out, hard route change). Written as an explicit cleanup body rather
@@ -1254,12 +1409,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Every entry is stable, so this object is created once and never again.
   const actions = useMemo<ChatActions>(
     () => ({
-      setChatId,
-      newChat,
-      refreshChats,
       analyzeWithAI,
       prefillComposer,
-      sendWithCacheCheck,
+      sendText,
       focusComposer,
       addFiles,
       removeAttachment,
@@ -1268,14 +1420,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chatInputRef,
       sendMessage,
       stop: stopStream,
+      selectBot,
+      refreshBots,
+      setPinnedBots,
+      setBotUnread,
+      setActiveBotThreadOnScreen,
+      loadEarlierMessages,
     }),
     [
-      setChatId,
-      newChat,
-      refreshChats,
+      selectBot,
+      refreshBots,
+      setPinnedBots,
+      setBotUnread,
+      setActiveBotThreadOnScreen,
+      loadEarlierMessages,
       analyzeWithAI,
       prefillComposer,
-      sendWithCacheCheck,
+      sendText,
       focusComposer,
       addFiles,
       removeAttachment,
@@ -1287,26 +1448,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const thread = useMemo<ChatThreadState>(
     () => ({
       chatId,
-      chats,
-      activeChatEffortTier,
-      activeChatAgentKey,
-      hasMoreChats,
-      isLoadingMoreChats,
-      loadMoreChats,
       isLoadingMessages,
+      hasEarlierMessages: historyCursor !== null,
+      isLoadingEarlier,
       messagesChatId,
+      bots: liveBots,
+      activeBot,
+      livePhase,
     }),
-    [
-      chatId,
-      chats,
-      activeChatEffortTier,
-      activeChatAgentKey,
-      hasMoreChats,
-      isLoadingMoreChats,
-      loadMoreChats,
-      isLoadingMessages,
-      messagesChatId,
-    ],
+    [liveBots, activeBot, livePhase, chatId, isLoadingMessages, historyCursor, isLoadingEarlier, messagesChatId],
   );
 
   const composer = useMemo<ChatComposerState>(
@@ -1315,21 +1465,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       effortChoice,
       insightTemplate,
       composerDraft,
-      cacheHit,
-      continueFromCached,
-      startFreshFromCached,
       optimisticAttachments,
     }),
-    [
-      attachments,
-      effortChoice,
-      insightTemplate,
-      composerDraft,
-      cacheHit,
-      continueFromCached,
-      startFreshFromCached,
-      optimisticAttachments,
-    ],
+    [attachments, effortChoice, insightTemplate, composerDraft, optimisticAttachments],
   );
 
   const statusValue = useMemo<ChatStatusState>(() => ({ status: chat.status }), [chat.status]);
@@ -1337,25 +1475,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ChatContextValue>(
     () => ({
       ...chat,
+      stop: stopStream,
       chatId,
-      setChatId,
-      newChat,
-      chats,
-      activeChatEffortTier,
-      activeChatAgentKey,
-      refreshChats,
-      loadMoreChats,
-      hasMoreChats,
-      isLoadingMoreChats,
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,
       prefillComposer,
       composerDraft,
-      sendWithCacheCheck,
-      cacheHit,
-      continueFromCached,
-      startFreshFromCached,
+      sendText,
       chatInputRef,
       focusComposer,
       attachments,
@@ -1366,28 +1493,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       optimisticAttachments,
       insightTemplate,
       setInsightTemplate,
+      bots: liveBots,
+      activeBot,
+      selectBot,
+      refreshBots,
+      setPinnedBots,
+      setBotUnread,
+      setActiveBotThreadOnScreen,
+      hasEarlierMessages: historyCursor !== null,
+      isLoadingEarlier,
+      loadEarlierMessages,
     }),
     [
+      liveBots,
+      activeBot,
+      selectBot,
+      refreshBots,
+      setPinnedBots,
+      setBotUnread,
+      setActiveBotThreadOnScreen,
+      historyCursor,
+      isLoadingEarlier,
+      loadEarlierMessages,
       chat,
+      stopStream,
       chatId,
-      setChatId,
-      newChat,
-      chats,
-      activeChatEffortTier,
-      activeChatAgentKey,
-      refreshChats,
-      loadMoreChats,
-      hasMoreChats,
-      isLoadingMoreChats,
       isLoadingMessages,
       messagesChatId,
       analyzeWithAI,
       prefillComposer,
       composerDraft,
-      sendWithCacheCheck,
-      cacheHit,
-      continueFromCached,
-      startFreshFromCached,
+      sendText,
       focusComposer,
       attachments,
       addFiles,

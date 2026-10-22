@@ -21,7 +21,7 @@ import {
   CONSOLE_NAVIGATION_GUIDE,
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
-  buildExternalEvidenceGuide,
+  NEXT_ACTION_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
 import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
@@ -175,7 +175,7 @@ ${MNA_PIPELINE_OPERATIONS_GUIDE}
 - When users ask vague questions, establish the amount, the use of proceeds, the tenor and the currency before structuring — those four decide most of the answer
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names from past acquisitions (target_co_partner)
 - Check query_files when the question turns on internal history — an existing facility's covenants, a prior offering's terms, what was already negotiated. Files are point-in-time documents: what a term sheet said last year is evidence about last year
-${buildExternalEvidenceGuide({ topicTools: true })}
+${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
 ${INSIGHT_TEMPLATE_AUTHORING_GUIDE}

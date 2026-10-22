@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDb } from '@/lib/server/db';
 import { dispatcherTick, reapStuckRuns } from '@/lib/workforce';
 import { fireDueRoutines } from '@/lib/routines';
+import { sweepBotRequests } from '@/lib/bots/requestSweep';
+import { sweepUnembeddedChatMessages } from '@/lib/chat/embeddingSweep';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +22,10 @@ export const maxDuration = 60;
  * - Fires due routines on each tick: routines whose next_fire_at has passed
  *   are claimed under advisory lock and each enqueues a workforce run with
  *   trigger_source='cron'.
+ * - Times out bot requests (one bot asking another by @mention) nobody
+ *   closed, so the asking bot still hears back.
+ * - Backfills chat-history vectors: queues the embedding of stored exchanges
+ *   that never got one, so `search_chat_history` finds them by meaning.
  *
  * Protected by CRON_SECRET; Vercel Cron sends `Authorization: Bearer
  * $CRON_SECRET`. When unset, the route is open (local dev only).
@@ -41,11 +47,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // up-to-60s delay before the workflow starts.
     const fireResult = await fireDueRoutines(db);
     const dispatchResult = await dispatcherTick(db);
+    const botRequests = await sweepBotRequests(db).catch((err: unknown) => {
+      console.error('[cron/dispatch] bot request sweep failed:', err);
+      return { timedOut: 0, workspaces: 0 };
+    });
+    const embeddings = await sweepUnembeddedChatMessages(db).catch((err: unknown) => {
+      console.error('[cron/dispatch] chat embedding sweep failed:', err);
+      return { queued: 0, workspaces: 0 };
+    });
     return NextResponse.json({
       ok: true,
       reaper: reapResult,
       routines: fireResult,
       dispatch: dispatchResult,
+      botRequests,
+      embeddings,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'dispatch failed';

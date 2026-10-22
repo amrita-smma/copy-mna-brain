@@ -33,3 +33,19 @@ export const DEFAULT_COPILOT_AGENT: CopilotAgentType = "mna";
 export function isCopilotAgentType(value: unknown): value is CopilotAgentType {
   return typeof value === "string" && (COPILOT_AGENT_KEYS as readonly string[]).includes(value);
 }
+
+/**
+ * Display names for each flavor, for pickers (the admin portal's workspace
+ * Copilot setting and the bot editor's base flavor). A `Record` keyed by
+ * `CopilotAgentType`, so a new key fails the build until it has a label.
+ */
+export const COPILOT_AGENT_LABELS: Record<CopilotAgentType, string> = {
+  mna: "M&A / Acquisitions",
+  investment: "Funds & Investing",
+  combined: "Combined (M&A + Investment)",
+  vc: "VC / Growth Equity",
+  minority: "Minority Stakes Portfolio Manager",
+  crowdfunding: "Crowdfunding Agent",
+  investment_banking: "Investment Banking Advisory",
+  capital_markets: "Capital Markets (DCM / ECM)",
+};

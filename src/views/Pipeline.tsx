@@ -264,7 +264,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   const sourcingHref = useWorkspaceHref("/sourcing");
   const chatHref = useWorkspaceHref("/chat");
   const smartFilesHref = useWorkspaceHref("/smart-files");
-  const { newChat, prefillComposer } = useChatActions();
+  const { prefillComposer } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const isMobile = useIsMobile();
   const pipelineStages = usePipelineStages();
@@ -360,10 +360,9 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     usePipelineHeading();
   const [headingDialogOpen, setHeadingDialogOpen] = useState(false);
   const [addCompanyOpen, setAddCompanyOpen] = useState(false);
-  // "Add Company → Ask AI": a fresh chat with the add-company brief staged in
-  // the composer for the user to fill in and send — not sent on their behalf.
+  // "Add Company → Ask AI": the add-company brief staged in the active bot's
+  // composer for the user to fill in and send — not sent on their behalf.
   const handleAddCompanyWithAI = () => {
-    newChat();
     prefillComposer(buildAddCompanyPrompt(tracks));
     if (isMobile) {
       router.push(chatHref);

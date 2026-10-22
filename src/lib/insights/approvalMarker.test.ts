@@ -8,6 +8,7 @@ import {
   resolveApprovalPayload,
   stripApprovalMarkers,
 } from './approvalMarker';
+import { BOT_CHANGE_APPROVAL_MARKER, BOT_MESSAGE_MARKER } from '@/lib/bots/approval';
 
 /** The shape a real insight document has: comments, quotes, angle brackets. */
 const HOSTILE_DOC = `<!DOCTYPE html>
@@ -117,3 +118,10 @@ describe('resolveApprovalPayload', () => {
   );
 });
 
+
+describe('stripApprovalMarkers with bot cards', () => {
+  it('also strips the bot change and bot message payloads', () => {
+    const text = `Done.\n${encodeApprovalMarker(BOT_CHANGE_APPROVAL_MARKER, { a: 1 })}\n${encodeApprovalMarker(BOT_MESSAGE_MARKER, { b: 2 })}`;
+    expect(stripApprovalMarkers(text)).toBe('Done.');
+  });
+});

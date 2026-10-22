@@ -22,6 +22,16 @@ function mapKind(cls: string | null | undefined): CheckpointMessageWrite['kind']
   return 'other';
 }
 
+export interface CompactionResult {
+  checkpoints: number;
+  writes: number;
+  blobs: number;
+}
+
+function rowCount(result: unknown): number {
+  return Number((result as { rowCount?: number | null })?.rowCount ?? 0);
+}
+
 export class AgentCheckpointRepository {
   constructor(private readonly db: DbClient) {}
 
@@ -85,5 +95,79 @@ ORDER BY w.checkpoint_id, w.task_id, w.idx, e.ord
       id: row.msg_id ?? null,
       toolCallId: row.tool_call_id ?? null,
     }));
+  }
+
+  /**
+   * Copilot chat threads with more than `keep` checkpoints that are safe to
+   * compact: idle for `idleMinutes` and not holding a turn lock. Workforce
+   * threads (`ai_workforce_queue` ids) never match, so a paused run keeps the
+   * history its resume may need.
+   */
+  async listCompactableThreads(opts: {
+    keep: number;
+    idleMinutes: number;
+    limit: number;
+  }): Promise<string[]> {
+    const result = await this.db.execute<{ thread_id: string }>(sql`
+      SELECT c.thread_id
+      FROM agent_states.checkpoints c
+      JOIN copilot_chats ch ON ch.id::text = c.thread_id
+      WHERE c.checkpoint_ns = ''
+        AND ch.last_active_at < now() - make_interval(mins => ${opts.idleMinutes})
+        AND (ch.busy_until IS NULL OR ch.busy_until < now())
+      GROUP BY c.thread_id
+      HAVING count(*) > ${opts.keep}
+      LIMIT ${opts.limit}
+    `);
+    const rows = Array.isArray(result)
+      ? result
+      : (result as unknown as { rows?: { thread_id: string }[] })?.rows ?? [];
+    return rows.map((r) => r.thread_id);
+  }
+
+  /**
+   * Drop every checkpoint of a thread but the newest `keep`, with their
+   * pending writes and every blob no remaining checkpoint references. The
+   * newest checkpoint holds the thread's whole state, so the conversation is
+   * untouched; only time-travel to older steps is lost. One transaction, so a
+   * failure leaves the thread as it was.
+   *
+   * Checkpoint ids are time-ordered (uuid6), which is how LangGraph itself
+   * finds the latest one. Only the root namespace ('') is compacted.
+   */
+  async compactThread(threadId: string, keep: number): Promise<CompactionResult> {
+    if (!threadId || keep < 1) return { checkpoints: 0, writes: 0, blobs: 0 };
+    return this.db.transaction(async (tx) => {
+      const kept = sql`
+        SELECT checkpoint_id FROM agent_states.checkpoints
+        WHERE thread_id = ${threadId} AND checkpoint_ns = ''
+        ORDER BY checkpoint_id DESC
+        LIMIT ${keep}
+      `;
+      const writes = await tx.execute(sql`
+        DELETE FROM agent_states.checkpoint_writes
+        WHERE thread_id = ${threadId} AND checkpoint_ns = ''
+          AND checkpoint_id NOT IN (${kept})
+      `);
+      const checkpoints = await tx.execute(sql`
+        DELETE FROM agent_states.checkpoints
+        WHERE thread_id = ${threadId} AND checkpoint_ns = ''
+          AND checkpoint_id NOT IN (${kept})
+      `);
+      const blobs = await tx.execute(sql`
+        DELETE FROM agent_states.checkpoint_blobs b
+        WHERE b.thread_id = ${threadId} AND b.checkpoint_ns = ''
+          AND NOT EXISTS (
+            SELECT 1 FROM agent_states.checkpoints c
+            WHERE c.thread_id = ${threadId} AND c.checkpoint_ns = ''
+              AND c.checkpoint -> 'channel_versions' ->> b.channel = b.version
+          )
+      `);
+      return {
+        checkpoints: rowCount(checkpoints),
+        writes: rowCount(writes),
+        blobs: rowCount(blobs),
+      };
+    });
   }
 }

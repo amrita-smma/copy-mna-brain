@@ -572,13 +572,23 @@ test.describe('Dashboard page', () => {
       page.goto('/dashboard'),
     ]);
 
-    // An empty chat greets the user by first name ("Test User" -> "Test") with
-    // the composer and a few starting prompts beneath it. This replaced the old
-    // canned "Hello! I'm your M&A discovery assistant" feature-list bubble.
-    await expect(
-      page.getByRole('heading', { name: 'Ask away, Test!', level: 1 }),
-    ).toBeVisible();
+    // An empty chat is the empty transcript with the composer at the bottom
+    // and the starting prompts drifting past in a carousel above it (no
+    // greeting screen: the first messages render into the same view). The
+    // carousel's seamless-loop copy is aria-hidden, so the role query finds
+    // the one real chip.
+    const copilot = page.getByTestId('copilot-pane');
+    await expect(copilot.getByRole('heading', { level: 1 })).toHaveCount(0);
+    await expect(copilot.getByText(/^Ask away, /)).toHaveCount(0);
     await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Pipeline Suggestions' })).toBeVisible();
+    // The × folds the suggestions away into the right and becomes the way back.
+    const toggle = page.getByTestId('chat-suggestions-toggle');
+    await expect(toggle).toHaveAttribute('aria-label', 'Hide suggestions');
+    await toggle.click();
+    await expect(page.getByRole('button', { name: 'Pipeline Suggestions' })).toHaveCount(0);
+    await expect(toggle).toHaveAttribute('aria-label', 'Show suggestions');
+    await toggle.click();
     await expect(page.getByRole('button', { name: 'Pipeline Suggestions' })).toBeVisible();
   });
 

@@ -437,3 +437,51 @@ describe('fireDueRoutines', () => {
     });
   });
 });
+
+describe('fireDueRoutines — bot routines', () => {
+  beforeEach(() => {
+    claimDue.mockReset();
+    enqueueAgentRun.mockReset();
+    markFired.mockReset();
+    findInsightRefreshTargetsByIds.mockReset().mockResolvedValue(new Map());
+    findActiveRunRoutineIds.mockReset().mockResolvedValue(new Set());
+    pauseForDeprecatedAgents.mockReset().mockResolvedValue([]);
+    runWithWorkforceWorkspaceId.mockClear();
+  });
+
+  it("hands a bot's routine to the bot routine service in its workspace, never the workforce queue", async () => {
+    const botRoutine = routine({ id: 'rt-bot', bot_id: 'bot-1', workspace_id: 'ws-7' });
+    claimDue.mockResolvedValue([botRoutine]);
+    const fireBotRoutine = vi.fn(async () => ({ status: 'fired' as const }));
+    const now = new Date('2026-05-18T06:00:30Z');
+
+    const result = await fireDueRoutines(fakeDb, now, { fireBotRoutine });
+
+    expect(fireBotRoutine).toHaveBeenCalledWith(fakeDb, botRoutine, now);
+    expect(runWithWorkforceWorkspaceId).toHaveBeenCalledWith('ws-7', expect.any(Function));
+    expect(enqueueAgentRun).not.toHaveBeenCalled();
+    expect(markFired).not.toHaveBeenCalled();
+    expect(result.fired).toEqual([{ routineId: 'rt-bot', runId: '', created: true }]);
+  });
+
+  it('reports a paused or skipped bot routine with its reason', async () => {
+    claimDue.mockResolvedValue([
+      routine({ id: 'rt-a', bot_id: 'bot-1' }),
+      routine({ id: 'rt-b', bot_id: 'bot-1' }),
+    ]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fireBotRoutine = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'paused', reason: 'the bot is archived' })
+      .mockResolvedValueOnce({ status: 'skipped', reason: 'already fired by another tick' });
+
+    const result = await fireDueRoutines(fakeDb, new Date(), { fireBotRoutine });
+
+    expect(result.fired).toEqual([]);
+    expect(result.skipped).toEqual([
+      { routineId: 'rt-a', reason: 'the bot is archived' },
+      { routineId: 'rt-b', reason: 'already fired by another tick' },
+    ]);
+    warn.mockRestore();
+  });
+});

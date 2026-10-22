@@ -69,11 +69,33 @@ services:
       echo 'buckets mna-files, mbox-archive, and langfuse ready';
       "
 
+  # The app's Redis: the Copilot bots' live state (who is thinking, Stop
+  # signals, pushes to the browser). Same shape as production (terraform/redis):
+  # no persistence, noeviction. REDIS_URL=redis://localhost:6379 from the host.
+  redis:
+    image: redis:7
+    container_name: mna-redis
+    restart: unless-stopped
+    command: >
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --save ""
+      --appendonly no
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   app:
     build: .
     container_name: mna-app
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       minio:
@@ -89,6 +111,7 @@ services:
       - .env.local
     environment:
       DB_HOST: postgres
+      REDIS_URL: redis://redis:6379
       DB_PORT: 5432
       DB_NAME: mna
       DB_USER: postgres
@@ -151,8 +174,8 @@ services:
     command: >
       --requirepass myredissecret
       --maxmemory-policy noeviction
-    ports:
-      - "6379:6379"
+    # No host port: Langfuse reaches it by service name, and 6379 on the host
+    # is the app's own `redis` service.
     volumes:
       - langfuse-redis-data:/data
     healthcheck:

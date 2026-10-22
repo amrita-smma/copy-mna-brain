@@ -13,6 +13,7 @@ import {
   type ChatSurface,
 } from '@/lib/posthog-chat';
 import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
+import { STALE_SOURCE_MONTHS, isStaleSource, parseCitationLabel } from '@/lib/chat/citations';
 import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
 import type { Components } from 'react-markdown';
 
@@ -34,7 +35,19 @@ interface MarkdownRendererProps {
    * affected — never a user message, a tool trace or any other markdown.
    */
   evidenceMarkers?: boolean;
+  /**
+   * Draw citation links — `[Source, 12 Mar 2026](url)` — as source pills with
+   * their date, flagging a source older than `STALE_SOURCE_MONTHS`. Opt-in,
+   * for the assistant's answer only; other links render as plain links.
+   */
+  citationPills?: boolean;
 }
+
+// Opaque in both themes, like the evidence pills.
+const CITATION_PILL =
+  'mx-0.5 inline-flex max-w-full items-baseline gap-1 rounded-full border border-border bg-muted px-2 py-px align-baseline text-xs font-normal text-foreground no-underline hover:bg-card hover:no-underline';
+const CITATION_PILL_STALE =
+  'border-amber-500 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900';
 
 const DATA_LIMIT_CALLOUT =
   'my-2 flex items-start gap-2 rounded-lg border border-amber-500 bg-muted px-3 py-2 text-foreground dark:border-amber-400';
@@ -60,6 +73,7 @@ function buildComponents(
   isCard: boolean,
   linkSurface: ChatSurface | undefined,
   evidenceMarkers: boolean,
+  citationPills: boolean,
 ): Components {
   return {
           // Headers
@@ -84,7 +98,7 @@ function buildComponents(
                 <p className="m-0 leading-relaxed text-foreground">{children}</p>
               </div>
             ) : (
-              <p className={cn("mb-2 last:mb-0 leading-relaxed", isCard ? "text-foreground" : "text-foreground/90")}>{children}</p>
+              <p className={cn("last:mb-0 leading-relaxed", isCard ? "mb-2 text-foreground" : "mb-1.5 text-foreground/90")}>{children}</p>
             ),
 
           // Strong/Bold
@@ -115,10 +129,10 @@ function buildComponents(
 
           // Lists
           ul: ({ children }) => (
-            <ul className={cn("my-2 pl-5 list-disc list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ul>
+            <ul className={cn(isCard ? "my-2" : "my-1.5", "pl-5 list-disc list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ul>
           ),
           ol: ({ children }) => (
-            <ol className={cn("my-2 pl-5 list-decimal list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
+            <ol className={cn(isCard ? "my-2" : "my-1.5", "pl-5 list-decimal list-outside marker:text-muted-foreground", isCard ? "space-y-1.5" : "space-y-1")}>{children}</ol>
           ),
           // A guardrail in a tight bullet list has no <p>, so the <li> itself
           // becomes the callout.
@@ -184,13 +198,31 @@ function buildComponents(
           // Horizontal rules
           hr: () => <hr className="my-4 border-border" />,
 
-          // Links - break long URLs so they don't overflow the bubble
-          a: ({ href, children }) => (
+          // Links - break long URLs so they don't overflow the bubble. A
+          // citation ("Source, date") becomes a source pill when asked for.
+          a: ({ href, children }) => {
+            const citation = citationPills ? parseCitationLabel(linkTextOf(children) ?? '') : null;
+            const stale = citation?.date ? isStaleSource(citation.date) : false;
+            return (
             <a
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline break-all"
+              className={
+                citation
+                  ? cn(CITATION_PILL, stale && CITATION_PILL_STALE)
+                  : 'text-primary hover:underline break-all'
+              }
+              title={
+                citation
+                  ? stale
+                    ? `Dated source: published over ${STALE_SOURCE_MONTHS} months ago`
+                    : citation.date
+                      ? `Published ${citation.dateText}`
+                      : 'The source gives no date'
+                  : undefined
+              }
+              data-citation={citation ? (stale ? 'stale' : citation.date ? 'dated' : 'undated') : undefined}
               onClick={() => {
                 if (!linkSurface) return;
                 // Fires on the click rather than on navigation: the link opens
@@ -206,9 +238,20 @@ function buildComponents(
                 );
               }}
             >
-              {children}
+              {citation ? (
+                <>
+                  <span className="truncate font-medium">{citation.source}</span>
+                  <span className={cn('shrink-0 tabular-nums', !stale && 'text-muted-foreground')}>
+                    {citation.dateText}
+                    {stale ? ' · dated' : ''}
+                  </span>
+                </>
+              ) : (
+                children
+              )}
             </a>
-          ),
+            );
+          },
   };
 }
 
@@ -218,6 +261,7 @@ function MarkdownRendererImpl({
   variant = 'chat',
   linkSurface,
   evidenceMarkers = false,
+  citationPills = false,
 }: MarkdownRendererProps) {
   const isCard = variant === 'card';
 
@@ -226,8 +270,8 @@ function MarkdownRendererImpl({
   // used to be an inline literal, which made react-markdown re-parse the
   // whole document each time the bubble re-rendered.
   const components = useMemo(
-    () => buildComponents(isCard, linkSurface, evidenceMarkers),
-    [isCard, linkSurface, evidenceMarkers],
+    () => buildComponents(isCard, linkSurface, evidenceMarkers, citationPills),
+    [isCard, linkSurface, evidenceMarkers, citationPills],
   );
 
   return (

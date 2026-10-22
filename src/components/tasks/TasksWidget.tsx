@@ -43,7 +43,7 @@ export function TasksWidget() {
         <div className="flex items-center justify-between border-b px-4 py-3">
           <p className="text-sm font-semibold">Tasks</p>
           <WorkspaceLink
-            href="/profile?tab=items"
+            href="/tasks"
             onClick={() => setOpen(false)}
             className="text-xs text-muted-foreground hover:text-foreground"
           >

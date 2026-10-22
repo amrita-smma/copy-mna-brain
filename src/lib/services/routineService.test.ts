@@ -59,6 +59,11 @@ class MockRoutinesRepository {
     return this.routines.find((r) => r.id === id) ?? null;
   }
 
+  async findWorkforceRoutineById(id: string): Promise<RoutineRow | null> {
+    const row = await this.findById(id);
+    return row && !row.bot_id ? row : null;
+  }
+
   async findActiveInsightRefreshRunId(_insightId: string): Promise<string | null> {
     return this.activeRefreshRunId;
   }

@@ -20,6 +20,10 @@ vi.mock("@/lib/repositories", () => ({
   },
 }));
 
+vi.mock("@/lib/workspace", () => ({
+  getActiveWorkspaceId: vi.fn(async () => "ws-active"),
+}));
+
 import { crmInsights } from "./crm_insights";
 
 afterEach(() => vi.clearAllMocks());
@@ -36,6 +40,20 @@ describe("crmInsights", () => {
     expect(result).toContain("**Stale relationships:** 7");
     expect(result).toContain("**Flagged records:** 2");
     expect(result).toContain("**Emails today:** 15");
+  });
+
+  // Chat and background bot turns never put a workspaceId in `configurable`.
+  it("scopes the counts to the active workspace when the config names none", async () => {
+    countStaleEmployersMock.mockResolvedValue(1);
+    countFlaggedMock.mockResolvedValue(1);
+    countSinceMock.mockResolvedValue(1);
+
+    const result = (await crmInsights.invoke({}, { configurable: { userId: "u1" } })) as string;
+
+    expect(result).toContain("## CRM Insights");
+    expect(countFlaggedMock).toHaveBeenCalledWith("ws-active");
+    expect(countStaleEmployersMock.mock.calls[0][1]).toBe("ws-active");
+    expect(countSinceMock.mock.calls[0][1]).toBe("ws-active");
   });
 
   it("queries stale employers against a 30-day threshold", async () => {

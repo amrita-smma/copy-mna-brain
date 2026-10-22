@@ -9,7 +9,6 @@ vi.mock("@/lib/features/overrides", () => ({
 }));
 
 import {
-  chatCacheEnabled,
   companyGraphEnabled,
   fundManagementEnabled,
   insightsEnabled,
@@ -17,7 +16,6 @@ import {
 
 const FLAGS = [
   ["companyGraphEnabled", companyGraphEnabled, "COMPANY_GRAPH_ENABLED", false],
-  ["chatCacheEnabled", chatCacheEnabled, "CHAT_CACHE_ENABLED", false],
   ["fundManagementEnabled", fundManagementEnabled, "FUND_MANAGEMENT_ENABLED", false],
   ["insightsEnabled", insightsEnabled, "INSIGHTS_ENABLED", true],
 ] as const;

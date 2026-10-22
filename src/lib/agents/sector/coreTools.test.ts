@@ -34,7 +34,7 @@ const names = (list: ReadonlyArray<{ name: string }>) => list.map((t) => t.name)
  * equity-analysis calculator, which @minority and the workforce list append
  * rather than it living in one of the shared arrays.
  */
-const EXISTING_TOOLS = new Set([
+const EXISTING_TOOLS = new Set<unknown>([
   ...tools,
   ...chatOnlyTools,
   ...workforceOnlyTools,

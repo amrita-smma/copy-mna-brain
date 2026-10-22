@@ -57,7 +57,7 @@ describe('FeatureFlagsService', () => {
         isOverridden: false,
       });
       // opt-in feature, catalog default false, no env var set
-      expect(features.find((f) => f.key === 'CHAT_CACHE_ENABLED')).toMatchObject({
+      expect(features.find((f) => f.key === 'INSIGHTS_DASHBOARD_ENABLED')).toMatchObject({
         enabled: false,
         isOverridden: false,
       });
@@ -66,7 +66,7 @@ describe('FeatureFlagsService', () => {
 
     it('applies stored overrides over defaults and marks them overridden', async () => {
       repo.findByWorkspace.mockResolvedValue({
-        overrides: { PIPELINE_ENABLED: false, CHAT_CACHE_ENABLED: true },
+        overrides: { PIPELINE_ENABLED: false, INSIGHTS_DASHBOARD_ENABLED: true },
         updatedAt: '2026-07-14T00:00:00.000Z',
         updatedBy: { id: 'u1', name: 'Admin', email: 'a@x.com' },
       });
@@ -76,7 +76,7 @@ describe('FeatureFlagsService', () => {
         enabled: false,
         isOverridden: true,
       });
-      expect(features.find((f) => f.key === 'CHAT_CACHE_ENABLED')).toMatchObject({
+      expect(features.find((f) => f.key === 'INSIGHTS_DASHBOARD_ENABLED')).toMatchObject({
         enabled: true,
         isOverridden: true,
       });
@@ -95,7 +95,7 @@ describe('FeatureFlagsService', () => {
       repo.findByWorkspace.mockResolvedValue(emptyOverrides());
       const { features } = await service.listFeatures(WS);
       expect(features.find((f) => f.key === 'PIPELINE_ENABLED')?.navItem).toBe(true);
-      expect(features.find((f) => f.key === 'CHAT_CACHE_ENABLED')?.navItem).toBe(false);
+      expect(features.find((f) => f.key === 'INSIGHTS_DASHBOARD_ENABLED')?.navItem).toBe(false);
     });
 
     it('tags each feature with its settings-tab category (funds vs general)', async () => {

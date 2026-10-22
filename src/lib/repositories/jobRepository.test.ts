@@ -83,3 +83,56 @@ describe('JobRepository.findByTypeAndPayload', () => {
     expect(db.where).toHaveBeenCalled();
   });
 });
+
+describe('JobRepository.claimPending', () => {
+  let db: ReturnType<typeof makeDb>;
+  let repo: JobRepository;
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new JobRepository(db as never);
+  });
+
+  it('flips a pending row to running in one statement and returns it', async () => {
+    db.returning.mockResolvedValueOnce([{ id: 'j1', status: 'running' }]);
+    const out = await repo.claimPending('j1');
+    expect(out).toMatchObject({ id: 'j1', status: 'running' });
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'running', started_at: expect.any(String) }));
+    // The predicate carries both the id and `status = 'pending'`; the SQL shape
+    // is exercised by integration tests, not unit tests.
+    expect(db.where).toHaveBeenCalledTimes(1);
+    expect(db.returning).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null without touching anything else when the row is no longer pending', async () => {
+    db.returning.mockResolvedValueOnce([]);
+    await expect(repo.claimPending('j1')).resolves.toBeNull();
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('JobRepository.failIfRunning', () => {
+  let db: ReturnType<typeof makeDb>;
+  let repo: JobRepository;
+
+  beforeEach(() => {
+    db = makeDb();
+    repo = new JobRepository(db as never);
+  });
+
+  it('fails a row only while it is running and returns it', async () => {
+    db.returning.mockResolvedValueOnce([{ id: 'j1', status: 'failed' }]);
+    const out = await repo.failIfRunning('j1', 'cut off');
+    expect(out).toMatchObject({ id: 'j1', status: 'failed' });
+    expect(db.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', error: 'cut off', completed_at: expect.any(String) }),
+    );
+    expect(db.where).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when the row already moved on', async () => {
+    db.returning.mockResolvedValueOnce([]);
+    await expect(repo.failIfRunning('j1', 'cut off')).resolves.toBeNull();
+  });
+});

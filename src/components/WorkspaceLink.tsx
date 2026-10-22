@@ -1,7 +1,7 @@
 'use client';
 
 import Link, { LinkProps } from 'next/link';
-import { ComponentProps } from 'react';
+import { ComponentProps, forwardRef } from 'react';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 
 type WorkspaceLinkProps = Omit<ComponentProps<typeof Link>, 'href'> & {
@@ -13,7 +13,10 @@ type WorkspaceLinkProps = Omit<ComponentProps<typeof Link>, 'href'> & {
  * current tab's workspace slug (`useWorkspaceHref`). Use for every internal
  * link to a workspace-scoped route.
  */
-export function WorkspaceLink({ href, ...rest }: WorkspaceLinkProps) {
+export const WorkspaceLink = forwardRef<HTMLAnchorElement, WorkspaceLinkProps>(function WorkspaceLink(
+  { href, ...rest },
+  ref,
+) {
   const workspaceHref = useWorkspaceHref(href);
-  return <Link href={workspaceHref} {...rest} />;
-}
+  return <Link ref={ref} href={workspaceHref} {...rest} />;
+});

@@ -36,3 +36,14 @@ When adding a migration file under `drizzle/migrations/` (or `data-pipeline/migr
    afterward instead of editing `_journal.json` yourself.
 4. **Non-destructive by default:** Prefer additive changes (new columns, new tables). Column drops or type changes require a two-phase migration.
 5. **Never edit an existing migration** that has been applied to any environment. Create a new migration to correct it instead.
+6. **Never rebuild a shared type from a hard-coded list.** `pnpm db:migrate`
+   applies every pending `drizzle/migrations` file first and every pending
+   `data-pipeline/migrations` file second, so on a database built from scratch
+   a pipeline migration runs *after* app migrations that are newer than it. A
+   `DROP TYPE` / `CREATE TYPE … AS ENUM (…)` rebuild in either folder then
+   discards every value the other folder added later, with their rows still
+   recorded as applied. (`20260724130200_drop_legacy_email_pipeline.sql` did
+   this to `job_type`; `scripts/migrate.ts` now re-adds the schema's values
+   after both folders run.) Add values with `ALTER TYPE … ADD VALUE IF NOT
+   EXISTS`; to remove one, rebuild from the *live* label list minus the value,
+   never from a literal list.

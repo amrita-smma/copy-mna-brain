@@ -103,9 +103,16 @@ two-tab toggle. Pages open in a center console beside the Copilot.
   carries an `id DESC` tiebreak — chats touched in one transaction share a
   timestamp, and without it a row can straddle two pages while another is never
   served.
-- **Empty chat.** `AICopilotPane` greets the user by first name ("Ask away,
-  Nico!") with the composer and a few suggestions centered beneath it, replacing
-  the old canned "Hello! I'm your M&A assistant" feature-list bubble.
+- **Empty chat.** There is no greeting screen: an untouched thread is the same
+  transcript view, empty, with the composer where it always is, so the first
+  messages render into it in place instead of swapping screens. The starting
+  prompts (`ChatSuggestionsCarousel` in `ChatSuggestions.tsx`) drift right to
+  left in a slow seamless carousel above the box — pausing under the pointer,
+  scrolling by hand under reduced motion — with a small × in the send button's
+  column that folds them away into it; the sparkle it becomes brings them
+  back, and the fold is remembered per browser (`copilot.suggestionsCollapsed`).
+  It stays through the conversation (the chips are shortcuts, not a landing)
+  and appears once the thread's history has loaded.
 
 ## Mobile shell (PWA) and the profile page
 
