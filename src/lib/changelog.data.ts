@@ -26,6 +26,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "66ee12d1d8d58e7db315e7e42c6990ce018c8427",
+    "date": "2026-10-22",
+    "subject": "Adds Pipeline, CIO, Diligence, Sourcing, and Research bots for M&A teams",
+    "category": "improvement"
+  },
+  {
+    "hash": "b1fb970e7000c0cf86a7a3942676fda076fa1202",
+    "date": "2026-10-22",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b2e91038cd540fc5b599ec455cb1652f1b46d612",
     "date": "2026-10-21",
     "subject": "AI-Discovered Companies now shows contacts in place of financials",
