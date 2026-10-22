@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "eea972189f32efae5f4ed84fe2069645970b63f7",
+    "date": "2026-10-22",
+    "subject": "Copilot stays docked when opening Profile from the sidebar",
+    "category": "improvement"
+  },
+  {
+    "hash": "cbc705c4cf6d1bf4b0d3c9f015fd23bc3974886a",
+    "date": "2026-10-22",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b2e91038cd540fc5b599ec455cb1652f1b46d612",
     "date": "2026-10-21",
     "subject": "AI-Discovered Companies now shows contacts in place of financials",
