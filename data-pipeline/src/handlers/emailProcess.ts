@@ -86,6 +86,15 @@ export const PROCESS_BATCH_SIZE = 50;
 export const LLM_CONCURRENCY = 5;
 /** Fail budget (hard + soft) before a source is terminally abandoned. */
 export const MAX_PROCESS_FAIL_COUNT = 5;
+/** Output budget for one email's extraction (topics, people, note, roles). */
+export const EXTRACT_MAX_TOKENS = 1500;
+/**
+ * Budget for the one retry of an extraction that hit EXTRACT_MAX_TOKENS. A
+ * long thread can legitimately need more; an email that overflows even this
+ * is skipped, because the same email overflows on every attempt and retrying
+ * it would abandon the rest of its mailbox file.
+ */
+export const EXTRACT_MAX_TOKENS_RETRY = 4096;
 
 const DEAL_DOC_TYPES = new Set([
   'prospectus',
@@ -1223,15 +1232,29 @@ export async function processMboxSource(
       const llmTargets = fresh.filter((b) => b.needsLlm && b.llmPayload);
       const llmOut = await mapPool(llmTargets, llmConcurrency, async (item) => {
         try {
-          const { input, truncated } = await callExtractTool({
-            name: 'extract_email_info',
-            description: 'Return structured info extracted from the email.',
-            schema: EMAIL_EXTRACTION_SCHEMA,
-            maxTokens: 1500,
-            prompt: buildUserPrompt(queueEntryFor(item)),
-          });
+          const extract = (maxTokens: number) =>
+            callExtractTool({
+              name: 'extract_email_info',
+              description: 'Return structured info extracted from the email.',
+              schema: EMAIL_EXTRACTION_SCHEMA,
+              maxTokens,
+              prompt: buildUserPrompt(queueEntryFor(item)),
+            });
+          let { input, truncated } = await extract(EXTRACT_MAX_TOKENS);
+          if (truncated) ({ input, truncated } = await extract(EXTRACT_MAX_TOKENS_RETRY));
           if (truncated) {
-            throw new Error('LLM response truncated (stop_reason: max_tokens)');
+            // Deterministic: skip this email rather than retry the file. Not
+            // ingested without an extraction — is_personal is a privacy gate.
+            pipelineLog(SCOPE, 'llm_truncated_skip', {
+              run_id: run.id,
+              max_tokens: EXTRACT_MAX_TOKENS_RETRY,
+            });
+            return {
+              messageId: item.messageId,
+              llm: null,
+              error: null as string | null,
+              skip: true,
+            };
           }
           return {
             messageId: item.messageId,
@@ -1240,6 +1263,7 @@ export async function processMboxSource(
               queueEntryFor(item),
             ),
             error: null as string | null,
+            skip: false,
           };
         } catch (err) {
           pipelineError(SCOPE, 'llm_failed', err, { run_id: run.id });
@@ -1247,6 +1271,7 @@ export async function processMboxSource(
             messageId: item.messageId,
             llm: null,
             error: err instanceof Error ? err.message : String(err),
+            skip: false,
           };
         }
       });
@@ -1262,6 +1287,11 @@ export async function processMboxSource(
 
       for (const item of fresh) {
         const llmResult = llmByMid.get(item.messageId);
+        if (llmResult?.skip) {
+          result.messages_skipped++;
+          lastCommittedOffset = item.offset;
+          continue;
+        }
         if (item.needsLlm && llmResult?.error) {
           llmRetryFrom = item;
           break;

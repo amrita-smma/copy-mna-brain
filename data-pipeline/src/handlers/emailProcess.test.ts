@@ -93,6 +93,8 @@ import {
   triageAttachmentForSmartFiles,
   triageDealDocumentText,
   attachmentContentDigest,
+  EXTRACT_MAX_TOKENS,
+  EXTRACT_MAX_TOKENS_RETRY,
   subjectLooksDealRelated,
   hasDealSignal,
   smartFileEmailContext,
@@ -884,16 +886,21 @@ describe('flushBatch stop_reason handling', () => {
     crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
   });
 
-  it("flushBatch: a stop_reason: 'max_tokens' response is treated as a failure", async () => {
-    anthropicMocks.create.mockResolvedValue({
-      content: [],
-      stop_reason: 'max_tokens',
-    });
+  const extraction = {
+    content: [{ type: 'tool_use', input: { topics: [], people: [], related_companies: [] } }],
+    stop_reason: 'end_turn',
+  };
+  const truncatedResponse = { content: [], stop_reason: 'max_tokens' };
+
+  it('retries a truncated extraction once with the larger budget and keeps the email', async () => {
+    anthropicMocks.create
+      .mockResolvedValueOnce(truncatedResponse)
+      .mockResolvedValueOnce(extraction);
     const db = createProcessDb({ existingEmails: [] });
 
     const result = await processMboxSource(
       {
-        sourceKey: 'src-truncation-test',
+        sourceKey: 'src-truncation-retry',
         custodianEmail: 'alice@starcapital.co.id',
         openStream: makeMbox([{ id: 'msg-trunc-1' }]),
       },
@@ -901,10 +908,51 @@ describe('flushBatch stop_reason handling', () => {
       { db: db as never },
     );
 
-    expect(result.status).toBe('in_progress');
-    expect(result.fail_count).toBe(1);
-    expect(anthropicMocks.create).toHaveBeenCalled();
-    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+    expect(result.status).toBe('completed');
+    expect(result.fail_count).toBe(0);
+    expect(anthropicMocks.create.mock.calls.map(([req]) => req.max_tokens)).toEqual([
+      EXTRACT_MAX_TOKENS,
+      EXTRACT_MAX_TOKENS_RETRY,
+    ]);
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledWith(
+      [expect.objectContaining({ message_id: 'msg-trunc-1' })],
+      expect.anything(),
+    );
+  });
+
+  it('skips an email that overflows even the larger budget and keeps processing the file', async () => {
+    anthropicMocks.create.mockImplementation(async (req: { messages: Array<{ content: unknown }> }) =>
+      JSON.stringify(req.messages).includes('VERY-LONG-THREAD') ? truncatedResponse : extraction,
+    );
+    const db = createProcessDb({ existingEmails: [] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-truncation-skip',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([
+          {
+            id: 'msg-trunc-long',
+            body: 'VERY-LONG-THREAD: acquisition terms and M&A advisory mandate for Project Falcon.',
+          },
+          { id: 'msg-after-long' },
+        ]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    // Not an llm_retry: the same email would overflow on every attempt and
+    // abandon the rest of the file.
+    expect(result.status).toBe('completed');
+    expect(result.fail_count).toBe(0);
+    expect(result.messages_skipped).toBe(1);
+    expect(result.message_offset).toBe(2);
+    // Fail closed: no extraction means no is_personal verdict, so not ingested.
+    const ingested = crmMocks.upsertEphemeralCrmBatch.mock.calls.flatMap(([msgs]) =>
+      (msgs as Array<{ message_id: string }>).map((m) => m.message_id),
+    );
+    expect(ingested).toEqual(['msg-after-long']);
   });
 });
 
