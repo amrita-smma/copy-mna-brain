@@ -24,6 +24,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "3e3e1120ded6ae49cd91300e9bf90312b1e5f3c7",
+    "date": "2026-10-23",
+    "subject": "CRM email pipeline: re-extract a date range with the current extraction",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f1f60a36a0859002e56a43b54b9857fbe9e7e72e",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
