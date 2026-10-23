@@ -126,6 +126,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "f742b0ffb7141342a68232b65f256183ee1f95c2",
+    "date": "2026-10-23",
+    "subject": "Fixed repeated crashes when checking vault archives with large ZIP files",
+    "category": "improvement"
+  },
+  {
+    "hash": "97cec1bd43030b74f7710dcfcbee768524f8a563",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
