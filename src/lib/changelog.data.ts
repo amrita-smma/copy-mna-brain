@@ -68,6 +68,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "8355134ad471a11a5a0acb7feccfe716267e7c39",
+    "date": "2026-10-23",
+    "subject": "Long contact names are truncated so CRM contact table columns stay aligned",
+    "category": "improvement"
+  },
+  {
+    "hash": "93984219ac95940406bf1b751c9f16e8b56afef9",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
