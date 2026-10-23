@@ -262,6 +262,28 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(mocks.processMboxSource).not.toHaveBeenCalled();
   });
 
+  it('claims the least recently handled export, so one Vault is still building cannot block the rest', async () => {
+    mocks.pollVaultExport.mockResolvedValue({ status: 'IN_PROGRESS', files: [] });
+    await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    const claim = mocks.dbExecute.mock.calls
+      .map(([query]) => sqlText(query))
+      .find((text) => text.includes('FOR UPDATE SKIP LOCKED'))!;
+    expect(claim.replace(/--[^\n]*\n/g, '')).toMatch(/ORDER BY updated_at, created_at\s+LIMIT 1/);
+  });
+
+  it('stamps updated_at when it releases an in-progress export, moving it to the back of the queue', async () => {
+    mocks.pollVaultExport.mockResolvedValue({ status: 'IN_PROGRESS', files: [] });
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result.action).toBe('waiting');
+    const release = mocks.dbExecute.mock.calls
+      .map(([query]) => sqlText(query))
+      .find((text) => text.includes('SET status =') && !text.includes('FOR UPDATE'));
+    expect(release).toContain('updated_at = now()');
+  });
+
   it('processes ZIP entries without any S3 MBOX upload and unlinks /tmp', async () => {
     const zipBuf = makeZipWithEntries([
       { name: 'analyst@starcapital.co.id.mbox', body: 'From x\n\nhello\n' },

@@ -428,7 +428,10 @@ export const handler = async (
             SELECT id
             FROM analytics.vault_exports
             WHERE status = 'exporting'
-            ORDER BY created_at
+            -- Least recently handled first, not oldest: every release back
+            -- to 'exporting' stamps updated_at, so an export Vault is still
+            -- building goes to the back instead of blocking the ones behind it.
+            ORDER BY updated_at, created_at
             LIMIT 1
             FOR UPDATE SKIP LOCKED
           ) AS pick
