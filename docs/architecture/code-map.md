@@ -13,7 +13,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 | Layer | Count | Where |
 |---|---|---|
 | API routes | 236 | `src/app/api/**/route.ts` |
-| Services | 97 | `src/lib/services/` |
+| Services | 98 | `src/lib/services/` |
 | Repositories | 86 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 14 | `src/lib/jobs/handlers/` |
@@ -339,7 +339,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 82 keys. Wire new services in
+`Container` exposes 83 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -388,6 +388,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `dealLinkService.ts` | `DealLinkService` | ✅ |
 | `dealNoteService.ts` | `EmptyNoteError`, `NoteNotFoundError`, `DealNoteService` | ✅ |
 | `dealResurfaceService.ts` | `DealResurfaceService` | ✅ |
+| `dealSponsorAssignmentService.ts` | `DealSponsorAssignmentService` | ✅ |
 | `emailNotificationService.ts` | `EmailNotificationService` | ✅ |
 | `emailService.ts` | `EmailService` | ✅ |
 | `featureFlagsService.ts` | `UnknownFeatureError`, `FeatureFlagsService` | ✅ |

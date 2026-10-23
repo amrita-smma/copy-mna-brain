@@ -141,6 +141,29 @@ export class DealContactRepository {
       .orderBy(asc(dealContacts.correspondent_id), asc(dealContacts.created_at), asc(dealContacts.id));
   }
 
+  /** Active links of these companies — who brought or is involved in each. */
+  async listActiveForCompanies(
+    workspaceId: string,
+    companyIds: string[],
+  ): Promise<Array<Pick<DealContactRow, 'companyId' | 'correspondentId' | 'role'>>> {
+    if (companyIds.length === 0) return [];
+    return this.db
+      .select({
+        companyId: dealContacts.company_id,
+        correspondentId: dealContacts.correspondent_id,
+        role: dealContacts.role,
+      })
+      .from(dealContacts)
+      .where(
+        and(
+          eq(dealContacts.workspace_id, workspaceId),
+          inArray(dealContacts.company_id, companyIds),
+          eq(dealContacts.status, 'active'),
+        ),
+      )
+      .orderBy(asc(dealContacts.company_id), asc(dealContacts.correspondent_id));
+  }
+
   /** Whether the workspace has any active link at all. */
   async hasActiveLinks(workspaceId: string): Promise<boolean> {
     const rows = await this.db

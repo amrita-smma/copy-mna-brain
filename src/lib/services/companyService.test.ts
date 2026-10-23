@@ -72,6 +72,7 @@ function makeRepos() {
   const companyLogRepo = {
     insert: vi.fn().mockResolvedValue(undefined),
     insertMany: vi.fn(),
+    findLatestAutoSponsorLogs: vi.fn().mockResolvedValue(new Map()),
   } as unknown as CompanyLogRepository;
 
   const dealDocRepo = {
@@ -2072,6 +2073,50 @@ describe("CompanyService user-name resolution (entered_by / deal_sponsor / deal_
     expect(dto.deal_captain_name).toBe("Captain Carl");
   });
 
+  it("findByIdDTO carries the auto-assignment reason while the sponsor is still the auto pick", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany({ deal_sponsor: SPONSOR }));
+    vi.mocked(repos.companyLogRepo.findLatestAutoSponsorLogs).mockResolvedValue(
+      new Map([
+        [
+          "company-1",
+          { company_id: "company-1", user_id: SPONSOR, reason: "covers Firm X", created_at: "2026-10-21" },
+        ],
+      ]),
+    );
+    const service = buildServiceWithUsers(repos, vi.fn().mockResolvedValue([]));
+
+    const dto = await service.findByIdDTO("company-1");
+
+    expect(repos.companyLogRepo.findLatestAutoSponsorLogs).toHaveBeenCalledWith(["company-1"]);
+    expect(dto.deal_sponsor_auto_reason).toBe("covers Firm X");
+  });
+
+  it("findByIdDTO drops the auto-assignment reason once someone changed the sponsor", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany({ deal_sponsor: CAPTAIN }));
+    vi.mocked(repos.companyLogRepo.findLatestAutoSponsorLogs).mockResolvedValue(
+      new Map([
+        [
+          "company-1",
+          { company_id: "company-1", user_id: SPONSOR, reason: "covers Firm X", created_at: "2026-10-21" },
+        ],
+      ]),
+    );
+    const service = buildServiceWithUsers(repos, vi.fn().mockResolvedValue([]));
+
+    expect((await service.findByIdDTO("company-1")).deal_sponsor_auto_reason).toBeNull();
+  });
+
+  it("findByIdDTO does not look up auto-assignments for a company with no sponsor", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(makeCompany({ deal_sponsor: null }));
+    const service = buildServiceWithUsers(repos, vi.fn().mockResolvedValue([]));
+
+    expect((await service.findByIdDTO("company-1")).deal_sponsor_auto_reason).toBeNull();
+    expect(repos.companyLogRepo.findLatestAutoSponsorLogs).not.toHaveBeenCalled();
+  });
+
   it("findByIdDTO leaves names null when the columns are null", async () => {
     const repos = makeRepos();
     vi.mocked(repos.companyRepo.findById).mockResolvedValue(
@@ -2108,6 +2153,24 @@ describe("CompanyService user-name resolution (entered_by / deal_sponsor / deal_
     expect(dtos[0].deal_sponsor_name).toBe("Sponsor Sally");
     expect(dtos[0].deal_captain_name).toBeNull();
     expect(dtos[1].deal_captain_name).toBe("Captain Carl");
+  });
+
+  it("listDTO reads auto-assignments in one query, only for companies with a sponsor", async () => {
+    const repos = makeRepos();
+    vi.mocked(repos.companyRepo.findAll).mockResolvedValue([
+      makeCompany({ id: "c1", deal_sponsor: SPONSOR }),
+      makeCompany({ id: "c2", deal_sponsor: null }),
+    ]);
+    vi.mocked(repos.companyLogRepo.findLatestAutoSponsorLogs).mockResolvedValue(
+      new Map([["c1", { company_id: "c1", user_id: SPONSOR, reason: null, created_at: null }]]),
+    );
+    const service = buildServiceWithUsers(repos, vi.fn().mockResolvedValue([]));
+
+    const dtos = await service.listDTO({});
+
+    expect(repos.companyLogRepo.findLatestAutoSponsorLogs).toHaveBeenCalledTimes(1);
+    expect(repos.companyLogRepo.findLatestAutoSponsorLogs).toHaveBeenCalledWith(["c1"]);
+    expect(dtos.map((d) => d.deal_sponsor_auto_reason)).toEqual(["Auto-assigned", null]);
   });
 });
 

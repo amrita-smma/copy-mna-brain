@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CompanyLogRepository } from './companyLogRepository';
+import {
+  CompanyLogRepository,
+  autoAssignedSponsorAction,
+  parseAutoAssignedSponsorAction,
+} from './companyLogRepository';
 
 interface MockDb {
   select: ReturnType<typeof vi.fn>;
@@ -85,6 +89,58 @@ describe('CompanyLogRepository', () => {
   it('insertMany is a no-op for an empty array', async () => {
     await repo.insertMany([]);
     expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it('insertMany passes the auto-assignment reason through in comments', async () => {
+    await repo.insertMany([
+      { company_id: 'company-1', action: 'AUTO_ASSIGNED_SPONSOR:u1', comments: 'covers Firm X' },
+    ]);
+
+    expect(mockDb.values).toHaveBeenCalledWith([
+      { company_id: 'company-1', action: 'AUTO_ASSIGNED_SPONSOR:u1', comments: 'covers Firm X' },
+    ]);
+  });
+
+  describe('findLatestAutoSponsorLogs', () => {
+    it('returns an empty map without hitting the DB when the id list is empty', async () => {
+      expect(await repo.findLatestAutoSponsorLogs([])).toEqual(new Map());
+      expect(mockDb.select).not.toHaveBeenCalled();
+    });
+
+    it('keeps only the newest auto-assignment per company (rows arrive newest first)', async () => {
+      mockDb.orderBy.mockResolvedValueOnce([
+        { company_id: 'company-1', action: 'AUTO_ASSIGNED_SPONSOR:u2', comments: 'newer', created_at: '2026-10-02' },
+        { company_id: 'company-1', action: 'AUTO_ASSIGNED_SPONSOR:u1', comments: 'older', created_at: '2026-10-01' },
+        { company_id: 'company-2', action: 'AUTO_ASSIGNED_SPONSOR:', comments: null, created_at: '2026-10-01' },
+      ]);
+
+      const result = await repo.findLatestAutoSponsorLogs(['company-1', 'company-2']);
+
+      expect(result).toEqual(
+        new Map([
+          [
+            'company-1',
+            { company_id: 'company-1', user_id: 'u2', reason: 'newer', created_at: '2026-10-02' },
+          ],
+        ]),
+      );
+      expect(mockDb.innerJoin).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('auto-assigned sponsor action', () => {
+    it('round-trips the user id', () => {
+      expect(parseAutoAssignedSponsorAction(autoAssignedSponsorAction('u1'))).toBe('u1');
+    });
+
+    it('reads nothing from other actions', () => {
+      expect(parseAutoAssignedSponsorAction('PROMOTED_FROM_L0_TO_L1')).toBeNull();
+      expect(parseAutoAssignedSponsorAction(null)).toBeNull();
+    });
+
+    it('never contains the _TO_ that stage-move readers match on', () => {
+      expect(autoAssignedSponsorAction('3f2a9c1e-0000-4000-8000-000000000000')).not.toMatch(/_TO_/);
+    });
   });
 
   describe('workspace isolation', () => {

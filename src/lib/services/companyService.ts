@@ -497,10 +497,9 @@ export class CompanyService {
       this.companyScreeningDerivedRepo.findByCompany(id),
       this.companyRepo.findAssignees(id),
     ]);
-    const userNameById = await this.resolveUserNames([
-      company.entered_by,
-      company.deal_sponsor,
-      company.deal_captain,
+    const [userNameById, autoReasons] = await Promise.all([
+      this.resolveUserNames([company.entered_by, company.deal_sponsor, company.deal_captain]),
+      this.autoSponsorReasons([company]),
     ]);
     const nameOf = (id: string | null) => (id ? (userNameById.get(id) ?? null) : null);
     return toCompanyDTO(
@@ -512,6 +511,7 @@ export class CompanyService {
       nameOf(company.entered_by),
       nameOf(company.deal_sponsor),
       nameOf(company.deal_captain),
+      autoReasons.get(company.id) ?? null,
     );
   }
 
@@ -526,7 +526,7 @@ export class CompanyService {
           .filter((v): v is string => !!v),
       ),
     ];
-    const [financials, fxRows, screeningRows, assigneeRows, referencedUsers] = await Promise.all([
+    const [financials, fxRows, screeningRows, assigneeRows, referencedUsers, autoReasons] = await Promise.all([
       this.companyFinancialRepo.findByCompanies(ids),
       this.companyFxAdjustmentRepo.findByCompanies(ids),
       this.companyScreeningDerivedRepo.findByCompanies(ids),
@@ -534,6 +534,7 @@ export class CompanyService {
       referencedUserIds.length > 0 && this.userRepo
         ? this.userRepo.findByIds(referencedUserIds)
         : Promise.resolve([]),
+      this.autoSponsorReasons(companies),
     ]);
     const finByCompany = new Map<string, Tables<'company_financials'>[]>();
     for (const f of financials) {
@@ -571,8 +572,28 @@ export class CompanyService {
         nameOf(c.entered_by),
         nameOf(c.deal_sponsor),
         nameOf(c.deal_captain),
+        autoReasons.get(c.id) ?? null,
       ),
     );
+  }
+
+  /**
+   * Why each company's Deal Sponsor was auto-assigned (MB-830), for companies
+   * whose sponsor is still the user the latest auto-assignment picked. One
+   * query for the whole list; companies without a sponsor are not looked up.
+   */
+  private async autoSponsorReasons(
+    rows: Array<Pick<Tables<'companies'>, 'id' | 'deal_sponsor'>>,
+  ): Promise<Map<string, string>> {
+    const withSponsor = rows.filter((c) => !!c.deal_sponsor);
+    if (withSponsor.length === 0) return new Map();
+    const logs = await this.companyLogRepo.findLatestAutoSponsorLogs(withSponsor.map((c) => c.id));
+    const reasons = new Map<string, string>();
+    for (const c of withSponsor) {
+      const log = logs.get(c.id);
+      if (log && log.user_id === c.deal_sponsor) reasons.set(c.id, log.reason?.trim() || 'Auto-assigned');
+    }
+    return reasons;
   }
 
   /**

@@ -131,6 +131,7 @@ import { ContactInsightsService } from './contactInsightsService';
 import { ContactConversationService } from './contactConversationService';
 import { DealContactService } from './dealContactService';
 import { BankerScorecardService } from './bankerScorecardService';
+import { DealSponsorAssignmentService } from './dealSponsorAssignmentService';
 import { BankerListService } from './bankerListService';
 import { CrmSuggestedQuestionService } from './crmSuggestedQuestionService';
 import { CompanyContactDiscoveryService } from './companyContactDiscoveryService';
@@ -208,6 +209,7 @@ export interface Container {
   contactConversationService: ContactConversationService;
   dealContactService: DealContactService;
   bankerScorecardService: BankerScorecardService;
+  dealSponsorAssignmentService: DealSponsorAssignmentService;
   bankerListService: BankerListService;
   crmSuggestedQuestionService: CrmSuggestedQuestionService;
   companyContactDiscoveryService: CompanyContactDiscoveryService;
@@ -491,6 +493,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     service.setFundCatalogCheckService(fundCatalogCheckService());
     service.setPendingAutoScanService(pendingAutoScanService());
     service.setDealContactService(dealContactService());
+    service.setDealSponsorAssignmentService(dealSponsorAssignmentService());
     return service;
   });
 
@@ -565,6 +568,23 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         dealContactRepo(),
         companyLogRepo(),
         pipelineStageRepo(),
+        workspaceId,
+      ),
+  );
+  const dealSponsorAssignmentService = lazy(
+    () =>
+      new DealSponsorAssignmentService(
+        {
+          companyRepo: companyRepo(),
+          companyLogRepo: companyLogRepo(),
+          dealContactRepo: dealContactRepo(),
+          correspondentRepo: correspondentRepo(),
+          employerRepo: employerRepo(),
+          employerTeamRepo: employerTeamRepo(),
+          thesisRepo: thesisRepo(),
+          userRepo: userRepo(),
+          stageRepo: pipelineStageRepo(),
+        },
         workspaceId,
       ),
   );
@@ -1042,6 +1062,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get contactConversationService() { return contactConversationService(); },
     get dealContactService() { return dealContactService(); },
     get bankerScorecardService() { return bankerScorecardService(); },
+    get dealSponsorAssignmentService() { return dealSponsorAssignmentService(); },
     get bankerListService() { return bankerListService(); },
     get crmSuggestedQuestionService() { return crmSuggestedQuestionService(); },
     get companyContactDiscoveryService() { return companyContactDiscoveryService(); },

@@ -34,6 +34,7 @@ import {
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { DbClient, Tables, TablesInsert, TablesUpdate } from "./types";
 import type { DealStage } from "@/lib/types";
+import { PRE_PIPELINE_STAGES } from "@/lib/pipeline/stages";
 import {
   companyRowToGraphNode,
   type CompanyGraphMirror,
@@ -314,6 +315,18 @@ function buildFilterWhere(filters: CompanyFilters, workspaceId: string): SQL | u
  * {@link CompanyRepository.findOwnedByUser}. The three `is_*` flags say *why*
  * it is theirs — a company can be matched by more than one of them.
  */
+/** A past deal for Deal Sponsor matching — `segment`/`geography` already normalised. */
+export interface OwnedDealMatchRow {
+  id: string;
+  deal_sponsor: string | null;
+  deal_captain: string | null;
+  pipeline_stage: string;
+  status: "active" | "dropped";
+  created_at: string | null;
+  segment: string;
+  geography: string;
+}
+
 export interface UserOwnedCompanyRow {
   id: string;
   target: string | null;
@@ -1075,6 +1088,103 @@ export class CompanyRepository {
       .returning();
     await this.mirrorUpsert(rows);
     return rows;
+  }
+
+  /**
+   * Past deals with an owner (Deal Captain or Deal Sponsor) whose sector or
+   * country matches, for Deal Sponsor auto-assignment (MB-830). Pipeline
+   * stages only (L0 onward), created before `before`, newest first and capped
+   * at `limit`. Labels are compared normalised exactly as `normalizeLabel` in
+   * `src/lib/pipeline/sponsorScoring.ts` does — change both together.
+   */
+  async findOwnedDealsForSponsorMatch(opts: {
+    segments: string[];
+    geographies: string[];
+    before: string;
+    limit: number;
+  }): Promise<OwnedDealMatchRow[]> {
+    if (opts.segments.length === 0 && opts.geographies.length === 0) return [];
+    const norm = (col: AnyPgColumn) =>
+      sql<string>`trim(regexp_replace(replace(lower(coalesce(${col}, '')), '&', ' and '), '\\s+', ' ', 'g'))`;
+    const labelMatches = [
+      opts.segments.length > 0 ? inArray(norm(companies.segment), opts.segments) : undefined,
+      opts.geographies.length > 0 ? inArray(norm(companies.geography), opts.geographies) : undefined,
+    ].filter((c): c is SQL => !!c);
+    return this.db
+      .select({
+        id: companies.id,
+        deal_sponsor: companies.deal_sponsor,
+        deal_captain: companies.deal_captain,
+        pipeline_stage: companies.pipeline_stage,
+        status: companies.status,
+        created_at: companies.created_at,
+        segment: norm(companies.segment),
+        geography: norm(companies.geography),
+      })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          or(isNotNull(companies.deal_captain), isNotNull(companies.deal_sponsor)),
+          notInArray(companies.pipeline_stage, [...PRE_PIPELINE_STAGES]),
+          sql`${companies.created_at} < ${opts.before}`,
+          or(...labelMatches),
+        ),
+      )
+      .orderBy(desc(companies.created_at), asc(companies.id))
+      .limit(opts.limit);
+  }
+
+  /**
+   * Set each company's Deal Sponsor in one statement, only where it is still
+   * empty — a sponsor someone set in the meantime is never overwritten.
+   * Returns the rows actually changed.
+   */
+  async assignDealSponsorsIfEmpty(
+    assignments: Array<{ companyId: string; userId: string }>,
+  ): Promise<Tables<"companies">[]> {
+    if (assignments.length === 0) return [];
+    const cases = sql.join(
+      assignments.map((a) => sql`WHEN ${a.companyId}::uuid THEN ${a.userId}::uuid`),
+      sql` `,
+    );
+    const rows = await this.db
+      .update(companies)
+      .set({
+        deal_sponsor: sql`CASE ${companies.id} ${cases} END`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          inArray(
+            companies.id,
+            assignments.map((a) => a.companyId),
+          ),
+          eq(companies.workspace_id, this.workspaceId),
+          isNull(companies.deal_sponsor),
+        ),
+      )
+      .returning();
+    await this.mirrorUpsert(rows);
+    return rows;
+  }
+
+  /** Active deals each user owns (Deal Captain, else Deal Sponsor), in one grouped query. */
+  async countActiveDealsByOwners(userIds: string[]): Promise<Map<string, number>> {
+    if (userIds.length === 0) return new Map();
+    const owner = sql<string>`coalesce(${companies.deal_captain}, ${companies.deal_sponsor})`;
+    const rows = await this.db
+      .select({ owner_id: owner, count: drizzleCount() })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.workspace_id, this.workspaceId),
+          eq(companies.status, "active"),
+          inArray(owner, userIds),
+        ),
+      )
+      .groupBy(owner);
+    return new Map(rows.map((r) => [r.owner_id, Number(r.count)]));
   }
 
   /**

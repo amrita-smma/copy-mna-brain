@@ -1070,3 +1070,128 @@ describe('CompanyRepository.findByIds', () => {
     expect(clause.params).toEqual(expect.arrayContaining(['c1', 'c2', 'workspace-1']));
   });
 });
+
+type SponsorChain = Record<string, ReturnType<typeof vi.fn>> & {
+  then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => Promise<unknown>;
+};
+
+/** Drizzle chain stub: every builder step returns the chain; awaiting it yields `result`. */
+function makeChainDb(result: unknown[] = []) {
+  const chain = {} as SponsorChain;
+  for (const m of ['select', 'from', 'where', 'orderBy', 'limit', 'groupBy', 'update', 'set']) {
+    chain[m] = vi.fn().mockReturnValue(chain);
+  }
+  chain.returning = vi.fn().mockResolvedValue(result);
+  chain.then = (resolve, reject) => Promise.resolve(result).then(resolve, reject);
+  return chain;
+}
+
+const sponsorDialect = new PgDialect();
+const render = (s: unknown) => sponsorDialect.sqlToQuery(s as SQL);
+
+describe('CompanyRepository.findOwnedDealsForSponsorMatch', () => {
+  it('returns [] without hitting the DB when there is nothing to match on', async () => {
+    const db = makeChainDb();
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await expect(
+      repo.findOwnedDealsForSponsorMatch({ segments: [], geographies: [], before: '2026-10-21', limit: 10 }),
+    ).resolves.toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('matches normalised sector or country on owned, in-pipeline deals created before arrival', async () => {
+    const rows = [{ id: 'c1' }];
+    const db = makeChainDb(rows);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    const result = await repo.findOwnedDealsForSponsorMatch({
+      segments: ['healthcare'],
+      geographies: ['indonesia'],
+      before: '2026-10-21T00:00:00.000Z',
+      limit: 2000,
+    });
+
+    expect(result).toEqual(rows);
+    const { sql, params } = render(db.where.mock.calls[0][0]);
+    expect(sql).toContain(`trim(regexp_replace(replace(lower(coalesce("companies"."segment", '')), '&', ' and '), '\\s+', ' ', 'g'))`);
+    expect(sql).toContain('"companies"."deal_captain" is not null');
+    expect(sql).toContain('"companies"."pipeline_stage" not in');
+    expect(sql).toContain('"companies"."created_at" <');
+    expect(params).toEqual(
+      expect.arrayContaining(['workspace-1', 'unreviewed', 'healthcare', 'indonesia', '2026-10-21T00:00:00.000Z']),
+    );
+    expect(db.limit).toHaveBeenCalledWith(2000);
+  });
+
+  it('matches on country alone when the company has no sector', async () => {
+    const db = makeChainDb([]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await repo.findOwnedDealsForSponsorMatch({ segments: [], geographies: ['indonesia'], before: 'x', limit: 5 });
+
+    const { sql } = render(db.where.mock.calls[0][0]);
+    expect(sql).not.toContain('"companies"."segment", \'\'))');
+    expect(sql).toContain('"companies"."geography"');
+  });
+});
+
+describe('CompanyRepository.assignDealSponsorsIfEmpty', () => {
+  it('returns [] without hitting the DB for no assignments', async () => {
+    const db = makeChainDb();
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    await expect(repo.assignDealSponsorsIfEmpty([])).resolves.toEqual([]);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('sets every sponsor in one statement, only where it is still empty, and mirrors the rows', async () => {
+    const rows = [row({ id: 'c1', deal_sponsor: 'u1' })];
+    const db = makeChainDb(rows);
+    const mirror = makeMirror();
+    const repo = new CompanyRepository(db as never, 'workspace-1', mirror);
+
+    const result = await repo.assignDealSponsorsIfEmpty([
+      { companyId: 'c1', userId: 'u1' },
+      { companyId: 'c2', userId: 'u2' },
+    ]);
+
+    expect(result).toEqual(rows);
+    expect(db.update).toHaveBeenCalledTimes(1);
+    const set = render(db.set.mock.calls[0][0].deal_sponsor);
+    expect(set.sql).toBe('CASE "companies"."id" WHEN $1::uuid THEN $2::uuid WHEN $3::uuid THEN $4::uuid END');
+    expect(set.params).toEqual(['c1', 'u1', 'c2', 'u2']);
+    const where = render(db.where.mock.calls[0][0]);
+    expect(where.sql).toContain('"companies"."deal_sponsor" is null');
+    expect(where.params).toEqual(expect.arrayContaining(['c1', 'c2', 'workspace-1']));
+    expect(mirror.upsertCompany).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CompanyRepository.countActiveDealsByOwners', () => {
+  it('returns an empty map without hitting the DB for no users', async () => {
+    const db = makeChainDb();
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    expect(await repo.countActiveDealsByOwners([])).toEqual(new Map());
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('groups active deals by captain-else-sponsor in one query', async () => {
+    const db = makeChainDb([
+      { owner_id: 'u1', count: 3 },
+      { owner_id: 'u2', count: '1' },
+    ]);
+    const repo = new CompanyRepository(db as never, 'workspace-1', makeMirror());
+
+    expect(await repo.countActiveDealsByOwners(['u1', 'u2'])).toEqual(
+      new Map([
+        ['u1', 3],
+        ['u2', 1],
+      ]),
+    );
+    expect(db.groupBy).toHaveBeenCalledTimes(1);
+    const { sql } = render(db.where.mock.calls[0][0]);
+    expect(sql).toContain('coalesce("companies"."deal_captain", "companies"."deal_sponsor")');
+  });
+});

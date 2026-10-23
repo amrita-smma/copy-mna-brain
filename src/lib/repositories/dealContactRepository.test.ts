@@ -58,6 +58,25 @@ describe('DealContactRepository', () => {
     });
   });
 
+  describe('listActiveForCompanies', () => {
+    it('returns [] without hitting the DB for no companies', async () => {
+      await expect(repo.listActiveForCompanies('w1', [])).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('reads active links of the companies in this workspace in one query', async () => {
+      const rows = [{ companyId: 'c1', correspondentId: 'k1', role: 'source' }];
+      db = makeDb(rows);
+      repo = new DealContactRepository(db as never);
+
+      await expect(repo.listActiveForCompanies('w1', ['c1', 'c2'])).resolves.toEqual(rows);
+      expect(db.select).toHaveBeenCalledTimes(1);
+      const { sql, params } = toQuery(db.where.mock.calls[0][0]);
+      expect(sql).toContain('"deal_contacts"."status" = $');
+      expect(params).toEqual(['w1', 'c1', 'c2', 'active']);
+    });
+  });
+
   describe('listForContacts', () => {
     it('filters links and the joined company by workspace and the contact ids, with every company created_at', async () => {
       await repo.listForContacts('w1', ['c1', 'c2']);

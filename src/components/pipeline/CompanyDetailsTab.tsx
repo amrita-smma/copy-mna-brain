@@ -73,7 +73,10 @@ export interface DetailsTabCompany extends CompanyInfoSource {
   id: string;
   target: string | null;
   entered_by_name?: string | null;
+  deal_sponsor?: string | null;
   deal_sponsor_name?: string | null;
+  /** Why the Deal Sponsor was auto-assigned, while it still is the auto pick. */
+  deal_sponsor_auto_reason?: string | null;
   deal_captain_name?: string | null;
   status?: string | null;
   dropped_reason?: string | null;
@@ -391,6 +394,14 @@ function CompanyInformationCard({
   const leadField = dealLeadField(stage, pipelineStages.captainKeys);
   const leadLabel = dealLeadLabel(stage, pipelineStages.captainKeys);
   const trackPics = matchedTrackPics(company, tracks);
+  // Only the Deal Sponsor is ever auto-assigned; the note goes once the stage
+  // shows the Captain instead.
+  const autoSponsorReason = leadField === "deal_sponsor" ? company.deal_sponsor_auto_reason : null;
+  const autoSponsorNote = autoSponsorReason && (
+    <p className="mt-0.5 text-xs text-muted-foreground">
+      Auto-assigned when the email arrived: {autoSponsorReason}
+    </p>
+  );
   const formatDate = (value: string | null | undefined) =>
     value ? format(new Date(value), "MMM d, yyyy") : "—";
 
@@ -693,11 +704,13 @@ function CompanyInformationCard({
                     onChange={(v) => set({ [leadField]: v } as Partial<CompanyInfoForm>)}
                     disabled={isSaving}
                   />
+                  {form[leadField] === company.deal_sponsor && autoSponsorNote}
                 </div>
               )
             }
           >
             <Value>{effectiveDealLead(company, stage, tracks, pipelineStages.captainKeys) ?? "—"}</Value>
+            {autoSponsorNote}
           </Field>
           <Field
             label="Status"

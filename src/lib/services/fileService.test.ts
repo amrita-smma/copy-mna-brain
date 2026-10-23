@@ -330,6 +330,60 @@ describe('FileService.createCompanyFromFile', () => {
     expect(reason).toBe('created_from_file:file-mom');
   });
 
+  it('links the sender and auto-assigns a Deal Sponsor when the file came from an email (MB-830)', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-mom',
+        file_type: 'mom',
+        source_sender_email: 'john@bank.com',
+        structured_notes: JSON.stringify({ matched_companies: [{ name: 'Helios Energy' }] }),
+        matched_companies: [{ name: 'Helios Energy' }] as never,
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+    const linkFromSmartFile = vi.fn().mockResolvedValue([]);
+    const assignForNewCompanies = vi.fn().mockResolvedValue([]);
+    service.setDealContactService({ linkFromSmartFile } as never);
+    service.setDealSponsorAssignmentService({ assignForNewCompanies } as never);
+
+    await service.createCompanyFromFile('file-mom');
+
+    expect(linkFromSmartFile).toHaveBeenCalledWith('file-mom');
+    expect(assignForNewCompanies).toHaveBeenCalledWith(['company-new']);
+    expect(linkFromSmartFile.mock.invocationCallOrder[0]).toBeLessThan(
+      assignForNewCompanies.mock.invocationCallOrder[0],
+    );
+    // The returned company is re-read after the assignment, so it carries the sponsor.
+    expect(assignForNewCompanies.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(companyService.findById).mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it('does not auto-assign a Deal Sponsor for a file that did not come from an email', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-mom',
+        file_type: 'mom',
+        source_sender_email: null,
+        structured_notes: JSON.stringify({ matched_companies: [{ name: 'Helios Energy' }] }),
+        matched_companies: [{ name: 'Helios Energy' }] as never,
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Helios Energy' }) as never,
+    );
+    vi.mocked(companyService.findById).mockResolvedValue(makeCompany({ id: 'company-new' }));
+    const assignForNewCompanies = vi.fn().mockResolvedValue([]);
+    service.setDealSponsorAssignmentService({ assignForNewCompanies } as never);
+
+    await service.createCompanyFromFile('file-mom');
+
+    expect(assignForNewCompanies).not.toHaveBeenCalled();
+  });
+
   it('seeds the company from the extracted deal-target entry when the file has one', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({
@@ -1503,6 +1557,84 @@ describe('FileService.processUpload', () => {
     // Screening is fire-and-forget; let it run before asserting it didn't.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(aiScreeningService.enqueue).not.toHaveBeenCalled();
+  });
+
+  describe('Deal Sponsor auto-assignment (MB-830)', () => {
+    const EMAIL = { senderEmail: 'John@Bank.com', messageId: '<m1@bank.com>' };
+
+    function arrangeNewCompany() {
+      vi.mocked(processFileContent).mockResolvedValue({
+        file_type: 'prospectus',
+        prospectus_summary: { company_name: 'Beta Ltd' },
+      } as never);
+      vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+      vi.mocked(companyService.createFromDTO).mockResolvedValue({ id: 'company-b', target: 'Beta Ltd' } as never);
+      vi.mocked(companyService.findById).mockResolvedValue(
+        makeCompany({ id: 'company-b', target: 'Beta Ltd', matched_track_ids: ['track-1'] } as never),
+      );
+      vi.mocked(criteriaRepo.findAll).mockResolvedValue([makeCriteria('c-1', 'track-1')]);
+      vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+    }
+
+    const upload = (context?: typeof EMAIL) =>
+      service.processUpload(
+        'uploads/teaser.pdf',
+        'teaser.pdf',
+        'application/pdf',
+        undefined,
+        undefined,
+        true,
+        undefined,
+        undefined,
+        null,
+        context,
+      );
+
+    it('assigns a sponsor to the companies an email created, after the sender link and before auto-scan', async () => {
+      arrangeNewCompany();
+      const linkFromSmartFile = vi.fn().mockResolvedValue([]);
+      const assignForNewCompanies = vi.fn().mockResolvedValue([]);
+      const onCompanyEnteredPending = vi.fn().mockResolvedValue(true);
+      service.setDealContactService({ linkFromSmartFile } as never);
+      service.setDealSponsorAssignmentService({ assignForNewCompanies } as never);
+      service.setPendingAutoScanService({ onCompanyEnteredPending } as never);
+
+      await upload(EMAIL);
+
+      expect(assignForNewCompanies).toHaveBeenCalledWith(['company-b']);
+      const [linked] = linkFromSmartFile.mock.invocationCallOrder;
+      const [assigned] = assignForNewCompanies.mock.invocationCallOrder;
+      const [scanned] = onCompanyEnteredPending.mock.invocationCallOrder;
+      expect(linked).toBeLessThan(assigned);
+      expect(assigned).toBeLessThan(scanned);
+    });
+
+    it('does not assign for a file that did not come from an email', async () => {
+      arrangeNewCompany();
+      const assignForNewCompanies = vi.fn().mockResolvedValue([]);
+      service.setDealSponsorAssignmentService({ assignForNewCompanies } as never);
+
+      await upload();
+
+      expect(assignForNewCompanies).not.toHaveBeenCalled();
+    });
+
+    it('never fails the upload when the assignment throws', async () => {
+      arrangeNewCompany();
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      service.setDealSponsorAssignmentService({
+        assignForNewCompanies: vi.fn().mockRejectedValue(new Error('db down')),
+      } as never);
+
+      const result = await upload(EMAIL);
+
+      expect(result).toMatchObject({ id: 'file-1' });
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to auto-assign a Deal Sponsor'),
+        expect.any(Error),
+      );
+      error.mockRestore();
+    });
   });
 
   it('falls back to its own screening when auto-scan is off', async () => {

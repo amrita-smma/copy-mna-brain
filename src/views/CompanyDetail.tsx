@@ -146,6 +146,8 @@ interface CompanyData {
   deal_sponsor?: string | null;
   deal_captain?: string | null;
   deal_sponsor_name?: string | null;
+  // Why the sponsor was auto-assigned (MB-830), while it still is the auto pick.
+  deal_sponsor_auto_reason?: string | null;
   deal_captain_name?: string | null;
   financials_raw?: import('@/lib/repositories').Tables<'company_financials'>[];
 }

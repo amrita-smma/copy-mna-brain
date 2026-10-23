@@ -50,6 +50,7 @@ import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
 import type { DealContactService } from './dealContactService';
+import type { DealSponsorAssignmentService } from './dealSponsorAssignmentService';
 import { CompanyPipelineRequirementsError, CompanyService } from './companyService';
 import { isInPipelineStage } from '@/lib/pipeline/stages';
 import type { TrackMatchingService } from './trackMatchingService';
@@ -501,6 +502,7 @@ const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
 export class FileService {
   private crmService?: CRMService;
   private dealContactService?: DealContactService;
+  private dealSponsorAssignmentService?: DealSponsorAssignmentService;
   private pendingAutoScanService?: PendingAutoScanService;
   private fundUpdateApplyService?: FundUpdateApplyService;
   private fundCatalogCheckService?: FundCatalogCheckService;
@@ -542,6 +544,25 @@ export class FileService {
 
   setDealContactService(dealContactService: DealContactService) {
     this.dealContactService = dealContactService;
+  }
+
+  setDealSponsorAssignmentService(service: DealSponsorAssignmentService) {
+    this.dealSponsorAssignmentService = service;
+  }
+
+  /**
+   * Give companies an email just created a Deal Sponsor (MB-830). Run it
+   * after the sender links are written — the sender's past deals are its
+   * strongest signal — and before auto-scan can promote anything into L0. A
+   * failure never fails the upload.
+   */
+  private async assignAutoSponsors(companyIds: string[]): Promise<void> {
+    if (!this.dealSponsorAssignmentService || companyIds.length === 0) return;
+    try {
+      await this.dealSponsorAssignmentService.assignForNewCompanies(companyIds);
+    } catch (err) {
+      console.error('[fileService] Failed to auto-assign a Deal Sponsor:', err);
+    }
   }
 
   setFundUpdateApplyService(service: FundUpdateApplyService) {
@@ -944,6 +965,9 @@ export class FileService {
         } catch (err) {
           console.error('[fileService] Failed to link the email sender to the file\'s deals:', err);
         }
+      }
+      if (isPrimaryWorkspace && emailSource.source_sender_email) {
+        await this.assignAutoSponsors(createdCompanies.map((c) => c.id));
       }
       // Secondary fan-out rows share the same extracted content — no
       // company-matching side effects run for them (see warning above).
@@ -4031,6 +4055,19 @@ function isEntityDecisionRemapped(
     }
 
     const updatedFile = await this.addMatchedCompany(fileId, companyId);
+
+    // A company created from an emailed file gets the same sender link and
+    // Deal Sponsor auto-assignment as one the email ingest creates.
+    if (file.source_sender_email) {
+      if (this.dealContactService) {
+        try {
+          await this.dealContactService.linkFromSmartFile(fileId);
+        } catch (err) {
+          console.error('[fileService] Failed to link the email sender to the file\'s deals:', err);
+        }
+      }
+      await this.assignAutoSponsors([companyId]);
+    }
 
     // Re-read outside the (now committed) lock transaction so screening sees
     // matched_track_ids, then kick off the same background work a HITL

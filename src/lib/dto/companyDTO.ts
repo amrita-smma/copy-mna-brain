@@ -58,6 +58,9 @@ export interface CompanyDTO {
   // Track PIC for display. `*_name` carries the resolved user name.
   deal_sponsor: string | null;
   deal_sponsor_name: string | null;
+  // Set while the Deal Sponsor is still the one auto-assigned when an email
+  // created the company (MB-830): why it was picked. Null once anyone changes it.
+  deal_sponsor_auto_reason?: string | null;
   deal_captain: string | null;
   deal_captain_name: string | null;
   last_activity_at: string | null;
@@ -203,6 +206,7 @@ export function toCompanyDTO(
   enteredByName: string | null = null,
   dealSponsorName: string | null = null,
   dealCaptainName: string | null = null,
+  dealSponsorAutoReason: string | null = null,
 ): CompanyDTO {
   const finByYear = new Map<number, Tables<'company_financials'>>();
   for (const f of financials) finByYear.set(f.fiscal_year, f);
@@ -241,6 +245,7 @@ export function toCompanyDTO(
     originator: company.originator ?? null,
     deal_sponsor: company.deal_sponsor ?? null,
     deal_sponsor_name: dealSponsorName,
+    deal_sponsor_auto_reason: dealSponsorAutoReason,
     deal_captain: company.deal_captain ?? null,
     deal_captain_name: dealCaptainName,
     last_activity_at: company.last_activity_at ?? null,
