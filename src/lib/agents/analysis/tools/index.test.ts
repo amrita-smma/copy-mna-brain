@@ -56,6 +56,21 @@ describe("agent tool lists", () => {
     }
   });
 
+  // MB-859: every agent that can look up a CRM firm can also read one
+  // banker's per-person insights, including the workforce.
+  it.each(Object.entries(AGENT_TOOL_LISTS))(
+    "exposes crm_banker_insights next to lookup_crm to the %s agent",
+    (_label, list) => {
+      const names = list.map((t) => t.name);
+      expect(names).toContain("lookup_crm");
+      expect(names.filter((n) => n === "crm_banker_insights")).toHaveLength(1);
+    },
+  );
+
+  it("describes crm_banker_insights for prompt injection", () => {
+    expect(getToolDescriptions()).toContain("**crm_banker_insights**");
+  });
+
   it("exposes get_investment_theses to the M&A chat agent", () => {
     expect(AGENT_TOOL_LISTS.chat.map((t) => t.name)).toContain("get_investment_theses");
   });

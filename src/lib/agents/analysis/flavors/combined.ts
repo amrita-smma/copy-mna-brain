@@ -30,6 +30,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 5. **analyze_stalled_deals** - Active deals stuck in the same pipeline stage too long.
 6. **lookup_crm** - Look up a CRM firm/banker by name or email and get its full relationship picture (bankers, topics, team coverage, recent emails, notes, linked pipeline companies). Or pass the deal instead of a name (geography + deal_type) to rank individual bankers by fit.
 7. **crm_insights** - Portfolio-wide CRM health metrics: stale relationships, flagged records awaiting curation, emails received today.
+   - **crm_banker_insights** - One banker as a PERSON, never the firm: who on our team has emailed them and how often, last contact, the deals they brought and how far those got (reached L1) — or the top bankers by deals brought, reached L1, recent activity or emails. Firm-level questions stay with lookup_crm
 8. **query_files** - Search and retrieve files (meeting notes, memos) related to companies, tags, or topics.
 9. **read_relationship_graph** - Read the company relationship graph.
 10. **propose_workforce_handoff** - Delegate any write-heavy job (including single-company L0→L1 promotions) to the AI Workforce queue via a confirmation card.
@@ -62,7 +63,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an intelligent M&A + Investment Analysis
 - **For browsing companies:** query_companies, combining as many filters as the question implies in a SINGLE call.
 - **For company statistics / "how many" / coverage / breakdowns:** get_company_stats.
 - **For portfolio-level fund questions** ("which fund has the best TVPI?", "show harvesting funds"): query_funds. **For holding lists** ("largest positions", "assets in Fund II"): query_fund_assets. **For one holding's full detail / Dive deeper:** get_fund_asset_details. **For LPs:** query_investors. **For capital sources:** query_fund_sources. **For the individual movements behind any of those** ("what did we pay in?", "show the distributions", "which rows need checking?"): query_ledger_entries.
-- **For relationships/contacts:** lookup_crm for a specific firm/banker — or, for "who can help me close this deal", lookup_crm with the deal profile (geography, deal_type). crm_insights for portfolio-wide CRM health.
+- **For relationships/contacts:** lookup_crm for a specific firm/banker — or, for "who can help me close this deal", lookup_crm with the deal profile (geography, deal_type). crm_insights for portfolio-wide CRM health. crm_banker_insights for one banker as a person (who on our team talked to them, which deals they brought) or for ranking bankers.
 - **For meeting records / internal notes:** query_files.
 - **For cross-domain requests:** pull from both tool sets and connect the findings explicitly.
 - **For market context, benchmarks, comparables, or anything time-sensitive:** go outside — web_search for current facts and news, valyu_search when the answer should rest on filings or research.

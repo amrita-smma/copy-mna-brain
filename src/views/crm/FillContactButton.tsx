@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -11,6 +11,8 @@ export interface EnrichmentRun {
   status: string;
   active: boolean;
   error: string | null;
+  /** Which button owns the run — see `ContactProfileCell`. */
+  mode?: "fill" | "refresh";
 }
 
 /** How often to ask whether the run has finished. */
@@ -24,10 +26,10 @@ const POLL_MS = 4_000;
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
 /**
- * "Fill from the web" — queues an @crm_contact AI Workforce run for one
+ * "Get Full Profile" — queues an @crm_contact AI Workforce run for one
  * contact and watches it to completion.
  *
- * Sits next to the contact's name rather than inside the edit dialog because
+ * Sits in the contact's Profile cell rather than inside the edit dialog because
  * it is the answer to the thing you notice while *looking* at a half-empty
  * row: no title, no desk, no LinkedIn. Opening an editor to ask a machine to
  * fill it in would be a step backwards.
@@ -41,12 +43,17 @@ const POLL_TIMEOUT_MS = 5 * 60_000;
  * per rendered row would be exactly the client-side fan-out the N+1 rule
  * bans. A row handed an in-flight run resumes watching it, so a reload during
  * a run shows the spinner rather than offering to start a second one.
+ *
+ * With `refresh` it is the "Refresh" control on a profile that is already
+ * filled: same run and polling, but the request asks the agent to research
+ * the person again and rewrite the bio rather than only fill gaps.
  */
 export function FillContactButton({
   correspondentId,
   contactName,
   initialRun,
   onFilled,
+  refresh = false,
 }: {
   correspondentId: string;
   contactName: string;
@@ -54,6 +61,8 @@ export function FillContactButton({
   initialRun?: EnrichmentRun | null;
   /** Called once a run succeeds, so the parent can refetch the contact. */
   onFilled: () => void;
+  /** Re-research a filled profile instead of filling an empty one. */
+  refresh?: boolean;
 }) {
   const [running, setRunning] = useState(() => Boolean(initialRun?.active));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,7 +89,9 @@ export function FillContactButton({
       stopPolling();
       setRunning(false);
       if (run.status === "succeeded") {
-        toast.success(`Updated ${contactName} from the web`);
+        toast.success(
+          refresh ? `Refreshed ${contactName}'s profile` : `Updated ${contactName} from the web`,
+        );
         onFilled();
         return;
       }
@@ -88,7 +99,7 @@ export function FillContactButton({
         run.error || `Could not fill ${contactName} — see the AI Workforce page`,
       );
     },
-    [contactName, onFilled, stopPolling],
+    [contactName, onFilled, refresh, stopPolling],
   );
 
   const startPolling = useCallback(
@@ -167,7 +178,14 @@ export function FillContactButton({
     try {
       const res = await fetch(
         `/api/crm/correspondents/${correspondentId}/enrich`,
-        { method: "POST", credentials: "same-origin" },
+        {
+          method: "POST",
+          credentials: "same-origin",
+          ...(refresh && {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh: true }),
+          }),
+        },
       );
       const body = (await res.json().catch(() => ({}))) as {
         data?: EnrichmentRun & { created: boolean };
@@ -178,7 +196,9 @@ export function FillContactButton({
       }
       toast.info(
         body.data.created
-          ? `Looking up ${contactName} on the web…`
+          ? refresh
+            ? `Refreshing ${contactName}'s profile…`
+            : `Looking up ${contactName} on the web…`
           : `Already looking up ${contactName}…`,
       );
       if (!body.data.active) {
@@ -192,21 +212,49 @@ export function FillContactButton({
     }
   };
 
+  const firstName = contactName.trim().split(/\s+/)[0] || contactName;
+  const busyLabel = refresh
+    ? `Refreshing ${firstName}'s profile…`
+    : `Getting ${firstName}'s profile…`;
+
   return (
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+      className="h-6 gap-1.5 self-start px-2 text-xs font-semibold text-primary hover:bg-primary/10 hover:text-primary disabled:opacity-70"
       onClick={() => void start()}
       disabled={running}
-      aria-label={`Fill ${contactName}'s details from the web`}
-      title={`Fill ${contactName}'s details from the web`}
-      data-testid="crm-contact-fill"
+      aria-label={
+        running
+          ? busyLabel
+          : refresh
+            ? `Refresh ${contactName}'s profile`
+            : `Get ${contactName}'s full profile`
+      }
+      title={
+        running
+          ? busyLabel
+          : refresh
+            ? "Research this contact again and rewrite the bio"
+            : "Use AI to build this contact's full profile"
+      }
+      data-testid={refresh ? "contact-profile-refresh" : "contact-profile-get-full-profile"}
     >
       {running ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <>
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <span>{busyLabel}</span>
+        </>
+      ) : refresh ? (
+        <>
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span>Refresh</span>
+        </>
       ) : (
-        <Search className="h-3.5 w-3.5" />
+        <>
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>Get Full Profile</span>
+        </>
       )}
     </Button>
   );

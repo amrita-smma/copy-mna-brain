@@ -189,7 +189,11 @@ export async function createVaultExport(
         accountInfo: { emails: custodianEmails },
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
-        mailOptions: { excludeDrafts: false },
+        // Vault keeps every Gmail autosave of a draft as its own message, and
+        // ingest would store each one as a sent email: inflated counts, response
+        // times measured from an autosave, and recipient-less drafts slipping
+        // past the internal-only filter.
+        mailOptions: { excludeDrafts: true },
       },
       exportOptions: {
         mailOptions: {

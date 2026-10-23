@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
 import { escapeLikePattern } from "./insightRepository";
+import type { EmployerListSort, SortDirection } from "@/lib/crm/employerListSort";
 
 export type Employer = typeof employers.$inferSelect;
 export type EmployerInsert = typeof employers.$inferInsert;
@@ -40,6 +41,10 @@ export interface EmployerListFilters {
   topicIds?: string[];
   /** Team member user ids (any-match). */
   teamUserIds?: string[];
+  /** Sort column; defaults to last contact. Rows without a value always sort last. */
+  sort?: EmployerListSort;
+  /** Defaults to `desc` (latest contact first). */
+  sortDir?: SortDirection;
   limit?: number;
   offset?: number;
 }
@@ -96,6 +101,26 @@ export interface MatchedContact {
   name: string;
   title: string | null;
   email: string | null;
+}
+
+/**
+ * One column of the employer's `analytics.mart_crm` row for this workspace,
+ * correlated on "employers"."id". Written with hard-coded "table"."column"
+ * text because the `select({...})` shorthand strips table qualifiers from
+ * column references inside the select clause (see `list`).
+ */
+function martCrmColumn<T = unknown>(column: string, workspaceId: string): SQL<T> {
+  return sql<T>`(
+    SELECT "mart_crm".${sql.identifier(column)}
+    FROM "analytics"."mart_crm"
+    WHERE "mart_crm"."employer_id" = "employers"."id"
+      AND "mart_crm"."workspace_id" = ${workspaceId}
+  )`;
+}
+
+/** The employer's curated name / industry when a human set one, else the ingested value. */
+function curatedColumn<T = unknown>(column: "name" | "industry"): SQL<T> {
+  return sql<T>`COALESCE((SELECT "employer_curation".${sql.identifier(column)} FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers".${sql.identifier(column)})`;
 }
 
 export class EmployerRepository {
@@ -200,6 +225,43 @@ export class EmployerRepository {
     );
   }
 
+  /**
+   * Leading ORDER BY term for `list`. Each key sorts on the same expression
+   * its column displays (mart-sourced KPIs, curated name/industry), so the
+   * order agrees with what the row shows. Whitelisted: an unknown key falls
+   * back to last contact, and the direction is only ever ASC or DESC.
+   * NULLS LAST in both directions — firms never contacted stay at the bottom.
+   */
+  private orderByFor(filters: EmployerListFilters, workspaceId: string): SQL {
+    const expressions: Record<EmployerListSort, SQL> = {
+      name: sql`LOWER(${curatedColumn("name")})`,
+      industry: sql`LOWER(NULLIF(${curatedColumn("industry")}, ''))`,
+      // Same pick as the primary_pic select: the oldest correspondent this
+      // workspace can see.
+      primary_pic: sql`(
+        SELECT LOWER("correspondents"."name")
+        FROM "correspondents"
+        JOIN "workspace_correspondents"
+          ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
+          AND "workspace_correspondents"."workspace_id" = ${workspaceId}
+        WHERE "correspondents"."employer_id" = "employers"."id"
+        ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
+        LIMIT 1
+      )`,
+      response_p50: martCrmColumn("response_p50_seconds", workspaceId),
+      last_contact: martCrmColumn("last_contact_at", workspaceId),
+      emails: sql`COALESCE(${martCrmColumn("email_count", workspaceId)}, 0)`,
+      team_members: sql`(
+        SELECT COUNT(*)
+        FROM "employer_team_members"
+        WHERE "employer_team_members"."employer_id" = "employers"."id"
+      )`,
+    };
+    const expression = expressions[filters.sort ?? "last_contact"] ?? expressions.last_contact;
+    const direction = filters.sortDir === "asc" ? sql`ASC` : sql`DESC`;
+    return sql`${expression} ${direction} NULLS LAST`;
+  }
+
   async list(
     filters: EmployerListFilters = {},
     workspaceId: string,
@@ -215,11 +277,9 @@ export class EmployerRepository {
         id: employers.id,
         // Effective (overlay-aware) name/industry — human override wins. The
         // rest of this query stays correlated on "employers"."id".
-        name: sql<string>`COALESCE((SELECT "employer_curation"."name" FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers"."name")`,
+        name: curatedColumn<string>("name"),
         normalized_name: employers.normalized_name,
-        industry: sql<
-          string | null
-        >`COALESCE((SELECT "employer_curation"."industry" FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers"."industry")`,
+        industry: curatedColumn<string | null>("industry"),
         status: employers.status,
         curation_status: employers.curation_status,
         created_at: employers.created_at,
@@ -236,30 +296,10 @@ export class EmployerRepository {
         // is the sole writer of those links. If a future UI feature
         // reassigns an already-emailed contact to another firm, refresh the
         // mart on that write (or keep these two columns live).
-        email_count: sql<number>`COALESCE((
-          SELECT "mart_crm"."email_count"
-          FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employers"."id"
-            AND "mart_crm"."workspace_id" = ${workspaceId}
-        ), 0)`,
-        last_contact_at: sql<string | null>`(
-          SELECT "mart_crm"."last_contact_at"
-          FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employers"."id"
-            AND "mart_crm"."workspace_id" = ${workspaceId}
-        )`,
-        response_p50_seconds: sql<number | null>`(
-          SELECT "mart_crm"."response_p50_seconds"
-          FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employers"."id"
-            AND "mart_crm"."workspace_id" = ${workspaceId}
-        )`,
-        response_pair_count: sql<number>`COALESCE((
-          SELECT "mart_crm"."response_pair_count"
-          FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employers"."id"
-            AND "mart_crm"."workspace_id" = ${workspaceId}
-        ), 0)`,
+        email_count: sql<number>`COALESCE(${martCrmColumn("email_count", workspaceId)}, 0)`,
+        last_contact_at: martCrmColumn<string | null>("last_contact_at", workspaceId),
+        response_p50_seconds: martCrmColumn<number | null>("response_p50_seconds", workspaceId),
+        response_pair_count: sql<number>`COALESCE(${martCrmColumn("response_pair_count", workspaceId)}, 0)`,
         // Scoped to correspondents THIS workspace can see (workspace_correspondents),
         // ordered by whether this workspace designated them primary
         // (workspace_primary_correspondents — see
@@ -331,15 +371,9 @@ export class EmployerRepository {
       .from(employers)
       .where(this.buildWhere(filters, workspaceId))
       .orderBy(
-        // Sort by the same mart-sourced last_contact_at selected above, so the
-        // order agrees with the displayed value.
-        sql`(
-          SELECT "mart_crm"."last_contact_at"
-          FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employers"."id"
-            AND "mart_crm"."workspace_id" = ${workspaceId}
-        ) DESC NULLS LAST`,
+        this.orderByFor(filters, workspaceId),
         asc(employers.name),
+        asc(employers.id),
       )
       .limit(filters.limit ?? 50)
       .offset(filters.offset ?? 0);

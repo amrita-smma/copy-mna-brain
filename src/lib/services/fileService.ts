@@ -49,6 +49,7 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
+import type { DealContactService } from './dealContactService';
 import { CompanyPipelineRequirementsError, CompanyService } from './companyService';
 import { isInPipelineStage } from '@/lib/pipeline/stages';
 import type { TrackMatchingService } from './trackMatchingService';
@@ -184,14 +185,18 @@ function isExcelUpload(fileName: string, contentType: string): boolean {
 
 /**
  * Headers of the email an MBOX-ingested attachment arrived on. Supplied by the
- * data pipeline and used only to describe the document in the custodian's
- * ingest notification — deliberately not persisted on the `files` row.
+ * data pipeline. All of them describe the document in the custodian's ingest
+ * notification; only `senderEmail` and `messageId` are persisted on the
+ * `files` row (`source_sender_email` / `source_message_id`), for the sender's
+ * deal link (`DealContactService`). Name, subject and date are never stored.
  */
 export interface EmailIngestContext {
   senderName?: string;
   senderEmail?: string;
   subject?: string;
   receivedAt?: string;
+  /** The email's Message-ID. */
+  messageId?: string;
 }
 
 /** Processing states that mean the file is genuinely in Brain. */
@@ -495,6 +500,7 @@ const V1_INVESTOR_ENTITY_TYPES = new Set<string>([
 
 export class FileService {
   private crmService?: CRMService;
+  private dealContactService?: DealContactService;
   private pendingAutoScanService?: PendingAutoScanService;
   private fundUpdateApplyService?: FundUpdateApplyService;
   private fundCatalogCheckService?: FundCatalogCheckService;
@@ -532,6 +538,10 @@ export class FileService {
 
   setCRMService(crmService: CRMService) {
     this.crmService = crmService;
+  }
+
+  setDealContactService(dealContactService: DealContactService) {
+    this.dealContactService = dealContactService;
   }
 
   setFundUpdateApplyService(service: FundUpdateApplyService) {
@@ -663,6 +673,11 @@ export class FileService {
         ? this.fileRepo
         : new FileRepository(this.db, primaryWorkspaceId);
 
+    // Email provenance: only the sender address and Message-ID are kept.
+    const emailSource = {
+      source_sender_email: emailContext?.senderEmail?.trim().toLowerCase() || null,
+      source_message_id: emailContext?.messageId?.trim() || null,
+    };
     const initialData = await primaryFileRepo.insert({
       file_name: fileName,
       file_link: key,
@@ -670,6 +685,7 @@ export class FileService {
       file_type: fileTypeOverride ?? 'other',
       origin_email: originEmail ?? false,
       workspace_id: primaryWorkspaceId,
+      ...emailSource,
     });
 
     // `file_uploaded`, captured server-side rather than in the Smart Files
@@ -707,6 +723,7 @@ export class FileService {
           file_type: fileTypeOverride ?? 'other',
           origin_email: originEmail ?? false,
           workspace_id: secondaryWorkspaceIds[i],
+          ...emailSource,
         }),
       ),
     );
@@ -918,6 +935,16 @@ export class FileService {
         // target matches a company actively in the L0–L5 pipeline.
         processing_status: needsHitlReview ? 'awaiting_review' : 'completed',
       });
+      // The email's external sender brought (auto-created) or is involved in
+      // (matched) each company now on the file. Reads the row just written;
+      // a failure never fails the upload.
+      if (isPrimaryWorkspace && emailSource.source_sender_email && this.dealContactService) {
+        try {
+          await this.dealContactService.linkFromSmartFile(initialData.id);
+        } catch (err) {
+          console.error('[fileService] Failed to link the email sender to the file\'s deals:', err);
+        }
+      }
       // Secondary fan-out rows share the same extracted content — no
       // company-matching side effects run for them (see warning above).
       await Promise.all(

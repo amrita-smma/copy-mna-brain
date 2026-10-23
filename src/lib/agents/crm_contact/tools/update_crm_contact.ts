@@ -80,7 +80,7 @@ export const updateCrmContactSchema = z.object({
     .min(1)
     .max(12)
     .describe(
-      'The URLs the values above came from, including the one that proved this is the right person at the right firm. Required — a value with no source does not get written.',
+      'Where the values above came from: URLs, including the one that proved this is the right person at the right firm, and/or email notes cited as "email YYYY-MM-DD from their side". Required — a value with no source does not get written.',
     ),
   overwrite: z
     .array(z.enum(CRM_CONTACT_WRITABLE_FIELDS))
@@ -233,9 +233,9 @@ Writes to the CRM's override layer, so a later mailbox re-ingest cannot overwrit
 
 \`name\` completes or corrects the full name of the SAME person ("Jane" → "Jane Doe"); it is refused when it shares no word with the name on file. You CANNOT set their email. If what you found points to a different person than the name or email on file, write nothing and report it.
 
-Only empty fields are filled. A field that already holds a value is skipped and reported back to you, unless you name it in \`overwrite\` — do that only when your source is the firm's own current page and the stored value is demonstrably stale.
+Only empty fields are filled. A field that already holds a value is skipped and reported back to you, unless you name it in \`overwrite\` — do that only when your source is the firm's own current page and the stored value is demonstrably stale. The one exception: when your instruction marks the run a REFRESH, the user asked for the bio to be rewritten, so name \`bio\` in \`overwrite\`.
 
-\`sources\` is required: list the URLs the values came from, including the one proving this is the right person at the right firm. A value you cannot attribute should not be passed at all.
+\`sources\` is required: list the URLs the values came from, including the one proving this is the right person at the right firm, and cite email notes as "email 2026-10-12 from their side". A value you cannot attribute should not be passed at all.
 
 Returns:
     Markdown — what was written, what was skipped and why.`,

@@ -5,50 +5,16 @@ import { createContainer } from '@/lib/services/container';
 import { DuplicateEmployerError } from '@/lib/services/crmService';
 import { UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
 import { sql } from 'drizzle-orm';
+import { lastContactAfter, lastContactBefore } from '@/lib/crm/lastContactRange';
+import { parseEmployerListSort } from '@/lib/crm/employerListSort';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VAULT_SYNC_CADENCE_MS = DAY_MS;
 
-function lastContactAfter(
-  preset: string | null,
-  custom: string | null,
-  clientTodayIso: string | null,
-): string | undefined {
-  if (!preset) return undefined;
-  const now = Date.now();
-  let startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
-  if (clientTodayIso && !isNaN(Date.parse(clientTodayIso))) {
-    startOfDay = new Date(clientTodayIso);
-  }
-
-  switch (preset) {
-    case 'today':
-      return startOfDay.toISOString();
-    case 'yesterday':
-      return new Date(startOfDay.getTime() - DAY_MS).toISOString();
-    case 'week':
-      return new Date(now - 7 * DAY_MS).toISOString();
-    case 'month':
-      return new Date(now - 30 * DAY_MS).toISOString();
-    case 'custom':
-      if (!custom) return undefined;
-      // Custom is YYYY-MM-DD — interpret as start-of-day local
-      const customMs = Date.parse(custom);
-      return !isNaN(customMs) ? new Date(customMs).toISOString() : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function lastContactBefore(preset: string | null): string | undefined {
-  if (preset !== 'stale_30') return undefined;
-  return new Date(Date.now() - 30 * DAY_MS).toISOString();
-}
-
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
+    const { sort, dir } = parseEmployerListSort(sp.get('sort'), sp.get('dir'));
     const filters: EmployerListFilters = {
       search: sp.get('q')?.trim() || undefined,
       status: (sp.get('status') as 'inbound' | 'outbound' | null) ?? undefined,
@@ -63,6 +29,8 @@ export async function GET(req: NextRequest) {
       lastContactBefore: lastContactBefore(sp.get('lastContact')),
       topicIds: sp.getAll('topicId').filter(Boolean),
       teamUserIds: sp.getAll('teamUserId').filter(Boolean),
+      sort,
+      sortDir: dir,
       limit: Number(sp.get('limit')) || 50,
       offset: Number(sp.get('offset')) || 0,
     };

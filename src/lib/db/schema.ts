@@ -84,6 +84,7 @@ export const jobType = pgEnum("job_type", [
   "bot_routine",
   "bot_task_summary",
   "bot_reply",
+  "contact_relationship_overview",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const screeningState = pgEnum("screening_state", [
@@ -1527,9 +1528,18 @@ export const files = pgTable(
     workspace_id: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Email-attachment provenance (20261021000001_deal_contacts): the external
+    // sender and Message-ID of the email the file arrived on. Only these two
+    // headers are kept — they resolve the sender's deal link (deal_contacts),
+    // also later when the sender's CRM contact appears after the file.
+    source_sender_email: text(),
+    source_message_id: text(),
   },
   (table) => {
     return {
+      idxFilesWorkspaceSourceSender: index("idx_files_workspace_source_sender")
+        .using("btree", table.workspace_id, sql`lower(${table.source_sender_email})`)
+        .where(sql`${table.source_sender_email} IS NOT NULL`),
       idxFilesWorkspaceId: index("idx_files_workspace_id").using(
         "btree",
         table.workspace_id.asc().nullsLast().op("uuid_ops"),
@@ -1942,6 +1952,50 @@ export const workspaceCorrespondents = pgTable(
   }),
 );
 
+export const contactRelationshipOverviews = pgTable(
+  "contact_relationship_overviews",
+  {
+    workspace_id: uuid().notNull(),
+    correspondent_id: uuid().notNull(),
+    status: text().$type<"pending" | "ready" | "failed">().default("pending").notNull(),
+    overview: text(),
+    deal_notes: jsonb()
+      .$type<Array<{ companyId: string; note: string }>>()
+      .default([])
+      .notNull(),
+    role_summary: text(),
+    input_hash: text(),
+    job_id: uuid(),
+    generated_at: timestamp({ withTimezone: true, mode: "string" }),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    contactRelationshipOverviewsPk: primaryKey({
+      columns: [table.workspace_id, table.correspondent_id],
+    }),
+    contactRelationshipOverviewsWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "contact_relationship_overviews_workspace_id_fkey",
+    }).onDelete("cascade"),
+    contactRelationshipOverviewsCorrespondentFkey: foreignKey({
+      columns: [table.correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "contact_relationship_overviews_correspondent_id_fkey",
+    }).onDelete("cascade"),
+    chkContactRelationshipOverviewsStatus: check(
+      "chk_contact_relationship_overviews_status",
+      sql`status IN ('pending', 'ready', 'failed')`,
+    ),
+  }),
+);
+
+export type ContactRelationshipOverview =
+  typeof contactRelationshipOverviews.$inferSelect;
+
+
 
 export const employerNotes = pgTable(
   "employer_notes",
@@ -2192,6 +2246,94 @@ export const employerRelatedCompanies = pgTable(
       "Allow delete access on employer_related_companies",
       { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
     ),
+  }),
+);
+
+// Deal ↔ banker links (MB-856, 20261021000001_deal_contacts): which CRM
+// contact (one person) brought a deal (`source`) or was involved in it
+// (`involved`). Removing or dismissing sets status = 'dismissed' rather than
+// deleting, so the automatic paths (Smart Files email attachments, evidence
+// suggestions) never re-add it. See docs/features/crm-banker-insights.md.
+export const DEAL_CONTACT_ROLES = ["source", "involved"] as const;
+export type DealContactRole = (typeof DEAL_CONTACT_ROLES)[number];
+export type DealContactOrigin = "email_attachment" | "manual" | "confirmed_suggestion";
+export type DealContactStatus = "active" | "dismissed";
+
+export const dealContacts = pgTable(
+  "deal_contacts",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    company_id: uuid()
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    correspondent_id: uuid()
+      .notNull()
+      .references(() => correspondents.id, { onDelete: "cascade" }),
+    role: text().$type<DealContactRole>().notNull(),
+    origin: text().$type<DealContactOrigin>().notNull(),
+    status: text().$type<DealContactStatus>().default("active").notNull(),
+    // Message-ID of the email whose attachment made the link (email_attachment).
+    evidence_message_id: text(),
+    created_by: uuid().references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqDealContactsWorkspaceCompanyCorrespondent: unique(
+      "uq_deal_contacts_workspace_company_correspondent",
+    ).on(table.workspace_id, table.company_id, table.correspondent_id),
+    idxDealContactsWorkspaceCorrespondent: index(
+      "idx_deal_contacts_workspace_correspondent",
+    ).using("btree", table.workspace_id, table.correspondent_id),
+    idxDealContactsWorkspaceCompany: index("idx_deal_contacts_workspace_company").using(
+      "btree",
+      table.workspace_id,
+      table.company_id,
+    ),
+    dealContactsRoleChk: check("deal_contacts_role_chk", sql`role IN ('source', 'involved')`),
+    dealContactsOriginChk: check(
+      "deal_contacts_origin_chk",
+      sql`origin IN ('email_attachment', 'manual', 'confirmed_suggestion')`,
+    ),
+    dealContactsStatusChk: check(
+      "deal_contacts_status_chk",
+      sql`status IN ('active', 'dismissed')`,
+    ),
+  }),
+);
+
+/**
+ * "Ask Brain" suggested questions for the CRM page (MB-862), one row per
+ * (workspace, user, Asia/Jakarta day). `questions` holds the generated lists;
+ * see `CrmSuggestedQuestionService` for the shape.
+ */
+export const crmSuggestedQuestions = pgTable(
+  "crm_suggested_questions",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    for_date: date().notNull(),
+    questions: jsonb().$type<unknown>().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqCrmSuggestedQuestionsWorkspaceUserDate: unique(
+      "uq_crm_suggested_questions_workspace_user_date",
+    ).on(table.workspace_id, table.user_id, table.for_date),
   }),
 );
 
@@ -2654,6 +2796,113 @@ export const emailParticipants = analytics.table(
     ),
     allowDeleteEmailParticipants: pgPolicy(
       "Allow delete access on email_participants",
+      { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+export const emailNotes = analytics.table(
+  "email_notes",
+  {
+    email_id: uuid().primaryKey().notNull(),
+    summary: text(),
+    key_points: jsonb().$type<string[]>().default([]).notNull(),
+    next_step: text(),
+    next_step_status: text().$type<"action" | "done" | "none">().default("none").notNull(),
+    sentiment: text().$type<"positive" | "neutral" | "negative">().default("neutral").notNull(),
+    model: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    emailNotesEmailFkey: foreignKey({
+      columns: [table.email_id],
+      foreignColumns: [emails.id],
+      name: "email_notes_email_id_fkey",
+    }).onDelete("cascade"),
+    chkEmailNotesNextStepStatus: check(
+      "chk_email_notes_next_step_status",
+      sql`next_step_status IN ('action', 'done', 'none')`,
+    ),
+    chkEmailNotesSentiment: check(
+      "chk_email_notes_sentiment",
+      sql`sentiment IN ('positive', 'neutral', 'negative')`,
+    ),
+    allowReadEmailNotes: pgPolicy("Allow read access on email_notes", {
+      as: "permissive",
+      for: "select",
+      to: ["public"],
+    }),
+    allowInsertEmailNotes: pgPolicy("Allow insert access on email_notes", {
+      as: "permissive",
+      for: "insert",
+      to: ["public"],
+    }),
+    allowUpdateEmailNotes: pgPolicy("Allow update access on email_notes", {
+      as: "permissive",
+      for: "update",
+      to: ["public"],
+    }),
+    allowDeleteEmailNotes: pgPolicy("Allow delete access on email_notes", {
+      as: "permissive",
+      for: "delete",
+      to: ["public"],
+      using: sql`true`,
+    }),
+  }),
+);
+
+export const emailRoleSignals = analytics.table(
+  "email_role_signals",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    email_id: uuid().notNull(),
+    address: text().notNull(),
+    label: text().notNull(),
+    confidence: text().notNull(),
+    evidence: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqEmailRoleSignals: unique("uq_email_role_signals_email_address_label").on(
+      table.email_id,
+      table.address,
+      table.label,
+    ),
+    idxEmailRoleSignalsAddress: index("idx_email_role_signals_address").using(
+      "btree",
+      sql`lower(${table.address})`,
+    ),
+    emailRoleSignalsEmailFkey: foreignKey({
+      columns: [table.email_id],
+      foreignColumns: [emails.id],
+      name: "email_role_signals_email_id_fkey",
+    }).onDelete("cascade"),
+    chkEmailRoleSignalsLabel: check(
+      "chk_email_role_signals_label",
+      sql`label IN ('funding', 'lending', 'finance', 'tax', 'advisory', 'legal', 'due_diligence', 'principal', 'other')`,
+    ),
+    chkEmailRoleSignalsConfidence: check(
+      "chk_email_role_signals_confidence",
+      sql`confidence IN ('high', 'medium', 'low')`,
+    ),
+    allowReadEmailRoleSignals: pgPolicy(
+      "Allow read access on email_role_signals",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmailRoleSignals: pgPolicy(
+      "Allow insert access on email_role_signals",
+      { as: "permissive", for: "insert", to: ["public"] },
+    ),
+    allowUpdateEmailRoleSignals: pgPolicy(
+      "Allow update access on email_role_signals",
+      { as: "permissive", for: "update", to: ["public"] },
+    ),
+    allowDeleteEmailRoleSignals: pgPolicy(
+      "Allow delete access on email_role_signals",
       { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
     ),
   }),

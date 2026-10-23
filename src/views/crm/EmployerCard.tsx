@@ -17,16 +17,20 @@ import { format, formatDistanceToNow } from "date-fns";
 import {
   ChevronDown,
   Copy,
+  Info,
   Linkedin,
   Loader2,
   Mail,
+  MessagesSquare,
   Pencil,
   Plus,
+  Sparkles,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EditContactDialog } from "./EditContactDialog";
+import type { ContactPanelSeed } from "./ContactInsightsPanel";
 import { FillContactButton, type EnrichmentRun } from "./FillContactButton";
 import type {
   Correspondent,
@@ -42,9 +46,14 @@ import {
   colorForId,
   formatResponseP50,
   initialsOf,
+  isStaleContact,
   safeProfileUrl,
   tabTriggerCls,
 } from "./utils";
+
+/** Firm list columns: Source · Industry · PIC · Activity · Topics · Team · actions. Shared with the header row in CRM.tsx. */
+export const FIRM_GRID =
+  "grid grid-cols-[minmax(0,20fr)_minmax(0,12fr)_minmax(0,18fr)_minmax(0,14fr)_minmax(0,14fr)_minmax(0,12fr)_104px] gap-3 px-3";
 
 export function EmployerCard({
   employer,
@@ -55,6 +64,7 @@ export function EmployerCard({
   onAddContact,
   onRefreshDetail,
   onRefreshList,
+  onOpenContact,
   searchTerm,
 }: {
   employer: EmployerSummary;
@@ -67,16 +77,15 @@ export function EmployerCard({
   onAddContact: () => void;
   onRefreshDetail: () => void;
   onRefreshList: () => void;
+  /** Opens the contact insights panel for a contact clicked in the Contacts tab. */
+  onOpenContact?: (contact: ContactPanelSeed) => void;
 }) {
   const lastContact = employer.last_contact_at
     ? formatDistanceToNow(new Date(employer.last_contact_at), {
         addSuffix: true,
       })
     : "—";
-  const isStale = employer.last_contact_at
-    ? Date.now() - new Date(employer.last_contact_at).getTime() >
-      30 * 24 * 60 * 60 * 1000
-    : true;
+  const isStale = isStaleContact(employer.last_contact_at);
   const initials = initialsOf(employer.name);
   const avatarGradient = colorForId(employer.id);
   const metaLabel = employer.status === "inbound" ? "Inbound" : "Outbound";
@@ -88,6 +97,20 @@ export function EmployerCard({
     )
     .slice(0, 2);
   const matched = employer.matched_contacts ?? [];
+  const [editingPrimary, setEditingPrimary] = useState(false);
+
+  const pic = employer.primary_pic;
+  // The primary PIC's full record (for the edit dialog) comes from the firm
+  // detail; the pencil loads it when the row was never expanded.
+  const primaryContact = pic
+    ? (detail?.correspondents.find((c) => c.id === pic.id) ?? null)
+    : null;
+  const primaryMissing = editingPrimary && !!detail && !primaryContact;
+  useEffect(() => {
+    if (!primaryMissing) return;
+    setEditingPrimary(false);
+    toast.error("Could not load this contact");
+  }, [primaryMissing]);
 
   return (
     <div
@@ -96,69 +119,81 @@ export function EmployerCard({
         expanded ? "bg-muted" : "hover:bg-muted",
       )}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         onClick={onToggle}
-        className="grid w-full grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] items-center gap-3 px-3 py-2.5 text-left"
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className={cn(
+          FIRM_GRID,
+          "cursor-pointer items-center py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        )}
+        data-testid="crm-firm-row"
       >
-        <div
-          className={cn(
-            "grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br text-xs font-bold text-white",
-            avatarGradient,
-          )}
-        >
-          {initials}
-        </div>
-
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold">{employer.name}</div>
-          {matched.length > 0 && (
-            <div
-              className="truncate text-[11px] font-semibold text-blue-600 dark:text-blue-400"
-              title={matched.map((m) => m.name).join(", ")}
-              data-testid="crm-row-matched-contacts"
-            >
-              {matched
-                .slice(0, 2)
-                .map((m) => m.name)
-                .join(", ")}
-              {matched.length > 2 && ` +${matched.length - 2}`}
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <div
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white",
+              avatarGradient,
+            )}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0 max-w-full">
+            <div className="break-words text-sm font-bold">{employer.name}</div>
+            {matched.length > 0 && (
+              <div
+                className="truncate text-[11px] font-semibold text-blue-600 dark:text-blue-400"
+                title={matched.map((m) => m.name).join(", ")}
+                data-testid="crm-row-matched-contacts"
+              >
+                {matched
+                  .slice(0, 2)
+                  .map((m) => m.name)
+                  .join(", ")}
+                {matched.length > 2 && ` +${matched.length - 2}`}
+              </div>
+            )}
+            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <span>{metaLabel}</span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "inline-flex h-4 items-center gap-0.5 px-1.5 text-[9px] font-semibold uppercase",
+                  employer.source === "auto"
+                    ? "border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+                    : "text-muted-foreground",
+                )}
+              >
+                {employer.source === "auto" && <Mail className="h-2.5 w-2.5" />}
+                {employer.source}
+              </Badge>
             </div>
-          )}
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-            <span>{metaLabel}</span>
-            <Badge
-              variant="outline"
-              className={cn(
-                "inline-flex h-4 items-center gap-0.5 px-1.5 text-[9px] font-semibold uppercase",
-                employer.source === "auto"
-                  ? "border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
-                  : "text-muted-foreground",
-              )}
-            >
-              {employer.source === "auto" && <Mail className="h-2.5 w-2.5" />}
-              {employer.source}
-            </Badge>
           </div>
         </div>
 
-        <div className="min-w-0 truncate text-xs font-semibold text-muted-foreground">
-          {employer.industry ?? "—"}
-        </div>
+        <div className="min-w-0 truncate text-xs">{employer.industry ?? "—"}</div>
 
-        <div className="min-w-0">
-          {employer.primary_pic ? (
+        <div className="min-w-0 break-words">
+          {pic ? (
             <>
-              <div className="truncate text-sm font-semibold">
-                {employer.primary_pic.name}
-              </div>
-              <div className="truncate text-[10px] text-muted-foreground">
-                {employer.primary_pic.title ?? "—"}
-              </div>
-              {employer.primary_pic.email && (
-                <div className="truncate font-mono text-[9px] text-blue-600 dark:text-blue-400">
-                  {employer.primary_pic.email}
-                </div>
+              <div className="truncate text-sm font-bold">{pic.name}</div>
+              <div className="truncate text-xs text-muted-foreground">{pic.title ?? "—"}</div>
+              {pic.email && (
+                <a
+                  href={`mailto:${pic.email}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="block truncate text-xs text-primary hover:underline"
+                >
+                  {pic.email}
+                </a>
               )}
             </>
           ) : (
@@ -167,47 +202,44 @@ export function EmployerCard({
         </div>
 
         <div className="min-w-0">
-          {employer.response_pair_count > 0 ? (
-            <>
-              <div className="truncate text-sm font-semibold">
-                {formatResponseP50(employer.response_p50_seconds)}
-              </div>
-              <div className="truncate text-[10px] text-muted-foreground">
-                {employer.response_pair_count} pair
-                {employer.response_pair_count === 1 ? "" : "s"}
-              </div>
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
-        </div>
-
-        <div className="min-w-0">
           <div
             className={cn(
               "truncate text-sm font-semibold",
-              isStale ? "text-orange-600" : "text-emerald-600",
+              isStale && "text-destructive",
             )}
+            title={
+              employer.last_contact_at
+                ? format(new Date(employer.last_contact_at), "MMM d, yyyy")
+                : undefined
+            }
           >
             {lastContact}
           </div>
-          {employer.last_contact_at && (
-            <div className="truncate text-[10px] text-muted-foreground">
-              {format(new Date(employer.last_contact_at), "MMM d, yyyy")}
-            </div>
-          )}
+          <div
+            className="truncate text-xs text-muted-foreground"
+            title={
+              employer.response_pair_count > 0
+                ? `Median reply time over ${employer.response_pair_count} pair${employer.response_pair_count === 1 ? "" : "s"}`
+                : undefined
+            }
+          >
+            P50 ·{" "}
+            {employer.response_pair_count > 0
+              ? formatResponseP50(employer.response_p50_seconds)
+              : "—"}
+          </div>
         </div>
 
         <div className="min-w-0">
-          <div className="mb-0.5 truncate text-xs font-semibold">
+          <div className="mb-1 truncate text-xs text-muted-foreground">
             {employer.email_count} email{employer.email_count === 1 ? "" : "s"}
           </div>
-          <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-1">
             {summaryTopics.length === 0 ? (
-              <span className="text-[10px] text-muted-foreground">No tags</span>
+              <span className="text-xs text-muted-foreground">No tags</span>
             ) : (
               summaryTopics.map((t) => (
-                <div key={t.id} className="min-w-0 flex-shrink truncate">
+                <div key={t.id} className="min-w-0 max-w-full truncate">
                   <TopicChipBadge topic={t} />
                 </div>
               ))
@@ -217,37 +249,94 @@ export function EmployerCard({
 
         <div className="min-w-0">
           {employer.team.length === 0 ? (
-            <span className="text-[10px] text-muted-foreground">—</span>
+            <span className="text-xs text-muted-foreground">—</span>
           ) : (
             <div className="flex flex-wrap items-center gap-1">
-              {employer.team.slice(0, 3).map((t) => (
+              {employer.team.slice(0, 2).map((t) => (
                 <Badge
                   key={t.id}
                   variant="outline"
-                  className="h-4 max-w-[80px] flex-shrink-0 truncate px-1.5 text-[10px] font-semibold"
+                  className="h-auto max-w-full whitespace-normal bg-card px-2 py-0.5 text-[10px] font-semibold leading-tight text-muted-foreground"
                 >
-                  {t.name.split(" ")[0]}
+                  {t.name}
                 </Badge>
               ))}
-              {employer.team.length > 3 && (
+              {employer.team.length > 2 && (
                 <Badge
                   variant="outline"
-                  className="h-4 flex-shrink-0 px-1.5 text-[10px] font-semibold"
+                  className="h-auto bg-card px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                  title={employer.team
+                    .slice(2)
+                    .map((t) => t.name)
+                    .join(", ")}
                 >
-                  +{employer.team.length - 3} more
+                  +{employer.team.length - 2}
                 </Badge>
               )}
             </div>
           )}
         </div>
 
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform",
-            expanded && "rotate-180",
+        <div className="flex items-center justify-end gap-0.5">
+          {pic && onOpenContact && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenContact(pic);
+              }}
+              className="grid h-[26px] w-[26px] place-items-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/20"
+              aria-label={`Conversation with ${pic.name}`}
+              title="Conversation — AI-summarised notes from your team"
+              data-testid="crm-firm-conversation"
+            >
+              <MessagesSquare className="h-3.5 w-3.5" />
+            </button>
           )}
+          {pic && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingPrimary(true);
+                if (!detail && !loadingDetail) onRefreshDetail();
+              }}
+              className="grid h-[26px] w-[26px] place-items-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+              aria-label={`Edit ${pic.name}`}
+              title="Edit contact"
+              data-testid="crm-firm-edit-primary"
+            >
+              {editingPrimary && !primaryContact ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Pencil className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+          <span className="grid h-[26px] w-[26px] place-items-center text-muted-foreground">
+            <ChevronDown
+              className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")}
+            />
+          </span>
+        </div>
+      </div>
+
+      {editingPrimary && primaryContact && (
+        <EditContactDialog
+          key={primaryContact.id}
+          contact={primaryContact}
+          open={!!primaryContact}
+          onOpenChange={(open) => {
+            if (!open) setEditingPrimary(false);
+          }}
+          onSaved={() => {
+            setEditingPrimary(false);
+            onRefreshDetail();
+            onRefreshList();
+          }}
         />
-      </button>
+      )}
 
       {expanded && (
         <div className="border-t bg-background">
@@ -268,6 +357,7 @@ export function EmployerCard({
               onAddContact={onAddContact}
               onRefreshDetail={onRefreshDetail}
               onRefreshList={onRefreshList}
+              onOpenContact={onOpenContact}
             />
           )}
         </div>
@@ -435,6 +525,7 @@ function ExpandedTabs({
   onAddContact,
   onRefreshDetail,
   onRefreshList,
+  onOpenContact,
 }: {
   employerId: string;
   detail: EmployerDetail;
@@ -443,25 +534,26 @@ function ExpandedTabs({
   onAddContact: () => void;
   onRefreshDetail: () => void;
   onRefreshList: () => void;
+  onOpenContact?: (contact: ContactPanelSeed) => void;
 }) {
   return (
     <Tabs defaultValue="contacts" className="w-full">
-      <TabsList className="h-auto w-full justify-start rounded-none border-b bg-background px-5 py-0">
+      <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b bg-background px-5 pb-0 pt-5">
         <TabsTrigger value="contacts" className={tabTriggerCls}>
-          Contacts{" "}
-          <span className="ml-1 text-xs">
+          Contacts
+          <span className="ml-1">
             ({matchedContactIds.length > 0
               ? `${detail.correspondents.filter((c) => matchedContactIds.includes(c.id)).length} of ${detail.correspondents.length}`
               : detail.correspondents.length})
           </span>
         </TabsTrigger>
         <TabsTrigger value="topics" className={tabTriggerCls}>
-          Topics Tag{" "}
-          <span className="ml-1 text-xs">({detail.topics.length})</span>
+          Topics Tag
+          <span className="ml-1">({detail.topics.length})</span>
         </TabsTrigger>
         <TabsTrigger value="related-companies" className={tabTriggerCls}>
-          Related Companies{" "}
-          <span className="ml-1 text-xs">({detail.related_companies.length})</span>
+          Related Companies
+          <span className="ml-1">({detail.related_companies.length})</span>
         </TabsTrigger>
         <TabsTrigger value="notes" className={tabTriggerCls}>
           Notes
@@ -475,6 +567,7 @@ function ExpandedTabs({
           matchedContactIds={matchedContactIds}
           searchTerm={searchTerm}
           onAddContact={onAddContact}
+          onOpenContact={onOpenContact}
           onChanged={() => {
             onRefreshDetail();
             onRefreshList();
@@ -520,6 +613,7 @@ function ContactsTab({
   searchTerm,
   onAddContact,
   onChanged,
+  onOpenContact,
 }: {
   employerId: string;
   correspondents: Correspondent[];
@@ -528,6 +622,7 @@ function ContactsTab({
   searchTerm?: string;
   onAddContact: () => void;
   onChanged: () => void;
+  onOpenContact?: (contact: ContactPanelSeed) => void;
 }) {
   // Record-scoped dialog: `open` is derived from the selection rather than
   // tracked as a second boolean, per .claude/rules/dialog-open-state.md. The
@@ -619,23 +714,21 @@ function ContactsTab({
             <div
               className={cn(
                 CONTACT_GRID,
-                "border-b bg-muted text-[10px] font-bold uppercase tracking-wider text-foreground",
+                "border-b bg-muted text-xs font-bold uppercase tracking-wider text-foreground",
               )}
             >
               <div className="px-2.5 py-1.5">Name</div>
               <div className="px-2.5 py-1.5">Email / Phone</div>
-              <div className="px-2.5 py-1.5">Past Deals Summary</div>
               <div className="px-2.5 py-1.5">Area Focus</div>
               <div className="px-2.5 py-1.5">Industry Focus</div>
+              <div className="px-2.5 py-1.5">Profile</div>
               <div className="px-2.5 py-1.5 text-center">Action</div>
             </div>
             {visible.map((c) => {
               // Profile fields are free text, so the stored URL is only safe to
               // put in an href once its scheme has been checked.
               const linkedinHref = safeProfileUrl(c.linkedin_url);
-              const subtitle = [c.title || c.seniority, c.department]
-                .filter(Boolean)
-                .join(" · ");
+              const subtitle = c.title || c.department || c.seniority;
               return (
                 <div
                   key={c.id}
@@ -647,17 +740,29 @@ function ContactsTab({
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-1.5">
                     <span className="whitespace-nowrap">{c.name}</span>
+                    {linkedinHref && (
+                      <a
+                        href={linkedinHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={`${c.name} on LinkedIn`}
+                        title="LinkedIn"
+                      >
+                        <Linkedin className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                     {c.is_primary && (
                       <Badge
                         variant="outline"
-                        className="h-auto border-transparent bg-emerald-50 px-1.5 py-0.5 text-[11px] font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                        className="h-auto border-transparent bg-emerald-50 px-1.5 py-0.5 text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
                       >
                         Primary
                       </Badge>
                     )}
                     {subtitle && (
                       <span
-                        className="w-full truncate text-[11px] text-muted-foreground"
+                        className="w-full truncate text-xs text-muted-foreground"
                         title={subtitle}
                       >
                         {subtitle}
@@ -669,7 +774,7 @@ function ContactsTab({
                       <CopyLine value={c.email} label="email">
                         <a
                           href={`mailto:${c.email}`}
-                          className="truncate font-mono text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                          className="truncate font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
                         >
                           {c.email}
                         </a>
@@ -677,7 +782,7 @@ function ContactsTab({
                     )}
                     {c.phone && (
                       <CopyLine value={c.phone} label="phone">
-                        <span className="truncate font-mono text-[11px] text-muted-foreground">
+                        <span className="truncate font-mono text-xs text-muted-foreground">
                           {c.phone}
                         </span>
                       </CopyLine>
@@ -687,28 +792,22 @@ function ContactsTab({
                     )}
                   </div>
                   <div className="min-w-0 px-2.5 py-1.5">
-                    <PastDealsCell
-                      text={c.bio}
-                      aiGenerated={enrichRuns[c.id]?.status === "succeeded"}
+                    <FocusTag value={c.coverage_region} />
+                  </div>
+                  <div className="min-w-0 px-2.5 py-1.5">
+                    <FocusTag value={c.specialization} />
+                  </div>
+                  <div className="min-w-0 px-2.5 py-1.5">
+                    <ContactProfileCell
+                      contact={c}
+                      initialRun={enrichRuns[c.id]}
+                      onFilled={() => {
+                        onChanged();
+                        void loadEnrichRuns();
+                      }}
                     />
                   </div>
-                  <div
-                    className="line-clamp-2 min-w-0 px-2.5 py-1.5 leading-snug"
-                    title={c.coverage_region ?? undefined}
-                  >
-                    {c.coverage_region || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                  <div
-                    className="min-w-0 truncate px-2.5 py-1.5"
-                    title={c.specialization ?? undefined}
-                  >
-                    {c.specialization || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-end gap-0.5 px-2.5 py-1.5">
+                  <div className="flex items-center justify-end gap-1 px-2.5 py-1.5">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -720,29 +819,18 @@ function ContactsTab({
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <FillContactButton
-                      correspondentId={c.id}
-                      contactName={c.name}
-                      initialRun={enrichRuns[c.id]}
-                      onFilled={() => {
-                        onChanged();
-                        // Otherwise this contact's entry stays "active" until
-                        // the tab remounts, and a later re-render would offer
-                        // to resume a run that has already finished.
-                        void loadEnrichRuns();
-                      }}
-                    />
-                    {linkedinHref && (
-                      <a
-                        href={linkedinHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label={`${c.name} on LinkedIn`}
-                        title="LinkedIn"
+                    {onOpenContact && (
+                      <button
+                        type="button"
+                        className="inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+                        onClick={() => onOpenContact(c)}
+                        aria-label={`Conversation with ${c.name}`}
+                        title="AI-summarised conversation notes from your team"
+                        data-testid="contact-conversation-open"
                       >
-                        <Linkedin className="h-3.5 w-3.5" />
-                      </a>
+                        <MessagesSquare className="h-3.5 w-3.5" />
+                        Conversation
+                      </button>
                     )}
                   </div>
                 </div>
@@ -771,7 +859,20 @@ function ContactsTab({
 }
 
 const CONTACT_GRID =
-  "grid grid-cols-[2.4fr_2.2fr_2.2fr_1fr_1.7fr_1.2fr]";
+  "grid grid-cols-[2.2fr_2.2fr_1.4fr_1.4fr_3.4fr_1.6fr]";
+
+/** Area / industry focus as one outlined tag, or "—". */
+function FocusTag({ value }: { value: string | null }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span
+      className="inline-flex h-5 max-w-full items-center rounded border bg-muted px-1.5 text-xs text-muted-foreground"
+      title={value}
+    >
+      <span className="truncate">{value}</span>
+    </span>
+  );
+}
 
 /** A line with a copy-to-clipboard button revealed on hover. */
 function CopyLine({
@@ -807,44 +908,100 @@ function CopyLine({
   );
 }
 
-/** Rough length past which a two-line clamp is likely to cut the text. */
-const PAST_DEALS_CLAMP_CHARS = 90;
-
-function PastDealsCell({
-  text,
-  aiGenerated,
+/**
+ * The contact's Profile cell, laid out like prototype v2.4: "Get Full Profile"
+ * until there is a bio, then an "AI research" label with a Refresh control
+ * over the bio (three lines, "Show more" only when it is cut off) and the AI
+ * disclaimer. Area and industry focus have their own columns, so they are not
+ * repeated here.
+ */
+function ContactProfileCell({
+  contact,
+  initialRun,
+  onFilled,
 }: {
-  text: string | null;
-  aiGenerated: boolean;
+  contact: Correspondent;
+  initialRun?: EnrichmentRun | null;
+  onFilled: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  if (!text) return <span className="text-muted-foreground">—</span>;
+  const [clamped, setClamped] = useState(false);
+  const bioRef = useRef<HTMLParagraphElement>(null);
+  const bio = contact.bio?.trim();
+
+  useLayoutEffect(() => {
+    const el = bioRef.current;
+    if (el && !expanded) setClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [bio, expanded]);
+
+  if (!bio) {
+    // A finished run that found no bio still filled what it could prove;
+    // say so instead of offering the button as if nothing had happened.
+    const searched = initialRun?.status === "succeeded" && !initialRun.active;
+    return (
+      <div className="flex flex-col gap-0.5 py-0.5" data-testid="contact-profile-cell">
+        {searched && (
+          <span className="text-xs text-muted-foreground" data-testid="contact-profile-no-bio">
+            No public bio found.
+          </span>
+        )}
+        <FillContactButton
+          correspondentId={contact.id}
+          contactName={contact.name}
+          initialRun={initialRun}
+          onFilled={onFilled}
+        />
+      </div>
+    );
+  }
+
   return (
-    <>
-      <span
-        className={cn("whitespace-normal", !expanded && "line-clamp-2")}
-        title={text}
+    <div className="flex flex-col gap-1 py-0.5" data-testid="contact-profile-cell">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-primary">
+          <Sparkles className="h-3 w-3" />
+          AI research
+        </span>
+        {/* A refresh run rewrites the bio and updates stale fields; a plain
+            fill would change nothing here, since it only fills gaps. Handed
+            only a refresh run, so one in flight resumes after a reload while
+            a fill that just finished (and brought this bio) is not picked up
+            a second time — the contacts and the runs refetch separately. The
+            wrapper keeps the button's self-start off the label's centre line. */}
+        <div className="shrink-0">
+          <FillContactButton
+            correspondentId={contact.id}
+            contactName={contact.name}
+            initialRun={initialRun?.mode === "refresh" ? initialRun : null}
+            onFilled={onFilled}
+            refresh
+          />
+        </div>
+      </div>
+      <p
+        ref={bioRef}
+        className={cn("whitespace-normal text-xs text-foreground", !expanded && "line-clamp-3")}
       >
-        {text}
-      </span>
-      {text.length > PAST_DEALS_CLAMP_CHARS && (
+        {bio}
+      </p>
+      {(clamped || expanded) && (
         <button
           type="button"
-          className="mt-0.5 text-xs font-semibold text-blue-600 dark:text-blue-400"
+          className="self-start text-xs font-semibold text-primary hover:underline"
           onClick={() => setExpanded((v) => !v)}
+          data-testid="contact-profile-expand"
         >
           {expanded ? "Show less" : "Show more"}
         </button>
       )}
-      {aiGenerated && (
-        <p
-          className="mt-0.5 text-[10px] italic text-muted-foreground"
-          data-testid="crm-contact-bio-disclaimer"
-        >
-          AI-generated from public sources — may be inaccurate.
-        </p>
-      )}
-    </>
+      <p
+        className="flex items-center gap-1 text-xs text-muted-foreground"
+        data-testid="crm-contact-bio-disclaimer"
+      >
+        <Info className="h-3 w-3 shrink-0" />
+        <span>AI-generated – it can make mistakes.</span>
+      </p>
+    </div>
   );
 }
 

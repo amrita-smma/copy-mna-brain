@@ -12,15 +12,15 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 225 | `src/app/api/**/route.ts` |
-| Services | 91 | `src/lib/services/` |
-| Repositories | 80 | `src/lib/repositories/` |
+| API routes | 236 | `src/app/api/**/route.ts` |
+| Services | 97 | `src/lib/services/` |
+| Repositories | 86 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
-| Job handlers | 13 | `src/lib/jobs/handlers/` |
-| Feature flags | 10 | `src/lib/flags.ts` |
+| Job handlers | 14 | `src/lib/jobs/handlers/` |
+| Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 181 | `drizzle/migrations/` |
-| Migrations (pipeline) | 22 | `data-pipeline/migrations/` |
+| Migrations (app) | 184 | `drizzle/migrations/` |
+| Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
 
@@ -31,6 +31,8 @@ Resolve server-side in a page file, pass down as boolean props. See
 |---|---|
 | `companyGraphEnabled` | `COMPANY_GRAPH_ENABLED` |
 | `corporateActionsEnabled` | `CORPORATE_ACTIONS_ENABLED` |
+| `crmBankersViewEnabled` | `CRM_BANKERS_VIEW_ENABLED` |
+| `crmEmailNotesEnabled` | `CRM_EMAIL_NOTES_ENABLED` |
 | `crmGoogleVaultSyncEnabled` | `CRM_GOOGLE_VAULT_SYNC` |
 | `fundManagementEnabled` | `FUND_MANAGEMENT_ENABLED` |
 | `fundVehicleViewEnabled` | `FUND_VEHICLE_VIEW_ENABLED` |
@@ -105,6 +107,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/auth/[...nextauth]` | — | — |
 | `/api/auth/api-keys` | GET, POST | `apiKeyService` |
 | `/api/auth/api-keys/[id]` | GET, PATCH, DELETE | `apiKeyService` |
+| `/api/auth/crm-overviews/refresh` | POST | `contactConversationService` |
 | `/api/auth/forget-password` | POST | `authService` |
 | `/api/auth/google-signin` | POST | `authService` |
 | `/api/auth/reset-password` | POST | `authService` |
@@ -157,9 +160,17 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/criterias/[id]` | PATCH, DELETE | `criteriaService` |
 | `/api/crm` | GET, POST | `crmService` |
 | `/api/crm/banker-related-companies` | GET | `crmService` |
+| `/api/crm/contacts` | GET | `bankerListService` |
 | `/api/crm/contacts/import` | POST | `crmService` |
 | `/api/crm/correspondents/[id]` | PATCH, DELETE | `crmService` |
+| `/api/crm/correspondents/[id]/conversation` | GET | `contactConversationService` |
+| `/api/crm/correspondents/[id]/conversation/overview` | POST | `contactConversationService` |
+| `/api/crm/correspondents/[id]/deals` | POST | `dealContactService` |
+| `/api/crm/correspondents/[id]/deals/[companyId]` | DELETE | `dealContactService` |
+| `/api/crm/correspondents/[id]/deals/[companyId]/confirm` | POST | `dealContactService` |
+| `/api/crm/correspondents/[id]/deals/[companyId]/dismiss` | POST | `dealContactService` |
 | `/api/crm/correspondents/[id]/enrich` | GET, POST | `crmContactEnrichmentService` |
+| `/api/crm/correspondents/[id]/insights` | GET | `contactInsightsService` |
 | `/api/crm/employers/[id]` | GET, PATCH, DELETE | `crmService` |
 | `/api/crm/employers/[id]/contact-enrichment` | GET | `crmContactEnrichmentService` |
 | `/api/crm/employers/[id]/contacts` | GET, POST | `crmService` |
@@ -171,12 +182,14 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/employers/[id]/topics` | GET, POST | `crmService` |
 | `/api/crm/employers/[id]/topics/[topicId]` | PATCH, DELETE | `crmService` |
 | `/api/crm/flagged` | GET | `crmService` |
+| `/api/crm/suggested-questions` | GET | `crmSuggestedQuestionService` |
 | `/api/crm/team-users` | GET | `crmService` |
 | `/api/crm/topics` | GET | `crmService` |
 | `/api/crm/vault-export` | POST | — |
 | `/api/cron/cleanup-jobs` | GET | `jobService` |
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/compact-checkpoints` | GET | `checkpointCompactionService` |
+| `/api/cron/crm-suggested-questions` | GET | `crmSuggestedQuestionService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
 | `/api/cron/resurface-deals` | GET | `dealResurfaceService` |
@@ -326,7 +339,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 76 keys. Wire new services in
+`Container` exposes 82 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -338,6 +351,8 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `apiChatConversationService.ts` | `ApiChatConversationNotFoundError`, `ApiChatConversationService` | ✅ |
 | `apiKeyService.ts` | `InvalidApiKeyError`, `InsufficientScopeError`, `ApiKeyNotFoundError`, `ApiKeyService` | ✅ |
 | `authService.ts` | `UserNotRegisteredError`, `AccountDeactivatedError`, `AuthService` | ✅ |
+| `bankerListService.ts` | `InvalidBankerListSortError`, `BankerListService` | ✅ |
+| `bankerScorecardService.ts` | `BankerScorecardService` | ✅ |
 | `botMemoryService.ts` | `BotMemoryService` | ✅ |
 | `botRequestService.ts` | `BotRequestService` | ✅ |
 | `botRoutineService.ts` | `BotRoutineValidationError`, `BotRoutineNotFoundError`, `BotRoutineService` | ✅ |
@@ -356,15 +371,19 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `companyService.ts` | `PipelineStageUnavailableError`, `RestoreStageRequiredError`, `CompanyPipelineRequirementsError`, `CompanyDroppedError`, `CompanyService` | ✅ |
 | `companyVoteService.ts` | `VoteRuleError`, `VoteNotFoundError`, `CompanyVoteService` | ✅ |
 | `consentService.ts` | `ConsentService` | ✅ |
+| `contactConversationService.ts` | `InvalidOverviewRefreshSinceError`, `ContactConversationService` | ✅ |
+| `contactInsightsService.ts` | `ContactInsightsService` | ✅ |
 | `container.ts` | — | ✅ |
 | `copilotChatsService.ts` | `CopilotChatNotFoundError`, `CopilotChatForbiddenError`, `CopilotChatsService` | ✅ |
 | `criteriaService.ts` | `CriteriaService` | ✅ |
 | `crmContactEnrichmentService.ts` | `ContactNotFoundError`, `CrmContactEnrichmentService` | ✅ |
 | `crmService.ts` | `DuplicateEmployerError`, `EmployerNotFoundError`, `CRMService` | ✅ |
+| `crmSuggestedQuestionService.ts` | `CrmSuggestedQuestionService` | ✅ |
 | `dailyPulseService.ts` | `DailyPulseService` | ✅ |
 | `dashboardActivityService.ts` | `DashboardActivityService` | ✅ |
 | `dashboardInsightsService.ts` | `DashboardInsightsService` | ✅ |
 | `dataNavigatorService.ts` | `RssItemNotFoundError`, `DataNavigatorService` | ✅ |
+| `dealContactService.ts` | `DealCompanyNotFoundError`, `DealContactLinkNotFoundError`, `InvalidDealContactRoleError`, `DealContactService` | ✅ |
 | `dealDocumentService.ts` | `DealDocumentService` | ✅ |
 | `dealLinkService.ts` | `DealLinkService` | ✅ |
 | `dealNoteService.ts` | `EmptyNoteError`, `NoteNotFoundError`, `DealNoteService` | ✅ |
@@ -437,6 +456,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `apiChatConversationRepository.ts` | `ApiChatConversationRepository` | ✅ |
 | `apiKeyRepository.ts` | `ApiKeyRepository` | ✅ |
 | `appSettingsRepository.ts` | `AppSettingsRepository` | ✅ |
+| `bankerListRepository.ts` | `BankerListRepository` | ✅ |
 | `botMemoryRepository.ts` | `BotMemoryRepository` | ✅ |
 | `botRepository.ts` | `BotRepository` | ✅ |
 | `botRequestRepository.ts` | `BotRequestRepository` | ✅ |
@@ -450,14 +470,19 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `companyScreeningDerivedRepository.ts` | `CompanyScreeningDerivedRepository` | ✅ |
 | `companySlidesRepository.ts` | `CompanySlidesRepository` | ✅ |
 | `companyVoteRepository.ts` | `CompanyVoteRepository` | ✅ |
+| `contactConversationRepository.ts` | `ContactConversationRepository` | ✅ |
+| `contactInteractionRepository.ts` | `ContactInteractionRepository` | ✅ |
 | `copilotChatsRepository.ts` | `CopilotChatsRepository` | ✅ |
 | `copilotMessageRepository.ts` | `CopilotMessageRepository` | ✅ |
 | `correspondentCurationRepository.ts` | `CorrespondentCurationRepository` | ✅ |
 | `correspondentRepository.ts` | `CorrespondentRepository` | ✅ |
 | `criteriaRepository.ts` | `CriteriaRepository` | ✅ |
+| `crmSql.ts` | — | ✅ |
+| `crmSuggestedQuestionRepository.ts` | `CrmSuggestedQuestionRepository` | ✅ |
 | `dailyPulseRepository.ts` | `DailyPulseRepository` | ❌ |
 | `dashboardActivityRepository.ts` | `DashboardActivityRepository` | ✅ |
 | `dashboardInsightsRepository.ts` | `DashboardInsightsRepository` | ✅ |
+| `dealContactRepository.ts` | `DealContactRepository` | ✅ |
 | `dealDocumentRepository.ts` | `DealDocumentRepository` | ✅ |
 | `dealLinkRepository.ts` | `DealLinkRepository` | ✅ |
 | `dealNoteRepository.ts` | `DealNoteRepository` | ✅ |
@@ -521,9 +546,9 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 90 | 82/90 | ✅ |
+| `analysis` | 91 | 83/91 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
-| `crm_contact` | 6 | 6/6 | ✅ |
+| `crm_contact` | 7 | 7/7 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |
 | `file_processing` | 2 | 2/2 | ✅ |
 | `fund_update_processing` | 0 | 0/0 | ✅ |
@@ -535,6 +560,6 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 Queue work through `JobDispatcher`; never block a request on slow I/O.
 
-**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`, `chat_message_embedding`, `bot_message`, `bot_routine`, `bot_task_summary`, `bot_reply`
+**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`, `chat_message_embedding`, `bot_message`, `bot_routine`, `bot_task_summary`, `bot_reply`, `contact_relationship_overview`
 
-**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `botMessage`, `botTaskSummary`, `chatMessageEmbedding`, `companyAnalysis`, `companyVote`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`
+**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `botMessage`, `botTaskSummary`, `chatMessageEmbedding`, `companyAnalysis`, `companyVote`, `contactRelationshipOverview`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`

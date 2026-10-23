@@ -374,7 +374,9 @@ TWO MODES:
    deal_type="LBO") — do not pre-guess the department yourself.
 
 For portfolio-wide CRM metrics (stale relationships, flagged records, emails
-today) use crm_insights instead.
+today) use crm_insights instead. For one banker as a PERSON — who on our team
+has emailed them and how often, which deals they brought and how far
+those got — or a ranking of bankers, use crm_banker_insights instead.
 
 Returns:
     Markdown — a profile per firm, or a ranked banker list.`,

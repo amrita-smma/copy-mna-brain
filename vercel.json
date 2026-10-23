@@ -29,6 +29,10 @@
       "schedule": "0 0 * * *"
     },
     {
+      "path": "/api/cron/crm-suggested-questions",
+      "schedule": "0 22 * * *"
+    },
+    {
       "path": "/api/cron/close-votes",
       "schedule": "*/5 * * * *"
     },

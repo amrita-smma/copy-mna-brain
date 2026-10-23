@@ -160,6 +160,22 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: false,
   },
+  {
+    key: 'CRM_BANKERS_VIEW_ENABLED',
+    label: 'CRM Bankers View',
+    description:
+      'A Firms | Bankers toggle on the CRM page: one row per banker with emails, team, deals brought and leads that reach L1, sortable and filterable.',
+    defaultEnabled: false,
+    navItem: false,
+  },
+  {
+    key: 'CRM_EMAIL_NOTES_ENABLED',
+    label: 'CRM Email Notes',
+    description:
+      "The per-email conversation notes list in a CRM contact's Conversation modal. Each note is visible only to teammates on that email (From/To/Cc) or whose mailbox it came from. Off: no notes list is shown or returned.",
+    defaultEnabled: false,
+    navItem: false,
+  },
   // ── Funds settings (surfaced on the admin Funds tab, not Features) ──────────
   {
     key: 'SOURCE_OF_FUNDS_ENABLED',

@@ -7,6 +7,24 @@ import type {
 
 export const PAGE_SIZE = 50;
 
+/** Why an email-derived field is empty while the workspace has nothing synced. */
+export const SYNC_NOTICE = "Fills in after an email sync";
+
+/** Why a deal figure is empty while the workspace has no deal links. */
+export const NEEDS_DEAL_LINKS = "Needs deal links";
+
+const STALE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Last contact more than 30 days ago; never stale without a contact. */
+export function isStaleContact(iso: string | null): boolean {
+  return !!iso && Date.now() - new Date(iso).getTime() > STALE_MS;
+}
+
+/** "1 email", "3 emails". */
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 export const LAST_CONTACT_LABELS: Record<LastContactPreset, string> = {
   today: "Today",
   yesterday: "Yesterday",
@@ -19,7 +37,7 @@ export const LAST_CONTACT_LABELS: Record<LastContactPreset, string> = {
 // Tab trigger styling for expanded-card tabs — strips the shadcn pill highlight
 // and replaces it with a blue bottom border on the active tab.
 export const tabTriggerCls =
-  "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-600 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300";
+  "relative -mb-px rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 text-[15px] font-bold text-muted-foreground shadow-none transition-colors data-[state=active]:border-blue-600 data-[state=active]:bg-transparent data-[state=active]:text-blue-700 data-[state=active]:shadow-none dark:data-[state=active]:text-blue-300";
 
 const AVATAR_GREY = "from-slate-400 to-slate-500 dark:from-slate-500 dark:to-slate-600";
 

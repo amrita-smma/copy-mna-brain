@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   parseMboxContent,
   classifyEmails,
   extractEmailList,
   stripAngleBrackets,
   detectAttachments,
+  createVaultExport,
 } from './googleVaultService';
 
 const CUSTODIAN = 'alice@starcapital.co.id';
@@ -434,4 +435,48 @@ describe('parseMboxContent — extended fields', () => {
     expect(parsed.raw_headers['message-id']).toBe('<abc@x.com>');
     expect(parsed.raw_headers['from']).toBe('sender@x.com');
   });
+});
+
+describe('createVaultExport', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubFetch() {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'export-1' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+  const start = new Date('2026-10-01T00:00:00Z');
+  const end = new Date('2026-10-02T00:00:00Z');
+
+  it('requests an MBOX MAIL export without Gmail drafts', async () => {
+    const fetchMock = stubFetch();
+    await expect(
+      createVaultExport('tok', 'm1', ['a@starcapital.co.id'], start, end),
+    ).resolves.toBe('export-1');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toMatch(/\/matters\/m1\/exports$/);
+    const body = JSON.parse(init.body);
+    expect(body.name).toMatch(/^Email Export /);
+    expect(body.query).toEqual({
+      corpus: 'MAIL',
+      dataScope: 'ALL_DATA',
+      searchMethod: 'ACCOUNT',
+      accountInfo: { emails: ['a@starcapital.co.id'] },
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      mailOptions: { excludeDrafts: true },
+    });
+    expect(body.exportOptions).toEqual({
+      mailOptions: {
+        exportFormat: 'MBOX',
+        showConfidentialModeContent: false,
+        exportLinkedDriveFiles: false,
+        useNewExport: true,
+      },
+    });
+  });
+
 });

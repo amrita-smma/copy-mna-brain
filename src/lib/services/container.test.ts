@@ -93,4 +93,12 @@ describe('createContainer', () => {
     expect(internals.fundUpdateApplyService).toBeInstanceOf(FundUpdateApplyService);
     expect(internals.fundCatalogCheckService).toBeInstanceOf(FundCatalogCheckService);
   });
+
+  it('late-wires the deal-link service into Smart Files', () => {
+    const { dealContactService, fileService } = createContainer({} as never, 'ws-1');
+
+    expect((fileService as unknown as { dealContactService: unknown }).dealContactService).toBe(
+      dealContactService,
+    );
+  });
 });

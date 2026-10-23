@@ -50,8 +50,10 @@ function trimmedString(value: unknown): string | undefined {
 }
 
 /**
- * Narrow the pipeline's `email_context` blob to the four header fields the
- * ingest notification renders. Anything else on the object is discarded.
+ * Narrow the pipeline's `email_context` blob to the header fields Smart Files
+ * uses: the four the ingest notification renders, plus the Message-ID kept
+ * (with the sender address) for the sender's deal link. Anything else on the
+ * object is discarded.
  */
 function parseEmailContext(value: unknown): EmailIngestContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -61,6 +63,7 @@ function parseEmailContext(value: unknown): EmailIngestContext | undefined {
     senderEmail: trimmedString(raw.senderEmail),
     subject: trimmedString(raw.subject),
     receivedAt: trimmedString(raw.receivedAt),
+    messageId: trimmedString(raw.messageId),
   };
   return Object.values(context).some(Boolean) ? context : undefined;
 }
@@ -79,8 +82,8 @@ export async function POST(request: NextRequest) {
       entered_by: rawEnteredByEmail,
       workspace_id: rawWorkspaceId,
       // For MBOX pipeline: headers of the email the attachment arrived on.
-      // Used only to describe the file in the custodian's ingest notification;
-      // never persisted.
+      // Describe the file in the custodian's ingest notification; only the
+      // sender address and Message-ID are persisted (the sender's deal link).
       email_context: rawEmailContext,
     } = await request.json();
 

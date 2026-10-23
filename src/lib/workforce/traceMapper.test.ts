@@ -3,7 +3,12 @@ import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 import type { HumanDecision } from "@/lib/db/schema";
 import type { CheckpointMessageWrite } from "@/lib/repositories";
-import { buildTrace, matchMessageTimestamps, type TraceActor } from "./traceMapper";
+import {
+  PRIVATE_OUTPUT_PLACEHOLDER,
+  buildTrace,
+  matchMessageTimestamps,
+  type TraceActor,
+} from "./traceMapper";
 
 const ACTOR: TraceActor = {
   id: "u-1",
@@ -37,6 +42,28 @@ describe("buildTrace", () => {
       }),
     ).toEqual([]);
   });
+
+  // Email notes are private to the people on each email; a Workforce run may
+  // read them, but the trace (open to the whole workspace) never shows them.
+  it.each(["read_contact_emails", "crm_banker_insights"])(
+    "never puts %s output on the trace, and keeps every other tool's",
+    (privateTool) => {
+      const secret = "Sally said the seller accepts the escrow split if we sign before month end.";
+      const steps = trace([
+        ai("", [
+          { id: "t1", name: privateTool, args: { correspondent_id: "c1" } },
+          { id: "t2", name: "web_search", args: { query: "Sally Bubbles JP Organ" } },
+        ]),
+        tool(secret, "t1"),
+        tool("JP Organ team page", "t2"),
+        ai("✓ Done: Sally Bubbles at JP Organ, 2 fields filled"),
+      ]);
+      const calls = steps[0].toolCalls ?? [];
+      expect(JSON.stringify(steps)).not.toContain("escrow split");
+      expect(calls.find((c) => c.name === privateTool)?.output?.rows[0].value).toBe(PRIVATE_OUTPUT_PLACEHOLDER);
+      expect(calls.find((c) => c.name === "web_search")?.output?.rows[0].value).toBe("JP Organ team page");
+    },
+  );
 
   it("skips HumanMessages and emits one step per AIMessage", () => {
     const steps = buildTrace({

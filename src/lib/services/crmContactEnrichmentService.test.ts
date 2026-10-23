@@ -121,6 +121,36 @@ describe('CrmContactEnrichmentService.enrich', () => {
     expect(input.input.title).toBe('Fill CRM contact: Jane Doe (Evercore)');
   });
 
+  it('queues a refresh with the refresh instruction, title and mode', async () => {
+    const { service } = makeService();
+    mocks.findLatestByCorrespondentId.mockResolvedValue(null);
+    mocks.enqueueAgentRun.mockResolvedValue({ runId: 'run-1', created: true });
+    mocks.findById.mockResolvedValue(queueRow());
+
+    await service.enrich('corr-1', { refresh: true });
+
+    const [, input] = mocks.enqueueAgentRun.mock.calls[0];
+    expect(input.input.prompt).toContain('This is a REFRESH');
+    expect(input.input.prompt).toContain('pass "bio" in `overwrite`');
+    expect(input.input.title).toBe('Refresh CRM contact: Jane Doe (Evercore)');
+    expect(input.input.mode).toBe('refresh');
+    // The in-flight lookup still keys on this, refresh or not.
+    expect(input.triggerMeta.correspondent_id).toBe('corr-1');
+  });
+
+  it('marks an ordinary run as a fill, with no refresh instruction', async () => {
+    const { service } = makeService();
+    mocks.findLatestByCorrespondentId.mockResolvedValue(null);
+    mocks.enqueueAgentRun.mockResolvedValue({ runId: 'run-1', created: true });
+    mocks.findById.mockResolvedValue(queueRow());
+
+    await service.enrich('corr-1');
+
+    const [, input] = mocks.enqueueAgentRun.mock.calls[0];
+    expect(input.input.mode).toBe('fill');
+    expect(input.input.prompt).not.toContain('REFRESH');
+  });
+
   it('joins an in-flight run instead of stacking a second one', async () => {
     const { service, correspondentRepo } = makeService();
     mocks.findLatestByCorrespondentId.mockResolvedValue(
@@ -197,6 +227,17 @@ describe('CrmContactEnrichmentService.enrich', () => {
 });
 
 describe('CrmContactEnrichmentService.latestRun', () => {
+  it('reports the run mode from the queue input, defaulting older rows to fill', async () => {
+    const { service } = makeService();
+    mocks.findLatestByCorrespondentId.mockResolvedValueOnce(
+      queueRow({ input: { mode: 'refresh' } }),
+    );
+    expect((await service.latestRun('corr-1'))?.mode).toBe('refresh');
+
+    mocks.findLatestByCorrespondentId.mockResolvedValueOnce(queueRow({ input: {} }));
+    expect((await service.latestRun('corr-1'))?.mode).toBe('fill');
+  });
+
   it('returns null when the contact has never been enriched', async () => {
     const { service } = makeService();
     mocks.findLatestByCorrespondentId.mockResolvedValue(null);

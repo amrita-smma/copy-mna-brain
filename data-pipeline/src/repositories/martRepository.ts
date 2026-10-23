@@ -6,7 +6,13 @@ import type { DbClient } from '@/lib/repositories';
  * the only names ever interpolated into the raw REFRESH statement, so the
  * `sql.raw` below is safe — there is no user input.
  */
-export const MART_VIEWS = ['mart_crm', 'mart_mom', 'mart_topics'] as const;
+export const MART_VIEWS = [
+  'mart_crm',
+  'mart_mom',
+  'mart_topics',
+  'mart_contact_interactions',
+  'mart_contact_email_totals',
+] as const;
 export type MartView = (typeof MART_VIEWS)[number];
 
 /**
@@ -20,7 +26,7 @@ export class MartRepository {
 
   /**
    * `REFRESH MATERIALIZED VIEW CONCURRENTLY` a single mart. CONCURRENTLY needs
-   * the mart's UNIQUE index (all three have one) and must run OUTSIDE any
+   * the mart's UNIQUE index (every mart has one) and must run OUTSIDE any
    * transaction — callers invoke this after their write tx has committed.
    */
   async refresh(view: MartView): Promise<void> {

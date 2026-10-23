@@ -3,6 +3,7 @@ import {
   parseAddresses,
   cleanBody,
   extractSignature,
+  extractQuotedThread,
   stripHtml,
   parseHeaders,
   normalizeDate,
@@ -170,6 +171,58 @@ describe('cleanBody', () => {
   });
 });
 
+describe('extractQuotedThread', () => {
+  it('returns the reply intro and everything under it, which cleanBody drops', () => {
+    const raw = [
+      'Agreed, go with option 2.',
+      '',
+      'On Mon, Jun 9 2026 Alice <alice@gs.com> wrote:',
+      '> Option 1: full sale at 8x EBITDA.',
+      '> Option 2: 60% stake with an earn-out.',
+    ].join('\n');
+    expect(cleanBody(raw)).toBe('Agreed, go with option 2.');
+    expect(extractQuotedThread(raw)).toBe(
+      'On Mon, Jun 9 2026 Alice <alice@gs.com> wrote:\nOption 1: full sale at 8x EBITDA.\nOption 2: 60% stake with an earn-out.',
+    );
+  });
+
+  it('keeps inline > lines that cleanBody skips, without the markers', () => {
+    expect(extractQuotedThread('Yes.\n>> Can you send the CIM?\nSending now.')).toBe(
+      'Can you send the CIM?',
+    );
+  });
+
+  it('finds the intro after the signature', () => {
+    const raw = 'Sounds good.\n-- \nBob\nGS\n-----Original Message-----\nOld ask about the NDA';
+    expect(extractQuotedThread(raw)).toBe('-----Original Message-----\nOld ask about the NDA');
+  });
+
+  it('does not repeat a forwarded body that cleanBody keeps', () => {
+    const raw = [
+      'FYI',
+      '________________________________',
+      'From: banker@gs.com',
+      'Subject: TechSlurry opportunity',
+      '',
+      'We represent TechSlurry in a sell-side process.',
+    ].join('\n');
+    expect(cleanBody(raw)).toContain('We represent TechSlurry');
+    expect(extractQuotedThread(raw)).toBe('');
+  });
+
+  it('returns empty for an email that quotes nothing', () => {
+    expect(extractQuotedThread('Fresh email with no history.')).toBe('');
+    expect(extractQuotedThread('')).toBe('');
+  });
+
+  it('caps the length, keeping the most recent quoted message first', () => {
+    const raw = `Ok.\nOn Mon Alice wrote:\n${'a'.repeat(50)}\nOn Sun Bob wrote:\n${'b'.repeat(50)}`;
+    const out = extractQuotedThread(raw, false, 40);
+    expect(out.length).toBeLessThanOrEqual(40);
+    expect(out.startsWith('On Mon Alice wrote:')).toBe(true);
+  });
+});
+
 describe('extractSignature', () => {
   it('returns "" for empty input', () => {
     expect(extractSignature('')).toBe('');
@@ -313,6 +366,19 @@ describe('splitMboxMessages + parseMessage', () => {
     expect(parsed.signature).toBe('');
     expect(parsed.message_id).toBe('<msg-hello@x>');
     expect(parsed.date).toBe('2024-01-01T10:00:00.000Z');
+  });
+
+  it('splits a reply into its own body and the quoted thread', () => {
+    const raw = makeMsg({
+      from: 'Alice <alice@x.com>',
+      to: 'Bob <bob@y.com>',
+      subject: 'Re: options',
+      body: 'Agreed, go with option 2.\nOn Mon, Jan 1 2024 Bob wrote:\n> Option 2: 60% stake.',
+    });
+    const [msg] = splitMboxMessages(raw);
+    const parsed = parseMessage(msg);
+    expect(parsed.body).toBe('Agreed, go with option 2.');
+    expect(parsed.quoted_thread).toBe('On Mon, Jan 1 2024 Bob wrote:\nOption 2: 60% stake.');
   });
 
   it('populates signature when the body has a "-- " delimiter', () => {

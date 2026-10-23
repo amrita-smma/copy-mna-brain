@@ -21,6 +21,9 @@ export interface ParsedEmail {
   // Sig block after the RFC 3676 `-- ` delimiter, with quoted replies stripped.
   // Empty string when no delimiter is present.
   signature: string;
+  // The earlier messages this email quotes (`extractQuotedThread`), or ''.
+  // Context for the email note only: never stored, never mined for evidence.
+  quoted_thread?: string;
 }
 
 export interface RawMessage {
@@ -320,9 +323,20 @@ export interface AttachmentMeta {
   size_bytes: number;
 }
 
+// A literal "%" in a plain filename ("Fee 2% final.pdf") is not valid
+// percent-encoding; decodeURIComponent throws "URI malformed" and that throw
+// fails the whole mailbox source, so keep the raw name instead.
+function decodeFilename(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function parseFilename(disposition: string, contentType: string): string | null {
   const dispMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
-  if (dispMatch) return decodeURIComponent(dispMatch[1].trim());
+  if (dispMatch) return decodeFilename(dispMatch[1].trim());
   const ctMatch = contentType.match(/name=["']?([^"';\r\n]+)["']?/i);
   if (ctMatch) return ctMatch[1].trim();
   return null;
@@ -469,6 +483,48 @@ export function cleanBody(text: string, dropUrls = false): string {
   return s.trim();
 }
 
+// The quoted thread under a reply: exactly what `cleanBody` drops as quoted —
+// its `>` lines, and everything from the reply intro it stops at (`On …
+// wrote:`, `-----Original Message-----`) to the end — with the `>` markers
+// removed. Forwarded content `cleanBody` keeps as body is not repeated here.
+// Kept apart from the body so the email note can read what a terse reply
+// ("agreed, go with option 2") refers to. Capped at `maxChars`, which keeps
+// the most recent quoted message: it comes first.
+export function extractQuotedThread(text: string, dropUrls = false, maxChars = 3000): string {
+  if (!text) return '';
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(ZERO_WIDTH_RE, '');
+
+  const lines: string[] = [];
+  let inThread = false;
+  let inForwardedHeader = false;
+  for (const line of normalized.split('\n')) {
+    const stripped = line.trim();
+    if (!inThread) {
+      // Same walk as `cleanBody`, so the two split the text between them.
+      if (stripped.startsWith('>')) {
+        lines.push(line.replace(/^\s*(>\s?)+/, ''));
+        continue;
+      }
+      if (FORWARDED_SEPARATOR_RE.test(stripped)) {
+        inForwardedHeader = true;
+        continue;
+      }
+      if (inForwardedHeader) {
+        if (stripped === '') inForwardedHeader = false;
+        continue;
+      }
+      if (!QUOTE_INTRO_RE.test(stripped)) continue;
+      inThread = true;
+    }
+    lines.push(line.replace(/^\s*(>\s?)+/, ''));
+  }
+
+  let s = lines.join('\n');
+  if (dropUrls) s = s.replace(URL_RE, '');
+  s = s.replace(WHITESPACE_RE, ' ').replace(MULTI_NEWLINE_RE, '\n\n').trim();
+  return s.slice(0, maxChars).trim();
+}
+
 // ─── Date / message assembly ─────────────────────────────────────────────────
 
 export function normalizeDate(raw: string): string | null {
@@ -492,6 +548,7 @@ export function parseMessage(raw: RawMessage, opts: ParseMessageOptions = {}): P
     subject: getHeader(raw.headers, 'subject'),
     body: cleanBody(bodyRaw, opts.dropUrls ?? false),
     signature: extractSignature(bodyRaw),
+    quoted_thread: extractQuotedThread(bodyRaw, opts.dropUrls ?? false),
   };
 }
 

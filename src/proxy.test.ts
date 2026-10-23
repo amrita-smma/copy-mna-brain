@@ -239,6 +239,10 @@ describe('classifyApiRoute — rss feed admin routes', () => {
     expect(classifyApiRoute('/api/auth/rss-feeds')).toBe('secret');
   });
 
+  it('gates the post-ingest CRM overview refresh behind the shared secret', () => {
+    expect(classifyApiRoute('/api/auth/crm-overviews/refresh')).toBe('secret');
+  });
+
   it('gates rss-feeds sub-paths behind the shared secret', () => {
     expect(classifyApiRoute('/api/auth/rss-feeds/import')).toBe('secret');
     expect(classifyApiRoute('/api/auth/rss-feeds/abc-123')).toBe('secret');

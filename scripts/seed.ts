@@ -18,12 +18,18 @@ import { and, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import {
   companies,
   companyFinancials,
+  companyLogs,
   correspondents,
   criterias,
+  contactRelationshipOverviews,
+  emailNotes,
   emailParticipants,
+  emailRoleSignals,
   emails,
   employerNotes,
   employerRelatedCompanies,
+  employerRelatedCompanyEvidence,
+  dealContacts,
   employerTeamMembers,
   employerTopics,
   employers,
@@ -54,6 +60,7 @@ import { hashPassword } from '../src/lib/services/password';
 import { createContainer } from '../src/lib/services/container';
 import { DEFAULT_INVESTMENT_TYPES } from '../src/lib/services';
 import type { DbClient } from '../src/lib/server/db';
+import type { RoleConfidence, RoleLabel } from '../src/lib/repositories';
 import type { DealType } from '../src/lib/companies/dealTypes';
 // Type-only: keeps the (heavy, LangChain-pulling) agent module out of the
 // seed's runtime graph while still checking each workspace's flavor.
@@ -61,6 +68,7 @@ import type { CopilotAgentType } from '../src/lib/agents/analysis';
 import { MNA_WORKSPACE_ID, ROLE_ADMIN_ID, ROLE_EDITOR_ID, ROLE_VIEWER_ID } from '../src/lib/constants';
 import { normalizeCompanyName } from '../src/lib/crm/normalizeCompanyName';
 import { computeNextFireAt, normalizeSchedule } from '../src/lib/routines/schedule';
+import { overviewInputHash } from '../src/lib/crm/overviewInputHash';
 import { normalizeCanonicalName } from '../src/lib/fundLedger/normalizeIdentity';
 import { insightContentHash } from '../src/lib/insights/contentHash';
 
@@ -143,6 +151,8 @@ const SEED_WORKSPACES: Array<{
       FUND_MANAGEMENT_ENABLED: true,
       COMPANY_GRAPH_ENABLED: true,
       INSIGHTS_DASHBOARD_ENABLED: true,
+      // The fixture's conversation notes list (owner and cc only).
+      CRM_EMAIL_NOTES_ENABLED: true,
     },
   },
   {
@@ -231,9 +241,9 @@ type SeedContact = {
   phone?: string;
   /** Firm the contact works for — becomes an `employers` row. */
   company: string;
-  title: string;
+  title?: string;
   /** Free-text classification (e.g. Bankers, Advisors, Internal). */
-  type: string;
+  type?: string;
   /** Desk — e.g. 'M&A', 'ECM'. Editable in the CRM contact dialog. */
   department?: string;
   /** Sector / product focus, free text. */
@@ -367,6 +377,19 @@ const seedContacts: SeedContact[] = [
     bio: 'Consumer/retail ECM; good read on pre-IPO sellers in Indonesia.',
     notes: 'Consumer and retail sector coverage',
   },
+  // Real, publicly documented dealmakers at their real firms, seeded with a
+  // name and nothing else so "Get Full Profile" (@crm_contact) has a public
+  // footprint to find. Every profile field is left empty on purpose — the
+  // button only shows while the bio is blank. The addresses are `.example`
+  // placeholders, never a guessed real mailbox: email is the ingest key.
+  // "B. Effron" is a partial name to exercise the agent's name completion.
+  { name: 'David Solomon', email: 'david.solomon@goldmansachs.example', company: 'Goldman Sachs' },
+  { name: 'Ted Pick', email: 'ted.pick@morganstanley.example', company: 'Morgan Stanley' },
+  { name: 'Peter Orszag', email: 'peter.orszag@lazard.example', company: 'Lazard' },
+  { name: 'John Weinberg', email: 'john.weinberg@evercore.example', company: 'Evercore' },
+  { name: 'Ken Moelis', email: 'ken.moelis@moelis.example', company: 'Moelis & Company' },
+  { name: 'B. Effron', email: 'b.effron@centerview.example', company: 'Centerview Partners' },
+  { name: 'Tan Su Shan', email: 'tan.sushan@dbs.example', company: 'DBS Bank' },
 ];
 
 // ─── CRM enrichment (topics, team, notes) ────────────────────────────────────
@@ -3824,6 +3847,498 @@ async function seedRssFeeds(db: DbClient) {
   );
 }
 
+// ─── Per-person contact interactions (MB-854) ────────────────────────────────
+// Two bankers at the SAME firm (Golden Sacks) with different email histories
+// against two MNA team members, so the contact insights show distinct numbers
+// per person, plus a team user outside the workspace.
+// Idempotent: emails are wiped by a stable id prefix (participants and
+// evidence cascade), the dedicated contact and the fixture related-company row
+// by their stable keys.
+const IX_PREFIX = 'seed-ix-';
+const IX_SUFFIX = '@seed.local';
+const IX_PENNY = { name: 'Penny Ledger', email: 'penny.ledger@goldensacks.example' };
+const IX_JIMMY_EMAIL = 'jimmy.sprinkles@goldensacks.example';
+const IX_SALLY_EMAIL = 'sally.bubbles@jporgan.example';
+const IX_RELATED_COMPANY = 'Blue Harbor Logistics';
+
+type IxNote = {
+  /** null = no business substance; the row exists but never shows (MB-681). */
+  summary: string | null;
+  keyPoints?: string[];
+  nextStep?: string;
+  nextStepStatus?: 'action' | 'done' | 'none';
+  sentiment?: 'positive' | 'neutral' | 'negative';
+  /** Role signals for the external participant on this email. */
+  roles?: Array<{ label: RoleLabel; confidence: RoleConfidence; evidence: string }>;
+};
+
+// MB-681 conversation notes for the j*/p* emails — what the ingest LLM would
+// have stored.
+const IX_NOTES: Record<string, IxNote> = {
+  j1: {
+    summary: 'We asked Jimmy for the Ember Renewables teaser and a management intro ahead of next month’s IC slot.',
+    keyPoints: ['Teaser and management intro requested', 'IC slot pencilled in for next month'],
+    nextStep: 'Wait for the teaser from Golden Sacks',
+    nextStepStatus: 'done',
+  },
+  j2: {
+    summary: 'Jimmy sent the Ember Renewables teaser; the sell-side process runs on an exclusive mandate with two other bidders already engaged.',
+    keyPoints: ['Exclusive sell-side mandate', 'Two other bidders engaged', 'First-round bids due in three weeks'],
+    nextStep: 'Sign the NDA to get data room access',
+    nextStepStatus: 'done',
+    sentiment: 'positive',
+    roles: [{ label: 'advisory', confidence: 'high', evidence: 'Runs the Ember Renewables sell-side process on an exclusive mandate.' }],
+  },
+  j3: {
+    summary: 'Jimmy pitched Blue Harbor Logistics as a bolt-on and offered stapled acquisition financing for our Ember bid.',
+    keyPoints: ['Blue Harbor proposed as a bolt-on', 'Stapled financing available for the bid'],
+    nextStep: 'Decide whether to look at Blue Harbor',
+    nextStepStatus: 'action',
+    sentiment: 'positive',
+    roles: [
+      { label: 'advisory', confidence: 'high', evidence: 'Originates bolt-on targets alongside the live mandate.' },
+      { label: 'funding', confidence: 'medium', evidence: 'Offers to arrange stapled acquisition financing for the bid.' },
+    ],
+  },
+  j4: {
+    summary: 'We told Jimmy we are interested in Blue Harbor and asked for its management accounts before going further.',
+    keyPoints: ['Interested in Blue Harbor as a bolt-on', 'Management accounts requested'],
+    nextStep: 'Jimmy to send Blue Harbor’s management accounts',
+    nextStepStatus: 'action',
+  },
+  j5: {
+    summary: 'A colleague outside this workspace asked Jimmy for the Cinder Foods process timetable.',
+    nextStep: 'Share the Cinder Foods timetable',
+    nextStepStatus: 'action',
+  },
+  p1: {
+    summary: 'Wendy asked Penny for indicative unitranche terms to fund the Halcyon Media add-on.',
+    keyPoints: ['Unitranche sought for the Halcyon Media add-on'],
+    nextStep: 'Wait for indicative terms',
+    nextStepStatus: 'done',
+  },
+  p2: {
+    summary: 'Penny came back with indicative terms at 4.5x leverage over a seven-year tenor, subject to credit committee.',
+    keyPoints: ['4.5x leverage, seven-year tenor', 'Subject to credit committee'],
+    nextStep: 'Run the terms through our model',
+    nextStepStatus: 'done',
+    sentiment: 'positive',
+    roles: [{ label: 'lending', confidence: 'high', evidence: 'Provides indicative unitranche terms subject to her credit committee.' }],
+  },
+  p3: {
+    summary: 'Penny confirmed credit committee approval but tightened the leverage covenant, and needs our signed mandate letter by Friday.',
+    keyPoints: ['Credit committee approved', 'Leverage covenant tightened', 'Mandate letter due Friday'],
+    nextStep: 'Sign the mandate letter by Friday',
+    nextStepStatus: 'action',
+    roles: [
+      { label: 'lending', confidence: 'high', evidence: 'Takes the financing through credit committee and sets the covenant package.' },
+      { label: 'finance', confidence: 'medium', evidence: 'Walks through the leverage and covenant maths on the facility.' },
+    ],
+  },
+};
+
+// A long relationship (24 emails over ~6 months) with Sally Bubbles at JP
+// Organ: 22 notes (more than one page of 20), emails with both Test User and
+// Wendy, three role labels in Role in investment, and a stale overview.
+// Oldest first; `ours` alternates who on our side sent or received it.
+// `replyToPrev` threads an email under the one before it (In-Reply-To).
+const IX_SALLY_THREAD: Array<{ days: number; inbound: boolean; ours: 'custodian' | 'colleague'; replyToPrev?: true; note: IxNote }> = [
+  { days: -182, inbound: true, ours: 'custodian', note: { summary: 'Sally introduced JP Organ’s specialty chemicals coverage and asked about our carve-out appetite in APAC.', nextStep: 'Reply with our sector focus', nextStepStatus: 'done', sentiment: 'positive', roles: [{ label: 'advisory', confidence: 'low', evidence: 'Introduces herself as sector coverage for specialty chemicals.' }] } },
+  { days: -180, inbound: false, ours: 'custodian', note: { summary: 'We shared our specialty chemicals thesis and the cheque sizes we can write for carve-outs.', nextStepStatus: 'none' } },
+  { days: -171, inbound: true, ours: 'custodian', note: { summary: 'Sally flagged Project Solvent, a coatings carve-out from a Japanese conglomerate expected to launch in Q3.', keyPoints: ['Coatings carve-out', 'Japanese seller', 'Launch expected Q3'], nextStep: 'Ask for the teaser when it is ready', nextStepStatus: 'done', sentiment: 'positive' } },
+  { days: -165, inbound: false, ours: 'colleague', note: { summary: 'Wendy asked how the carve-out perimeter treats the shared Osaka plant.', nextStepStatus: 'none' } },
+  { days: -160, inbound: true, ours: 'colleague', note: { summary: 'Sally explained the Osaka plant stays with the seller under a five-year supply agreement.', keyPoints: ['Osaka plant excluded', 'Five-year supply agreement'], sentiment: 'neutral' } },
+  { days: -151, inbound: true, ours: 'custodian', note: { summary: 'Sally walked through the transfer-pricing exposure in the carve-out and the likely tax leakage on the Singapore holdco.', keyPoints: ['Transfer-pricing exposure', 'Tax leakage on the Singapore holdco'], nextStep: 'Get our tax advisers to size the leakage', nextStepStatus: 'done', roles: [{ label: 'tax', confidence: 'high', evidence: 'Explains the transfer-pricing exposure and holdco tax leakage in detail.' }] } },
+  { days: -149, inbound: false, ours: 'custodian', note: { summary: null } },
+  { days: -140, inbound: true, ours: 'colleague', note: { summary: 'Sally proposed a step-up structure that defers most of the capital gains tax for the seller.', nextStep: 'Check the step-up with our tax advisers', nextStepStatus: 'done', sentiment: 'positive', roles: [{ label: 'tax', confidence: 'high', evidence: 'Proposes a step-up structure to defer the seller’s capital gains tax.' }] } },
+  { days: -133, inbound: false, ours: 'colleague', note: { summary: 'Wendy confirmed our tax advisers are comfortable with the step-up, subject to a ruling.', nextStepStatus: 'none', sentiment: 'positive' } },
+  { days: -126, inbound: true, ours: 'custodian', note: { summary: 'Sally sent the Project Solvent teaser and process letter; first-round bids are due in four weeks.', keyPoints: ['Teaser and process letter received', 'First-round bids in four weeks'], nextStep: 'Sign the NDA', nextStepStatus: 'done', sentiment: 'positive', roles: [{ label: 'advisory', confidence: 'medium', evidence: 'Distributes the teaser and process letter for the sale.' }] } },
+  { days: -119, inbound: true, ours: 'custodian', note: { summary: 'Sally shared the vendor model; EBITDA margins rely on a raw-material pass-through clause.', keyPoints: ['Vendor model shared', 'Margins depend on pass-through clause'], nextStep: 'Stress-test the pass-through assumption', nextStepStatus: 'done', roles: [{ label: 'finance', confidence: 'medium', evidence: 'Walks through the vendor model and margin drivers.' }] } },
+  { days: -112, inbound: false, ours: 'custodian', note: { summary: 'We sent questions on working capital seasonality and the pass-through lag.', nextStepStatus: 'none' } },
+  { days: -105, inbound: true, ours: 'custodian', note: { summary: 'Sally answered the working capital questions; the pass-through lags raw-material prices by one quarter.', nextStepStatus: 'none' } },
+  { days: -98, inbound: false, ours: 'colleague', note: { summary: 'Wendy submitted our first-round indication at the low end of the guided range.', nextStepStatus: 'none' } },
+  { days: -91, inbound: true, ours: 'colleague', note: { summary: 'Sally said our indication was the lowest of five but we made round two on structure.', keyPoints: ['Lowest of five bids', 'Through to round two on structure'], nextStep: 'Rework price for round two', nextStepStatus: 'done', sentiment: 'negative' } },
+  { days: -84, inbound: true, ours: 'custodian', note: { summary: 'Sally previewed the round-two data room and the management presentation slots.', nextStep: 'Book a management presentation slot', nextStepStatus: 'done' } },
+  { days: -70, inbound: true, ours: 'colleague', note: { summary: 'Sally flagged a tax ruling risk on the step-up if closing slips past year end.', keyPoints: ['Ruling risk if closing slips', 'Year-end deadline'], nextStep: 'Ask our advisers for a fallback structure', nextStepStatus: 'done', sentiment: 'negative', roles: [{ label: 'tax', confidence: 'medium', evidence: 'Flags the tax ruling risk on the step-up structure.' }] } },
+  { days: -63, inbound: false, ours: 'colleague', note: { summary: null } },
+  { days: -56, inbound: true, ours: 'custodian', note: { summary: 'Sally said the seller prefers certainty over price and asked whether we can drop the financing condition.', nextStep: 'Decide on dropping the financing condition', nextStepStatus: 'done' } },
+  { days: -42, inbound: false, ours: 'custodian', note: { summary: 'We confirmed a fully committed bid with no financing condition.', nextStepStatus: 'none', sentiment: 'positive' } },
+  { days: -35, inbound: true, ours: 'custodian', note: { summary: 'Sally told us we are one of two finalists and the seller wants a markup of the SPA within ten days.', keyPoints: ['One of two finalists', 'SPA markup due in ten days'], nextStep: 'Send the SPA markup', nextStepStatus: 'done', sentiment: 'positive', roles: [{ label: 'advisory', confidence: 'medium', evidence: 'Runs the final round and relays the seller’s timetable.' }] } },
+  { days: -21, inbound: true, ours: 'custodian', note: { summary: 'Sally relayed seller comments on our SPA markup: the warranty cap and the tax indemnity are still open.', keyPoints: ['Warranty cap open', 'Tax indemnity open'], nextStep: 'Agree the tax indemnity wording', nextStepStatus: 'action', roles: [{ label: 'tax', confidence: 'high', evidence: 'Negotiates the tax indemnity in the SPA.' }] } },
+  { days: -12, inbound: false, ours: 'colleague', replyToPrev: true, note: { summary: 'Wendy proposed splitting the tax indemnity between a cap and an escrow.', nextStepStatus: 'none' } },
+  { days: -4, inbound: true, ours: 'custodian', note: { summary: 'Sally said the seller accepts the escrow split if we sign before month end.', keyPoints: ['Escrow split accepted', 'Signing before month end'], nextStep: 'Get IC sign-off to sign before month end', nextStepStatus: 'action', sentiment: 'positive' } },
+];
+
+async function seedContactInteractions(
+  db: DbClient,
+  ctx: {
+    workspaceId: string;
+    employerId: string;
+    custodian: { id: string; email: string; name: string };
+    colleague: { id: string; email: string; name: string };
+    outsider: { id: string; email: string; name: string };
+    relatedCompanyId: string | null;
+    /** Deal links (MB-856): Jimmy brought three deals, Penny is involved in one. */
+    dealCompanyIds?: {
+      jimmySourcePostL0: string | null;
+      jimmySourceL0: string | null;
+      /** A deal that got past L0 and was later dropped (scorecard, MB-857). */
+      jimmySourceDroppedAfterL1?: string | null;
+      pennyInvolved: string | null;
+    };
+  },
+): Promise<void> {
+  await db.delete(emails).where(like(emails.message_id, `${IX_PREFIX}%${IX_SUFFIX}`));
+  await db
+    .delete(employerRelatedCompanies)
+    .where(
+      and(
+        eq(employerRelatedCompanies.employer_id, ctx.employerId),
+        eq(employerRelatedCompanies.workspace_id, ctx.workspaceId),
+        eq(employerRelatedCompanies.normalized_company_name, normalizeCompanyName(IX_RELATED_COMPANY)),
+      ),
+    );
+  await db.delete(correspondents).where(eq(correspondents.email, IX_PENNY.email));
+
+  const [penny] = await db
+    .insert(correspondents)
+    .values({
+      employer_id: ctx.employerId,
+      name: IX_PENNY.name,
+      email: IX_PENNY.email,
+      title: 'Vice President, Coverage',
+      type: 'external',
+      is_primary: false,
+      source: 'mbox',
+    })
+    .returning({ id: correspondents.id });
+  const [jimmy] = await db
+    .select({ id: correspondents.id })
+    .from(correspondents)
+    .where(eq(correspondents.email, IX_JIMMY_EMAIL))
+    .limit(1);
+  if (!penny || !jimmy) return;
+  await db
+    .insert(workspaceCorrespondents)
+    .values({ workspace_id: ctx.workspaceId, correspondent_id: penny.id, source: 'ingest' as const })
+    .onConflictDoNothing();
+
+  const contact = {
+    jimmy: { id: jimmy.id, email: IX_JIMMY_EMAIL, name: 'Jimmy Sprinkles' },
+    penny: { id: penny.id, email: IX_PENNY.email, name: IX_PENNY.name },
+  };
+  type Person = { id: string; email: string; name: string };
+  const isUser = (p: Person) =>
+    p === ctx.custodian || p === ctx.colleague || p === ctx.outsider;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  // Whole hours so re-runs on the same day line up.
+  const anchor = Math.floor(Date.now() / (60 * 60 * 1000)) * 60 * 60 * 1000;
+  const at = (days: number) => new Date(anchor + days * dayMs).toISOString();
+
+  // ── Emails ────────────────────────────────────────────────────────────────
+  // Expected mart rows (workspace MNA):
+  //   Jimmy × custodian: 2 from us, 2 from them, last 3 days ago
+  //   Jimmy × colleague: 0 from us, 1 from them (cc), last 5 days ago
+  //   Penny × colleague: 1 from us, 2 from them, last 1 day ago
+  //   Penny × custodian: 0 from us, 1 from them (cc), last 1 day ago
+  //   Jimmy × outsider:  none — the outsider is not an MNA member
+  // Expected per-contact totals (mart_contact_email_totals): Jimmy 2 from us,
+  // 2 from them (j3 reached both members but is one email); Penny 1 / 2.
+  // `replyTo` is the key of the email this one answers (In-Reply-To).
+  // `employerId` defaults to the fixture firm's; `note` to IX_NOTES[key].
+  const mails: Array<{
+    key: string;
+    days: number;
+    from: Person;
+    to: Person[];
+    cc?: Person[];
+    replyTo?: string;
+    employerId?: string;
+    note?: IxNote;
+  }> = [
+    { key: 'j1', days: -10, from: ctx.custodian, to: [contact.jimmy], cc: [ctx.colleague] },
+    { key: 'j2', days: -9, from: contact.jimmy, to: [ctx.custodian], replyTo: 'j1' },
+    { key: 'j3', days: -5, from: contact.jimmy, to: [ctx.custodian], cc: [ctx.colleague] },
+    { key: 'j4', days: -3, from: ctx.custodian, to: [contact.jimmy], replyTo: 'j3' },
+    { key: 'j5', days: -2, from: ctx.outsider, to: [contact.jimmy] },
+    { key: 'p1', days: -8, from: ctx.colleague, to: [contact.penny] },
+    { key: 'p2', days: -7, from: contact.penny, to: [ctx.colleague], replyTo: 'p1' },
+    { key: 'p3', days: -1, from: contact.penny, to: [ctx.colleague], cc: [ctx.custodian], replyTo: 'p2' },
+  ];
+  // Sally's long history (s01–s24), when the base seed has her.
+  const [sally] = await db
+    .select({ id: correspondents.id, employerId: correspondents.employer_id })
+    .from(correspondents)
+    .where(eq(correspondents.email, IX_SALLY_EMAIL))
+    .limit(1);
+  if (sally) {
+    const sallyPerson: Person = { id: sally.id, email: IX_SALLY_EMAIL, name: 'Sally Bubbles' };
+    IX_SALLY_THREAD.forEach((s, i) => {
+      const ours = s.ours === 'custodian' ? ctx.custodian : ctx.colleague;
+      mails.push({
+        key: `s${String(i + 1).padStart(2, '0')}`,
+        days: s.days,
+        from: s.inbound ? sallyPerson : ours,
+        to: [s.inbound ? ours : sallyPerson],
+        replyTo: s.replyToPrev ? `s${String(i).padStart(2, '0')}` : undefined,
+        employerId: sally.employerId,
+        note: s.note,
+      });
+    });
+  }
+  const ixMessageId = (key: string) => `${IX_PREFIX}${key}${IX_SUFFIX}`;
+  const nowIso = new Date().toISOString();
+  const insertedMails = await db
+    .insert(emails)
+    .values(
+      mails.map((m) => ({
+        message_id: ixMessageId(m.key),
+        in_reply_to: m.replyTo ? ixMessageId(m.replyTo) : null,
+        custodian_email: ctx.custodian.email,
+        employer_id: m.employerId ?? ctx.employerId,
+        from_address: m.from.email,
+        from_display_name: m.from.name,
+        sent_at: at(m.days),
+        direction: isUser(m.from) ? 'outbound' : 'inbound',
+        filter_status: 'processed',
+        processed_at: nowIso,
+      })),
+    )
+    .returning({ id: emails.id, message_id: emails.message_id });
+  const emailIdByKey = new Map(
+    insertedMails.map((e) => [e.message_id!.slice(IX_PREFIX.length, -IX_SUFFIX.length), e.id]),
+  );
+  const participant = (emailId: string, p: Person, role: 'from' | 'to' | 'cc') => ({
+    email_id: emailId,
+    user_id: isUser(p) ? p.id : null,
+    correspondent_id: isUser(p) ? null : p.id,
+    address: p.email.toLowerCase(),
+    display_name: p.name,
+    role,
+  });
+  await db.insert(emailParticipants).values(
+    mails.flatMap((m) => {
+      const emailId = emailIdByKey.get(m.key)!;
+      return [
+        participant(emailId, m.from, 'from'),
+        ...m.to.map((p) => participant(emailId, p, 'to')),
+        ...(m.cc ?? []).map((p) => participant(emailId, p, 'cc')),
+      ];
+    }),
+  );
+
+  // ── Conversation notes, role signals and overviews (MB-681) ───────────────
+  // Notes and role signals cascade with the emails wiped above; overview rows
+  // are reset here.
+  const noteRows: (typeof emailNotes.$inferInsert)[] = [];
+  const roleRows: (typeof emailRoleSignals.$inferInsert)[] = [];
+  const addNote = (emailId: string, externalAddress: string, note: IxNote) => {
+    noteRows.push({
+      email_id: emailId,
+      summary: note.summary,
+      key_points: note.keyPoints ?? [],
+      next_step: note.nextStep ?? null,
+      next_step_status: note.nextStepStatus ?? 'none',
+      sentiment: note.sentiment ?? 'neutral',
+      model: 'seed',
+    });
+    for (const r of note.roles ?? []) {
+      roleRows.push({ email_id: emailId, address: externalAddress.toLowerCase(), ...r });
+    }
+  };
+  for (const m of mails) {
+    const note = m.note ?? IX_NOTES[m.key];
+    const external = [m.from, ...m.to, ...(m.cc ?? [])].find((p) => !isUser(p));
+    if (note && external) addNote(emailIdByKey.get(m.key)!, external.email, note);
+  }
+  if (noteRows.length > 0) await db.insert(emailNotes).values(noteRows);
+  if (roleRows.length > 0) await db.insert(emailRoleSignals).values(roleRows);
+
+  // One overview state per contact: Penny's is ready and fresh (shows at once),
+  // Sally's is ready but stale (shows the old text while a new one generates),
+  // Jimmy has none (the first open generates one). The hash matches the
+  // service's overviewInputHash over notes with a summary and the active
+  // deal links seeded below.
+  const inputHash = (
+    pairs: Array<{ id: string; days: number; note: IxNote }>,
+    dealCompanyIds: Array<string | null | undefined> = [],
+  ) => {
+    const withSummary = pairs.filter((p) => p.note.summary !== null);
+    const latest = [...withSummary].sort((a, b) => b.days - a.days)[0];
+    return overviewInputHash({
+      noteCount: withSummary.length,
+      latestEmailId: latest?.id ?? null,
+      dealCompanyIds: dealCompanyIds.filter((id): id is string => !!id),
+    });
+  };
+  const overviewContacts = [contact.jimmy.id, contact.penny.id, ...(sally ? [sally.id] : [])];
+  await db
+    .delete(contactRelationshipOverviews)
+    .where(
+      and(
+        eq(contactRelationshipOverviews.workspace_id, ctx.workspaceId),
+        inArray(contactRelationshipOverviews.correspondent_id, overviewContacts),
+      ),
+    );
+  const pennyKeys = mails.filter((m) => m.key.startsWith('p'));
+  const overviewRows: (typeof contactRelationshipOverviews.$inferInsert)[] = [
+    {
+      workspace_id: ctx.workspaceId,
+      correspondent_id: contact.penny.id,
+      status: 'ready',
+      overview:
+        'Penny is the Golden Sacks lender on the Halcyon Media add-on, working mainly with Wendy. She took indicative unitranche terms of 4.5x over seven years through credit committee, which approved them with a tighter leverage covenant. Best next move: sign the mandate letter by Friday so the facility stays committed.',
+      // Her involved link to Halcyon Media (seeded below) gets a deal line.
+      deal_notes: ctx.dealCompanyIds?.pennyInvolved
+        ? [
+            {
+              companyId: ctx.dealCompanyIds.pennyInvolved,
+              note: 'Penny is the lender on the add-on facility; credit committee approved her unitranche terms with a tighter leverage covenant.',
+            },
+          ]
+        : [],
+      role_summary:
+        'Penny mostly negotiates debt terms with us (leverage, tenor and covenants) and takes them through her credit committee.',
+      input_hash: inputHash(
+        pennyKeys.map((m) => ({ id: emailIdByKey.get(m.key)!, days: m.days, note: IX_NOTES[m.key] })),
+        [ctx.dealCompanyIds?.pennyInvolved],
+      ),
+      generated_at: at(-1),
+    },
+  ];
+  if (sally) {
+    overviewRows.push({
+      workspace_id: ctx.workspaceId,
+      correspondent_id: sally.id,
+      status: 'ready',
+      overview:
+        'Sally covers specialty chemicals at JP Organ and is running the Project Solvent carve-out, where we are one of two finalists. Best next move: send the SPA markup.',
+      role_summary: 'Sally mostly runs sell-side processes and raises tax structuring questions with us.',
+      // Matches no current input hash, so it reads as stale and regenerates.
+      input_hash: 'seed-stale',
+      generated_at: at(-30),
+    });
+  }
+  await db.insert(contactRelationshipOverviews).values(overviewRows);
+
+  // Person-level related company: Jimmy's email j3 is evidence for one of
+  // MNA's own companies, so it shows on Jimmy's insights and not on Penny's.
+  if (ctx.relatedCompanyId) {
+    const [erc] = await db
+      .insert(employerRelatedCompanies)
+      .values({
+        employer_id: ctx.employerId,
+        workspace_id: ctx.workspaceId,
+        company_id: ctx.relatedCompanyId,
+        company_name: IX_RELATED_COMPANY,
+        normalized_company_name: normalizeCompanyName(IX_RELATED_COMPANY),
+        source: 'auto',
+        reason: 'email_mention',
+        reason_summary: 'Discussed as a potential target in a coverage email',
+        confidence: 'medium',
+        evidence_count: 1,
+        first_seen_at: at(-5),
+        last_seen_at: at(-5),
+      })
+      .returning({ id: employerRelatedCompanies.id });
+    if (erc) {
+      await db.insert(employerRelatedCompanyEvidence).values({
+        related_company_id: erc.id,
+        email_id: emailIdByKey.get('j3')!,
+        reason: 'email_mention',
+        reason_summary: 'Discussed as a potential target in a coverage email',
+        confidence: 'medium',
+      });
+    }
+  }
+
+  // ── Deal links (deal_contacts, MB-856) ────────────────────────────────────
+  // Jimmy brought three deals (one already past L0, from an email
+  // attachment; one added by hand; one that went L0 → L1 → L2, was moved
+  // back to L1 and dropped there — its furthest stage, L2, is only in its
+  // logs); Penny is involved in a fourth (a confirmed suggestion). Blue
+  // Harbor stays unlinked so Jimmy's related-company evidence above shows as
+  // a suggestion. Penny's rows go with her (cascade); Jimmy's are reset in
+  // place.
+  const deal = ctx.dealCompanyIds;
+  const dealLinks: Array<{
+    company_id: string | null | undefined;
+    correspondent_id: string;
+    role: 'source' | 'involved';
+    origin: 'email_attachment' | 'manual' | 'confirmed_suggestion';
+    evidence_message_id: string | null;
+  }> = [
+    {
+      company_id: deal?.jimmySourcePostL0,
+      correspondent_id: contact.jimmy.id,
+      role: 'source',
+      origin: 'email_attachment',
+      evidence_message_id: `${IX_PREFIX}teaser${IX_SUFFIX}`,
+    },
+    {
+      company_id: deal?.jimmySourceL0,
+      correspondent_id: contact.jimmy.id,
+      role: 'source',
+      origin: 'manual',
+      evidence_message_id: null,
+    },
+    {
+      company_id: deal?.jimmySourceDroppedAfterL1,
+      correspondent_id: contact.jimmy.id,
+      role: 'source',
+      origin: 'manual',
+      evidence_message_id: null,
+    },
+    {
+      company_id: deal?.pennyInvolved,
+      correspondent_id: contact.penny.id,
+      role: 'involved',
+      origin: 'confirmed_suggestion',
+      evidence_message_id: null,
+    },
+  ];
+  for (const { company_id, ...link } of dealLinks) {
+    if (!company_id) continue;
+    await db
+      .insert(dealContacts)
+      .values({ ...link, company_id, workspace_id: ctx.workspaceId, status: 'active', created_by: ctx.custodian.id })
+      .onConflictDoUpdate({
+        target: [dealContacts.workspace_id, dealContacts.company_id, dealContacts.correspondent_id],
+        set: {
+          role: link.role,
+          origin: link.origin,
+          status: 'active',
+          evidence_message_id: link.evidence_message_id,
+          updated_at: new Date().toISOString(),
+        },
+      });
+  }
+
+  // Stage history of the dropped deal (the company row is re-inserted each run,
+  // so its logs are normally gone already; deleted first for a re-run anyway).
+  const droppedDealId = deal?.jimmySourceDroppedAfterL1;
+  if (droppedDealId) {
+    const history = [
+      'PROMOTED_FROM_L0_TO_L1',
+      'PROMOTED_FROM_L1_TO_L2',
+      'PROMOTED_FROM_L2_TO_L1',
+      'DROPPED_FROM_L1',
+    ];
+    await db
+      .delete(companyLogs)
+      .where(and(eq(companyLogs.company_id, droppedDealId), inArray(companyLogs.action, history)));
+    const start = Date.now() - 120 * dayMs;
+    await db.insert(companyLogs).values(
+      history.map((action, i) => ({
+        company_id: droppedDealId,
+        action,
+        created_at: new Date(start + i * 20 * dayMs).toISOString(),
+      })),
+    );
+  }
+}
+
 async function main() {
   const usersAndWorkspacesOnly = process.argv.includes('--users-workspaces-only');
   const { createPostgresClientFromEnv } = await import('../src/lib/server/db');
@@ -4243,18 +4758,21 @@ async function main() {
         .insert(topics)
         .values({ name: t.name, slug: slugify(t.name), is_deal_related: t.is_deal_related })
         .onConflictDoUpdate({
-          // Seed topics are all shared vocabulary (workspace_id stays NULL) —
-          // must match topics_name_global_key exactly, see
-          // 20260705000003_topics_workspace_id.sql.
-          target: topics.name,
+          // Seed topics are all shared vocabulary (workspace_id stays NULL).
+          // Upsert on the SLUG (topics_slug_global_key, see
+          // 20260705000003_topics_workspace_id.sql), not the name: ingest
+          // creates topics too, and one it named `term-sheet` owns the slug
+          // `term-sheet` that seed's 'term sheet' would collide with. On a
+          // slug hit the existing row (and its name) is reused.
+          target: topics.slug,
           targetWhere: sql`workspace_id IS NULL`,
           set: {
-            slug: slugify(t.name),
             is_deal_related: sql`${topics.is_deal_related} OR ${t.is_deal_related}`,
           },
         })
-        .returning({ id: topics.id, name: topics.name });
-      topicIdByName.set(row.name, row.id);
+        .returning({ id: topics.id });
+      // Keyed by the seed's name: the reused row's name may differ.
+      topicIdByName.set(t.name, row.id);
     }
     const dealCount = SEED_TOPICS.filter((t) => t.is_deal_related).length;
     console.log(
@@ -4999,7 +5517,16 @@ async function main() {
       }
 
       const rtDayMs = 24 * 60 * 60 * 1000;
-      const rtBase = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
+      // Inbound emails walk forward one day per pair from rtBase, and each
+      // reply lands up to max(centre × multiplier) hours later. Start far
+      // enough back that the newest reply is still in the past — otherwise
+      // last contact reads "in 2 months" and sorts above real recent mail.
+      const rtPairCount = RT_FIRMS.length * RT_MULTIPLIERS.length;
+      const rtMaxGapMs =
+        Math.max(...RT_FIRMS.map((f) => f.centreHours)) *
+        Math.max(...RT_MULTIPLIERS) *
+        60 * 60 * 1000;
+      const rtBase = Date.now() - rtPairCount * rtDayMs - rtMaxGapMs - rtDayMs;
       const nowIso = new Date().toISOString();
 
       const rtEmailRows: (typeof emails.$inferInsert)[] = [];
@@ -5134,6 +5661,42 @@ async function main() {
       );
     }
 
+    // Per-person contact interactions (MB-854) — two Golden Sacks bankers with
+    // different email histories against two MNA team members.
+    {
+      const ixEmployerId = firmIdByName.get(normalize('Golden Sacks'));
+      const [ixColleague] = await db
+        .select({ id: users.id, email: users.email, name: users.name })
+        .from(users)
+        .where(eq(users.email, 'wendy.wobble@sparklecapital.example'))
+        .limit(1);
+      const ixOutsiderEmail = SEED_TEAM_USERS[0].email;
+      const ixOutsiderId = teamUserIdByEmail.get(ixOutsiderEmail);
+      if (ixEmployerId && ixColleague?.email && ixOutsiderId) {
+        await seedContactInteractions(db as unknown as DbClient, {
+          workspaceId: MNA_WORKSPACE_ID,
+          employerId: ixEmployerId,
+          custodian: { id: seedUser.id, email: SEED_USER_EMAIL, name: 'Test User' },
+          colleague: { id: ixColleague.id, email: ixColleague.email, name: ixColleague.name ?? 'Wendy Wobble' },
+          outsider: { id: ixOutsiderId, email: ixOutsiderEmail, name: SEED_TEAM_USERS[0].name },
+          relatedCompanyId: insertedCompanies.find((c) => c.entry_id === 9002)?.id ?? null,
+          dealCompanyIds: {
+            // Ember Renewables (L1), Cinder Foods (L0), Halcyon Media (L0).
+            jimmySourcePostL0: insertedCompanies.find((c) => c.entry_id === 9005)?.id ?? null,
+            jimmySourceL0: insertedCompanies.find((c) => c.entry_id === 9003)?.id ?? null,
+            // Juniper AgriTech (L1, dropped).
+            jimmySourceDroppedAfterL1: insertedCompanies.find((c) => c.entry_id === 9010)?.id ?? null,
+            pennyInvolved: insertedCompanies.find((c) => c.entry_id === 9008)?.id ?? null,
+          },
+        });
+        console.log(
+          '  ✓ Contact interactions: 2 Golden Sacks bankers × 2 MNA team members (8 emails, 4 deal links, custodian: test@sqe.co.id) + Sally Bubbles 24-email history; MB-681 notes, role signals and overviews',
+        );
+      } else {
+        console.warn('  ⚠ skipped contact interactions fixture (Golden Sacks, Wendy Wobble or the team users are missing)');
+      }
+    }
+
     // Refresh the CRM marts so the seeded email activity is reflected in the
     // CRM cards' KPIs (email_count / last_contact / response p50), which read
     // from the precomputed analytics.mart_crm — otherwise only refreshed by the
@@ -5146,6 +5709,14 @@ async function main() {
       console.log('  ✓ refreshed analytics.mart_crm');
     } catch (err) {
       console.warn('  ⚠ skipped analytics.mart_crm refresh (marts unavailable):', err);
+    }
+    for (const mart of ['mart_contact_interactions', 'mart_contact_email_totals']) {
+      try {
+        await db.execute(sql.raw(`REFRESH MATERIALIZED VIEW analytics.${mart}`));
+        console.log(`  ✓ refreshed analytics.${mart}`);
+      } catch (err) {
+        console.warn(`  ⚠ skipped analytics.${mart} refresh (mart unavailable):`, err);
+      }
     }
 
     await seedRssFeeds(db as unknown as DbClient);

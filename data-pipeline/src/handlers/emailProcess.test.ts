@@ -1,4 +1,69 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+const anthropicMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+}));
+
+vi.mock('@anthropic-ai/sdk', () => {
+  class Anthropic {
+    messages = { create: anthropicMocks.create };
+  }
+  return { default: Anthropic };
+});
+
+// No real network: the post-run overview refresh would otherwise POST to the app.
+const fetchMock = vi.hoisted(() => vi.fn());
+vi.stubGlobal('fetch', fetchMock);
+beforeEach(() => {
+  fetchMock.mockReset().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ data: [{ workspaceId: 'ws-1', claimed: 1 }] }),
+  });
+});
+
+const overviewRefreshCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/auth/crm-overviews/refresh'));
+
+const crmMocks = vi.hoisted(() => ({
+  upsertEphemeralCrmBatch: vi.fn().mockResolvedValue({ emails_inserted: 1 }),
+  upsertEmailNotes: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./emailProcessCrm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./emailProcessCrm')>();
+  return {
+    ...actual,
+    upsertEphemeralCrmBatch: crmMocks.upsertEphemeralCrmBatch,
+    upsertEmailNotes: crmMocks.upsertEmailNotes,
+  };
+});
+
+vi.mock('@/lib/repositories', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/repositories')>();
+  class UserWorkspaceRepository {
+    findWorkspaceIdsBySyncedEmail = vi.fn().mockResolvedValue(['ws-1']);
+  }
+  class EmployerOverrideRepository {
+    listExcludedDomains = vi.fn().mockResolvedValue([]);
+  }
+  return {
+    ...actual,
+    UserWorkspaceRepository,
+    EmployerOverrideRepository,
+  };
+});
+
+vi.mock('../repositories', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../repositories')>();
+  class MartRepository {
+    refreshAll = vi.fn().mockResolvedValue(undefined);
+  }
+  return {
+    ...actual,
+    MartRepository,
+  };
+});
 import {
   processMboxSource,
   persistHardFailure,
@@ -14,6 +79,7 @@ import {
   attachmentContentDigest,
   subjectLooksDealRelated,
   hasDealSignal,
+  smartFileEmailContext,
   type EmailProcessResult,
 } from './emailProcess';
 import {
@@ -38,6 +104,42 @@ describe('mailDomains single source', () => {
   it('keeps outlook.com personal-only so deal mail to outlook counterparties is not internal_only', () => {
     expect(PERSONAL_MAIL_DOMAINS.has('outlook.com')).toBe(true);
     expect(INTERNAL_MAIL_DOMAINS.has('outlook.com')).toBe(false);
+  });
+});
+
+describe('smartFileEmailContext', () => {
+  it('sends the Message-ID with the sender headers in email_context', () => {
+    expect(
+      smartFileEmailContext({
+        messageId: 'abc123@bank.example',
+        parsed: {
+          sender: { name: 'Jimmy Sprinkles', email: 'jimmy@bank.example' },
+          subject: 'Project Atlas teaser',
+          date: '2026-10-01T09:00:00.000Z',
+        } as never,
+      }),
+    ).toEqual({
+      senderName: 'Jimmy Sprinkles',
+      senderEmail: 'jimmy@bank.example',
+      subject: 'Project Atlas teaser',
+      receivedAt: '2026-10-01T09:00:00.000Z',
+      messageId: 'abc123@bank.example',
+    });
+  });
+
+  it('leaves absent headers undefined', () => {
+    expect(
+      smartFileEmailContext({
+        messageId: '',
+        parsed: { sender: null, subject: '', date: null } as never,
+      }),
+    ).toEqual({
+      senderName: undefined,
+      senderEmail: undefined,
+      subject: '',
+      receivedAt: undefined,
+      messageId: undefined,
+    });
   });
 });
 
@@ -592,3 +694,347 @@ describe('persistHardFailure', () => {
     expect(next).toBe(MAX_PROCESS_FAIL_COUNT);
   });
 });
+
+function makeMbox(
+  messages: Array<{
+    id: string;
+    from?: string;
+    to?: string;
+    subject?: string;
+    body?: string;
+  }>,
+) {
+  const content = messages
+    .map((m) => {
+      const from = m.from ?? 'banker@external.com';
+      const to = m.to ?? 'alice@starcapital.co.id';
+      const subject = m.subject ?? 'Project Deal Discussion';
+      const body =
+        m.body ??
+        'We are pleased to discuss the acquisition terms and M&A advisory mandate for Project Falcon.';
+      return [
+        `From envelope-${m.id} Mon Jan  1 00:00:00 2024`,
+        `From: ${from}`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        `Date: Mon, 01 Jan 2024 10:00:00 +0000`,
+        `Message-ID: <${m.id}>`,
+        ``,
+        body,
+        ``,
+      ].join('\n');
+    })
+    .join('\n');
+
+  return async function* () {
+    yield Buffer.from(content, 'utf-8');
+  };
+}
+
+function createProcessDb(opts: {
+  existingEmails?: string[];
+  noteStatus?: Array<{ message_id: string; id: string; has_note: boolean }>;
+}) {
+  const existingEmailSet = new Set(opts.existingEmails ?? []);
+  const noteStatus = opts.noteStatus ?? [];
+
+  return {
+    execute: vi.fn(async (query: unknown) => {
+      const sqlStr = JSON.stringify(query);
+
+      if (sqlStr.includes('has_note')) {
+        return noteStatus;
+      }
+
+      if (sqlStr.includes('email_process_runs')) {
+        return [
+          {
+            id: 'run-1',
+            message_offset: 0,
+            fail_count: 0,
+            afd_uploaded_digests: [],
+          },
+        ];
+      }
+
+      if (sqlStr.includes('SELECT message_id FROM analytics.emails')) {
+        return Array.from(existingEmailSet).map((mid) => ({
+          message_id: mid,
+        }));
+      }
+
+      if (sqlStr.includes('has_deal_topic')) {
+        return [];
+      }
+
+      return [];
+    }),
+  };
+}
+
+describe('flushBatch stop_reason handling', () => {
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset();
+    crmMocks.upsertEphemeralCrmBatch
+      .mockReset()
+      .mockResolvedValue({ emails_inserted: 1 });
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("flushBatch: a stop_reason: 'max_tokens' response is treated as a failure", async () => {
+    anthropicMocks.create.mockResolvedValue({
+      content: [],
+      stop_reason: 'max_tokens',
+    });
+    const db = createProcessDb({ existingEmails: [] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-truncation-test',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-trunc-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('in_progress');
+    expect(result.fail_count).toBe(1);
+    expect(anthropicMocks.create).toHaveBeenCalled();
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Backfill notes for existing emails', () => {
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset();
+    crmMocks.upsertEphemeralCrmBatch
+      .mockReset()
+      .mockResolvedValue({ emails_inserted: 1 });
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('an existing email with no note row gets exactly one note-only call and a note write', async () => {
+    anthropicMocks.create.mockResolvedValue({
+      content: [
+        {
+          type: 'tool_use',
+          input: {
+            email_note: {
+              summary: 'Backfilled summary of discussion.',
+              key_points: ['Key point 1'],
+              next_step: 'Send deck',
+              next_step_status: 'action',
+              sentiment: 'positive',
+              counterparty_roles: [
+                {
+                  address: 'banker@external.com',
+                  label: 'advisory',
+                  confidence: 'high',
+                  evidence: 'M&A sell-side advisor.',
+                },
+              ],
+            },
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+    });
+
+    const db = createProcessDb({
+      existingEmails: ['msg-dup-1'],
+      noteStatus: [
+        {
+          message_id: 'msg-dup-1',
+          id: '00000000-0000-0000-0000-000000000001',
+          has_note: false,
+        },
+      ],
+    });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-backfill-1',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-dup-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(anthropicMocks.create).toHaveBeenCalledTimes(1);
+    expect(crmMocks.upsertEmailNotes).toHaveBeenCalledTimes(1);
+    expect(crmMocks.upsertEmailNotes).toHaveBeenCalledWith(
+      db,
+      expect.arrayContaining([
+        expect.objectContaining({
+          emailId: '00000000-0000-0000-0000-000000000001',
+          note: expect.objectContaining({
+            summary: 'Backfilled summary of discussion.',
+          }),
+        }),
+      ]),
+    );
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+
+    // The backfilled note makes the contact's overview stale: one refresh
+    // request for the custodian's workspaces, after the run.
+    const calls = overviewRefreshCalls();
+    expect(calls).toHaveLength(1);
+    const [, init] = calls[0];
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({ 'x-api-secret': expect.any(String) });
+    const body = JSON.parse(init.body);
+    expect(body.workspaceIds).toEqual(['ws-1']);
+    expect(Number.isNaN(Date.parse(body.since))).toBe(false);
+  });
+
+  it('a failed overview refresh never fails the run', async () => {
+    anthropicMocks.create.mockResolvedValue({
+      content: [
+        {
+          type: 'tool_use',
+          input: {
+            email_note: {
+              summary: 'Backfilled summary.',
+              key_points: [],
+              next_step: null,
+              next_step_status: 'none',
+              sentiment: 'neutral',
+              counterparty_roles: [],
+            },
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+    });
+    fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+    const db = createProcessDb({
+      existingEmails: ['msg-dup-9'],
+      noteStatus: [
+        { message_id: 'msg-dup-9', id: '00000000-0000-0000-0000-000000000009', has_note: false },
+      ],
+    });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-backfill-9',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-dup-9' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(overviewRefreshCalls()).toHaveLength(1);
+  });
+
+  it('an existing email that already has a note row gets no call', async () => {
+    const db = createProcessDb({
+      existingEmails: ['msg-dup-has-note'],
+      noteStatus: [
+        {
+          message_id: 'msg-dup-has-note',
+          id: '00000000-0000-0000-0000-000000000002',
+          has_note: true,
+        },
+      ],
+    });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-backfill-2',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-dup-has-note' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(anthropicMocks.create).not.toHaveBeenCalled();
+    expect(crmMocks.upsertEmailNotes).not.toHaveBeenCalled();
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+    // Nothing written, nothing to refresh.
+    expect(overviewRefreshCalls()).toHaveLength(0);
+  });
+
+  it('a failed backfill call does not set llm_retry and does not stop the offset advancing', async () => {
+    anthropicMocks.create.mockRejectedValue(new Error('anthropic rate limit'));
+
+    const db = createProcessDb({
+      existingEmails: ['msg-dup-fail'],
+      noteStatus: [
+        {
+          message_id: 'msg-dup-fail',
+          id: '00000000-0000-0000-0000-000000000003',
+          has_note: false,
+        },
+      ],
+    });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-backfill-3',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-dup-fail' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.message_offset).toBe(1);
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+    expect(crmMocks.upsertEmailNotes).not.toHaveBeenCalled();
+  });
+
+  it('the CRM upsert is never called for backfilled emails', async () => {
+    anthropicMocks.create.mockResolvedValue({
+      content: [
+        {
+          type: 'tool_use',
+          input: {
+            email_note: {
+              summary: 'Discussion',
+              key_points: [],
+              next_step: null,
+              next_step_status: 'none',
+              sentiment: 'neutral',
+              counterparty_roles: [],
+            },
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+    });
+
+    const db = createProcessDb({
+      existingEmails: ['msg-dup-nocrm'],
+      noteStatus: [
+        {
+          message_id: 'msg-dup-nocrm',
+          id: '00000000-0000-0000-0000-000000000004',
+          has_note: false,
+        },
+      ],
+    });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-backfill-nocrm',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-dup-nocrm' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+  });
+});
+

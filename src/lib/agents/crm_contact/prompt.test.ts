@@ -11,6 +11,7 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
   it('names every tool the agent actually has', () => {
     for (const toolName of [
       'get_crm_contact',
+      'read_contact_emails',
       'enrich_crm_contact',
       'update_crm_contact',
       'web_search',
@@ -40,9 +41,17 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
     expect(CRM_CONTACT_SYSTEM_PROMPT).toMatch(/may NOT change their \*\*email address\*\*/);
   });
 
-  it('states the identity gate before any write', () => {
-    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Establish identity before anything else');
+  it('states the identity gate before writing anything from the web', () => {
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Establish identity on the web before writing anything from it');
     expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('A near-miss is a miss');
+  });
+
+  it('reads our emails before the web and keeps the notes out of narrate_step', () => {
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Read the emails.');
+    expect(CRM_CONTACT_SYSTEM_PROMPT.indexOf('Read the emails.')).toBeLessThan(
+      CRM_CONTACT_SYSTEM_PROMPT.indexOf('Establish identity on the web'),
+    );
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('never quote or paraphrase them in narrate_step');
   });
 
   it('defines coverage region as the geography covered, not where the person is based', () => {
@@ -67,6 +76,14 @@ describe('CRM_CONTACT_SYSTEM_PROMPT', () => {
     expect(PROFILE_FIELD_SENTENCE.split(', ')).toHaveLength(
       CRM_CONTACT_WRITABLE_FIELDS.length,
     );
+  });
+});
+
+describe('CRM_CONTACT_SYSTEM_PROMPT refresh exception', () => {
+  it('lets a refresh run overwrite the bio without relaxing the other fields', () => {
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('**Refresh runs.**');
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('pass `bio` in `overwrite`');
+    expect(CRM_CONTACT_SYSTEM_PROMPT).toContain('Every other field keeps the rule above.');
   });
 });
 
@@ -102,12 +119,36 @@ describe('buildContactEnrichmentPrompt', () => {
     expect(prompt).toContain('already has a value');
     expect(prompt).not.toContain('currently empty on this record are');
   });
+
+  it('leaves the refresh instruction out of an ordinary fill', () => {
+    expect(buildContactEnrichmentPrompt(base)).not.toContain('REFRESH');
+  });
+
+  it('on a refresh, rewrites the bio and keeps the stale-only rule for other fields', () => {
+    const prompt = buildContactEnrichmentPrompt({ ...base, missingFields: [], refresh: true });
+    expect(prompt).toMatch(/^Refresh the CRM profile for Jane Doe/);
+    expect(prompt).toContain('pass "bio" in `overwrite`');
+    expect(prompt).toContain('overwrite it only where a current source shows the stored value is stale');
+    expect(prompt).not.toContain('there may be nothing to fill');
+  });
+
+  it('on a refresh, still fills the empty fields', () => {
+    const prompt = buildContactEnrichmentPrompt({ ...base, refresh: true });
+    expect(prompt).toContain('currently empty on this record are: title, department');
+    expect(prompt).toContain('Fill any empty field as usual');
+  });
 });
 
 describe('buildContactEnrichmentTitle', () => {
   it('names the person and the firm, for the AI Workforce task list', () => {
     expect(buildContactEnrichmentTitle('Jane Doe', 'Evercore')).toBe(
       'Fill CRM contact: Jane Doe (Evercore)',
+    );
+  });
+
+  it('marks a refresh run so it reads differently in the task list', () => {
+    expect(buildContactEnrichmentTitle('Jane Doe', 'Evercore', true)).toBe(
+      'Refresh CRM contact: Jane Doe (Evercore)',
     );
   });
 });

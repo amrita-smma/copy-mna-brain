@@ -350,6 +350,20 @@ describe('CorrespondentRepository email join key', () => {
       );
     }
   });
+
+  it('upsertBatch keeps a real stored name when the incoming name is address-like', async () => {
+    db.onConflictDoUpdate.mockReturnThis();
+    db.returning.mockResolvedValueOnce([{ id: 'c1', email: 'a@b.com' }]);
+    await repo.upsertBatch([{ employer_id: 'e1', name: 'a@b.com', email: 'a@b.com' }]);
+    const { set } = db.onConflictDoUpdate.mock.calls[0][0];
+    const text = new PgDialect().sqlToQuery(set.name).sql;
+    expect(text).toBe(
+      `CASE WHEN "correspondents"."origin" = 'manual' THEN "correspondents"."name" ` +
+        `WHEN (COALESCE(btrim(EXCLUDED.name), '') = '' OR strpos(EXCLUDED.name, '@') > 0 OR lower(btrim(EXCLUDED.name)) = lower(btrim(COALESCE(EXCLUDED.email, '')))) ` +
+        `AND NOT (COALESCE(btrim("correspondents"."name"), '') = '' OR strpos("correspondents"."name", '@') > 0 OR lower(btrim("correspondents"."name")) = lower(btrim(COALESCE("correspondents"."email", '')))) ` +
+        `THEN "correspondents"."name" ELSE EXCLUDED.name END`,
+    );
+  });
 });
 
 describe('CorrespondentRepository.searchInEmployers', () => {

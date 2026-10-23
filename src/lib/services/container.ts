@@ -26,6 +26,11 @@ import {
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
+  ContactInteractionRepository,
+  ContactConversationRepository,
+  BankerListRepository,
+  CrmSuggestedQuestionRepository,
+  DealContactRepository,
   EmployerDomainRepository,
   CorrespondentRepository,
   CorrespondentCurationRepository,
@@ -122,6 +127,12 @@ import { AuthService } from './authService';
 import { UserService } from './userService';
 import { CRMService } from './crmService';
 import { CrmContactEnrichmentService } from './crmContactEnrichmentService';
+import { ContactInsightsService } from './contactInsightsService';
+import { ContactConversationService } from './contactConversationService';
+import { DealContactService } from './dealContactService';
+import { BankerScorecardService } from './bankerScorecardService';
+import { BankerListService } from './bankerListService';
+import { CrmSuggestedQuestionService } from './crmSuggestedQuestionService';
 import { CompanyContactDiscoveryService } from './companyContactDiscoveryService';
 import { AiWorkforceService } from './aiWorkforceService';
 import { CopilotChatsService } from './copilotChatsService';
@@ -193,6 +204,12 @@ export interface Container {
   userService: UserService;
   crmService: CRMService;
   crmContactEnrichmentService: CrmContactEnrichmentService;
+  contactInsightsService: ContactInsightsService;
+  contactConversationService: ContactConversationService;
+  dealContactService: DealContactService;
+  bankerScorecardService: BankerScorecardService;
+  bankerListService: BankerListService;
+  crmSuggestedQuestionService: CrmSuggestedQuestionService;
   companyContactDiscoveryService: CompanyContactDiscoveryService;
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
@@ -473,6 +490,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     service.setFundUpdateApplyService(fundUpdateApplyService());
     service.setFundCatalogCheckService(fundCatalogCheckService());
     service.setPendingAutoScanService(pendingAutoScanService());
+    service.setDealContactService(dealContactService());
     return service;
   });
 
@@ -507,6 +525,69 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const crmContactEnrichmentService = lazy(
     () =>
       new CrmContactEnrichmentService(correspondentRepo(), employerRepo(), db, workspaceId),
+  );
+
+  const dealContactRepo = lazy(() => new DealContactRepository(db));
+  const dealContactService = lazy(
+    () =>
+      new DealContactService(
+        dealContactRepo(),
+        correspondentRepo(),
+        companyRepo(),
+        pipelineStageRepo(),
+        workspaceId,
+      ),
+  );
+  const contactInteractionRepo = lazy(() => new ContactInteractionRepository(db));
+  const contactInsightsService = lazy(
+    () =>
+      new ContactInsightsService(
+        contactInteractionRepo(),
+        correspondentRepo(),
+        dealContactService(),
+        bankerScorecardService(),
+        workspaceId,
+      ),
+  );
+  const contactConversationService = lazy(
+    () =>
+      new ContactConversationService(
+        new ContactConversationRepository(db),
+        correspondentRepo(),
+        contactInteractionRepo(),
+        jobDispatcher(),
+        workspaceId,
+      ),
+  );
+  const bankerScorecardService = lazy(
+    () =>
+      new BankerScorecardService(
+        dealContactRepo(),
+        companyLogRepo(),
+        pipelineStageRepo(),
+        workspaceId,
+      ),
+  );
+  const bankerListService = lazy(
+    () =>
+      new BankerListService(
+        new BankerListRepository(db),
+        contactInteractionRepo(),
+        dealContactRepo(),
+        pipelineStageRepo(),
+        workspaceId,
+      ),
+  );
+  const crmSuggestedQuestionService = lazy(
+    () =>
+      new CrmSuggestedQuestionService(
+        new CrmSuggestedQuestionRepository(db),
+        contactInteractionRepo(),
+        dealContactRepo(),
+        userWorkspaceRepo(),
+        dealContactService(),
+        workspaceId,
+      ),
   );
 
   const companyContactDiscoveryService = lazy(
@@ -957,6 +1038,12 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get userService() { return userService(); },
     get crmService() { return crmService(); },
     get crmContactEnrichmentService() { return crmContactEnrichmentService(); },
+    get contactInsightsService() { return contactInsightsService(); },
+    get contactConversationService() { return contactConversationService(); },
+    get dealContactService() { return dealContactService(); },
+    get bankerScorecardService() { return bankerScorecardService(); },
+    get bankerListService() { return bankerListService(); },
+    get crmSuggestedQuestionService() { return crmSuggestedQuestionService(); },
     get companyContactDiscoveryService() { return companyContactDiscoveryService(); },
     get aiWorkforceService() { return aiWorkforceService(); },
     get copilotChatsService() { return copilotChatsService(); },

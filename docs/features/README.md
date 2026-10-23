@@ -19,8 +19,9 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Fund Management page (search, Action Items, delete asset, fund-update upload)](fund-management.md) — 3KB
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
+- [CRM banker insights (per-person emails, related companies, deal links, scorecard, flagged Bankers view, contact panel and Conversation modal, Brain Bots tools, Ask Brain suggested questions)](crm-banker-insights.md) — 31KB
 - [CRM banker matching ("which banker can help me close this deal?")](crm-banker-matching.md) — 8KB
-- [Filling a CRM contact from the web (`@crm_contact`)](crm-contact-fill.md) — 4KB
+- [Filling a CRM contact (`@crm_contact`): email context + web](crm-contact-fill.md) — 4KB
 - [CRM contacts: email-keyed merge and CSV/Excel import](crm-contact-merge-and-import.md) — 4KB
 - [Company contact details (partnership contacts in the CRM via `@crm_contact`)](company-contacts.md) — 3KB
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB

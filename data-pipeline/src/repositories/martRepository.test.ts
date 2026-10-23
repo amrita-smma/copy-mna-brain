@@ -49,13 +49,20 @@ describe('MartRepository.refreshAll', () => {
     db.execute
       .mockResolvedValueOnce(undefined) // mart_crm ok
       .mockRejectedValueOnce(new Error('relation does not exist')) // mart_mom fails
-      .mockResolvedValueOnce(undefined); // mart_topics ok
+      .mockResolvedValueOnce(undefined) // mart_topics ok
+      .mockResolvedValueOnce(undefined) // mart_contact_interactions ok
+      .mockResolvedValueOnce(undefined); // mart_contact_email_totals ok
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const repo = new MartRepository(db as never);
 
     const refreshed = await repo.refreshAll();
 
-    expect(refreshed).toEqual(['mart_crm', 'mart_topics']);
+    expect(refreshed).toEqual([
+      'mart_crm',
+      'mart_topics',
+      'mart_contact_interactions',
+      'mart_contact_email_totals',
+    ]);
     expect(db.execute).toHaveBeenCalledTimes(MART_VIEWS.length);
     expect(errSpy).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();

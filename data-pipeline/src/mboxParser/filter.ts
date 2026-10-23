@@ -97,7 +97,7 @@ export type SkipReason =
   | 'personal';
 
 export interface FilterOptions {
-  ourDomains?: Set<string>;
+  ourDomains?: ReadonlySet<string>;
   dropInternalOnly?: boolean;
 }
 
@@ -138,7 +138,7 @@ function domainsIn(header: string): string[] {
     .filter((d): d is string => !!d);
 }
 
-export function isInternalOnly(headers: Headers, ourDomains: Set<string>): boolean {
+export function isInternalOnly(headers: Headers, ourDomains: ReadonlySet<string>): boolean {
   if (ourDomains.size === 0) return false;
   const senders = domainsIn(getHeader(headers, 'from'));
   const recipients = [

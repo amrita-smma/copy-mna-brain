@@ -51,7 +51,18 @@ import { stripAngleBrackets } from '@/lib/services/googleVaultService';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { MartRepository } from '../repositories';
 import {
+  buildNoteOnlyPrompt,
+  EMAIL_NOTE_SCHEMA,
+  externalAddresses,
+  sanitizeEmailNote,
+  repairToolInput,
+  dropThreadOnlyCompanies,
+  type QueueEntry,
+} from '../mboxParser/llmEnrich';
+import {
   upsertEphemeralCrmBatch,
+  upsertEmailNotes,
+  type EmailNoteItem,
   type EphemeralCrmMessage,
 } from './emailProcessCrm';
 
@@ -208,7 +219,7 @@ export function subjectLooksDealRelated(
  * flushBatch retries those before CRM/attach.
  */
 export function hasDealSignal(
-  llm: LlmExtraction | null | undefined,
+  llm: Partial<LlmExtraction> | null | undefined,
   subject: string | null | undefined,
 ): boolean {
   if (subjectLooksDealRelated(subject)) return true;
@@ -541,6 +552,58 @@ export interface SmartFileEmailContext {
   senderEmail?: string;
   subject?: string;
   receivedAt?: string;
+  /** Message-ID of the email; Smart Files keeps it with the sender address
+   *  to link the sender to the deals the attachment created or matched. */
+  messageId?: string;
+}
+
+/** The `email_context` Smart Files receives for one attachment of `item`. */
+export function smartFileEmailContext(item: {
+  parsed: Pick<ParsedEmail, 'sender' | 'subject' | 'date'>;
+  messageId: string;
+}): SmartFileEmailContext {
+  return {
+    senderName: item.parsed.sender?.name ?? undefined,
+    senderEmail: item.parsed.sender?.email ?? undefined,
+    subject: item.parsed.subject ?? undefined,
+    receivedAt: item.parsed.date ?? undefined,
+    messageId: item.messageId || undefined,
+  };
+}
+
+/**
+ * Asks the app to regenerate the relationship overviews (and per-deal lines)
+ * of contacts whose notes this invocation wrote. Best-effort: the overview is
+ * also regenerated when someone opens the contact, so a failure is logged and
+ * never fails the run.
+ */
+export async function requestOverviewRefresh(opts: {
+  workspaceIds: string[];
+  since: string;
+  runId: string;
+}): Promise<void> {
+  const base = process.env.INTERNAL_API_URL ?? 'http://localhost:3000';
+  try {
+    const res = await fetch(`${base}/api/auth/crm-overviews/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-secret': process.env.ADMIN_SECRET ?? '',
+      },
+      body: JSON.stringify({ workspaceIds: opts.workspaceIds, since: opts.since }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`overview refresh ${res.status}`);
+    const body = (await res.json().catch(() => null)) as {
+      data?: Array<{ claimed?: number }>;
+    } | null;
+    pipelineLog(SCOPE, 'overview_refresh_requested', {
+      run_id: opts.runId,
+      claimed: (body?.data ?? []).reduce((n, w) => n + (w.claimed ?? 0), 0),
+    });
+  } catch (err) {
+    pipelineError(SCOPE, 'overview_refresh_failed', err, { run_id: opts.runId });
+  }
 }
 
 async function uploadBytesToSmartFiles(opts: {
@@ -790,10 +853,29 @@ interface PreparedMessage {
   parsed: ParsedEmail;
   messageId: string;
   fromAddress: string;
+  /** Lower-cased To / Cc addresses. */
+  toAddresses: string[];
+  ccAddresses: string[];
   rawParts: RawAttachmentPart[];
   candidates: Candidate[];
   needsLlm: boolean;
   llmPayload: NonNullable<ReturnType<typeof processEmail>['llm_payload']> | null;
+}
+
+/** The LLM queue entry for a message that has an `llmPayload`. */
+function queueEntryFor(item: PreparedMessage): QueueEntry {
+  return {
+    message_id: item.messageId,
+    subject: item.parsed.subject ?? '',
+    sender_email: item.fromAddress,
+    domain_tag: item.fromAddress.split('@')[1] ?? null,
+    participants: [
+      { role: 'from', address: item.fromAddress },
+      ...item.toAddresses.map((address) => ({ role: 'to' as const, address })),
+      ...item.ccAddresses.map((address) => ({ role: 'cc' as const, address })),
+    ],
+    payload: item.llmPayload!,
+  };
 }
 
 /**
@@ -860,6 +942,9 @@ export async function processMboxSource(
     }
     const primaryWorkspaceId = workspaceIds[0]!;
     const started = Date.now();
+    // Notes' created_at is the DB clock; a minute of slack covers skew.
+    const notesSince = new Date(started - 60_000).toISOString();
+    let notesWritten = false;
     pipelineLog(SCOPE, 'start', {
       run_id: run.id,
       custodian_hash: custodianHash(custodianEmail),
@@ -885,6 +970,11 @@ export async function processMboxSource(
     let offset = 0;
     const pendingBatch: PreparedMessage[] = [];
 
+    const refreshOverviewsIfNeeded = async (): Promise<void> => {
+      if (!notesWritten) return;
+      await requestOverviewRefresh({ workspaceIds, since: notesSince, runId: run.id });
+    };
+
     const refreshMartsIfNeeded = async (): Promise<void> => {
       if (result.messages_ingested <= (run.messages_ingested ?? 0)) return;
       try {
@@ -903,6 +993,7 @@ export async function processMboxSource(
       status: 'soft_stop' | 'llm_retry' | 'afd_retry',
     ): Promise<EmailProcessResult> => {
       await refreshMartsIfNeeded();
+      await refreshOverviewsIfNeeded();
       if (status === 'llm_retry' || status === 'afd_retry') {
         failCount = await bumpSoftFailCount(deps.db, run.id, failCount, status);
         result.fail_count = failCount;
@@ -937,6 +1028,112 @@ export async function processMboxSource(
       return result;
     };
 
+    /** One forced tool call; `input` is null when the reply has no tool_use block. */
+    const callExtractTool = async (tool: {
+      name: string;
+      description: string;
+      schema: object;
+      maxTokens: number;
+      prompt: string;
+    }): Promise<{ input: unknown; truncated: boolean }> => {
+      const msg = await client.messages.create({
+        model,
+        max_tokens: tool.maxTokens,
+        ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
+        system: SYSTEM_PROMPT,
+        tools: [
+          {
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.schema as { type: 'object'; [k: string]: unknown },
+          },
+        ],
+        tool_choice: { type: 'tool', name: tool.name },
+        messages: [{ role: 'user', content: tool.prompt }],
+      });
+      const toolUse = msg.content.find((b) => b.type === 'tool_use');
+      return {
+        input: toolUse?.input ?? null,
+        truncated: msg.stop_reason === 'max_tokens',
+      };
+    };
+
+    /**
+     * Writes a note for each already-ingested email that has none, one
+     * note-only call each. A failed or truncated call skips that email; it
+     * never holds the cursor back.
+     */
+    const backfillMissingNotes = async (
+      dupCandidates: PreparedMessage[],
+    ): Promise<void> => {
+      const candidates = dupCandidates.filter((d) => d.needsLlm && d.llmPayload);
+      if (candidates.length === 0) return;
+      const noteStatusRows = queryRows<{
+        message_id: string;
+        id: string;
+        has_note: boolean;
+      }>(
+        await deps.db.execute(sql`
+          SELECT e.message_id, e.id, (n.email_id IS NOT NULL) AS has_note
+          FROM analytics.emails e
+          LEFT JOIN analytics.email_notes n ON n.email_id = e.id
+          WHERE e.message_id IN (${sql.join(
+            candidates.map((d) => sql`${d.messageId}`),
+            sql`, `,
+          )})
+        `),
+      );
+      const emailRowByMid = new Map(noteStatusRows.map((r) => [r.message_id, r]));
+      const toBackfill = candidates.flatMap((item) => {
+        const row = emailRowByMid.get(item.messageId);
+        return row && !row.has_note ? [{ item, emailId: row.id }] : [];
+      });
+      if (toBackfill.length === 0) return;
+
+      const notes = await mapPool(
+        toBackfill,
+        llmConcurrency,
+        async ({ item, emailId }): Promise<EmailNoteItem | null> => {
+          try {
+            const { input, truncated } = await callExtractTool({
+              name: 'extract_email_note',
+              description: 'Return structured note extracted from the email.',
+              schema: EMAIL_NOTE_SCHEMA,
+              maxTokens: 700,
+              prompt: buildNoteOnlyPrompt(queueEntryFor(item)),
+            });
+            if (truncated) {
+              pipelineLog(SCOPE, 'backfill_note_truncated', {
+                run_id: run.id,
+                message_id: item.messageId,
+              });
+              return null;
+            }
+            const repaired = repairToolInput(input as { email_note?: unknown } | null);
+            return {
+              emailId,
+              note: sanitizeEmailNote(
+                repaired?.email_note,
+                externalAddresses(item.fromAddress, item.toAddresses, item.ccAddresses),
+              ),
+              model,
+            };
+          } catch (err) {
+            pipelineLog(SCOPE, 'backfill_note_failed', {
+              run_id: run.id,
+              message_id: item.messageId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return null;
+          }
+        },
+      );
+      const itemsToWrite = notes.filter((n): n is EmailNoteItem => n !== null);
+      if (itemsToWrite.length === 0) return;
+      await upsertEmailNotes(deps.db, itemsToWrite);
+      notesWritten = true;
+    };
+
     const flushBatch = async (): Promise<
       'ok' | 'soft_stop' | 'llm_retry' | 'afd_retry'
     > => {
@@ -963,40 +1160,22 @@ export async function processMboxSource(
       const llmTargets = fresh.filter((b) => b.needsLlm && b.llmPayload);
       const llmOut = await mapPool(llmTargets, llmConcurrency, async (item) => {
         try {
-          const entry = {
-            message_id: item.messageId,
-            subject: item.parsed.subject ?? '',
-            sender_email: item.fromAddress,
-            domain_tag: item.fromAddress.split('@')[1] ?? null,
-            payload: item.llmPayload!,
-          };
-          const msg = await client.messages.create({
-            model,
-            max_tokens: 800,
-            ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
-            system: SYSTEM_PROMPT,
-            tools: [
-              {
-                name: 'extract_email_info',
-                description: 'Return structured info extracted from the email.',
-                input_schema: EMAIL_EXTRACTION_SCHEMA as unknown as {
-                  type: 'object';
-                  [k: string]: unknown;
-                },
-              },
-            ],
-            tool_choice: { type: 'tool', name: 'extract_email_info' },
-            messages: [{ role: 'user', content: buildUserPrompt(entry) }],
+          const { input, truncated } = await callExtractTool({
+            name: 'extract_email_info',
+            description: 'Return structured info extracted from the email.',
+            schema: EMAIL_EXTRACTION_SCHEMA,
+            maxTokens: 1500,
+            prompt: buildUserPrompt(queueEntryFor(item)),
           });
-          const toolUse = msg.content.find(
-            (b): b is Extract<
-              (typeof msg.content)[number],
-              { type: 'tool_use' }
-            > => b.type === 'tool_use',
-          );
+          if (truncated) {
+            throw new Error('LLM response truncated (stop_reason: max_tokens)');
+          }
           return {
             messageId: item.messageId,
-            llm: toolUse ? (toolUse.input as LlmExtraction) : null,
+            llm: dropThreadOnlyCompanies(
+              repairToolInput(input as LlmExtraction | null),
+              queueEntryFor(item),
+            ),
             error: null as string | null,
           };
         } catch (err) {
@@ -1032,16 +1211,12 @@ export async function processMboxSource(
         }
         const senderDomain = item.fromAddress.split('@')[1] ?? '';
         const internal = INTERNAL_MAIL_DOMAINS.has(senderDomain);
-        const toAddrs = (item.parsed.recipients ?? []).map((a) =>
-          a.email.toLowerCase(),
-        );
-        const ccAddrs = (item.parsed.cc ?? []).map((a) => a.email.toLowerCase());
         crmMessages.push({
           message_id: item.messageId,
           from_address: item.fromAddress,
           from_display_name: item.parsed.sender?.name ?? null,
-          to_addresses: toAddrs,
-          cc_addresses: ccAddrs,
+          to_addresses: item.toAddresses,
+          cc_addresses: item.ccAddresses,
           subject: item.parsed.subject || null,
           sent_at: item.parsed.date ?? new Date().toISOString(),
           in_reply_to:
@@ -1052,6 +1227,7 @@ export async function processMboxSource(
           direction: internal ? 'outbound' : 'inbound',
           candidates: item.candidates,
           llm,
+          model,
         });
         attachQueue.push({
           item,
@@ -1074,6 +1250,8 @@ export async function processMboxSource(
           lastCommittedOffset = item.offset;
         }
       }
+
+      await backfillMissingNotes(dupCandidates);
 
       // Resume path: same predicate as fresh — subject heuristic on re-parsed
       // mbox + DB deal-topic / related-company evidence (no LLM re-run).
@@ -1133,6 +1311,7 @@ export async function processMboxSource(
       if (crmMessages.length > 0) {
         const crm = await upsertEphemeralCrmBatch(crmMessages, { db: deps.db });
         result.messages_ingested += crm.emails_inserted;
+        if (crm.emails_inserted > 0) notesWritten = true;
       }
 
       let afdRetryFromOffset: number | null = null;
@@ -1230,12 +1409,7 @@ export async function processMboxSource(
               enteredBy: custodianEmail,
               workspaceId: primaryWorkspaceId,
               fileTypeOverride: upload.fileTypeOverride,
-              emailContext: {
-                senderName: item.parsed.sender?.name ?? undefined,
-                senderEmail: item.parsed.sender?.email ?? undefined,
-                subject: item.parsed.subject ?? undefined,
-                receivedAt: item.parsed.date ?? undefined,
-              },
+              emailContext: smartFileEmailContext(item),
             });
             uploadedDigests.add(upload.digest);
             // Persist immediately so a crash between attachments still skips
@@ -1371,6 +1545,8 @@ export async function processMboxSource(
         parsed,
         messageId,
         fromAddress,
+        toAddresses: (parsed.recipients ?? []).map((a) => a.email.toLowerCase()),
+        ccAddresses: (parsed.cc ?? []).map((a) => a.email.toLowerCase()),
         rawParts,
         candidates: enriched.candidates ?? [],
         needsLlm: enriched.needs_llm,
@@ -1409,6 +1585,8 @@ export async function processMboxSource(
     });
 
     await refreshMartsIfNeeded();
+    // After the marts: the overview prompt reads the interaction totals.
+    await refreshOverviewsIfNeeded();
 
     pipelineLog(SCOPE, 'done', {
       run_id: run.id,

@@ -1268,6 +1268,27 @@
       "when": 1792540800000,
       "tag": "20261021000000_bot_user_memories",
       "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1792540801000,
+      "tag": "20261021000001_deal_contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1792540802000,
+      "tag": "20261021000002_crm_suggested_questions",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1792540803000,
+      "tag": "20261021000003_contact_relationship_overviews",
+      "breakpoints": true
     }
   ]
 }

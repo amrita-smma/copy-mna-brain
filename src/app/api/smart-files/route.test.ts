@@ -104,16 +104,18 @@ describe('POST /api/smart-files', () => {
           senderEmail: 'john@bank.com',
           subject: 'Project Atlas',
           receivedAt: '2026-09-28T14:32:00.000Z',
+          messageId: ' <abc@bank.com> ',
           unexpected: 'dropped',
         },
       }),
     );
 
-    expect(processUploadMock.mock.calls[0][9]).toEqual({
+    expect(processUploadMock.mock.calls[0][9]).toStrictEqual({
       senderName: 'John Banker',
       senderEmail: 'john@bank.com',
       subject: 'Project Atlas',
       receivedAt: '2026-09-28T14:32:00.000Z',
+      messageId: '<abc@bank.com>',
     });
   });
 

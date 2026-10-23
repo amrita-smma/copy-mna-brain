@@ -762,7 +762,8 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
             recursionLimit: 50,
             configurable: {
               thread_id: chat.id,
-              // Read by tools that act for the user (history search, bot tools).
+              // Read by tools that act for the user (history search, bot tools,
+              // crm_banker_insights, read_contact_emails), never from a model argument.
               userId,
               botId: bot.id,
               userEmail,

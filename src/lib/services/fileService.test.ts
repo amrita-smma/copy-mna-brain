@@ -8108,6 +8108,87 @@ describe('FileService.processUpload email-ingest notification', () => {
     expect(error).toHaveBeenCalled();
     error.mockRestore();
   });
+
+  describe('deal source link (MB-856)', () => {
+    const CONTEXT = { ...EMAIL_CONTEXT, senderEmail: ' John@Bank.com ', messageId: '<abc@bank.com>' };
+
+    function upload(service: FileService, context?: typeof CONTEXT) {
+      return service.processUpload(
+        'uploads/Teaser.pdf',
+        'Teaser.pdf',
+        'application/pdf',
+        undefined,
+        undefined,
+        true,
+        undefined,
+        CUSTODIAN,
+        null,
+        context,
+      );
+    }
+
+    it('persists only the sender address and Message-ID on the file row', async () => {
+      const { service, fileRepo } = setup();
+
+      await upload(service, CONTEXT);
+
+      expect(fileRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source_sender_email: 'john@bank.com',
+          source_message_id: '<abc@bank.com>',
+        }),
+      );
+      const inserted = vi.mocked(fileRepo.insert).mock.calls[0][0] as Record<string, unknown>;
+      expect(JSON.stringify(inserted)).not.toContain('Project Atlas');
+    });
+
+    it('links the sender once the companies are written to the file', async () => {
+      const { service, fileRepo } = setup();
+      const linkFromSmartFile = vi.fn().mockResolvedValue([]);
+      service.setDealContactService({ linkFromSmartFile } as never);
+
+      await upload(service, CONTEXT);
+
+      expect(linkFromSmartFile).toHaveBeenCalledWith('file-1');
+      const matchedWrite = vi
+        .mocked(fileRepo.updatePartial)
+        .mock.calls.findIndex((c) => 'matched_companies' in (c[1] as object));
+      expect(matchedWrite).toBeGreaterThanOrEqual(0);
+      expect(vi.mocked(fileRepo.updatePartial).mock.invocationCallOrder[matchedWrite]).toBeLessThan(
+        linkFromSmartFile.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('does not link when the file has no email sender', async () => {
+      const { service, fileRepo } = setup();
+      const linkFromSmartFile = vi.fn().mockResolvedValue([]);
+      service.setDealContactService({ linkFromSmartFile } as never);
+
+      await upload(service);
+
+      expect(linkFromSmartFile).not.toHaveBeenCalled();
+      expect(fileRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ source_sender_email: null, source_message_id: null }),
+      );
+    });
+
+    it('never fails the upload when linking throws', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { service } = setup();
+      service.setDealContactService({
+        linkFromSmartFile: vi.fn().mockRejectedValue(new Error('db down')),
+      } as never);
+
+      const result = await upload(service, CONTEXT);
+
+      expect(result).toMatchObject({ id: 'file-1' });
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to link the email sender'),
+        expect.any(Error),
+      );
+      error.mockRestore();
+    });
+  });
 });
 
 describe('FileService.getStatus', () => {

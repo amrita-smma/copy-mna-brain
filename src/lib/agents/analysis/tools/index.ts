@@ -11,6 +11,7 @@ import { analyzeStalledDeals } from "./analyze_stalled_deals";
 import { listPipelineStages } from "./list_pipeline_stages";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
+import { crmBankerInsights } from "./crm_banker_insights";
 import { SERVER_TOOLS } from "./server_tools";
 import { valyuSearch } from "./valyu_search";
 // AlphaSense is retired: the subscription is no longer in use, so
@@ -98,6 +99,7 @@ export {
   listPipelineStages,
   lookupCrm,
   crmInsights,
+  crmBankerInsights,
   SERVER_TOOLS,
   valyuSearch,
   alphasenseSearch,
@@ -179,6 +181,7 @@ export const tools = [
   listPipelineStages,
   lookupCrm,
   crmInsights,
+  crmBankerInsights,
   ...SERVER_TOOLS,
   queryMeetingNotes,
   readRelationshipGraph,
@@ -305,6 +308,7 @@ export const investmentTools = [
   queryMeetingNotes,
   lookupCrm,
   crmInsights,
+  crmBankerInsights,
   lookupUser,
   sendEmailTool,
   proposeWorkforceHandoff,
@@ -324,7 +328,8 @@ export const investmentTools = [
  * sources). It is the union of DEFAULT_TOOL_LIST (`tools` + `chatOnlyTools`) and
  * `investmentTools`, deduplicated: the fund tools listed below are the only
  * entries `investmentTools` adds that the M&A lists don't already contain
- * (web_search, query_files, lookup_crm, crm_insights, lookup_user, send_email,
+ * (web_search, query_files, lookup_crm, crm_insights, crm_banker_insights,
+ * lookup_user, send_email,
  * propose_workforce_handoff are shared and must not be duplicated — passing the
  * same tool twice to createAgent would register a duplicate name).
  * `valyu_search` isn't part of the shared `tools` or `chatOnlyTools` lists
@@ -367,6 +372,7 @@ export const vcTools = [
   queryMeetingNotes,
   lookupCrm,
   crmInsights,
+  crmBankerInsights,
   ...SERVER_TOOLS,
   valyuSearch,
   valyuExtractContent,
@@ -432,6 +438,11 @@ export function getToolDescriptions(): string {
       name: "lookup_crm",
       description:
         "Look up CRM firms and bankers. By name/email: the firm's full relationship picture (bankers, topics, team coverage, recent emails, notes, linked pipeline companies). By deal profile (geography + deal_type + department): individual bankers ranked by fit, for 'which banker can help me close this deal'",
+    },
+    {
+      name: "crm_banker_insights",
+      description:
+        "Per-PERSON banker insights: who on our team emails one banker and how often, last contact, and the Brain deals they brought or were part of (current/furthest stage, reached L1, conversion) — or the top bankers ranked by deals brought, reached L1, recent activity, team members or emails. Never aggregates a firm",
     },
     {
       name: "crm_insights",

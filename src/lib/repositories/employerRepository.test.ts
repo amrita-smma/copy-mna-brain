@@ -273,3 +273,51 @@ describe('EmployerRepository.list (search)', () => {
     expect(params).toContain('%50\\%\\_off%');
   });
 });
+
+describe('EmployerRepository.list (sort)', () => {
+  async function leadingOrder(filters: Parameters<EmployerRepository['list']>[0]) {
+    const db = makeDb();
+    db.offset.mockResolvedValueOnce([]);
+    await new EmployerRepository(db as never).list(filters, 'w1');
+    const args = db.orderBy.mock.calls[0];
+    return { leading: new PgDialect().sqlToQuery(args[0]), count: args.length };
+  }
+
+  it('defaults to latest last contact first, never-contacted firms last', async () => {
+    const { leading } = await leadingOrder({});
+    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at"[\s\S]*\) DESC NULLS LAST$/);
+    expect(leading.params).toContain('w1');
+  });
+
+  it('keeps never-contacted firms last when sorting ascending', async () => {
+    const { leading } = await leadingOrder({ sort: 'last_contact', sortDir: 'asc' });
+    expect(leading.sql).toMatch(/ ASC NULLS LAST$/);
+  });
+
+  it.each([
+    ['name', /"employer_curation"\."name"/],
+    ['industry', /"employer_curation"\."industry"/],
+    ['primary_pic', /LOWER\("correspondents"\."name"\)/],
+    ['response_p50', /"mart_crm"\."response_p50_seconds"/],
+    ['emails', /"mart_crm"\."email_count"/],
+    ['team_members', /COUNT\(\*\)[\s\S]*"employer_team_members"/],
+  ] as const)('orders %s by its own column', async (sort, pattern) => {
+    const { leading } = await leadingOrder({ sort, sortDir: 'asc' });
+    expect(leading.sql).toMatch(pattern);
+    expect(leading.sql).toMatch(/ ASC NULLS LAST$/);
+  });
+
+  it('breaks ties by name then id so pages never reshuffle', async () => {
+    const { count } = await leadingOrder({ sort: 'emails' });
+    expect(count).toBe(3);
+  });
+
+  it('never puts an unknown sort or direction into the SQL text', async () => {
+    const { leading } = await leadingOrder({
+      sort: 'name; DROP TABLE users; --' as never,
+      sortDir: 'sideways' as never,
+    });
+    expect(leading.sql).not.toContain('DROP');
+    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at"[\s\S]*\) DESC NULLS LAST$/);
+  });
+});

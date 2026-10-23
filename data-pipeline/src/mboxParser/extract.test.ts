@@ -172,6 +172,21 @@ describe('processEmail', () => {
   });
 });
 
+describe('processEmail thread context', () => {
+  it('carries the quoted thread into llm_payload apart from the body', () => {
+    const out = processEmail(
+      makeEmail({
+        sender: { name: 'GS Banker', email: 'banker@gs.com' },
+        body: 'Agreed, go with option 2.',
+        quoted_thread: 'On Mon Alice wrote:\nOption 2: 60% stake.',
+      }),
+      { wantRelatedCompanies: true },
+    );
+    expect(out.llm_payload?.body_snippet).toBe('Agreed, go with option 2.');
+    expect(out.llm_payload?.thread_context).toBe('On Mon Alice wrote:\nOption 2: 60% stake.');
+  });
+});
+
 describe('processEmail wantRelatedCompanies gating', () => {
   it('sets want_related_companies=true in llm_payload and populates body_snippet', () => {
     // bloomberg.com is classified → want_topics=false. The real gap: without

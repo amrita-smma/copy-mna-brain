@@ -14,6 +14,14 @@ export type CorrespondentInsert = typeof correspondents.$inferInsert;
 export type CorrespondentUpdate = Partial<CorrespondentInsert>;
 
 /**
+ * SQL twin of `isAddressLikeName` (`@/lib/crm/contactName`): the name is
+ * empty after trimming, contains `@`, or equals the email case-insensitively.
+ */
+function addressLikeNameSql(name: SQL, email: SQL): SQL {
+  return sql`(COALESCE(btrim(${name}), '') = '' OR strpos(${name}, '@') > 0 OR lower(btrim(${name})) = lower(btrim(COALESCE(${email}, ''))))`;
+}
+
+/**
  * Facets for the banker-matching search (`CorrespondentRepository.search`).
  *
  * Every facet is OPTIONAL and every provided facet is scored, not required: a
@@ -630,8 +638,10 @@ export class CorrespondentRepository {
           // A human-added row (origin='manual') is never rewritten by the
           // ETL (RFC §3.4) — the conflict still resolves so its id comes back
           // and the ingested email links to the manual contact.
+          // A real stored name is never downgraded to an address-like one
+          // (same rule as `isAddressLikeName` in `@/lib/crm/contactName`).
           set: {
-            name: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.name} ELSE EXCLUDED.name END`,
+            name: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.name} WHEN ${addressLikeNameSql(sql`EXCLUDED.name`, sql`EXCLUDED.email`)} AND NOT ${addressLikeNameSql(sql`${correspondents.name}`, sql`${correspondents.email}`)} THEN ${correspondents.name} ELSE EXCLUDED.name END`,
             title: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.title} ELSE COALESCE(EXCLUDED.title, ${correspondents.title}) END`,
             phone: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.phone} ELSE COALESCE(EXCLUDED.phone, ${correspondents.phone}) END`,
             type: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.type} ELSE EXCLUDED.type END`,

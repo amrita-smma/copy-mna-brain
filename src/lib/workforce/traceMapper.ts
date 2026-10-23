@@ -484,6 +484,20 @@ export function matchMessageTimestamps(
   });
 }
 
+/**
+ * Tools whose output quotes private email notes. Email notes
+ * are private to the people on each email, but a Workforce run may use the
+ * full context: the run's report and what it writes are shared, its trace is
+ * visible to the whole workspace, so these outputs are never put on it.
+ */
+const PRIVATE_OUTPUT_TOOLS: ReadonlySet<string> = new Set([
+  "read_contact_emails",
+  "crm_banker_insights",
+]);
+
+export const PRIVATE_OUTPUT_PLACEHOLDER =
+  "_Private email context — read by the agent, not shown here. The run's report and the fields it writes are what is shared._";
+
 export function buildTrace(input: BuildTraceInput): TraceData[] {
   const {
     messages,
@@ -635,8 +649,11 @@ export function buildTrace(input: BuildTraceInput): TraceData[] {
       // The expanded panel renders this as markdown when there's no `key`,
       // so we keep enough content for tables and profiles to render whole.
       // Long contents get a scrollbar in the UI; truncation here is just a
-      // safety cap to avoid massive payloads on the wire.
-      const value = truncate(rawContent, 6000);
+      // safety cap to avoid massive payloads on the wire. Private email
+      // context never reaches the trace, which the whole workspace can open.
+      const value = PRIVATE_OUTPUT_TOOLS.has(name)
+        ? PRIVATE_OUTPUT_PLACEHOLDER
+        : truncate(rawContent, 6000);
       const derived = deriveToolStatus(name, rawContent);
       return {
         name,

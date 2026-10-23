@@ -165,6 +165,8 @@ function buildSigContext(rec: ParsedEmail): string {
 
 export interface LlmPayload {
   body_snippet: string;
+  /** The quoted earlier messages; context for the email note only. */
+  thread_context?: string;
   candidates: Candidate[];
   want_topics: boolean;
   want_names: boolean;
@@ -273,6 +275,7 @@ export function processEmail(rec: ParsedEmail, opts: ProcessEmailOptions = {}): 
     llm_payload: needsLlm
       ? {
           body_snippet: body.slice(0, bodyChars),
+          thread_context: rec.quoted_thread ?? '',
           candidates,
           want_topics: needsTopic,
           want_names: needsNames,

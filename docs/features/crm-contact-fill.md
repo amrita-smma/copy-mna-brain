@@ -1,9 +1,10 @@
-# Filling a CRM contact from the web (`@crm_contact`)
+# Filling a CRM contact (`@crm_contact`)
 
-Every contact row in the CRM has a ✨ button next to the person's name. Pressing
-it queues an AI Workforce run that searches the public web for that person,
-confirms it found the right one, and writes what it can prove into the contact's
-empty profile fields.
+Every contact row in the CRM has a **Get Full Profile** button. Pressing it
+queues an AI Workforce run that starts from our own email context on that
+person — the last relationship overview, the deal roles and the notes on their
+emails with us — then searches the public web, confirms it found the right one,
+and writes what it can prove into the contact's empty profile fields.
 
 It exists because most correspondents arrive from the mailbox ingest, which only
 ever knows a name and an email address — the title, desk, coverage region and
@@ -17,7 +18,8 @@ LinkedIn URL are all blank until somebody fills them in by hand.
 2. The workforce dispatcher claims it. `src/lib/workforce/runAgent.ts` sees that
    agent name and builds **@crm_contact's** graph rather than the general
    workforce one.
-3. The agent calls `get_crm_contact` to see what is missing, searches, and
+3. The agent calls `get_crm_contact` to see what is missing, then
+   `read_contact_emails` (overview, roles and up to 50 notes), searches, and
    calls `update_crm_contact` once with everything it can evidence.
 4. The button polls `GET /api/crm/correspondents/:id/enrich` and refreshes the
    card when the run succeeds.
@@ -35,16 +37,59 @@ its own as a prop. A button that is actually watching a run then polls the
 per-contact endpoint on its own. A GET per rendered contact would be the
 client-side fan-out `CLAUDE.md` bans.
 
+## Refreshing a filled profile
+
+Once a contact has a bio, the Profile cell swaps **Get Full Profile** for a
+**Refresh** control beside the "AI research" label. It is the same button and
+the same run; the POST carries `{ "refresh": true }`, the queue row's
+`input.mode` is `refresh` and its title reads "Refresh CRM contact: …".
+
+A refresh run is told to rewrite the bio from current evidence (it passes
+`bio` in `overwrite`) and to fill any empty field as usual. Every other filled
+field keeps the normal overwrite rule below — only against a current source
+showing the stored value is stale — because `correspondent_curation` is one
+row per contact and cannot tell a colleague's hand edit from an earlier run's
+value. A person who can no longer be confirmed at the firm is left unchanged.
+
+## Testing locally
+
+`pnpm db:seed` adds a handful of real, publicly documented dealmakers at their
+real firms (Goldman Sachs, Morgan Stanley, Lazard, Evercore, Moelis &
+Company, Centerview Partners, DBS Bank) with a name and a `.example` address
+and nothing else, so the button has a public footprint to find. "B. Effron" is
+a partial name, to exercise name completion. Re-seeding deletes and reinserts
+them, and the curation overlay cascades, so it also resets the test.
+
 ## The agent
 
 `src/lib/agents/crm_contact/` — separate from the analysis agent, on the shared
 runtime (`buildAgentGraph` → `createAgent`, streaming, checkpointed).
 
-Five tools: `get_crm_contact`, `update_crm_contact`, Anthropic's hosted
-`web_search` / `web_fetch`, `valyu_search` and `narrate_step`. No pipeline
-tools, no email, no insights — a run can read one contact and write that
-contact's overlay, and nothing else. That bounded blast radius is why the button
-needs no approval step.
+Seven tools: `get_crm_contact`, `read_contact_emails`, `enrich_crm_contact`,
+`update_crm_contact`, Anthropic's hosted `web_search` / `web_fetch`,
+`valyu_search` and `narrate_step`. No pipeline tools, no sending email, no
+insights — a run can read one contact and write that contact's overlay, and
+nothing else. That bounded blast radius is why the button needs no approval
+step.
+
+## Private email context, shared result
+
+Email notes are private to the people on each email
+(`crm-banker-insights.md`, Reads). A Workforce run may use the full context:
+`read_contact_emails` (and `crm_banker_insights` in a Workforce task) read every
+note through `getConversationForWorkforce`. What the run writes and its final
+report are shared with the workspace; the notes are not:
+
+- the trace redacts these tools' output (`PRIVATE_OUTPUT_TOOLS` in
+  `src/lib/workforce/traceMapper.ts`), which is the only place tool output
+  reaches the UI;
+- the prompt forbids quoting notes in `narrate_step`, and keeps live-deal
+  specifics (targets, prices, terms) out of every field, the bio included;
+- an email-backed value cites the note ("email 2026-10-12 from their side")
+  instead of a URL.
+
+Outside a Workforce run, `read_contact_emails` only reads the notes the user may
+see.
 
 ## What it may write, and where
 
@@ -68,7 +113,8 @@ Writable: `title`, `phone`, `type`, `department`, `specialization`,
 
 - **Fill, don't flatten.** A field that already holds an effective value is
   skipped. The agent can override a specific field only by naming it in
-  `overwrite`, and is told to do so only against the firm's own current page.
+  `overwrite`, and is told to do so only against the firm's own current page —
+  except the bio on a refresh run, which it is told to rewrite.
 - **No source, no write.** `update_crm_contact` requires a `sources` array; a
   value the agent cannot attribute never reaches the database.
 - **Identity before anything.** The prompt's weight is on confirming the person

@@ -18,6 +18,11 @@ function booleanFlag(key: string): () => Promise<boolean> {
 
 export const crmGoogleVaultSyncEnabled = booleanFlag("CRM_GOOGLE_VAULT_SYNC");
 
+export const crmBankersViewEnabled = booleanFlag("CRM_BANKERS_VIEW_ENABLED");
+
+export const crmEmailNotesEnabled = booleanFlag("CRM_EMAIL_NOTES_ENABLED");
+
+
 export const taskNotificationsEnabled = booleanFlag("TASK_NOTIFICATIONS_ENABLED");
 
 export const companyGraphEnabled = booleanFlag("COMPANY_GRAPH_ENABLED");

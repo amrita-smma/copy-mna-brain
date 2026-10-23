@@ -7,16 +7,54 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 import type { Candidate } from './extract';
+import { INTERNAL_MAIL_DOMAINS } from '../lib/mailDomains';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+const ROLE_LABELS = [
+  'funding',
+  'lending',
+  'finance',
+  'tax',
+  'advisory',
+  'legal',
+  'due_diligence',
+  'principal',
+  'other',
+] as const;
+export type RoleLabel = (typeof ROLE_LABELS)[number];
+export type RoleConfidence = 'high' | 'medium' | 'low';
+
+export interface LlmCounterpartyRole {
+  address: string;                       // must be one of the [external] PARTICIPANTS
+  label: RoleLabel;
+  confidence: RoleConfidence;
+  evidence: string;                      // one sentence, paraphrased, no quotes
+}
+
+export interface LlmEmailNote {
+  summary: string | null;                // 1–2 sentences; null when nothing substantive
+  key_points: string[];                  // 0–4 short paraphrased points
+  next_step: string | null;
+  next_step_status: 'action' | 'done' | 'none';
+  sentiment: 'positive' | 'neutral' | 'negative';
+  counterparty_roles: LlmCounterpartyRole[];
+}
+
+export interface QueueParticipant {
+  role: 'from' | 'to' | 'cc';
+  address: string;
+}
 
 export interface QueueEntry {
   message_id: string;
   subject: string;
   sender_email: string;
   domain_tag: string | null;
+  participants: QueueParticipant[];
   payload: {
     body_snippet: string;
+    thread_context?: string;
     candidates: Candidate[];
     want_topics: boolean;
     want_names: boolean;
@@ -54,6 +92,7 @@ export interface LlmExtraction {
   topics: LlmTopic[];
   people: LlmPerson[];
   related_companies: LlmRelatedCompany[];
+  email_note: LlmEmailNote;
 }
 
 // After merging LLM output back with the deterministic email/phone values.
@@ -159,8 +198,89 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         required: ['company_name', 'reason', 'reason_summary', 'keywords', 'confidence'],
       },
     },
+    email_note: {
+      type: 'object',
+      description:
+        'Business-substance email note and counterparty deal roles. Paraphrase only, never quote the email verbatim. Summary must be null for emails with nothing substantive (acknowledgements, scheduling, "thanks").',
+      properties: {
+        summary: {
+          type: ['string', 'null'],
+          description:
+            '1-2 sentence business substance summary. Paraphrase only, never quote verbatim. null if the email has no business or deal substance (e.g. acknowledgements, scheduling, "thanks").',
+        },
+        key_points: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '0-4 short paraphrased key business points. Never quote verbatim.',
+        },
+        next_step: {
+          type: ['string', 'null'],
+          description:
+            'Concrete next step or action item if mentioned; null otherwise. Paraphrase only.',
+        },
+        next_step_status: {
+          type: 'string',
+          enum: ['action', 'done', 'none'],
+          description:
+            'action = pending action needed; done = action completed; none = no actionable next step.',
+        },
+        sentiment: {
+          type: 'string',
+          enum: ['positive', 'neutral', 'negative'],
+          description: 'Overall tone / sentiment of the communication.',
+        },
+        counterparty_roles: {
+          type: 'array',
+          description:
+            'Counterparty deal roles for [external] participants who have real deal role evidence in the email. Return empty array [] if no external participant has clear role evidence. See ROLE RULES.',
+          items: {
+            type: 'object',
+            properties: {
+              address: {
+                type: 'string',
+                description:
+                  'Email address of the participant (must be one of the [external] PARTICIPANTS listed).',
+              },
+              label: {
+                type: 'string',
+                enum: ROLE_LABELS,
+                description: 'Inferred deal role.',
+              },
+              confidence: {
+                type: 'string',
+                enum: ['high', 'medium', 'low'],
+                description: 'Confidence in this role inference.',
+              },
+              evidence: {
+                type: 'string',
+                description:
+                  'One-sentence paraphrase explaining the evidence for this role. Never quote the email verbatim.',
+              },
+            },
+            required: ['address', 'label', 'confidence', 'evidence'],
+          },
+        },
+      },
+      required: [
+        'summary',
+        'key_points',
+        'next_step',
+        'next_step_status',
+        'sentiment',
+        'counterparty_roles',
+      ],
+    },
   },
-  required: ['is_personal', 'topics', 'people', 'related_companies'],
+  required: ['is_personal', 'topics', 'people', 'related_companies', 'email_note'],
+} as const;
+
+export const EMAIL_NOTE_SCHEMA = {
+  type: 'object',
+  properties: {
+    email_note: EMAIL_EXTRACTION_SCHEMA.properties.email_note,
+  },
+  required: ['email_note'],
 } as const;
 
 // ─── Prompts (verbatim from the Python original — well-tested phrasing) ──────
@@ -209,6 +329,7 @@ THING TO CONSIDER:
 TOPIC RULES:
 Emit 0-5 topic objects, each with a kebab-case "name" and an "is_deal_related" boolean.
 Empty array is fine and better than noise.
+Take topics from SUBJECT and EMAIL BODY only, never from EARLIER IN THREAD.
 
 is_deal_related = true — directly tied to a transaction or deal process:
 - Deal mechanics: nda, term-sheet, due-diligence, valuation, mou, loi, signing, mandate, acquisition, financing
@@ -238,6 +359,7 @@ procedural tags to hit the 1-5 minimum.
 
 RELATED COMPANIES RULES:
 Extract ONLY companies that are THEMSELVES the subject of a transaction — being sold, acquired, or receiving investment. Empty array if nothing qualifies.
+Take companies from SUBJECT and EMAIL BODY only. A company named only in EARLIER IN THREAD is not related to this email: leave it out even when this email clearly refers to it.
 
 INCLUDE:
 - Explicit sell-side / M&A mandate: "We represent X", "Mandated for X", "sell-side process for X", "X is for sale", "disposal of X", "carve-out of X", "acquisition of X", "merger involving X"
@@ -257,13 +379,82 @@ EXCLUDE — NEVER extract:
 Use 'high' ONLY for explicit mandate / pitch language. Use 'medium' for clear deal-keyword context. Use 'low' for plausible but ambiguous signals.
 If nothing qualifies, return [].
 
+NOTE RULES:
+- Extract a concise business-substance note for the email.
+- Paraphrase only: NEVER quote the email body or subject verbatim. All text must be derived/paraphrased.
+- Business substance only: if the email is purely administrative, scheduling, acknowledgements, or "thanks" with no deal or business substance, set summary = null, key_points = [], next_step = null, next_step_status = "none", sentiment = "neutral", counterparty_roles = [].
+- summary: 1-2 sentences capturing the substantive business discussion; null if nothing substantive.
+- key_points: 0-4 short paraphrased bullet points.
+- next_step: next action item if any, or null.
+- next_step_status: 'action' if action is pending, 'done' if completed, 'none' if no next step.
+- sentiment: 'positive', 'neutral', or 'negative'.
+- EARLIER IN THREAD, when present, is the quoted history under this email. Use it ONLY to understand what this email refers to (e.g. which option a reply agrees to). The note covers what THIS email adds; never summarise the earlier messages for their own sake.
+
+ROLE RULES:
+- Infer the role in investment/transactions for participants, based ONLY on evidence in the email. EARLIER IN THREAD may clarify what this email means, but a role needs evidence in this email's own body.
+- IMPORTANT: Roles apply ONLY to [external] participants listed in PARTICIPANTS. NEVER infer roles for [internal] participants.
+- Only emit a role when the email gives real evidence of what that external person or their firm does in a deal. If no clear evidence, emit an empty array [].
+- Role labels:
+  - funding: equity/fund-raising, capital commitments, LP/co-investment.
+  - lending: debt, loans, credit facilities.
+  - finance: financial analysis, models, valuation, CFO-type work.
+  - tax: tax structuring/advice.
+  - advisory: M&A / sell-side / buy-side advisory, mandates, deal origination.
+  - legal: legal counsel, documentation, NDAs/SPAs.
+  - due_diligence: third-party financial, accounting, technical, commercial or ESG due diligence on a target.
+  - principal: an owner, founder, shareholder or executive of the company being sold or raising capital, acting for that company. Never a buyer or investor (use funding), and never an advisor.
+  - other: a clear deal role that none of the labels above fit; the evidence sentence must say what the role is.
+- Prefer a specific label over 'other'. Never use 'other' for a participant with no clear deal role: emit nothing instead.
+- confidence: 'high' for explicit role statement or clear transaction role; 'medium' for strong contextual evidence; 'low' for plausible inference.
+- evidence: ONE sentence paraphrasing the reason for the role inference. NEVER quote verbatim.
+
 Output must be valid JSON matching the requested schema.`;
 
+function isInternalAddress(address: string): boolean {
+  return INTERNAL_MAIL_DOMAINS.has(address.split('@')[1] ?? '');
+}
+
+function formatParticipants(entry: QueueEntry): string[] {
+  const lines: string[] = [];
+  for (const p of entry.participants) {
+    const address = p.address.trim().toLowerCase();
+    if (!address) continue;
+    const tag = isInternalAddress(address) ? '[internal]' : '[external]';
+    lines.push(`${p.role.toUpperCase()}: ${address} ${tag}`);
+  }
+  return lines;
+}
+
+/**
+ * The lower-cased participants outside our own domains: the only addresses a
+ * counterparty role may name (`sanitizeEmailNote`).
+ */
+export function externalAddresses(from: string, to: string[], cc: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const a of [from, ...to, ...cc]) {
+    const address = a.toLowerCase();
+    if (!isInternalAddress(address)) out.add(address);
+  }
+  return out;
+}
+
+// The quoted history, for the note only. Topics, related companies and names
+// are told to ignore it: every reply quotes the original pitch, so mining it
+// would re-count the same evidence once per reply.
+function threadSection(payload: QueueEntry['payload']): string | null {
+  const thread = (payload.thread_context ?? '').trim();
+  if (!thread) return null;
+  return `EARLIER IN THREAD (context for the note only; extract nothing else from it):\n${thread.slice(0, 3000)}`;
+}
+
 // Build the per-entry user prompt. Order matches the Python version exactly:
-// TASK → CANDIDATES → EMAIL BODY, so the model attends to candidates first.
+// TASK → CANDIDATES → PARTICIPANTS → SUBJECT → EMAIL BODY, then EARLIER IN
+// THREAD when the note is wanted.
 export function buildUserPrompt(entry: QueueEntry): string {
   const { payload } = entry;
   const sections: string[] = [];
+
+  const wantNote = Boolean(payload.body_snippet);
 
   const instructions: string[] = [];
   if (payload.want_names) {
@@ -281,6 +472,11 @@ export function buildUserPrompt(entry: QueueEntry): string {
       '3. Extract related target/opportunity companies from the SUBJECT and EMAIL BODY (see RELATED COMPANIES RULES). Return [] if nothing qualifies.',
     );
   }
+  if (wantNote) {
+    instructions.push(
+      '4. Generate an email note summarizing business substance and infer counterparty deal roles for [external] participants from SUBJECT and EMAIL BODY (see NOTE RULES and ROLE RULES).',
+    );
+  }
   sections.push(`TASK:\n${instructions.join('\n')}`);
 
   if (payload.want_names && payload.candidates.length > 0) {
@@ -292,17 +488,221 @@ export function buildUserPrompt(entry: QueueEntry): string {
     sections.push(`CANDIDATES:\n${candLines.join('\n')}`);
   }
 
-  if (entry.subject && (payload.want_topics || payload.want_related_companies)) {
+  const participantLines = formatParticipants(entry);
+  if (participantLines.length > 0) {
+    sections.push(`PARTICIPANTS:\n${participantLines.join('\n')}`);
+  }
+
+  if (entry.subject && (payload.want_topics || payload.want_related_companies || wantNote)) {
     sections.push(`SUBJECT:\n${entry.subject}`);
   }
 
-  if (payload.want_topics || payload.want_related_companies) {
+  if (payload.want_topics || payload.want_related_companies || wantNote) {
     // Topics don't need 6000 chars; truncate further for cheaper calls.
     const body = payload.body_snippet.slice(0, 2000);
     sections.push(`EMAIL BODY:\n${body}`);
   }
 
+  const thread = wantNote ? threadSection(payload) : null;
+  if (thread) sections.push(thread);
+
   return sections.join('\n\n');
+}
+
+const LEGAL_NAME_TOKENS = new Set([
+  'pt', 'tbk', 'persero', 'ltd', 'limited', 'inc', 'pte', 'llc', 'corp',
+  'corporation', 'company', 'plc', 'gmbh', 'the',
+]);
+
+function wordText(text: string): string {
+  return ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+}
+
+/**
+ * Drops related companies named only in EARLIER IN THREAD. The prompt says so,
+ * but the model does not always comply, and every reply quotes the original
+ * pitch: one leak per reply would re-count the same evidence. A company stays
+ * when a distinctive word of its name (legal forms like PT/Tbk/Ltd aside)
+ * appears in the email's own subject or body. Emails that quote nothing are
+ * returned unchanged.
+ */
+export function dropThreadOnlyCompanies<T extends Partial<LlmExtraction>>(
+  extraction: T | null,
+  entry: QueueEntry,
+): T | null {
+  if (!extraction?.related_companies?.length) return extraction;
+  if (!(entry.payload.thread_context ?? '').trim()) return extraction;
+  const own = wordText(`${entry.subject}\n${entry.payload.body_snippet}`);
+  const related_companies = extraction.related_companies.filter((rc) => {
+    const name = wordText(rc?.company_name ?? '').trim();
+    if (!name) return false;
+    const words = name.split(' ').filter((w) => w.length >= 3 && !LEGAL_NAME_TOKENS.has(w));
+    return words.length === 0
+      ? own.includes(` ${name} `)
+      : words.some((w) => own.includes(` ${w} `));
+  });
+  return { ...extraction, related_companies };
+}
+
+export function buildNoteOnlyPrompt(entry: QueueEntry): string {
+  const { payload } = entry;
+  const sections: string[] = [];
+
+  sections.push(
+    'TASK:\nGenerate an email note summarizing business substance and infer counterparty deal roles for [external] participants from SUBJECT and EMAIL BODY (see NOTE RULES and ROLE RULES).',
+  );
+
+  const participantLines = formatParticipants(entry);
+  if (participantLines.length > 0) {
+    sections.push(`PARTICIPANTS:\n${participantLines.join('\n')}`);
+  }
+
+  if (entry.subject) {
+    sections.push(`SUBJECT:\n${entry.subject}`);
+  }
+
+  const body = (payload.body_snippet || '').slice(0, 2000);
+  sections.push(`EMAIL BODY:\n${body}`);
+
+  const thread = threadSection(payload);
+  if (thread) sections.push(thread);
+
+  return sections.join('\n\n');
+}
+
+const CONFIDENCE_RANK: Record<RoleConfidence, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+/**
+ * Repairs a tool input where the model emitted `email_note` as a JSON string
+ * instead of an object. The string opens with the note object, optionally
+ * followed by a stray `"` and then the REST of the tool input (`{note},
+ * "is_personal": …, "topics": […]}`), which drops every other field too. The
+ * stray quote is dropped and `{"email_note":` is prefixed, which makes a spill
+ * the full input again; when that does not parse, the leading note object
+ * alone is kept. Anything else is returned unchanged; a note that cannot be
+ * recovered sanitizes to null.
+ */
+export function repairToolInput<T>(input: T): T {
+  if (!input || typeof input !== 'object') return input;
+  const raw = (input as { email_note?: unknown }).email_note;
+  if (typeof raw !== 'string') return input;
+  const end = leadingObjectEnd(raw);
+  if (end < 0) return input;
+  const head = raw.slice(0, end);
+  const rest = raw.slice(end).trimStart().replace(/^"/, '');
+  for (const text of [`{"email_note":${head}${rest}`, `{"email_note":${head}}`]) {
+    try {
+      const whole: unknown = JSON.parse(text);
+      if (isObject(whole) && isObject(whole.email_note)) return { ...input, ...whole };
+    } catch {
+      // try the note object alone
+    }
+  }
+  return input;
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Index just past the balanced `{…}` that opens `text`, or -1. */
+function leadingObjectEnd(text: string): number {
+  const start = text.search(/\S/);
+  if (start < 0 || text[start] !== '{') return -1;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
+/** The trimmed string, or null when it is not a string or is blank. */
+function str(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim() || null;
+}
+
+/** `value` when it is one of `allowed`, else `fallback`. */
+function oneOf<T extends string, F>(value: unknown, allowed: readonly T[], fallback: F): T | F {
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+export function sanitizeEmailNote(
+  note: unknown,
+  externalAddrs: Iterable<string>,
+): LlmEmailNote | null {
+  if (!note || typeof note !== 'object' || Array.isArray(note)) {
+    return null;
+  }
+
+  const raw = note as Record<string, unknown>;
+
+  const summary = str(raw.summary);
+  const keyPoints = Array.isArray(raw.key_points)
+    ? raw.key_points.map(str).filter((kp): kp is string => kp !== null).slice(0, 4)
+    : [];
+  let nextStep = str(raw.next_step);
+  let nextStepStatus = oneOf(raw.next_step_status, ['action', 'done', 'none'] as const, 'none');
+
+  // An email with no business substance (summary null) never carries a next
+  // step, whatever the model returned for it.
+  if (summary === null) {
+    nextStep = null;
+    nextStepStatus = 'none';
+  }
+
+  const sentiment = oneOf(raw.sentiment, ['positive', 'neutral', 'negative'] as const, 'neutral');
+
+  const extSet = new Set([...externalAddrs].map((a) => a.toLowerCase()));
+
+  // Roles: drops unknown/internal address, bad label/confidence, lower-case address, dedupe by (address, label) keeping highest confidence
+  const rolesByAddrLabel = new Map<string, LlmCounterpartyRole>();
+
+  if (Array.isArray(raw.counterparty_roles)) {
+    for (const r of raw.counterparty_roles) {
+      if (!r || typeof r !== 'object') continue;
+      const rObj = r as Record<string, unknown>;
+      const rawAddr = typeof rObj.address === 'string' ? rObj.address.trim().toLowerCase() : '';
+      if (!rawAddr || !extSet.has(rawAddr)) continue;
+
+      const label = oneOf(rObj.label, ROLE_LABELS, null);
+      const confidence = oneOf(rObj.confidence, ['high', 'medium', 'low'] as const, null);
+      if (!label || !confidence) continue;
+
+      const evidence = typeof rObj.evidence === 'string' ? rObj.evidence.trim() : '';
+
+      const key = `${rawAddr}\0${label}`;
+      const existing = rolesByAddrLabel.get(key);
+      if (!existing || CONFIDENCE_RANK[confidence] > CONFIDENCE_RANK[existing.confidence]) {
+        rolesByAddrLabel.set(key, {
+          address: rawAddr,
+          label,
+          confidence,
+          evidence,
+        });
+      }
+    }
+  }
+
+  return {
+    summary,
+    key_points: keyPoints,
+    next_step: nextStep,
+    next_step_status: nextStepStatus,
+    sentiment,
+    counterparty_roles: Array.from(rolesByAddrLabel.values()),
+  };
 }
 
 // Merge LLM-extracted name/role/company with the deterministic email/phone

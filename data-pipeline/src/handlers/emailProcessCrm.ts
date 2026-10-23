@@ -32,8 +32,18 @@ import {
   INTERNAL_MAIL_DOMAINS,
   PERSONAL_MAIL_DOMAINS,
 } from '../lib/mailDomains';
-import type { LlmExtraction, LlmRelatedCompany } from '../mboxParser';
+import { pickBetterContactName } from '@/lib/crm/contactName';
+import type {
+  EnrichedPerson,
+  LlmExtraction,
+  LlmRelatedCompany,
+} from '../mboxParser';
 import { mergePeopleWithCandidates, type Candidate } from '../mboxParser';
+import {
+  externalAddresses,
+  sanitizeEmailNote,
+  type LlmEmailNote,
+} from '../mboxParser/llmEnrich';
 
 export interface EphemeralCrmMessage {
   message_id: string;
@@ -48,6 +58,7 @@ export interface EphemeralCrmMessage {
   direction: 'inbound' | 'outbound';
   candidates: Candidate[];
   llm: LlmExtraction | null;
+  model?: string;
 }
 
 function domainOf(email: string): string {
@@ -89,6 +100,118 @@ export function skipEmployerDomain(
   );
 }
 
+const MAX_LLM_COMPANY_LENGTH = 120;
+
+function cleanLlmCompany(company: string | null | undefined): string | null {
+  const c = (company ?? '').replace(/\s+/g, ' ').trim();
+  if (!c || c.includes('@') || c.length > MAX_LLM_COMPANY_LENGTH) return null;
+  return normalize(c) ? c : null;
+}
+
+/**
+ * For each email domain, the company name the LLM most often attributes to
+ * people at that domain in this batch. Ties go to the value seen first.
+ * `peopleByMessage` is the merged LLM people list of every message.
+ */
+export function llmCompanyByDomain(
+  peopleByMessage: EnrichedPerson[][],
+): Map<string, string> {
+  const counts = new Map<string, Map<string, { name: string; n: number; order: number }>>();
+  let order = 0;
+  for (const people of peopleByMessage) {
+    for (const p of people) {
+      if (!p.email) continue;
+      const domain = domainOf(p.email);
+      const company = cleanLlmCompany(p.company);
+      if (!domain || !company) continue;
+      let byNorm = counts.get(domain);
+      if (!byNorm) {
+        byNorm = new Map();
+        counts.set(domain, byNorm);
+      }
+      const key = normalize(company);
+      const hit = byNorm.get(key);
+      if (hit) hit.n += 1;
+      else byNorm.set(key, { name: company, n: 1, order: order++ });
+    }
+  }
+  const out = new Map<string, string>();
+  for (const [domain, byNorm] of counts) {
+    let best: { name: string; n: number; order: number } | null = null;
+    for (const c of byNorm.values()) {
+      if (!best || c.n > best.n || (c.n === best.n && c.order < best.order)) {
+        best = c;
+      }
+    }
+    if (best) out.set(domain, best.name);
+  }
+  return out;
+}
+
+export interface CorrespondentCandidate {
+  employer_id: string;
+  email: string;
+  name: string;
+  title: string | null;
+  phone: string | null;
+  type: 'internal' | 'external';
+  source: string;
+}
+
+/**
+ * One correspondent row per address across the batch. When an address is seen
+ * more than once, the best name wins (`pickBetterContactName`: a real name
+ * beats an address-like one, the first real name is kept) and title/phone keep
+ * the first non-null value.
+ */
+export function collectCorrespondentCandidates(
+  messages: Pick<
+    EphemeralCrmMessage,
+    'from_address' | 'from_display_name' | 'to_addresses' | 'cc_addresses'
+  >[],
+  peopleByMessage: EnrichedPerson[][],
+  domainToEmployerId: Map<string, string>,
+  excludedDomains: Set<string>,
+): Map<string, CorrespondentCandidate> {
+  const corrByEmail = new Map<string, CorrespondentCandidate>();
+  messages.forEach((m, i) => {
+    const people = peopleByMessage[i] ?? [];
+    const byEmail = new Map(
+      people.filter((p) => p.email).map((p) => [p.email!.toLowerCase(), p]),
+    );
+    const sender = (m.from_address ?? '').toLowerCase();
+    for (const addr of [m.from_address, ...m.to_addresses, ...m.cc_addresses]) {
+      if (!addr || skipCrmPerson(addr, excludedDomains)) continue;
+      const employerId = domainToEmployerId.get(domainOf(addr));
+      if (!employerId) continue;
+      const key = addr.toLowerCase();
+      const person = byEmail.get(key);
+      const name = pickBetterContactName(
+        person?.name,
+        key === sender ? m.from_display_name : null,
+        key,
+      );
+      const prev = corrByEmail.get(key);
+      if (!prev) {
+        corrByEmail.set(key, {
+          employer_id: employerId,
+          email: key,
+          name,
+          title: person?.role ?? null,
+          phone: person?.phone ?? null,
+          type: 'external',
+          source: 'mbox',
+        });
+        continue;
+      }
+      prev.name = pickBetterContactName(prev.name, name, key);
+      prev.title = prev.title ?? person?.role ?? null;
+      prev.phone = prev.phone ?? person?.phone ?? null;
+    }
+  });
+  return corrByEmail;
+}
+
 function queryRows<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
   const rows = (result as { rows?: T[] } | null)?.rows;
@@ -103,6 +226,53 @@ export interface EphemeralCrmResult {
   participants_inserted: number;
   related_companies_evidence_inserted: number;
   team_members_inserted: number;
+}
+
+/** One email's sanitized note (null when the model returned none) and the model that wrote it. */
+export type EmailNoteItem = {
+  emailId: string;
+  note: LlmEmailNote | null;
+  model: string | null;
+};
+
+/**
+ * Bulk-insert email notes and role signals for already-ingested or fresh emails.
+ * One statement per table, ON CONFLICT DO NOTHING.
+ */
+export async function upsertEmailNotes(
+  db: DbClient,
+  items: EmailNoteItem[],
+): Promise<void> {
+  if (items.length === 0) return;
+
+  await db.execute(sql`
+    INSERT INTO analytics.email_notes (
+      email_id, summary, key_points, next_step, next_step_status, sentiment, model
+    )
+    VALUES ${sql.join(
+      items.map(
+        ({ emailId, note, model }) =>
+          sql`(${emailId}::uuid, ${note?.summary ?? null}, ${JSON.stringify(note?.key_points ?? [])}::jsonb, ${note?.next_step ?? null}, ${note?.next_step_status ?? 'none'}, ${note?.sentiment ?? 'neutral'}, ${model})`,
+      ),
+      sql`, `,
+    )}
+    ON CONFLICT (email_id) DO NOTHING
+  `);
+
+  const roles = items.flatMap(
+    ({ emailId, note }) =>
+      note?.counterparty_roles.map(
+        (r) => sql`(${emailId}::uuid, ${r.address}, ${r.label}, ${r.confidence}, ${r.evidence})`,
+      ) ?? [],
+  );
+  if (roles.length === 0) return;
+  await db.execute(sql`
+    INSERT INTO analytics.email_role_signals (
+      email_id, address, label, confidence, evidence
+    )
+    VALUES ${sql.join(roles, sql`, `)}
+    ON CONFLICT (email_id, address, label) DO NOTHING
+  `);
 }
 
 /**
@@ -172,6 +342,9 @@ export async function upsertEphemeralCrmBatch(
   }
 
   const affectedRelatedCompanyIds = new Set<string>();
+  const peopleByMessage = messages.map((m) =>
+    mergePeopleWithCandidates(m.llm?.people ?? [], m.candidates),
+  );
 
   const result = await deps.db.transaction(async (tx) => {
     const db = tx as unknown as DbClient;
@@ -223,32 +396,47 @@ export async function upsertEphemeralCrmBatch(
       }
     }
     const uniqueNew = [...new Set(newDomains)];
-    const employerValues = uniqueNew.map((d) => {
-      const curated = domainName.get(d);
-      const first = (d.split('.')[0] || d).toLowerCase();
-      const name = curated ?? first.charAt(0).toUpperCase() + first.slice(1);
-      return {
-        name,
-        normalized_name: normalize(name),
-        industry: null as string | null,
-        status: 'inbound' as const,
-        curation_status: 'published' as const,
-      };
-    });
-    const byNorm = new Map<string, (typeof employerValues)[number]>();
-    for (const v of employerValues) {
-      if (!byNorm.has(v.normalized_name)) byNorm.set(v.normalized_name, v);
-    }
-    const employerRows = await employerRepo.upsertBatch([...byNorm.values()]);
-    result.employers_upserted = employerRows.length;
-    const normToId = new Map(
-      employerRows.map((r) => [r.normalized_name, r.id]),
-    );
+    // A new domain's employer is named by its curated
+    // `employer_overrides.employer_name`, else the company the LLM attributes
+    // to the domain, else the capitalised domain label (`gs.com` → `Gs`).
+    const llmByDomain = llmCompanyByDomain(peopleByMessage);
+    const nameFor = (domain: string): string => {
+      const label = (domain.split('.')[0] || domain).toLowerCase();
+      return (
+        domainName.get(domain) ??
+        llmByDomain.get(domain) ??
+        label.charAt(0).toUpperCase() + label.slice(1)
+      );
+    };
+    // First name wins when two new domains' names normalise the same.
+    const nameByNorm = new Map<string, string>();
     for (const d of uniqueNew) {
-      const curated = domainName.get(d);
-      const first = (d.split('.')[0] || d).toLowerCase();
-      const name = curated ?? first.charAt(0).toUpperCase() + first.slice(1);
-      const id = normToId.get(normalize(name));
+      const name = nameFor(d);
+      if (!nameByNorm.has(normalize(name))) nameByNorm.set(normalize(name), name);
+    }
+    // A chosen name that already belongs to an employer links to that row
+    // as-is: only genuinely new employers are inserted, so an existing
+    // employer is never renamed by ingest.
+    const normToId = new Map(
+      (await employerRepo.findByNormalizedNames([...nameByNorm.keys()])).map(
+        (e) => [e.normalized_name, e.id],
+      ),
+    );
+    const employerRows = await employerRepo.upsertBatch(
+      [...nameByNorm]
+        .filter(([norm]) => !normToId.has(norm))
+        .map(([normalized_name, name]) => ({
+          name,
+          normalized_name,
+          industry: null,
+          status: 'inbound',
+          curation_status: 'published',
+        })),
+    );
+    result.employers_upserted = employerRows.length;
+    for (const r of employerRows) normToId.set(r.normalized_name, r.id);
+    for (const d of uniqueNew) {
+      const id = normToId.get(normalize(nameFor(d)));
       if (id) domainToEmployerId.set(d, id);
     }
     await employerDomainRepo.persistMany(
@@ -299,52 +487,27 @@ export async function upsertEphemeralCrmBatch(
       }
     }
 
-    const corrByEmail = new Map<
-      string,
-      {
-        employer_id: string;
-        email: string;
-        name: string;
-        title: string | null;
-        phone: string | null;
-        type: 'internal' | 'external';
-        source: string;
-      }
-    >();
+    const noteItems: EmailNoteItem[] = [];
     for (const m of messages) {
-      const people = mergePeopleWithCandidates(
-        m.llm?.people ?? [],
-        m.candidates,
-      );
-      const byEmail = new Map(
-        people.filter((p) => p.email).map((p) => [p.email!.toLowerCase(), p]),
-      );
-      for (const addr of [
-        m.from_address,
-        ...m.to_addresses,
-        ...m.cc_addresses,
-      ]) {
-        if (!addr || skipCrmPerson(addr, excludedDomains)) continue;
-        const d = domainOf(addr);
-        const employerId = domainToEmployerId.get(d);
-        if (!employerId) continue;
-        const key = addr.toLowerCase();
-        if (corrByEmail.has(key)) continue;
-        const person = byEmail.get(key);
-        corrByEmail.set(key, {
-          employer_id: employerId,
-          email: key,
-          name:
-            person?.name ||
-            (addr === m.from_address ? m.from_display_name : null) ||
-            addr,
-          title: person?.role ?? null,
-          phone: person?.phone ?? null,
-          type: 'external',
-          source: 'mbox',
-        });
-      }
+      const emailId = midToEmailId.get(m.message_id);
+      if (!m.llm || !emailId) continue;
+      noteItems.push({
+        emailId,
+        note: sanitizeEmailNote(
+          m.llm.email_note,
+          externalAddresses(m.from_address, m.to_addresses, m.cc_addresses),
+        ),
+        model: m.model ?? null,
+      });
     }
+    await upsertEmailNotes(db, noteItems);
+
+    const corrByEmail = collectCorrespondentCandidates(
+      messages,
+      peopleByMessage,
+      domainToEmployerId,
+      excludedDomains,
+    );
     // Email is the CRM join key: an address that already belongs to a contact
     // under a DIFFERENT employer (typically one a human added by hand under the
     // firm they chose) links to that contact instead of spawning a duplicate

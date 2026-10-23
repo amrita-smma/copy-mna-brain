@@ -53,7 +53,8 @@ export interface UpdatePipelineStageInput {
   description?: unknown;
 }
 
-function toDef(row: PipelineStageRow): PipelineStageDef {
+/** A stage row (soft-deleted ones too) as a stage definition. */
+export function toDef(row: PipelineStageRow): PipelineStageDef {
   return {
     key: row.key,
     code: row.code,

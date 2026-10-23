@@ -27,6 +27,13 @@ export interface ContactEnrichmentRun {
   /** Terminal failure message, when the run ended badly. */
   error: string | null;
   startedAt: string;
+  /**
+   * `refresh` when the run re-researches a filled profile. The Profile cell
+   * renders a different button once the bio lands, and only the Refresh one
+   * may resume a refresh run — otherwise a fill that just finished would be
+   * picked up a second time by the button that replaces it.
+   */
+  mode: 'fill' | 'refresh';
 }
 
 export class ContactNotFoundError extends Error {
@@ -61,7 +68,8 @@ export class CrmContactEnrichmentService {
   ) {}
 
   /**
-   * Queue a run that fills this contact's empty profile fields.
+   * Queue a run that fills this contact's empty profile fields — or, with
+   * `refresh`, researches an already-filled profile again and rewrites its bio.
    *
    * Idempotent on an in-flight run: a double-click, or a second user on the
    * same firm, joins the run already going rather than stacking a duplicate
@@ -73,7 +81,7 @@ export class CrmContactEnrichmentService {
    */
   async enrich(
     correspondentId: string,
-    opts: { triggeredByUserId?: string | null } = {},
+    opts: { triggeredByUserId?: string | null; refresh?: boolean } = {},
   ): Promise<{ run: ContactEnrichmentRun; created: boolean }> {
     const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const existing = await queueRepo.findLatestByCorrespondentId(
@@ -93,12 +101,14 @@ export class CrmContactEnrichmentService {
     const employer = await this.employerRepo.findById(contact.employer_id);
     const employerName = employer?.name ?? 'an unknown firm';
     const missingFields = missingProfileFields(contact);
+    const refresh = opts.refresh === true;
 
     const prompt = buildContactEnrichmentPrompt({
       correspondentId,
       contactName: contact.name,
       employerName,
       missingFields,
+      refresh,
     });
 
     const enqueue = (idempotencyKey: string | null) =>
@@ -112,10 +122,11 @@ export class CrmContactEnrichmentService {
           employer_id: contact.employer_id,
         },
         input: {
-          title: buildContactEnrichmentTitle(contact.name, employerName),
+          title: buildContactEnrichmentTitle(contact.name, employerName, refresh),
           prompt,
           instruction: prompt,
           correspondent_id: correspondentId,
+          mode: refresh ? 'refresh' : 'fill',
         },
         triggeredByUserId: opts.triggeredByUserId ?? null,
         idempotencyKey,
@@ -209,5 +220,6 @@ export function toContactEnrichmentRun(row: WorkforceQueueRow): ContactEnrichmen
     active: !isTerminalWorkforceStatus(row.status),
     error,
     startedAt: row.created_at,
+    mode: row.input?.mode === 'refresh' ? 'refresh' : 'fill',
   };
 }

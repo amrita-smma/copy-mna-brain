@@ -56,6 +56,10 @@ export * from './featureFlagRepository';
 export * from './feedbackRepository';
 export * from './userConsentRepository';
 export * from './employerRelatedCompanyRepository';
+export * from './contactInteractionRepository';
+export * from './dealContactRepository';
+export * from './bankerListRepository';
+export * from './crmSuggestedQuestionRepository';
 export * from './workspaceRepository';
 export * from './roleRepository';
 export * from './userWorkspaceRepository';
@@ -86,3 +90,4 @@ export * from './insightTemplateRepository';
 export * from './agentCheckpointRepository';
 
 export * from './userMemoryRepository';
+export * from './contactConversationRepository';

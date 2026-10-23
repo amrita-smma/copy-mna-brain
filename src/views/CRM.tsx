@@ -3,20 +3,45 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  listBankers,
+  type BankerListResult,
+  type BankerListSort,
+} from "@/lib/api/crmBankers";
 import { AlertTriangle, FileUp, Loader2, Plus, Search, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 import { AddContactDialog } from "./crm/AddContactDialog";
+import { AskBrainRow } from "./crm/AskBrainRow";
+import { BankersTable } from "./crm/BankersTable";
+import {
+  ContactInsightsPanel,
+  type ContactPanelSeed,
+} from "./crm/ContactInsightsPanel";
 import { CurationDialog } from "./crm/CurationDialog";
-import { EmployerCard } from "./crm/EmployerCard";
+import { EmployerCard, FIRM_GRID } from "./crm/EmployerCard";
 import { ImportContactsDialog } from "./crm/ImportContactsDialog";
 import { CrmHeader } from "./crm/Header";
 import { LastContactFilter } from "./crm/LastContactFilter";
 import { Pagination } from "./crm/Pagination";
+import { SortHeader } from "./crm/SortHeader";
 import { TeamFilter } from "./crm/TeamFilter";
 import { TopicFilter } from "./crm/TopicFilter";
 import type {
@@ -27,9 +52,46 @@ import type {
   TeamMemberSummary,
   Topic,
 } from "./crm/types";
-import { LAST_CONTACT_LABELS, PAGE_SIZE, TOPIC_SUGGESTIONS } from "./crm/utils";
+import {
+  LAST_CONTACT_LABELS,
+  NEEDS_DEAL_LINKS,
+  PAGE_SIZE,
+  TOPIC_SUGGESTIONS,
+} from "./crm/utils";
+import {
+  DEFAULT_EMPLOYER_LIST_SORT,
+  EMPLOYER_LIST_SORT_DEFAULT_DIR,
+  type EmployerListSort,
+  type SortDirection,
+} from "@/lib/crm/employerListSort";
 
-export default function CRM() {
+type CrmView = "firms" | "bankers";
+
+const VIEW_PARAM: Record<Exclude<CrmView, "firms">, string> = {
+  bankers: "bankers",
+};
+
+const VIEW_LABEL: Record<CrmView, string> = {
+  firms: "Firms",
+  bankers: "Bankers",
+};
+
+const BANKERS_PAGE_SIZE = 25;
+
+const BANKER_SORT_LABELS: Record<BankerListSort, string> = {
+  recent: "Most recent contact",
+  deals_brought: "Most deals brought",
+  reached_l1: "Leads that reach L1",
+  team_members: "Most team members",
+  emails: "Most emails",
+};
+
+interface CRMProps {
+  /** `CRM_BANKERS_VIEW_ENABLED`: the Firms | Bankers toggle and the Bankers list. */
+  showBankersView?: boolean;
+}
+
+export default function CRM({ showBankersView = false }: CRMProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
@@ -43,6 +105,13 @@ export default function CRM() {
     () => searchParams.get("q") ?? searchParams.get("firm") ?? "",
   );
   const [initialEmployerId] = useState(() => searchParams.get("employerId"));
+  // `?view=bankers` keeps the view across a reload (flag on only).
+  const [view, setView] = useState<CrmView>(() => {
+    const param = searchParams.get("view");
+    if (showBankersView && param === VIEW_PARAM.bankers) return "bankers";
+    return "firms";
+  });
+  const views: CrmView[] = ["firms", ...(showBankersView ? (["bankers"] as const) : [])];
 
   const [employers, setEmployers] = useState<EmployerSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -68,6 +137,10 @@ export default function CRM() {
   const [teamUsers, setTeamUsers] = useState<TeamMemberSummary[]>([]);
 
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<EmployerListSort>(DEFAULT_EMPLOYER_LIST_SORT);
+  const [sortDir, setSortDir] = useState<SortDirection>(
+    EMPLOYER_LIST_SORT_DEFAULT_DIR[DEFAULT_EMPLOYER_LIST_SORT],
+  );
   const [expandedId, setExpandedId] = useState<string | null>(initialEmployerId);
   const [details, setDetails] = useState<Record<string, EmployerDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
@@ -76,6 +149,23 @@ export default function CRM() {
   const [addContactEmployerId, setAddContactEmployerId] = useState<
     string | null
   >(null);
+
+  // ─── Bankers view state ───────────────────────────────────────────────────
+  // The latest page fetched; null until the first one lands. A change to the
+  // search, a filter or the sort sets `bankerPage` back to 1 in the same
+  // handler, so no request is sent for the old page.
+  const [bankers, setBankers] = useState<BankerListResult | null>(null);
+  const [bankersLoading, setBankersLoading] = useState(false);
+  const [bankerPage, setBankerPage] = useState(1);
+  const [bankerSort, setBankerSort] = useState<BankerListSort>("recent");
+  const [hasDealsOnly, setHasDealsOnly] = useState(false);
+  const [active30, setActive30] = useState(false);
+  const bankerRequestRef = useRef(0);
+
+  // Record-scoped panel: open is derived from the selection
+  // (.claude/rules/dialog-open-state.md); the panel fetches its own data.
+  const [selectedContact, setSelectedContact] =
+    useState<ContactPanelSeed | null>(null);
 
   const [curationOpen, setCurationOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -92,9 +182,14 @@ export default function CRM() {
 
   // ─── Debounce search ──────────────────────────────────────────────────────
   useEffect(() => {
-    const handle = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    const next = search.trim();
+    if (next === debouncedSearch) return;
+    const handle = setTimeout(() => {
+      setDebouncedSearch(next);
+      setBankerPage(1);
+    }, 250);
     return () => clearTimeout(handle);
-  }, [search]);
+  }, [search, debouncedSearch]);
 
   // Mirror the search into `?q=`. `history.replaceState`, not router.replace:
   // it updates the URL bar without a Next.js soft navigation, so the server
@@ -105,10 +200,13 @@ export default function CRM() {
     url.searchParams.delete("firm");
     if (debouncedSearch) url.searchParams.set("q", debouncedSearch);
     else url.searchParams.delete("q");
+    // With the flag off, a bookmarked `?view=…` lands on Firms.
+    if (view === "firms") url.searchParams.delete("view");
+    else url.searchParams.set("view", VIEW_PARAM[view]);
     if (url.href !== window.location.href) {
       window.history.replaceState(window.history.state, "", url);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, view]);
 
   // ─── Fetch employers ──────────────────────────────────────────────────────
   const fetchEmployers = useCallback(async () => {
@@ -127,6 +225,8 @@ export default function CRM() {
       
       topicFilter.forEach((id) => params.append("topicId", id));
       teamFilter.forEach((id) => params.append("teamUserId", id));
+      params.set("sort", sort);
+      params.set("dir", sortDir);
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String((page - 1) * PAGE_SIZE));
       const localMidnight = new Date();
@@ -159,6 +259,8 @@ export default function CRM() {
     customDate,
     topicFilter,
     teamFilter,
+    sort,
+    sortDir,
     page,
     handleUnauthorized,
   ]);
@@ -166,6 +268,71 @@ export default function CRM() {
   useEffect(() => {
     fetchEmployers();
   }, [fetchEmployers]);
+
+  // ─── Fetch bankers (Bankers view) ─────────────────────────────────────────
+  // Sorting, filtering and paging are server-side; a request-id guard drops a
+  // slow earlier response so it never paints over the latest filters.
+  const fetchBankers = useCallback(async () => {
+    if (authLoading || !userId || view !== "bankers") return;
+    const requestId = ++bankerRequestRef.current;
+    setBankersLoading(true);
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const data = await listBankers({
+        q: debouncedSearch || undefined,
+        sort: bankerSort,
+        lastContact,
+        customDate: lastContact === "custom" ? customDate : undefined,
+        clientTodayIso: today.toISOString(),
+        teamUserIds: Array.from(teamFilter),
+        hasDeals: hasDealsOnly,
+        active30,
+        page: bankerPage,
+        pageSize: BANKERS_PAGE_SIZE,
+      });
+      if (bankerRequestRef.current !== requestId) return;
+      setBankers(data);
+    } catch (err) {
+      if (bankerRequestRef.current === requestId) {
+        toast.error((err as Error).message || "Failed to load bankers");
+      }
+    } finally {
+      if (bankerRequestRef.current === requestId) setBankersLoading(false);
+    }
+  }, [
+    authLoading,
+    userId,
+    view,
+    debouncedSearch,
+    bankerSort,
+    lastContact,
+    customDate,
+    teamFilter,
+    hasDealsOnly,
+    active30,
+    bankerPage,
+  ]);
+
+  useEffect(() => {
+    fetchBankers();
+  }, [fetchBankers]);
+
+  // Clicking the active column flips its direction; a new column starts in
+  // its natural direction (A→Z, fastest, latest, most).
+  const handleSort = useCallback(
+    (column: EmployerListSort) => {
+      if (column === sort) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      } else {
+        setSort(column);
+        setSortDir(EMPLOYER_LIST_SORT_DEFAULT_DIR[column]);
+      }
+      setPage(1);
+    },
+    [sort],
+  );
+  const sortProps = { sort, direction: sortDir, onSort: handleSort };
 
   // ─── Load filter sources ──────────────────────────────────────────────────
   useEffect(() => {
@@ -263,6 +430,7 @@ export default function CRM() {
         clear: () => {
           setLastContact(null);
           setCustomDate("");
+          setBankerPage(1);
         },
       });
     }
@@ -286,16 +454,59 @@ export default function CRM() {
       tags.push({
         key: "team:" + id,
         label: u.name,
-        clear: () =>
+        clear: () => {
           setTeamFilter((s) => {
             const next = new Set(s);
             next.delete(id);
             return next;
-          }),
+          });
+          setBankerPage(1);
+        },
       });
     });
+    if (view === "bankers") {
+      if (hasDealsOnly) {
+        tags.push({
+          key: "hasDeals",
+          label: "Has linked deals",
+          clear: () => {
+            setHasDealsOnly(false);
+            setBankerPage(1);
+          },
+        });
+      }
+      if (active30) {
+        tags.push({
+          key: "active30",
+          label: "Active in last 30 days",
+          clear: () => {
+            setActive30(false);
+            setBankerPage(1);
+          },
+        });
+      }
+    }
     return tags;
-  }, [lastContact, topicFilter, teamFilter, topics, teamUsers]);
+  }, [lastContact, topicFilter, teamFilter, topics, teamUsers, view, hasDealsOnly, active30]);
+
+  // Topic chips belong to the Firms view only.
+  const visibleTags =
+    view === "bankers"
+      ? activeTags.filter((t) => !t.key.startsWith("topic:"))
+      : activeTags;
+
+  const clearBankerFilters = () => {
+    setSearch("");
+    setLastContact(null);
+    setCustomDate("");
+    setTeamFilter(new Set());
+    setHasDealsOnly(false);
+    setActive30(false);
+    setBankerPage(1);
+  };
+
+  const bankerTotal = bankers?.total ?? 0;
+  const bankerTotalPages = Math.max(1, Math.ceil(bankerTotal / BANKERS_PAGE_SIZE));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -312,6 +523,7 @@ export default function CRM() {
           onShowStale={() => {
             setLastContact("stale_30");
             setPage(1);
+            setBankerPage(1);
           }}
           onOpenCuration={() => setCurationOpen(true)}
         />
@@ -335,42 +547,53 @@ export default function CRM() {
         )}
 
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-screen-2xl px-7 py-3">
+          <div className="mx-auto flex max-w-screen-2xl flex-col gap-4 px-7 py-3">
+            <AskBrainRow userId={userId} />
             <Card className="border bg-card">
               <CardContent className="pt-6">
-                {/* Toolbar — search leftmost, then the actions, on one row;
-                    the filters wrap onto the next line when the row overflows. */}
+                {/* Toolbar — search, the filters, then the actions pushed right;
+                    the row wraps when it overflows. */}
                 <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {views.length > 1 && (
+                    <div
+                      role="group"
+                      aria-label="CRM view"
+                      className="inline-flex shrink-0 rounded-md border bg-muted p-0.5"
+                      data-testid="crm-view-toggle"
+                    >
+                      {views.map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={view === v}
+                          onClick={() => setView(v)}
+                          className={cn(
+                            "rounded px-3 py-1 text-sm font-semibold transition-colors",
+                            view === v
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          data-testid={`crm-view-${v}`}
+                        >
+                          {VIEW_LABEL[v]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="relative min-w-[240px] flex-1">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Search by company name or PIC name…"
+                      placeholder={
+                        view === "bankers"
+                          ? "Search by name, email or firm…"
+                          : "Search by firm, contact name or email…"
+                      }
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       className="pl-9 bg-background"
                     />
                   </div>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setImportOpen(true)}
-                    data-testid="contact-import-open"
-                  >
-                    <FileUp className="mr-2 h-4 w-4" />
-                    Import
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setAddContactEmployerId(null);
-                      setAddContactOpen(true);
-                    }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Contact
-                  </Button>
 
                   <LastContactFilter
                     value={lastContact}
@@ -379,17 +602,20 @@ export default function CRM() {
                       setLastContact(v);
                       setCustomDate(custom ?? "");
                       setPage(1);
+                      setBankerPage(1);
                     }}
                   />
 
-                  <TopicFilter
-                    topics={topics}
-                    selected={topicFilter}
-                    onChange={(next) => {
-                      setTopicFilter(next);
-                      setPage(1);
-                    }}
-                  />
+                  {view === "firms" && (
+                    <TopicFilter
+                      topics={topics}
+                      selected={topicFilter}
+                      onChange={(next) => {
+                        setTopicFilter(next);
+                        setPage(1);
+                      }}
+                    />
+                  )}
 
                   <TeamFilter
                     users={teamUsers}
@@ -401,14 +627,113 @@ export default function CRM() {
                       });
                       setTeamFilter(next);
                       setPage(1);
+                      setBankerPage(1);
                     }}
                   />
+                  {view === "bankers" && (
+                    <>
+                      <Select
+                        value={bankerSort}
+                        onValueChange={(v) => {
+                          setBankerSort(v as BankerListSort);
+                          setBankerPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className="h-9 w-[200px] bg-background"
+                          aria-label="Sort bankers"
+                          data-testid="crm-bankers-sort"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(BANKER_SORT_LABELS) as BankerListSort[]).map(
+                            (key) => {
+                              const disabled =
+                                key === "reached_l1" && bankers?.hasDealLinks === false;
+                              return disabled ? (
+                                <Tooltip key={key}>
+                                  <TooltipTrigger asChild>
+                                    <div>
+                                      <SelectItem value={key} disabled>
+                                        {BANKER_SORT_LABELS[key]}
+                                      </SelectItem>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left">
+                                    {NEEDS_DEAL_LINKS}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <SelectItem
+                                  key={key}
+                                  value={key}
+                                  data-testid={`crm-bankers-sort-${key}`}
+                                >
+                                  {BANKER_SORT_LABELS[key]}
+                                </SelectItem>
+                              );
+                            },
+                          )}
+                        </SelectContent>
+                      </Select>
+
+                      {(
+                        [
+                          ["has-deals", "Has linked deals", hasDealsOnly, setHasDealsOnly],
+                          ["active30", "Active in last 30 days", active30, setActive30],
+                        ] as const
+                      ).map(([id, label, on, set]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => {
+                            set(!on);
+                            setBankerPage(1);
+                          }}
+                          className={cn(
+                            "h-9 rounded-md border px-3 text-sm font-medium transition-colors",
+                            on
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "bg-background text-muted-foreground hover:text-foreground",
+                          )}
+                          data-testid={`crm-bankers-chip-${id}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setImportOpen(true)}
+                      data-testid="contact-import-open"
+                    >
+                      <FileUp className="mr-2 h-4 w-4" />
+                      Import
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setAddContactEmployerId(null);
+                        setAddContactOpen(true);
+                      }}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Contact
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Active filter chips */}
-                {activeTags.length > 0 && (
+                {visibleTags.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-1">
-                    {activeTags.map((t) => (
+                    {visibleTags.map((t) => (
                       <button
                         key={t.key}
                         className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-600 hover:text-white dark:bg-blue-950 dark:text-blue-300"
@@ -421,73 +746,146 @@ export default function CRM() {
                   </div>
                 )}
 
-                {/* Column headers */}
-                <div className="mb-1 grid grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_28px] gap-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <div />
-                  <div>Source</div>
-                  <div>Industry Focus</div>
-                  <div>Primary PIC</div>
-                  <div>Response p50</div>
-                  <div>Last Contact</div>
-                  <div>Topics</div>
-                  <div>Team Member</div>
-                  <div />
-                </div>
-
-                {/* Cards. Only show the full-list spinner on the INITIAL load
-                    (no rows yet). A background refetch — e.g. after reclassifying a
-                    topic, which calls onRefreshList to refresh the collapsed-row
-                    topic summary — keeps the existing list rendered and updates it
-                    in place. Blanking the list to a spinner on every refresh
-                    unmounted the expanded card and reset its tab to Contacts. */}
-                {loading && employers.length === 0 ? (
-                  <div className="flex items-center justify-center py-16">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : employers.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-                    <Users className="h-10 w-10 opacity-50" />
-                    <p>No employers match these filters.</p>
-                  </div>
-                ) : (
-                  <div className="divide-y overflow-hidden rounded-lg border">
-                    {employers.map((emp) => (
-                      <EmployerCard
-                        key={emp.id}
-                        employer={emp}
-                        expanded={expandedId === emp.id}
-                        searchTerm={resultSearch}
-                        detail={details[emp.id]}
-                        loadingDetail={loadingDetail === emp.id}
-                        onToggle={() => toggleExpand(emp.id)}
-                        onAddContact={() => {
-                          setAddContactEmployerId(emp.id);
-                          setAddContactOpen(true);
-                        }}
-                        onRefreshDetail={() => loadDetail(emp.id)}
-                        onRefreshList={() => fetchEmployers()}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Pagination */}
-                {total > 0 && (
-                  <div className="mt-6 flex items-center justify-between border-t pt-4">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {(page - 1) * PAGE_SIZE + 1}–
-                      {Math.min(page * PAGE_SIZE, total)} of{" "}
-                      <strong>{total}</strong>{" "}
-                      {total === 1 ? "company" : "companies"}
+                {view === "bankers" ? (
+                  <>
+                    <div
+                      className="mb-2 flex items-center gap-3 text-sm text-muted-foreground"
+                      data-testid="crm-bankers-count"
+                    >
+                      <span>
+                        <strong className="text-foreground">{bankerTotal}</strong> of{" "}
+                        {bankers?.totalUnfiltered ?? 0} bankers
+                      </span>
+                      {(visibleTags.length > 0 || debouncedSearch) && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-primary hover:underline"
+                          onClick={clearBankerFilters}
+                          data-testid="crm-bankers-clear"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                      {bankersLoading && bankers && (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      )}
                     </div>
-                    {total > PAGE_SIZE && (
-                      <Pagination
-                        page={page}
-                        totalPages={totalPages}
-                        onChange={setPage}
+                    {!bankers ? (
+                      <div className="flex items-center justify-center py-16">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : bankers.rows.length === 0 ? (
+                      <div
+                        className="flex flex-col items-center gap-2 py-16 text-muted-foreground"
+                        data-testid="crm-bankers-empty"
+                      >
+                        <Users className="h-10 w-10 opacity-50" />
+                        <p>No bankers match these filters.</p>
+                        {(visibleTags.length > 0 || debouncedSearch) && (
+                          <Button size="sm" variant="outline" onClick={clearBankerFilters}>
+                            Clear all filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <BankersTable
+                        rows={bankers.rows}
+                        hasSyncedData={bankers.hasSyncedData}
+                        hasDealLinks={bankers.hasDealLinks}
+                        onOpen={(row) =>
+                          setSelectedContact({
+                            id: row.correspondentId,
+                            name: row.name,
+                            title: row.title,
+                          })
+                        }
                       />
                     )}
-                  </div>
+                    {bankerTotal > BANKERS_PAGE_SIZE && (
+                      <div className="mt-6 flex items-center justify-between border-t pt-4">
+                        <div className="text-sm text-muted-foreground">
+                          Showing {(bankerPage - 1) * BANKERS_PAGE_SIZE + 1}–
+                          {Math.min(bankerPage * BANKERS_PAGE_SIZE, bankerTotal)} of{" "}
+                          <strong>{bankerTotal}</strong>
+                        </div>
+                        <Pagination
+                          page={bankerPage}
+                          totalPages={bankerTotalPages}
+                          onChange={setBankerPage}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* Column headers */}
+                    <div className={cn(FIRM_GRID, "rounded-t-lg border border-b-0 bg-muted py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground")}>
+                      <div><SortHeader column="name" {...sortProps}>Source</SortHeader></div>
+                      <div><SortHeader column="industry" {...sortProps}>Industry</SortHeader></div>
+                      <div><SortHeader column="primary_pic" {...sortProps}>PIC</SortHeader></div>
+                      <div><SortHeader column="last_contact" {...sortProps}>Activity</SortHeader></div>
+                      <div><SortHeader column="emails" {...sortProps}>Topics</SortHeader></div>
+                      <div><SortHeader column="team_members" {...sortProps}>Team</SortHeader></div>
+                      <div />
+                    </div>
+
+                    {/* Cards. Only show the full-list spinner on the INITIAL load
+                        (no rows yet). A background refetch — e.g. after reclassifying a
+                        topic, which calls onRefreshList to refresh the collapsed-row
+                        topic summary — keeps the existing list rendered and updates it
+                        in place. Blanking the list to a spinner on every refresh
+                        unmounted the expanded card and reset its tab to Contacts. */}
+                    {loading && employers.length === 0 ? (
+                      <div className="flex items-center justify-center py-16">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : employers.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+                        <Users className="h-10 w-10 opacity-50" />
+                        <p>No employers match these filters.</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y overflow-hidden rounded-b-lg border">
+                        {employers.map((emp) => (
+                          <EmployerCard
+                            key={emp.id}
+                            employer={emp}
+                            expanded={expandedId === emp.id}
+                            searchTerm={resultSearch}
+                            detail={details[emp.id]}
+                            loadingDetail={loadingDetail === emp.id}
+                            onToggle={() => toggleExpand(emp.id)}
+                            onAddContact={() => {
+                              setAddContactEmployerId(emp.id);
+                              setAddContactOpen(true);
+                            }}
+                            onRefreshDetail={() => loadDetail(emp.id)}
+                            onRefreshList={() => fetchEmployers()}
+                            onOpenContact={setSelectedContact}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Pagination */}
+                    {total > 0 && (
+                      <div className="mt-6 flex items-center justify-between border-t pt-4">
+                        <div className="text-sm text-muted-foreground">
+                          Showing {(page - 1) * PAGE_SIZE + 1}–
+                          {Math.min(page * PAGE_SIZE, total)} of{" "}
+                          <strong>{total}</strong>{" "}
+                          {total === 1 ? "company" : "companies"}
+                        </div>
+                        {total > PAGE_SIZE && (
+                          <Pagination
+                            page={page}
+                            totalPages={totalPages}
+                            onChange={setPage}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -515,6 +913,18 @@ export default function CRM() {
           if (expandedId) loadDetail(expandedId);
         }}
       />
+
+      {selectedContact && (
+        <ContactInsightsPanel
+          key={selectedContact.id}
+          contact={selectedContact}
+          open={!!selectedContact}
+          onOpenChange={(open) => {
+            if (!open) setSelectedContact(null);
+          }}
+          onChanged={view === "bankers" ? () => void fetchBankers() : undefined}
+        />
+      )}
 
       <CurationDialog
         open={curationOpen}

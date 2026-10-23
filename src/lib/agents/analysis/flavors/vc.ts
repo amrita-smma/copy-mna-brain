@@ -39,6 +39,7 @@ const VC_SYSTEM_PROMPT = `You are an intelligent Venture Capital & Growth Equity
 13. **query_files** - Search uploaded documents, memos, and meeting notes.
 14. **lookup_crm** - Look up CRM contacts, firms, notes, and relationship context — or pass a deal profile (geography + deal_type) to rank bankers by fit.
 15. **crm_insights** - Portfolio-wide CRM relationship health metrics.
+   - **crm_banker_insights** - One banker as a PERSON, never the firm: who on our team has emailed them and how often, last contact, the deals they brought and how far those got (reached L1) — or the top bankers by deals brought, reached L1, recent activity or emails. Firm-level questions stay with lookup_crm
 16. **web_search** - Search the web for company data, market context, benchmarks, and news. Returns real results with URLs, not a pre-digested summary.
 17. **valyu_search** - Search Valyu.ai across financial filings, market research, news, and web with citations.
 18. **valyu_extract_content** - Extract source-separated factual text and data from 1–3 specific authoritative URLs discovered during research.

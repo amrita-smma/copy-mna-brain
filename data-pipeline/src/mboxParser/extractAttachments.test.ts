@@ -57,6 +57,27 @@ describe('extractAttachments', () => {
     expect(metas[0].content_hash).toHaveLength(64); // sha256 hex
   });
 
+  it('keeps a filename with a literal % instead of throwing URI malformed', () => {
+    const { headers, rawBody } = buildMultipartMessage(
+      VALID_PDF_BODY,
+      'application/pdf',
+      'Fee 2% final.pdf',
+    );
+    const metas = extractAttachments(headers, rawBody);
+    expect(metas).toHaveLength(1);
+    expect(metas[0].filename).toBe('Fee 2% final.pdf');
+  });
+
+  it('still percent-decodes an encoded filename', () => {
+    const { headers, rawBody } = buildMultipartMessage(
+      VALID_PDF_BODY,
+      'application/pdf',
+      'Q3%20report.pdf',
+    );
+    const metas = extractAttachments(headers, rawBody);
+    expect(metas[0].filename).toBe('Q3 report.pdf');
+  });
+
   it('skips non-attachment inline parts', () => {
     const boundary = 'BOUND';
     const headers = parseHeaders(`Content-Type: multipart/mixed; boundary="${boundary}"`);
