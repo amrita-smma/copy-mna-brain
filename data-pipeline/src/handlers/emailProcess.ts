@@ -1593,7 +1593,10 @@ export async function processMboxSource(
       });
       if (filter.skip) {
         result.messages_skipped++;
-        result.message_offset = offset;
+        // Only past what is already committed: a hard failure persists this
+        // cursor, and moving it past messages still in pendingBatch would make
+        // the retry skip them for good.
+        if (pendingBatch.length === 0) result.message_offset = offset;
         continue;
       }
 

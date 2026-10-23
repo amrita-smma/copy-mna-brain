@@ -1447,3 +1447,57 @@ describe('crash-loop guard', () => {
     expect(failCountWrites(db).filter((n) => n !== null).every((n) => n === 3)).toBe(true);
   });
 });
+
+describe('hard-failure cursor', () => {
+  const pending = { id: 'msg-cursor-pending' };
+  // Internal-only mail is dropped by the privacy filter before the batch.
+  const skipped = {
+    id: 'msg-cursor-skipped',
+    from: 'alice@starcapital.co.id',
+    to: 'bob@starcapital.co.id',
+  };
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset().mockResolvedValue({
+      content: [{ type: 'tool_use', input: { topics: [], people: [], related_companies: [] } }],
+      stop_reason: 'end_turn',
+    });
+    crmMocks.upsertEphemeralCrmBatch
+      .mockReset()
+      .mockRejectedValue(new Error('duplicate key value violates unique constraint'));
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('keeps the cursor before a pending message when a later skipped one is read first', async () => {
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-cursor-1',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([pending, skipped]),
+      },
+      {},
+      { db: createProcessDb({}) as never },
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.messages_skipped).toBe(1);
+    // The retry must start at the pending message, not after the skipped one.
+    expect(result.message_offset).toBe(0);
+  });
+
+  it('still advances past skipped messages when nothing is pending', async () => {
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-cursor-2',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([skipped, pending]),
+      },
+      {},
+      { db: createProcessDb({}) as never },
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.message_offset).toBe(1);
+  });
+});
