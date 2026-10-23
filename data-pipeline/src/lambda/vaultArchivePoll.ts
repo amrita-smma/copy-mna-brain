@@ -60,6 +60,32 @@ const MIN_ENTRY_REMAINING_MS = 150_000;
 const STALE_PROCESSING_INTERVAL = '15 minutes';
 /** Vault auth / poll / ZIP download failures before the export is abandoned. */
 export const MAX_VAULT_POLL_FAIL_COUNT = 5;
+/**
+ * Longest one ZIP read step (the next entry, draining one, spooling one to
+ * /tmp) may take. A read that never settles otherwise leaves nothing for Node
+ * to wait on, and the process exits mid-run (Runtime.NodeJsExit) without any
+ * failure path running.
+ */
+export const ZIP_READ_TIMEOUT_MS = 180_000;
+
+/** The Vault ZIP download broke or stalled; counts against the export's budget. */
+export class ZipReadError extends Error {}
+
+/** Rejects with a ZipReadError when `promise` hasn't settled within `ms`. */
+async function withReadTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ZipReadError(`ZIP read stalled for ${Math.round(ms / 1000)}s: ${what}`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 interface VaultExportsRow extends Record<string, unknown> {
   id: string;
@@ -120,13 +146,15 @@ async function recordConnectionFailure(
   row: { id: string; matter_id: string },
   token: string | null,
   reason: string,
+  /** 0 when this attempt was already counted by beginStreamingAttempt. */
+  increment: 0 | 1 = 1,
 ): Promise<'failed' | 'poll_error'> {
   const bumped = queryRows<{ fail_count: number; status: string }>(
     await db.execute(
       sql`UPDATE analytics.vault_exports
-          SET fail_count = fail_count + 1,
+          SET fail_count = fail_count + ${increment},
               status = CASE
-                WHEN fail_count + 1 >= ${MAX_VAULT_POLL_FAIL_COUNT} THEN 'failed'
+                WHEN fail_count + ${increment} >= ${MAX_VAULT_POLL_FAIL_COUNT} THEN 'failed'
                 ELSE 'exporting'
               END,
               updated_at = now()
@@ -158,6 +186,25 @@ async function recordConnectionFailure(
     `connection error (fail_count=${next}/${MAX_VAULT_POLL_FAIL_COUNT}): ${reason} — will retry`,
   );
   return 'poll_error';
+}
+
+/**
+ * Counts a streaming attempt before anything is read, returning the new count.
+ * An attempt that kills the process (out of memory, a read that never
+ * settles) runs no failure path, so without this the export would be
+ * reclaimed and crash again forever. A ZIP read to the end resets the count
+ * (resetPollFailCount).
+ */
+async function beginStreamingAttempt(db: DbClient, id: string): Promise<number> {
+  const [row] = queryRows<{ fail_count: number }>(
+    await db.execute(
+      sql`UPDATE analytics.vault_exports
+          SET fail_count = fail_count + 1, updated_at = now()
+          WHERE id = ${id}
+          RETURNING fail_count`,
+    ),
+  );
+  return Number(row?.fail_count ?? MAX_VAULT_POLL_FAIL_COUNT + 1);
 }
 
 async function reclaimStaleProcessing(db: DbClient): Promise<void> {
@@ -298,15 +345,29 @@ async function processExportZip(opts: {
   )) as unknown as Readable;
   outcome.downloadOk = true;
 
-  const parser = zipStream.pipe(unzipper.Parse({ forceStream: true }));
+  const parser = unzipper.Parse({ forceStream: true });
+  // .pipe() forwards neither a source error nor an early end, so a broken
+  // download would leave the parser, and every await on it, pending.
+  zipStream.once('error', (err) =>
+    parser.destroy(new ZipReadError(`ZIP download failed: ${err.message}`)),
+  );
+  zipStream.pipe(parser);
+  const entries = (parser as AsyncIterable<unzipper.Entry>)[Symbol.asyncIterator]();
+  const readBudget = () =>
+    Math.max(1_000, Math.min(ZIP_READ_TIMEOUT_MS, remainingMs() - TEARDOWN_RESERVE_MS));
 
   try {
-    for await (const entry of parser) {
+    while (true) {
+      const next = await withReadTimeout(entries.next(), readBudget(), 'waiting for the next entry');
+      if (next.done) break;
+      const entry = next.value;
       const entryPath: string = entry.path;
       if (entry.type === 'Directory' || !entryPath.endsWith('.mbox')) {
-        await entry.autodrain().promise();
+        await withReadTimeout(entry.autodrain().promise(), readBudget(), `draining ${entryPath}`);
         continue;
       }
+      // Before any read of the entry, so a crash's last line names it.
+      log(`entry ${entryPath} (${entry.extra?.uncompressedSize ?? '?'} bytes uncompressed)`);
 
       const sourceKey = `${row.export_id}::${file.objectName}::${entryPath}`;
 
@@ -315,14 +376,13 @@ async function processExportZip(opts: {
       if (isSourceTerminal(state)) {
         if (state!.status === 'completed') outcome.completed++;
         else outcome.abandoned++;
-        await entry.autodrain().promise();
+        await withReadTimeout(entry.autodrain().promise(), readBudget(), `draining ${entryPath}`);
         continue;
       }
 
       // Not enough time to safely spool + soft-stop + tear down: defer the rest.
       if (remainingMs() < MIN_ENTRY_REMAINING_MS) {
         outcome.unfinished = true;
-        await entry.autodrain().promise();
         break;
       }
 
@@ -333,7 +393,11 @@ async function processExportZip(opts: {
       const tmpPath = join(tmpDir, `${randomUUID()}.mbox`);
 
       try {
-        await streamPipeline(entry as unknown as Readable, createWriteStream(tmpPath));
+        await withReadTimeout(
+          streamPipeline(entry as unknown as Readable, createWriteStream(tmpPath)),
+          readBudget(),
+          `spooling ${entryPath}`,
+        );
         if (custodian === 'unknown') {
           custodian = await inferCustodianFromMbox(
             () => createReadStream(tmpPath),
@@ -368,6 +432,9 @@ async function processExportZip(opts: {
           outcome.failures.push(`${entryPath}: failed (will retry)`);
         }
       } catch (err) {
+        // A broken ZIP read is the export's problem, not this entry's: let it
+        // reach the export's fail budget instead of resetting it below.
+        if (err instanceof ZipReadError) throw err;
         // Only infra errors (e.g. spool / ensureRun) reach here; retry later.
         outcome.unfinished = true;
         const msg = err instanceof Error ? err.message : String(err);
@@ -383,6 +450,7 @@ async function processExportZip(opts: {
   } finally {
     // Ensure the download socket is released even when we break early.
     zipStream.destroy();
+    parser.destroy();
   }
 
   // Body streamed without connection abort — clear prior auth/poll/download bumps.
@@ -499,6 +567,23 @@ export const handler = async (
     }
 
     // status.status === 'COMPLETED' — already claimed as processing above.
+    const attempt = await beginStreamingAttempt(db, row.id);
+    if (attempt > MAX_VAULT_POLL_FAIL_COUNT) {
+      try {
+        await closeVaultMatter(token, row.matter_id);
+      } catch (err) {
+        console.error(
+          `[vault-archive-poll] failed to close matter ${row.matter_id} after streaming budget:`,
+          err,
+        );
+      }
+      await setStatus(db, row.id, 'failed');
+      log(
+        `streamed ${MAX_VAULT_POLL_FAIL_COUNT} times without finishing (the run died each time) — status=failed`,
+      );
+      return { ok: true, action: 'failed' };
+    }
+
     let completed = 0;
     let abandoned = 0;
     let unfinished = false;
@@ -535,7 +620,8 @@ export const handler = async (
           `[vault-archive-poll] zip download failed: ${file.objectName}`,
           err,
         );
-        const action = await recordConnectionFailure(db, row, token, msg);
+        // Already counted by beginStreamingAttempt.
+        const action = await recordConnectionFailure(db, row, token, msg, 0);
         return { ok: true, action };
       }
     }

@@ -71,6 +71,7 @@ import {
   handler,
   inferCustodianFromMbox,
   MAX_VAULT_POLL_FAIL_COUNT,
+  ZIP_READ_TIMEOUT_MS,
 } from './vaultArchivePoll';
 
 function makeZipWithEntries(entries: Array<{ name: string; body: string }>): Buffer {
@@ -201,6 +202,12 @@ describe('vaultArchivePoll no-S3 cutover', () => {
         return {
           rows: [{ ...exportRow({ fail_count: connectionFailCount }), ...claimOverrides }],
         };
+      }
+      if (flat.includes('fail_count = fail_count + 0') && flat.includes('RETURNING')) {
+        // A failure already counted before streaming.
+        const status =
+          connectionFailCount >= MAX_VAULT_POLL_FAIL_COUNT ? 'failed' : 'exporting';
+        return { rows: [{ fail_count: connectionFailCount, status }] };
       }
       if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
         connectionFailCount += 1;
@@ -589,8 +596,13 @@ describe('vaultArchivePoll no-S3 cutover', () => {
       ) {
         return { rows: [exportRow({ fail_count: failCount })] };
       }
-      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
-        failCount += 1;
+      const increment = flat.includes('fail_count = fail_count + 1')
+        ? 1
+        : flat.includes('fail_count = fail_count + 0')
+          ? 0
+          : null;
+      if (increment !== null && flat.includes('RETURNING')) {
+        failCount += increment;
         return {
           rows: [
             {
@@ -619,6 +631,84 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(mocks.processMboxSource).not.toHaveBeenCalled();
   });
 
+  describe('a ZIP read that breaks or stalls', () => {
+    const zipBuf = () =>
+      makeZipWithEntries([
+        { name: 'first@starcapital.co.id.mbox', body: `From x\n\n${'a'.repeat(50_000)}\n` },
+        { name: 'analyst@starcapital.co.id.mbox', body: `From y\n\n${'b'.repeat(50_000)}\n` },
+      ]);
+    const completed = (size: number) => ({
+      status: 'COMPLETED',
+      files: [{ objectName: 'export.zip', size, bucketName: 'b', md5Hash: 'x' }],
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('a download that errors mid-ZIP fails the attempt instead of hanging', async () => {
+      const buf = zipBuf();
+      mocks.pollVaultExport.mockResolvedValue(completed(buf.length));
+      mocks.downloadExportFileStream.mockResolvedValue(
+        new Readable({
+          read() {
+            this.push(buf.subarray(0, 200));
+            this.destroy(new Error('socket hang up'));
+          },
+        }),
+      );
+
+      const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+      expect(result).toEqual({ ok: true, action: 'poll_error' });
+      expect(mocks.processMboxSource).not.toHaveBeenCalled();
+    });
+
+    it('a download that ends mid-ZIP is reported once the read times out, instead of hanging', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const buf = zipBuf();
+      mocks.pollVaultExport.mockResolvedValue(completed(buf.length));
+      // Ends cleanly halfway through the first entry: no error, just no more bytes.
+      mocks.downloadExportFileStream.mockResolvedValue(Readable.from([buf.subarray(0, 120)]));
+
+      let settled = false;
+      const pending = handler({}, { getRemainingTimeInMillis: () => 600_000 }).finally(() => {
+        settled = true;
+      });
+      // The read timer is only set once the handler reaches the ZIP; step the
+      // clock until it has fired.
+      for (let waited = 0; !settled && waited <= ZIP_READ_TIMEOUT_MS * 2; waited += 10_000) {
+        await vi.advanceTimersByTimeAsync(10_000);
+      }
+      const result = await pending;
+
+      expect(result).toEqual({ ok: true, action: 'poll_error' });
+      expect(mocks.processMboxSource).not.toHaveBeenCalled();
+    });
+
+    it('fails an export whose streaming attempts keep dying, and frees its slot', async () => {
+      mocks.dbExecute.mockImplementation(async (q: unknown) => {
+        const flat = sqlText(q);
+        if (flat.includes("status = 'processing'") && flat.includes('FOR UPDATE')) {
+          return { rows: [exportRow({ fail_count: MAX_VAULT_POLL_FAIL_COUNT })] };
+        }
+        if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING fail_count')) {
+          return { rows: [{ fail_count: MAX_VAULT_POLL_FAIL_COUNT + 1 }] };
+        }
+        return { rows: [] };
+      });
+      mocks.pollVaultExport.mockResolvedValue(completed(1));
+
+      const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+      expect(result).toEqual({ ok: true, action: 'failed' });
+      expect(mocks.downloadExportFileStream).not.toHaveBeenCalled();
+      expect(mocks.closeVaultMatter).toHaveBeenCalledWith('token', 'matter-1');
+      const statusWrites = mocks.dbExecute.mock.calls.map(([q]) => sqlText(q));
+      expect(statusWrites.some((t) => t.includes('SET status = failed'))).toBe(true);
+    });
+  });
+
   it('successful ZIP download resets fail_count', async () => {
     const zipBuf = makeZipWithEntries([
       { name: 'analyst@starcapital.co.id.mbox', body: 'From x\n\nhello\n' },
@@ -632,6 +722,10 @@ describe('vaultArchivePoll no-S3 cutover', () => {
         flat.includes('RETURNING')
       ) {
         return { rows: [exportRow({ fail_count: failCount })] };
+      }
+      if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
+        failCount += 1;
+        return { rows: [{ fail_count: failCount }] };
       }
       if (flat.includes('fail_count = 0')) {
         failCount = 0;
