@@ -82,6 +82,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "a06546670424938dfccf974f984cf977524aa837",
+    "date": "2026-10-23",
+    "subject": "Long emails now yield more complete deal details during extraction",
+    "category": "improvement"
+  },
+  {
+    "hash": "4bc3a27e0198c06dd4811e05f4fcdbaa4c95182e",
+    "date": "2026-10-23",
+    "subject": "vault-archive-poll: claim the least recently handled export, not the oldest",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "41b6f852f1d9e0fcb95543666258ec4759b672f5",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
