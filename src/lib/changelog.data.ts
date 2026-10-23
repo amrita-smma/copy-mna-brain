@@ -54,6 +54,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "d1017c2180089e54f1ee4f48ff74dad156ff9fe0",
+    "date": "2026-10-23",
+    "subject": "CRM sync no longer silently skips records when a batch fails to import",
+    "category": "improvement"
+  },
+  {
+    "hash": "789d7a23785631a743087aadd9819d70bba72002",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
