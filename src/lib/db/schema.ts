@@ -2011,6 +2011,12 @@ export const employerNotes = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    // Anyone in the workspace may edit or delete a note; who did is kept here
+    // for the list, and every change is kept in employer_note_revisions.
+    // Deletes are soft so the revision trail outlives the note.
+    updated_by: uuid(),
+    deleted_at: timestamp({ withTimezone: true, mode: "string" }),
+    deleted_by: uuid(),
   },
   (table) => ({
     idxNotesEmployerCreated: index("idx_notes_employer_created").using(
@@ -2037,6 +2043,16 @@ export const employerNotes = pgTable(
       foreignColumns: [users.id],
       name: "employer_notes_author_user_id_fkey",
     }).onDelete("set null"),
+    employerNotesUpdatedByFkey: foreignKey({
+      columns: [table.updated_by],
+      foreignColumns: [users.id],
+      name: "employer_notes_updated_by_fkey",
+    }).onDelete("set null"),
+    employerNotesDeletedByFkey: foreignKey({
+      columns: [table.deleted_by],
+      foreignColumns: [users.id],
+      name: "employer_notes_deleted_by_fkey",
+    }).onDelete("set null"),
     allowReadEmployerNotes: pgPolicy("Allow read access on employer_notes", {
       as: "permissive",
       for: "select",
@@ -2053,6 +2069,63 @@ export const employerNotes = pgTable(
     allowDeleteEmployerNotes: pgPolicy(
       "Allow delete access on employer_notes",
       { as: "permissive", for: "delete", to: ["public"], using: sql`true` },
+    ),
+  }),
+);
+
+/**
+ * Audit trail for employer_notes: one row per create, edit and delete, with
+ * the content before and after. Written in the same transaction as the change
+ * (`EmployerNoteRepository`), never updated afterwards.
+ */
+export const employerNoteRevisions = pgTable(
+  "employer_note_revisions",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid().notNull(),
+    note_id: uuid().notNull(),
+    action: text().notNull(),
+    content_before: text(),
+    content_after: text(),
+    changed_by: uuid(),
+    changed_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxEmployerNoteRevisionsNoteChanged: index(
+      "idx_employer_note_revisions_note_changed",
+    ).using(
+      "btree",
+      table.note_id.asc().nullsLast().op("uuid_ops"),
+      table.changed_at.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    employerNoteRevisionsNoteFkey: foreignKey({
+      columns: [table.note_id],
+      foreignColumns: [employerNotes.id],
+      name: "employer_note_revisions_note_id_fkey",
+    }).onDelete("cascade"),
+    employerNoteRevisionsWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_note_revisions_workspace_id_fkey",
+    }).onDelete("cascade"),
+    employerNoteRevisionsChangedByFkey: foreignKey({
+      columns: [table.changed_by],
+      foreignColumns: [users.id],
+      name: "employer_note_revisions_changed_by_fkey",
+    }).onDelete("set null"),
+    employerNoteRevisionsActionCheck: check(
+      "employer_note_revisions_action_check",
+      sql`${table.action} IN ('create', 'edit', 'delete')`,
+    ),
+    allowReadEmployerNoteRevisions: pgPolicy(
+      "Allow read access on employer_note_revisions",
+      { as: "permissive", for: "select", to: ["public"] },
+    ),
+    allowInsertEmployerNoteRevisions: pgPolicy(
+      "Allow insert access on employer_note_revisions",
+      { as: "permissive", for: "insert", to: ["public"] },
     ),
   }),
 );
@@ -2119,6 +2192,9 @@ export const employerTopics = pgTable(
   "employer_topics",
   {
     id: uuid().defaultRandom().primaryKey().notNull(),
+    // Tags are per workspace (MB-687): one workspace's tags — including the
+    // auto ones derived from its own emails — never show in another's.
+    workspace_id: uuid().notNull(),
     employer_id: uuid().notNull(),
     topic_id: uuid().notNull(),
     source: text().default("manual").notNull(),
@@ -2128,10 +2204,16 @@ export const employerTopics = pgTable(
       .notNull(),
   },
   (table) => ({
-    uqEmployerTopic: unique("uq_employer_topic").on(
+    uqEmployerTopic: uniqueIndex("uq_employer_topic").on(
+      table.workspace_id,
       table.employer_id,
       table.topic_id,
     ),
+    employerTopicsWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_topics_workspace_id_fkey",
+    }).onDelete("cascade"),
     employerTopicsEmployerFkey: foreignKey({
       columns: [table.employer_id],
       foreignColumns: [employers.id],
@@ -2481,15 +2563,38 @@ export const employerOverrides = pgTable(
 export const employerCuration = pgTable(
   "employer_curation",
   {
-    employer_id: uuid().primaryKey().notNull(),
+    // Per workspace (MB-687): a workspace's rename / industry / chosen PIC
+    // never shows in another workspace. Keyed (workspace_id, employer_id).
+    workspace_id: uuid().notNull(),
+    employer_id: uuid().notNull(),
     name: text(),
     industry: text(),
+    /** The contact this workspace picked as the firm's PIC; null = oldest. */
+    primary_correspondent_id: uuid(),
     edited_by: uuid(),
     edited_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
   },
   (table) => ({
+    employerCurationPk: primaryKey({
+      columns: [table.workspace_id, table.employer_id],
+      name: "employer_curation_pkey",
+    }),
+    idxEmployerCurationEmployer: index("idx_employer_curation_employer").using(
+      "btree",
+      table.employer_id.asc().nullsLast().op("uuid_ops"),
+    ),
+    employerCurationWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_curation_workspace_id_fkey",
+    }).onDelete("cascade"),
+    employerCurationPrimaryCorrespondentFkey: foreignKey({
+      columns: [table.primary_correspondent_id],
+      foreignColumns: [correspondents.id],
+      name: "employer_curation_primary_correspondent_id_fkey",
+    }).onDelete("set null"),
     employerCurationEmployerFkey: foreignKey({
       columns: [table.employer_id],
       foreignColumns: [employers.id],
@@ -2526,7 +2631,10 @@ export const employerCuration = pgTable(
 export const correspondentCuration = pgTable(
   "correspondent_curation",
   {
-    correspondent_id: uuid().primaryKey().notNull(),
+    // Per workspace (MB-687): profile edits, including what @crm_contact
+    // writes, belong to the workspace that made them.
+    workspace_id: uuid().notNull(),
+    correspondent_id: uuid().notNull(),
     name: text(),
     title: text(),
     phone: text(),
@@ -2543,6 +2651,18 @@ export const correspondentCuration = pgTable(
       .notNull(),
   },
   (table) => ({
+    correspondentCurationPk: primaryKey({
+      columns: [table.workspace_id, table.correspondent_id],
+      name: "correspondent_curation_pkey",
+    }),
+    idxCorrespondentCurationCorrespondent: index(
+      "idx_correspondent_curation_correspondent",
+    ).using("btree", table.correspondent_id.asc().nullsLast().op("uuid_ops")),
+    correspondentCurationWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "correspondent_curation_workspace_id_fkey",
+    }).onDelete("cascade"),
     correspondentCurationCorrespondentFkey: foreignKey({
       columns: [table.correspondent_id],
       foreignColumns: [correspondents.id],
@@ -2572,10 +2692,12 @@ export const correspondentCuration = pgTable(
   }),
 );
 
-// Effective read surfaces (RFC §3): COALESCE the human overlay over the
-// machine base, per field. Created in the DB `WITH (security_invoker = on)` so
-// RLS keeps evaluating against the caller. All CRM reads go through these.
-// `.existing()` — the DDL lives in the migration, not generated by Drizzle.
+// Global read surfaces. Since MB-687 the human overlay is per workspace, so
+// these no longer apply it — they are the shared machine row only, kept for
+// matching by key (normalized_name, email) and the analytics dims. Every CRM
+// read a user sees goes through the *WorkspaceEffective views below instead.
+// Created `WITH (security_invoker = on)` so RLS keeps evaluating against the
+// caller. `.existing()` — the DDL lives in the migration, not Drizzle.
 export const employerEffective = pgView("employer_effective", {
   id: uuid("id").notNull(),
   name: text("name").notNull(),
@@ -2629,6 +2751,71 @@ export const correspondentEffective = pgView("correspondent_effective", {
   linkedin_url: text("linkedin_url"),
   bio: text("bio"),
 }).existing();
+
+/**
+ * One row per (workspace, firm): that workspace's name / industry / PIC edits
+ * COALESCEd over the shared firm. Always filter on `workspace_id`.
+ */
+export const employerWorkspaceEffective = pgView("employer_workspace_effective", {
+  workspace_id: uuid("workspace_id").notNull(),
+  id: uuid("id").notNull(),
+  name: text("name").notNull(),
+  industry: text("industry"),
+  normalized_name: text("normalized_name").notNull(),
+  status: text("status").notNull(),
+  curation_status: text("curation_status").notNull(),
+  created_at: timestamp("created_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+  updated_at: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+  primary_correspondent_id: uuid("primary_correspondent_id"),
+}).existing();
+
+/**
+ * One row per contact VISIBLE in a workspace (joins workspace_correspondents),
+ * with that workspace's profile edits COALESCEd over the shared contact.
+ * `is_primary` is true only for the workspace's picked PIC; readers fall back
+ * to the oldest contact when the firm has none picked.
+ */
+export const correspondentWorkspaceEffective = pgView(
+  "correspondent_workspace_effective",
+  {
+    workspace_id: uuid("workspace_id").notNull(),
+    id: uuid("id").notNull(),
+    employer_id: uuid("employer_id").notNull(),
+    name: text("name").notNull(),
+    title: text("title"),
+    email: text("email"),
+    phone: text("phone"),
+    type: text("type"),
+    is_primary: boolean("is_primary").notNull(),
+    source: text("source").notNull(),
+    origin: text("origin").notNull(),
+    last_edited_by_user_id: uuid("last_edited_by_user_id"),
+    last_edited_at: timestamp("last_edited_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    created_at: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    updated_at: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    department: text("department"),
+    specialization: text("specialization"),
+    seniority: text("seniority"),
+    coverage_region: text("coverage_region"),
+    linkedin_url: text("linkedin_url"),
+    bio: text("bio"),
+  },
+).existing();
 
 export const emails = analytics.table(
   "emails",
@@ -2911,6 +3098,8 @@ export const emailRoleSignals = analytics.table(
 export const employerTeamMembers = pgTable(
   "employer_team_members",
   {
+    // Per workspace (MB-687): who covers a firm is each workspace's own call.
+    workspace_id: uuid().notNull(),
     employer_id: uuid().notNull(),
     user_id: uuid().notNull(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
@@ -2919,8 +3108,13 @@ export const employerTeamMembers = pgTable(
   },
   (table) => ({
     employerTeamMembersPk: primaryKey({
-      columns: [table.employer_id, table.user_id],
+      columns: [table.workspace_id, table.employer_id, table.user_id],
     }),
+    employerTeamMembersWorkspaceFkey: foreignKey({
+      columns: [table.workspace_id],
+      foreignColumns: [workspaces.id],
+      name: "employer_team_members_workspace_id_fkey",
+    }).onDelete("cascade"),
     idxEmployerTeamUser: index("idx_employer_team_user").using(
       "btree",
       table.user_id.asc().nullsLast().op("uuid_ops"),

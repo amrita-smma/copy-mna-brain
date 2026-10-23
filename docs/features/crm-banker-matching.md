@@ -11,7 +11,7 @@ A user describes a deal the way deals are described:
 > Project Atlas is a US company we're looking to LBO — which banker can help?
 
 The CRM stores something else entirely. On `correspondents` (the banker
-records, read through the `correspondent_effective` overlay view):
+records, read through the per-workspace `correspondent_workspace_effective` view):
 
 | Column | Example value |
 |---|---|
@@ -81,7 +81,7 @@ the whole debt union and rank Private Credit equally with the desk asked for.
 
 `CorrespondentRepository.search(filters, workspaceId)` runs the match. One
 query, whatever the result count: the firm's name and industry come from the
-join on `employer_effective`, and last-contact/email-count from the
+join on `employer_workspace_effective` (same workspace), and last-contact/email-count from the
 precomputed `analytics.mart_crm` (keyed by `(workspace_id, employer_id)`).
 
 **It is scored-OR, not filtered-AND.** A banker is returned if it matches *any*

@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 236 | `src/app/api/**/route.ts` |
+| API routes | 240 | `src/app/api/**/route.ts` |
 | Services | 98 | `src/lib/services/` |
 | Repositories | 86 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 14 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 184 | `drizzle/migrations/` |
+| Migrations (app) | 185 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -176,6 +176,9 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/employers/[id]/contacts` | GET, POST | `crmService` |
 | `/api/crm/employers/[id]/curate` | POST | `crmService` |
 | `/api/crm/employers/[id]/notes` | GET, POST | `crmService` |
+| `/api/crm/employers/[id]/notes/[noteId]` | PATCH, DELETE | `crmService` |
+| `/api/crm/employers/[id]/notes/[noteId]/revisions` | GET | `crmService` |
+| `/api/crm/employers/[id]/primary-contact` | PUT | `crmService` |
 | `/api/crm/employers/[id]/related-companies` | POST | `crmService` |
 | `/api/crm/employers/[id]/related-companies/[relatedCompanyId]` | DELETE | `crmService` |
 | `/api/crm/employers/[id]/team` | GET, PUT | `crmService` |
@@ -186,6 +189,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/team-users` | GET | `crmService` |
 | `/api/crm/topics` | GET | `crmService` |
 | `/api/crm/vault-export` | POST | — |
+| `/api/crm/workspace-members` | GET | `crmService` |
 | `/api/cron/cleanup-jobs` | GET | `jobService` |
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/compact-checkpoints` | GET | `checkpointCompactionService` |
@@ -377,7 +381,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `copilotChatsService.ts` | `CopilotChatNotFoundError`, `CopilotChatForbiddenError`, `CopilotChatsService` | ✅ |
 | `criteriaService.ts` | `CriteriaService` | ✅ |
 | `crmContactEnrichmentService.ts` | `ContactNotFoundError`, `CrmContactEnrichmentService` | ✅ |
-| `crmService.ts` | `DuplicateEmployerError`, `EmployerNotFoundError`, `CRMService` | ✅ |
+| `crmService.ts` | `DuplicateEmployerError`, `InvalidTeamMemberError`, `CorrespondentNotFoundError`, `EmployerNoteNotFoundError`, `EmployerNotFoundError`, `CRMService` | ✅ |
 | `crmSuggestedQuestionService.ts` | `CrmSuggestedQuestionService` | ✅ |
 | `dailyPulseService.ts` | `DailyPulseService` | ✅ |
 | `dashboardActivityService.ts` | `DashboardActivityService` | ✅ |

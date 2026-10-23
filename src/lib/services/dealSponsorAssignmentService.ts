@@ -141,8 +141,8 @@ export class DealSponsorAssignmentService {
       d.companyRepo.findByIds(historyCompanyIds),
       d.companyLogRepo.findByCompanyIds(historyCompanyIds),
       d.companyLogRepo.findLatestAutoSponsorLogs(marketL0Ids),
-      d.employerTeamRepo.listForEmployers(employerIds),
-      d.employerRepo.findByIds(employerIds),
+      d.employerTeamRepo.listForEmployers(this.workspaceId, employerIds),
+      d.employerRepo.findByIds(employerIds, this.workspaceId),
     ]);
 
     // Banker-history deals, keyed by company: owner, furthest stage, and

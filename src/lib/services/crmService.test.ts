@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CRMService,
+  CorrespondentNotFoundError,
   DuplicateEmployerError,
+  EmployerNoteNotFoundError,
   EmployerNotFoundError,
+  InvalidTeamMemberError,
   pickEditableContactFields,
 } from './crmService';
 
@@ -40,9 +43,10 @@ const correspondentRepo = {
 const noteRepo = {
   findByEmployerId: vi.fn(),
   findById: vi.fn(),
-  insert: vi.fn(),
-  update: vi.fn(),
-  delete: vi.fn(),
+  createWithRevision: vi.fn(),
+  editWithRevision: vi.fn(),
+  softDeleteWithRevision: vi.fn(),
+  listRevisions: vi.fn(),
 };
 
 const topicRepo = {
@@ -76,6 +80,7 @@ const teamRepo = {
   remove: vi.fn(),
   setMembers: vi.fn(),
   listAllTeamUsers: vi.fn(),
+  listWorkspaceMembers: vi.fn(),
 };
 
 const employerCurationRepo = {
@@ -97,6 +102,7 @@ const relatedCompanyRepo = {
   listForEmployer: vi.fn().mockResolvedValue([]),
   createManual: vi.fn(),
   deleteManual: vi.fn(),
+  dismissAuto: vi.fn(),
   findByCompanyId: vi.fn().mockResolvedValue([]),
   rankByRelatedCompanyCount: vi.fn(),
 };
@@ -110,6 +116,7 @@ const workspaceCorrespondentRepo = {
   addMemberships: vi.fn(),
   listVisibleCorrespondentIds: vi.fn(),
   isVisible: vi.fn(),
+  removeMembership: vi.fn(),
 };
 
 const WORKSPACE_ID = 'ws-1';
@@ -321,13 +328,74 @@ describe('CRMService.addRelatedCompanyToEmployer', () => {
 });
 
 describe('CRMService.removeRelatedCompanyFromEmployer', () => {
-  it('delegates to the repo hard-delete, scoped to the workspace', async () => {
-    await makeService().removeRelatedCompanyFromEmployer('e1', 'rc-manual');
-    expect(relatedCompanyRepo.deleteManual).toHaveBeenCalledWith(
-      'e1',
-      'rc-manual',
-      WORKSPACE_ID,
+  it('hard-deletes a manual link and dismisses an auto one, both scoped to the workspace', async () => {
+    await makeService().removeRelatedCompanyFromEmployer('e1', 'rc-1');
+    // Each repo call is guarded to its own source, so exactly one of them
+    // touches a given row.
+    expect(relatedCompanyRepo.deleteManual).toHaveBeenCalledWith('e1', 'rc-1', WORKSPACE_ID);
+    expect(relatedCompanyRepo.dismissAuto).toHaveBeenCalledWith('e1', 'rc-1', WORKSPACE_ID);
+  });
+});
+
+describe('CRMService.deleteContact', () => {
+  it('unlinks the contact from this workspace and never deletes the shared row', async () => {
+    workspaceCorrespondentRepo.removeMembership.mockResolvedValue(true);
+    await makeService().deleteContact('c1');
+    expect(workspaceCorrespondentRepo.removeMembership).toHaveBeenCalledWith(WORKSPACE_ID, 'c1');
+    expect(correspondentRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('throws CorrespondentNotFoundError when the contact is not visible here', async () => {
+    workspaceCorrespondentRepo.removeMembership.mockResolvedValue(false);
+    await expect(makeService().deleteContact('c1')).rejects.toBeInstanceOf(
+      CorrespondentNotFoundError,
     );
+  });
+});
+
+describe('CRMService notes', () => {
+  it('addNote stamps the workspace and the signed-in author, and writes through the audited path', async () => {
+    noteRepo.createWithRevision.mockResolvedValue({ id: 'n1' });
+    await makeService().addNote({ employer_id: 'e1', content: 'Met at conf', userId: 'u1' });
+    expect(noteRepo.createWithRevision).toHaveBeenCalledWith({
+      employer_id: 'e1',
+      workspace_id: WORKSPACE_ID,
+      content: 'Met at conf',
+      author_user_id: 'u1',
+    });
+  });
+
+  it('updateNote edits through the audited path with the editor', async () => {
+    noteRepo.editWithRevision.mockResolvedValue({ id: 'n1', content: 'new' });
+    const row = await makeService().updateNote('n1', 'new', 'u2');
+    expect(noteRepo.editWithRevision).toHaveBeenCalledWith('n1', WORKSPACE_ID, 'new', 'u2');
+    expect(row).toEqual({ id: 'n1', content: 'new' });
+  });
+
+  it('updateNote throws EmployerNoteNotFoundError for a missing or deleted note', async () => {
+    noteRepo.editWithRevision.mockResolvedValue(undefined);
+    await expect(makeService().updateNote('n1', 'x', 'u2')).rejects.toBeInstanceOf(
+      EmployerNoteNotFoundError,
+    );
+  });
+
+  it('deleteNote soft-deletes through the audited path', async () => {
+    noteRepo.softDeleteWithRevision.mockResolvedValue(true);
+    await makeService().deleteNote('n1', 'u3');
+    expect(noteRepo.softDeleteWithRevision).toHaveBeenCalledWith('n1', WORKSPACE_ID, 'u3');
+  });
+
+  it('deleteNote throws EmployerNoteNotFoundError when nothing was deleted', async () => {
+    noteRepo.softDeleteWithRevision.mockResolvedValue(false);
+    await expect(makeService().deleteNote('n1', 'u3')).rejects.toBeInstanceOf(
+      EmployerNoteNotFoundError,
+    );
+  });
+
+  it('listNoteRevisions reads the trail scoped to the workspace', async () => {
+    noteRepo.listRevisions.mockResolvedValue([{ id: 'r1', action: 'create' }]);
+    expect(await makeService().listNoteRevisions('n1')).toEqual([{ id: 'r1', action: 'create' }]);
+    expect(noteRepo.listRevisions).toHaveBeenCalledWith('n1', WORKSPACE_ID);
   });
 });
 
@@ -365,6 +433,7 @@ describe('CRMService.createContact', () => {
     // Editing an existing contact routes the name change to the overlay, not
     // the base table.
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c1',
       { name: 'Updated' },
       null,
@@ -482,6 +551,7 @@ describe('CRMService.createContact (profile fields)', () => {
     });
 
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c1',
       { name: 'Jane Banker', department: 'ECM', seniority: 'Director' },
       null,
@@ -508,6 +578,7 @@ describe('CRMService.updateContact', () => {
     });
 
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c1',
       {
         name: 'Jane B.',
@@ -532,6 +603,7 @@ describe('CRMService.updateContact', () => {
     await makeService().updateContact('c1', { department: null });
 
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c1',
       { department: null },
       null,
@@ -562,6 +634,7 @@ describe('CRMService.updateContact', () => {
       'department',
     );
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c1',
       { department: 'DCM' },
       'u-1',
@@ -603,8 +676,15 @@ describe('pickEditableContactFields', () => {
 
   it('trims values and turns a blank string into null so the field clears', () => {
     expect(
-      pickEditableContactFields({ department: '  M&A  ', bio: '   ' }),
-    ).toEqual({ department: 'M&A', bio: null });
+      pickEditableContactFields({ department: '  M&A  ', title: '   ' }),
+    ).toEqual({ department: 'M&A', title: null });
+  });
+
+  it('drops the bio: it is the AI-generated profile and not editable by hand', () => {
+    expect(
+      pickEditableContactFields({ department: 'M&A', bio: 'Hand-written bio' }),
+    ).toEqual({ department: 'M&A' });
+    expect(pickEditableContactFields({ bio: null })).toEqual({});
   });
 
   it('passes an explicit null through and omits absent fields', () => {
@@ -614,7 +694,7 @@ describe('pickEditableContactFields', () => {
   });
 
   it('ignores non-string values rather than writing them', () => {
-    expect(pickEditableContactFields({ department: 42, bio: { a: 1 } })).toEqual(
+    expect(pickEditableContactFields({ department: 42, title: { a: 1 } })).toEqual(
       {},
     );
   });
@@ -650,6 +730,7 @@ describe('CRMService.addTopicToEmployer', () => {
     expect(topicRepo.assignToEmployer).toHaveBeenCalledWith(
       'e1',
       'topic-1',
+      WORKSPACE_ID,
       expect.objectContaining({ source: 'manual' }),
     );
     expect(out).toEqual([{ id: 't', name: 'NewTopic' }]);
@@ -689,6 +770,7 @@ describe('CRMService.curateEmployer', () => {
     });
     // name → overlay (normalized_name, the merge key, is NOT touched — RFC §4.2)
     expect(employerCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'e1',
       { name: 'Goldman Sachs' },
       null,
@@ -721,6 +803,7 @@ describe('CRMService.curateEmployer', () => {
 
     // name/title/phone → overlay; email (the natural key) → base.
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c-primary',
       { name: 'New Name', title: 'MD', phone: '+1 555' },
       null,
@@ -902,6 +985,7 @@ describe('CRMService.createContact (email join key)', () => {
     expect(correspondentRepo.findByEmails).toHaveBeenCalledWith(['jane@bank.com']);
     expect(correspondentRepo.insert).not.toHaveBeenCalled();
     expect(correspondentCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       'c-ingested',
       { name: 'Jane Banker' },
       null,
@@ -960,6 +1044,7 @@ describe('CRMService.importContacts', () => {
 
     expect(out).toEqual({ created: 0, merged: 1, skipped: 0, errors: [] });
     expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       [{ correspondentId: 'c1', edit: { name: 'Jane Banker', title: 'MD' } }],
       'u1',
     );
@@ -1046,6 +1131,7 @@ describe('CRMService.addContactsToEmployer', () => {
   beforeEach(() => {
     correspondentRepo.findByEmployerId.mockResolvedValue([]);
     correspondentRepo.findByEmails.mockResolvedValue([]);
+    correspondentCurationRepo.findManyByCorrespondentIds.mockResolvedValue([]);
     correspondentRepo.insertMany.mockImplementation(async (rows: Array<{ name: string }>) =>
       rows.map((r, i) => ({ id: `new-${i}`, ...r })),
     );
@@ -1075,6 +1161,31 @@ describe('CRMService.addContactsToEmployer', () => {
     ]);
   });
 
+  it("judges an email match's empty fields by this workspace's curation, so a colleague's edit is never overwritten", async () => {
+    // The shared row has no title, but this workspace curated one.
+    correspondentRepo.findByEmails.mockResolvedValue([
+      { id: 'c9', employer_id: 'emp-1', name: 'Jane Doe', email: 'jane@acme.co.id', title: null, phone: null, origin: 'auto' },
+    ]);
+    correspondentCurationRepo.findManyByCorrespondentIds.mockResolvedValue([
+      { correspondent_id: 'c9', title: 'Managing Director', phone: null },
+    ]);
+
+    await makeService().addContactsToEmployer('emp-1', [
+      { name: 'Jane Doe', email: 'jane@acme.co.id', title: 'CEO', phone: '+62 21 1234' },
+    ]);
+
+    expect(correspondentCurationRepo.findManyByCorrespondentIds).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      ['c9'],
+    );
+    // Title stays the curated one; only the genuinely empty phone is filled.
+    expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      [{ correspondentId: 'c9', edit: { phone: '+62 21 1234' } }],
+      null,
+    );
+  });
+
   it('merges by name within the employer, filling only empty fields and never the name', async () => {
     correspondentRepo.findByEmployerId.mockResolvedValue([
       { id: 'c1', name: 'Jane  Doe', title: 'Chief Executive', linkedin_url: null, email: null },
@@ -1085,6 +1196,7 @@ describe('CRMService.addContactsToEmployer', () => {
     ]);
 
     expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       [{ correspondentId: 'c1', edit: { linkedin_url: 'https://linkedin.com/in/jane' } }],
       null,
     );
@@ -1102,6 +1214,7 @@ describe('CRMService.addContactsToEmployer', () => {
     ]);
 
     expect(correspondentCurationRepo.fillMany).toHaveBeenCalledWith(
+      WORKSPACE_ID,
       [{ correspondentId: 'c-mail', edit: { title: 'CEO' } }],
       null,
     );
@@ -1115,5 +1228,77 @@ describe('CRMService.addContactsToEmployer', () => {
     ]);
 
     expect(correspondentRepo.insertMany.mock.calls[0][0]).toHaveLength(1);
+  });
+});
+
+describe('CRMService.setPrimaryContact', () => {
+  it("records this workspace's PIC pick after checking the contact is visible and at this firm", async () => {
+    correspondentRepo.findById.mockResolvedValue({ id: 'c2', employer_id: 'e1' });
+    await makeService().setPrimaryContact('e1', 'c2', 'u1');
+    expect(correspondentRepo.findById).toHaveBeenCalledWith('c2', WORKSPACE_ID);
+    expect(employerCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'e1',
+      { primary_correspondent_id: 'c2' },
+      'u1',
+    );
+  });
+
+  it('refuses a contact that works at another firm', async () => {
+    correspondentRepo.findById.mockResolvedValue({ id: 'c2', employer_id: 'other' });
+    await expect(makeService().setPrimaryContact('e1', 'c2', 'u1')).rejects.toBeInstanceOf(
+      CorrespondentNotFoundError,
+    );
+    expect(employerCurationRepo.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a contact this workspace cannot see', async () => {
+    correspondentRepo.findById.mockResolvedValue(undefined);
+    await expect(makeService().setPrimaryContact('e1', 'c2', 'u1')).rejects.toBeInstanceOf(
+      CorrespondentNotFoundError,
+    );
+  });
+
+  it('clears the pick (back to the oldest contact) without a lookup', async () => {
+    await makeService().setPrimaryContact('e1', null, 'u1');
+    expect(correspondentRepo.findById).not.toHaveBeenCalled();
+    expect(employerCurationRepo.upsert).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      'e1',
+      { primary_correspondent_id: null },
+      'u1',
+    );
+  });
+});
+
+describe('CRMService.setTeam', () => {
+  it("replaces this workspace's coverage with members of this workspace", async () => {
+    teamRepo.listWorkspaceMembers.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+    teamRepo.listForEmployer.mockResolvedValue([{ id: 'u1' }]);
+    await makeService().setTeam('e1', ['u1', 'u1']);
+    expect(teamRepo.setMembers).toHaveBeenCalledWith(WORKSPACE_ID, 'e1', ['u1']);
+  });
+
+  it('keeps someone already on the team even if they are no longer a member', async () => {
+    teamRepo.listWorkspaceMembers.mockResolvedValue([{ id: 'u1' }]);
+    teamRepo.listForEmployer.mockResolvedValue([{ id: 'ex-member' }]);
+    await makeService().setTeam('e1', ['u1', 'ex-member']);
+    expect(teamRepo.setMembers).toHaveBeenCalledWith(WORKSPACE_ID, 'e1', ['u1', 'ex-member']);
+  });
+
+  it('rejects someone who is not a member of this workspace and writes nothing', async () => {
+    teamRepo.listForEmployer.mockResolvedValue([]);
+    teamRepo.listWorkspaceMembers.mockResolvedValue([{ id: 'u1' }]);
+    await expect(makeService().setTeam('e1', ['u1', 'stranger'])).rejects.toBeInstanceOf(
+      InvalidTeamMemberError,
+    );
+    expect(teamRepo.setMembers).not.toHaveBeenCalled();
+  });
+
+  it('clears the team without a membership lookup', async () => {
+    teamRepo.listForEmployer.mockResolvedValue([]);
+    await makeService().setTeam('e1', []);
+    expect(teamRepo.listWorkspaceMembers).not.toHaveBeenCalled();
+    expect(teamRepo.setMembers).toHaveBeenCalledWith(WORKSPACE_ID, 'e1', []);
   });
 });

@@ -2,7 +2,6 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useId } from "react";
 import type { ContactFormValues } from "./types";
 import {
@@ -22,7 +21,6 @@ export const EMPTY_CONTACT_FORM: ContactFormValues = {
   seniority: "",
   coverage_region: "",
   linkedin_url: "",
-  bio: "",
 };
 
 /**
@@ -33,6 +31,9 @@ export const EMPTY_CONTACT_FORM: ContactFormValues = {
  * Department / seniority / type are free text backed by a `<datalist>`: the
  * columns are plain `text`, and a banker's desk naming never fits a closed
  * enum across firms.
+ *
+ * The bio is deliberately absent: it is the AI-generated profile, written only
+ * by Get Full Profile / Refresh, and the PATCH route ignores it.
  */
 export function ContactFields({
   values,
@@ -173,17 +174,6 @@ export function ContactFields({
           />
         </Field>
       </div>
-
-      <Field label="Background">
-        <Textarea
-          value={values.bio}
-          disabled={disabled}
-          onChange={(e) => set("bio")(e.target.value)}
-          rows={3}
-          placeholder="Covers our semiconductor mandates; ex-Lazard."
-          data-testid="contact-field-bio"
-        />
-      </Field>
     </div>
   );
 }

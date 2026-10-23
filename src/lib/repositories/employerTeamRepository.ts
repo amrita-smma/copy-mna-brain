@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   emailParticipants,
   employerTeamMembers,
+  userWorkspaces,
   users,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
@@ -15,19 +16,31 @@ export interface TeamMember {
 }
 
 export interface EmployerTeamAssignment {
+  workspace_id: string;
   employer_id: string;
   user_id: string;
 }
 
+/**
+ * Who on our side covers a firm. Per workspace since MB-687: every read and
+ * write names the workspace, so one workspace's coverage (and the names of
+ * its people) never shows on another workspace's card.
+ */
 export class EmployerTeamRepository {
   constructor(private db: DbClient) {}
 
-  async listForEmployer(employerId: string): Promise<TeamMember[]> {
+  async listForEmployer(workspaceId: string, employerId: string): Promise<TeamMember[]> {
     const rows = await this.db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(employerTeamMembers)
       .innerJoin(users, eq(users.id, employerTeamMembers.user_id))
-      .where(eq(employerTeamMembers.employer_id, employerId));
+      .where(
+        and(
+          eq(employerTeamMembers.workspace_id, workspaceId),
+          eq(employerTeamMembers.employer_id, employerId),
+        ),
+      )
+      .orderBy(asc(users.name));
     return rows;
   }
 
@@ -37,6 +50,7 @@ export class EmployerTeamRepository {
    * pass. Use this instead of calling `listForEmployer` per employer.
    */
   async listForEmployers(
+    workspaceId: string,
     employerIds: string[],
   ): Promise<Array<TeamMember & { employer_id: string }>> {
     if (employerIds.length === 0) return [];
@@ -49,14 +63,19 @@ export class EmployerTeamRepository {
       })
       .from(employerTeamMembers)
       .innerJoin(users, eq(users.id, employerTeamMembers.user_id))
-      .where(inArray(employerTeamMembers.employer_id, employerIds))
+      .where(
+        and(
+          eq(employerTeamMembers.workspace_id, workspaceId),
+          inArray(employerTeamMembers.employer_id, employerIds),
+        ),
+      )
       .orderBy(asc(employerTeamMembers.employer_id), asc(users.name));
   }
 
-  async add(employerId: string, userId: string): Promise<void> {
+  async add(workspaceId: string, employerId: string, userId: string): Promise<void> {
     await this.db
       .insert(employerTeamMembers)
-      .values({ employer_id: employerId, user_id: userId })
+      .values({ workspace_id: workspaceId, employer_id: employerId, user_id: userId })
       .onConflictDoNothing();
   }
 
@@ -68,7 +87,7 @@ export class EmployerTeamRepository {
     const unique = [
       ...new Map(
         assignments.map((assignment) => [
-          `${assignment.employer_id}:${assignment.user_id}`,
+          `${assignment.workspace_id}:${assignment.employer_id}:${assignment.user_id}`,
           assignment,
         ]),
       ).values(),
@@ -86,26 +105,58 @@ export class EmployerTeamRepository {
     return inserted.length;
   }
 
-  async remove(employerId: string, userId: string): Promise<void> {
+  async remove(workspaceId: string, employerId: string, userId: string): Promise<void> {
     await this.db
       .delete(employerTeamMembers)
       .where(
         and(
+          eq(employerTeamMembers.workspace_id, workspaceId),
           eq(employerTeamMembers.employer_id, employerId),
           eq(employerTeamMembers.user_id, userId),
         ),
       );
   }
 
-  async setMembers(employerId: string, userIds: string[]): Promise<void> {
-    await this.db
-      .delete(employerTeamMembers)
-      .where(eq(employerTeamMembers.employer_id, employerId));
-    if (userIds.length === 0) return;
-    await this.db
-      .insert(employerTeamMembers)
-      .values(userIds.map((user_id) => ({ employer_id: employerId, user_id })))
-      .onConflictDoNothing();
+  /** Replace this workspace's coverage of a firm; other workspaces' stays. */
+  async setMembers(
+    workspaceId: string,
+    employerId: string,
+    userIds: string[],
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(employerTeamMembers)
+        .where(
+          and(
+            eq(employerTeamMembers.workspace_id, workspaceId),
+            eq(employerTeamMembers.employer_id, employerId),
+          ),
+        );
+      if (userIds.length === 0) return;
+      await tx
+        .insert(employerTeamMembers)
+        .values(
+          userIds.map((user_id) => ({
+            workspace_id: workspaceId,
+            employer_id: employerId,
+            user_id,
+          })),
+        )
+        .onConflictDoNothing();
+    });
+  }
+
+  /**
+   * Members of one workspace — who the team picker may assign. Assigning a
+   * user from another workspace would put their name on this workspace's card.
+   */
+  async listWorkspaceMembers(workspaceId: string): Promise<TeamMember[]> {
+    return this.db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(userWorkspaces)
+      .innerJoin(users, eq(users.id, userWorkspaces.user_id))
+      .where(eq(userWorkspaces.workspace_id, workspaceId))
+      .orderBy(asc(users.name));
   }
 
   /**

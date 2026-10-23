@@ -9,6 +9,9 @@ const repo = vi.hoisted(() => ({
   emailInsertBatch: vi.fn(async (rows: Array<{ message_id: string }>) =>
     rows.map((r, i) => ({ id: `email-${i}`, message_id: r.message_id })),
   ),
+  findUsersByEmails: vi.fn(),
+  findWorkspaceIdsBySyncedEmail: vi.fn(),
+  addTeam: vi.fn(),
 }));
 
 vi.mock('@/lib/repositories', () => {
@@ -18,8 +21,8 @@ vi.mock('@/lib/repositories', () => {
     loadMap = vi.fn().mockResolvedValue(new Map());
     persistMany = vi.fn().mockResolvedValue(undefined);
   }
-  class UserRepository { findByEmails = asyncEmpty(); }
-  class UserWorkspaceRepository { findWorkspaceIdsBySyncedEmail = asyncEmpty(); }
+  class UserRepository { findByEmails = repo.findUsersByEmails; }
+  class UserWorkspaceRepository { findWorkspaceIdsBySyncedEmail = repo.findWorkspaceIdsBySyncedEmail; }
   class TopicRepository { upsertBatch = asyncEmpty(); }
   class EmployerRepository {
     findByNormalizedNames = repo.findByNormalizedNames;
@@ -35,7 +38,7 @@ vi.mock('@/lib/repositories', () => {
     upsertBatch = repo.correspondentUpsertBatch;
   }
   class WorkspaceCorrespondentRepository { addMemberships = asyncEmpty(); }
-  class EmployerTeamRepository { addMany = vi.fn().mockResolvedValue(0); }
+  class EmployerTeamRepository { addMany = repo.addTeam; }
   class EmployerRelatedCompanyRepository {}
   class CompanyRepository {}
   return {
@@ -211,6 +214,57 @@ describe('upsertEphemeralCrmBatch new-employer naming', () => {
     repo.findByNormalizedNames.mockReset();
     repo.employerUpsertBatch.mockReset().mockResolvedValue([]);
     repo.correspondentUpsertBatch.mockReset().mockResolvedValue([]);
+    repo.findUsersByEmails.mockReset().mockResolvedValue([]);
+    repo.findWorkspaceIdsBySyncedEmail.mockReset().mockResolvedValue([]);
+    repo.addTeam.mockReset().mockResolvedValue(0);
+  });
+
+  it("files the batch's auto tags and team coverage under each workspace the custodian syncs into", async () => {
+    const executed: string[] = [];
+    const testDb = {
+      execute: vi.fn(async (query: unknown) => {
+        executed.push(JSON.stringify(query));
+        return [];
+      }),
+      transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(testDb)),
+    };
+    repo.findByNormalizedNames.mockResolvedValue([
+      { id: 'emp-gs', normalized_name: 'goldman-sachs', name: 'Goldman Sachs' },
+    ]);
+    repo.findUsersByEmails.mockResolvedValue([{ id: 'user-me', email: 'me@starcapital.co.id' }]);
+    repo.findWorkspaceIdsBySyncedEmail.mockResolvedValue(['ws-a', 'ws-b']);
+
+    await upsertEphemeralCrmBatch([message], { db: testDb as never });
+
+    const tagInsert = executed.filter((q) => q.includes('INSERT INTO employer_topics'));
+    expect(tagInsert).toHaveLength(1);
+    expect(tagInsert[0]).toContain('ws-a');
+    expect(tagInsert[0]).toContain('ws-b');
+    expect(tagInsert[0]).toContain('ON CONFLICT (workspace_id, employer_id, topic_id)');
+    expect(repo.addTeam).toHaveBeenCalledWith([
+      { workspace_id: 'ws-a', employer_id: 'emp-gs', user_id: 'user-me' },
+      { workspace_id: 'ws-b', employer_id: 'emp-gs', user_id: 'user-me' },
+    ]);
+  });
+
+  it('writes no tags or coverage when the custodian syncs into no workspace', async () => {
+    const executed: string[] = [];
+    const testDb = {
+      execute: vi.fn(async (query: unknown) => {
+        executed.push(JSON.stringify(query));
+        return [];
+      }),
+      transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(testDb)),
+    };
+    repo.findByNormalizedNames.mockResolvedValue([
+      { id: 'emp-gs', normalized_name: 'goldman-sachs', name: 'Goldman Sachs' },
+    ]);
+    repo.findUsersByEmails.mockResolvedValue([{ id: 'user-me', email: 'me@starcapital.co.id' }]);
+
+    await upsertEphemeralCrmBatch([message], { db: testDb as never });
+
+    expect(executed.filter((q) => q.includes('INSERT INTO employer_topics'))).toHaveLength(0);
+    expect(repo.addTeam).toHaveBeenCalledWith([]);
   });
 
   it('creates a new employer under the LLM company name', async () => {

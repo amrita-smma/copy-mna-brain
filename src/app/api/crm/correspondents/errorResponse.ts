@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ContactNotFoundError } from '@/lib/services/crmContactEnrichmentService';
+import { CorrespondentNotFoundError } from '@/lib/services/crmService';
 import {
   DealCompanyNotFoundError,
   DealContactLinkNotFoundError,
@@ -8,7 +9,7 @@ import {
 
 /** Maps the contact routes' typed errors to HTTP responses; anything else is a 500. */
 export function crmContactErrorResponse(error: unknown, tag: string): NextResponse {
-  if (error instanceof ContactNotFoundError) {
+  if (error instanceof ContactNotFoundError || error instanceof CorrespondentNotFoundError) {
     return NextResponse.json({ error: 'Contact not found' }, { status: 404 });
   }
   if (error instanceof DealCompanyNotFoundError) {

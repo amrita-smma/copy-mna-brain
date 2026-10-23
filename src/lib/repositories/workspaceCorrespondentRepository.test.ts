@@ -11,6 +11,8 @@ function makeDb() {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     limit: vi.fn(),
+    delete: vi.fn().mockReturnThis(),
+    returning: vi.fn(),
   };
 }
 
@@ -116,5 +118,22 @@ describe('WorkspaceCorrespondentRepository.isVisible', () => {
     db.limit.mockResolvedValueOnce([]);
     const repo = new WorkspaceCorrespondentRepository(db as never);
     expect(await repo.isVisible('w1', 'c1')).toBe(false);
+  });
+});
+
+describe('WorkspaceCorrespondentRepository.removeMembership', () => {
+  it('drops only the membership row and reports whether the contact was visible', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
+    const repo = new WorkspaceCorrespondentRepository(db as never);
+    expect(await repo.removeMembership('w1', 'c1')).toBe(true);
+    expect(db.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false when this workspace never saw the contact', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([]);
+    const repo = new WorkspaceCorrespondentRepository(db as never);
+    expect(await repo.removeMembership('w1', 'c1')).toBe(false);
   });
 });

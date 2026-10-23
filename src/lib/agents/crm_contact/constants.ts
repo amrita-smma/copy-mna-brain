@@ -18,9 +18,10 @@ export function isCrmContactAgent(agentName: string | null | undefined): boolean
 
 /**
  * Correspondent fields @crm_contact may write. Every one is a
- * `correspondent_curation` column — the human/agent overlay that
- * `correspondent_effective` COALESCEs over the ingest-owned base row
- * (RFC §3.4), so a later MBOX re-ingest can never clobber what was found.
+ * `correspondent_curation` column — the per-workspace human/agent overlay
+ * that `correspondent_workspace_effective` COALESCEs over the ingest-owned
+ * base row (RFC §3.4), so a later MBOX re-ingest can never clobber what was
+ * found, and a run fills the profile only for the workspace it ran in.
  *
  * Deliberately absent:
  *   - `email` — the natural key behind the `(employer_id, email)` ingest
@@ -56,8 +57,9 @@ export type CrmContactWritableField = (typeof CRM_CONTACT_WRITABLE_FIELDS)[numbe
  * service (to put the gap list in the run's instruction, and to decide there
  * is nothing to do).
  *
- * Callers pass an EFFECTIVE row — `correspondent_effective`, which has already
- * COALESCEd the `correspondent_curation` overlay over the ingest-owned base.
+ * Callers pass an EFFECTIVE row — `correspondent_workspace_effective`, which
+ * has already COALESCEd this workspace's `correspondent_curation` overlay over
+ * the ingest-owned base.
  * A field a human filled by hand therefore reads as present, and stays
  * untouched.
  */

@@ -157,7 +157,7 @@ export const enrichCrmContact = tool(
       if (!contact) {
         return `**Error:** No CRM contact with id ${correspondent_id} is visible in this workspace. Do not look anyone up — stop and report this.`;
       }
-      const employer = await new EmployerRepository(db).findById(contact.employer_id);
+      const employer = await new EmployerRepository(db).findById(contact.employer_id, workspaceId);
       const firmName = employer?.name ?? 'an unknown firm';
 
       const query: TregPersonQuery = {

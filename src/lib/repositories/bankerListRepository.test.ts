@@ -43,8 +43,9 @@ describe('BankerListRepository', () => {
 
       expect(db.execute).toHaveBeenCalledTimes(1);
       const { sql } = compiled(db);
-      expect(sql).toContain('"public"."correspondent_effective" ce');
-      expect(sql).toContain('"public"."workspace_correspondents" wc');
+      expect(sql).toContain('"public"."correspondent_workspace_effective" ce');
+      expect(sql).toContain('"public"."employer_workspace_effective" ee');
+      expect(sql).toContain('ee.workspace_id = ce.workspace_id');
       expect(sql).toContain("ee.curation_status = 'published'");
       expect(sql).toContain('"analytics"."mart_contact_email_totals" et');
       expect(sql).toContain('"analytics"."mart_contact_interactions" mci');
@@ -209,7 +210,7 @@ describe('BankerListRepository', () => {
 
       await expect(repo.countVisible('w1')).resolves.toBe(38);
       const { sql, params } = compiled(db);
-      expect(sql).toContain('wc.workspace_id = $1');
+      expect(sql).toContain('ce.workspace_id = $1');
       expect(sql).toContain("ee.curation_status = 'published'");
       expect(sql).not.toContain('mart_contact');
       expect(params).toEqual(['w1']);

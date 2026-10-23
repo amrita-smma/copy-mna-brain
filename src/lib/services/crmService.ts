@@ -10,8 +10,9 @@ import type {
   EmployerCurationRepository,
   EmployerListFilters,
   EmployerNote,
-  EmployerNoteInsert,
+  EmployerNoteListItem,
   EmployerNoteRepository,
+  EmployerNoteRevisionItem,
   EmployerRelatedCompanyRanking,
   EmployerRelatedCompanyRepository,
   EmployerRepository,
@@ -37,6 +38,29 @@ export class DuplicateEmployerError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DuplicateEmployerError";
+  }
+}
+
+/** A team assignment named someone who is not a member of this workspace. */
+export class InvalidTeamMemberError extends Error {
+  constructor(userIds: string[]) {
+    super(`Not members of this workspace: ${userIds.join(", ")}`);
+    this.name = "InvalidTeamMemberError";
+  }
+}
+
+/** The contact does not exist, or is not visible in this workspace. */
+export class CorrespondentNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Contact ${id} not found`);
+    this.name = "CorrespondentNotFoundError";
+  }
+}
+
+export class EmployerNoteNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Note ${id} not found`);
+    this.name = "EmployerNoteNotFoundError";
   }
 }
 
@@ -94,7 +118,7 @@ export interface EmployerDetail {
   employer: Employer;
   primary_pic: Correspondent | null;
   correspondents: Correspondent[];
-  notes: EmployerNote[];
+  notes: EmployerNoteListItem[];
   topics: EmployerTopicAssignment[];
   team: TeamMember[];
   email_count: number;
@@ -192,6 +216,13 @@ export const EDITABLE_CONTACT_FIELDS = [
 export type EditableContactField = (typeof EDITABLE_CONTACT_FIELDS)[number];
 
 /**
+ * Fields the contact editor cannot set. The bio is the AI-generated profile:
+ * only Get Full Profile / Refresh (@crm_contact) write it, through
+ * `updateContact` directly, so a hand edit can never pass for AI research.
+ */
+const AI_ONLY_CONTACT_FIELDS: ReadonlySet<EditableContactField> = new Set(["bio"]);
+
+/**
  * What `CRMService.updateContact` accepts. Deliberately narrower than
  * `Partial<CorrespondentInsert>`: only human-editable fields, plus the
  * editor stamp. `null` clears a field — for an overlay column that means the
@@ -214,6 +245,7 @@ export function pickEditableContactFields(
 ): Partial<Record<EditableContactField, string | null>> {
   const out: Partial<Record<EditableContactField, string | null>> = {};
   for (const field of EDITABLE_CONTACT_FIELDS) {
+    if (AI_ONLY_CONTACT_FIELDS.has(field)) continue;
     const value = body[field];
     if (value === undefined) continue;
     if (value === null) {
@@ -293,7 +325,7 @@ export class CRMService {
   }
 
   async getEmployerDetail(id: string): Promise<EmployerDetail> {
-    const employer = await this.employerRepo.findById(id);
+    const employer = await this.employerRepo.findById(id, this.workspaceId);
     if (!employer) throw new EmployerNotFoundError(id);
 
     const [correspondents, notes, topics, team, emailCount, emails, relatedCompanies] =
@@ -301,7 +333,7 @@ export class CRMService {
         this.correspondentRepo.findByEmployerId(id, this.workspaceId),
         this.noteRepo.findByEmployerId(id, this.workspaceId),
         this.topicRepo.listForEmployer(id, this.workspaceId),
-        this.teamRepo.listForEmployer(id),
+        this.teamRepo.listForEmployer(this.workspaceId, id),
         this.emailRepo.countByEmployer(id),
         this.emailRepo.findByEmployerId(id, { limit: 1 }),
         this.relatedCompanyRepo.listForEmployer(id, this.workspaceId),
@@ -375,7 +407,7 @@ export class CRMService {
     if (data.name !== undefined) overlay.name = data.name;
     if (data.industry !== undefined) overlay.industry = data.industry;
     if (Object.keys(overlay).length > 0) {
-      await this.employerCurationRepo.upsert(id, overlay, null);
+      await this.employerCurationRepo.upsert(this.workspaceId, id, overlay, null);
     }
 
     const base: EmployerUpdate = {};
@@ -386,7 +418,7 @@ export class CRMService {
       if (!updated) throw new EmployerNotFoundError(id);
     }
 
-    const effective = await this.employerRepo.findById(id);
+    const effective = await this.employerRepo.findById(id, this.workspaceId);
     if (!effective) throw new EmployerNotFoundError(id);
     return effective;
   }
@@ -420,7 +452,7 @@ export class CRMService {
     if (employerPatch.name !== undefined) overlay.name = employerPatch.name;
     if (employerPatch.industry !== undefined) overlay.industry = employerPatch.industry;
     if (Object.keys(overlay).length > 0) {
-      await this.employerCurationRepo.upsert(id, overlay, null);
+      await this.employerCurationRepo.upsert(this.workspaceId, id, overlay, null);
     }
 
     // Workflow fields → base. Always call update so "skip" bumps updated_at and
@@ -477,7 +509,7 @@ export class CRMService {
       }
     }
 
-    return this.employerRepo.findById(id) as Promise<Employer>;
+    return this.employerRepo.findById(id, this.workspaceId) as Promise<Employer>;
   }
 
   // ─── Correspondents ──────────────────────────────────────────────────────
@@ -488,7 +520,7 @@ export class CRMService {
     }
 
     const employer = input.employerId
-      ? await this.employerRepo.findById(input.employerId)
+      ? await this.employerRepo.findById(input.employerId, this.workspaceId)
       : await this.findOrCreateEmployer(input.firmName!);
 
     if (!employer) {
@@ -667,7 +699,7 @@ export class CRMService {
       });
     }
 
-    await this.correspondentCurationRepo.fillMany(mergeEdits, editedBy);
+    await this.correspondentCurationRepo.fillMany(this.workspaceId, mergeEdits, editedBy);
     const created = await this.correspondentRepo.insertMany(inserts);
     // Rows a concurrent insert beat to `(employer_id, email)` come back empty.
     result.skipped += inserts.length - created.length;
@@ -706,12 +738,17 @@ export class CRMService {
     opts: { source?: string; editedBy?: string | null } = {},
   ): Promise<{ createdIds: string[]; merged: Correspondent[] }> {
     const editedBy = opts.editedBy ?? null;
-    const [existing, byEmailRows] = await Promise.all([
+    const [existing, sharedByEmailRows] = await Promise.all([
       this.correspondentRepo.findByEmployerId(employerId, this.workspaceId),
       this.correspondentRepo.findByEmails(
         rows.map((r) => normalizeEmail(r.email)).filter((e): e is string => !!e),
       ),
     ]);
+    // findByEmails matches across firms on the shared row, which carries no
+    // workspace edits. "Fill only empty fields" must judge emptiness against
+    // what THIS workspace sees, or a field a colleague curated here reads as
+    // blank and gets overwritten by the discovered value.
+    const byEmailRows = await this.withWorkspaceOverlay(sharedByEmailRows);
     const byEmail = pickCanonicalByEmail(byEmailRows, employerId);
     const byName = new Map<string, Correspondent>();
     for (const c of existing) {
@@ -775,7 +812,7 @@ export class CRMService {
       });
     }
 
-    await this.correspondentCurationRepo.fillMany(mergeEdits, editedBy);
+    await this.correspondentCurationRepo.fillMany(this.workspaceId, mergeEdits, editedBy);
     const created = await this.correspondentRepo.insertMany(inserts);
     await this.workspaceCorrespondentRepo.addMemberships(
       [...merged, ...created].map((c) => ({
@@ -787,6 +824,33 @@ export class CRMService {
     // `merged` rows keep their own employer: an email match can be a contact
     // filed under another firm, and the email-keyed merge leaves it there.
     return { createdIds: created.map((c) => c.id), merged };
+  }
+
+  /**
+   * Lay this workspace's curation over shared correspondent rows (one batched
+   * read). For code paths that match by email on the shared row but must then
+   * reason about the values this workspace actually shows.
+   */
+  private async withWorkspaceOverlay(rows: Correspondent[]): Promise<Correspondent[]> {
+    if (rows.length === 0) return rows;
+    const overlays = new Map(
+      (
+        await this.correspondentCurationRepo.findManyByCorrespondentIds(
+          this.workspaceId,
+          rows.map((r) => r.id),
+        )
+      ).map((o) => [o.correspondent_id, o]),
+    );
+    return rows.map((row) => {
+      const overlay = overlays.get(row.id);
+      if (!overlay) return row;
+      const out = { ...row };
+      for (const field of OVERLAY_CONTACT_FIELDS) {
+        const value = overlay[field];
+        if (value !== null && value !== undefined) out[field] = value;
+      }
+      return out;
+    });
   }
 
   async listContacts(employerId: string): Promise<Correspondent[]> {
@@ -806,7 +870,7 @@ export class CRMService {
       if (value !== undefined) overlay[field] = value ?? null;
     }
     if (Object.keys(overlay).length > 0) {
-      await this.correspondentCurationRepo.upsert(id, overlay, editedBy);
+      await this.correspondentCurationRepo.upsert(this.workspaceId, id, overlay, editedBy);
     }
 
     const base: Partial<CorrespondentInsert> = {};
@@ -829,26 +893,71 @@ export class CRMService {
     return row;
   }
 
+  /**
+   * "Delete" from the CRM card: unlink the contact from this workspace only.
+   * The correspondent row is shared — a hard delete would cascade away every
+   * other workspace's overview, deal roles and edits. If a synced mailbox here
+   * emails them again, the ingest re-links them like any new correspondent.
+   */
   async deleteContact(id: string): Promise<void> {
-    await this.correspondentRepo.delete(id, this.workspaceId);
+    const removed = await this.workspaceCorrespondentRepo.removeMembership(
+      this.workspaceId,
+      id,
+    );
+    if (!removed) throw new CorrespondentNotFoundError(id);
   }
 
   // ─── Notes ───────────────────────────────────────────────────────────────
 
-  async addNote(
-    input: Omit<EmployerNoteInsert, "workspace_id">,
-  ): Promise<EmployerNote> {
+  // Anyone in the workspace may add, edit or delete a firm note. Every change
+  // is audited: the repository writes the revision in the same transaction.
+  // The acting user comes from the route's session, never from the body.
+
+  async addNote(input: {
+    employer_id: string;
+    content: string;
+    userId: string | null;
+  }): Promise<EmployerNote> {
     // Stamped from the service's own workspace context, not trusted from the
     // caller — a route should never be able to write another workspace's note.
-    return this.noteRepo.insert({ ...input, workspace_id: this.workspaceId });
+    return this.noteRepo.createWithRevision({
+      employer_id: input.employer_id,
+      workspace_id: this.workspaceId,
+      content: input.content,
+      author_user_id: input.userId,
+    });
   }
 
-  async listNotes(employerId: string): Promise<EmployerNote[]> {
+  async listNotes(employerId: string): Promise<EmployerNoteListItem[]> {
     return this.noteRepo.findByEmployerId(employerId, this.workspaceId);
   }
 
-  async deleteNote(id: string): Promise<void> {
-    await this.noteRepo.delete(id, this.workspaceId);
+  async updateNote(
+    id: string,
+    content: string,
+    userId: string | null,
+  ): Promise<EmployerNote> {
+    const row = await this.noteRepo.editWithRevision(
+      id,
+      this.workspaceId,
+      content,
+      userId,
+    );
+    if (!row) throw new EmployerNoteNotFoundError(id);
+    return row;
+  }
+
+  async deleteNote(id: string, userId: string | null): Promise<void> {
+    const deleted = await this.noteRepo.softDeleteWithRevision(
+      id,
+      this.workspaceId,
+      userId,
+    );
+    if (!deleted) throw new EmployerNoteNotFoundError(id);
+  }
+
+  async listNoteRevisions(id: string): Promise<EmployerNoteRevisionItem[]> {
+    return this.noteRepo.listRevisions(id, this.workspaceId);
   }
 
   // ─── Topics ──────────────────────────────────────────────────────────────
@@ -887,7 +996,7 @@ export class CRMService {
       { is_deal_related: opts.is_deal_related ?? false },
       this.workspaceId,
     );
-    await this.topicRepo.assignToEmployer(employerId, topic.id, {
+    await this.topicRepo.assignToEmployer(employerId, topic.id, this.workspaceId, {
       source: opts.source ?? "manual",
       is_highlight: opts.is_highlight ?? false,
     });
@@ -905,7 +1014,7 @@ export class CRMService {
     employerId: string,
     topicId: string,
   ): Promise<void> {
-    await this.topicRepo.removeFromEmployer(employerId, topicId);
+    await this.topicRepo.removeFromEmployer(employerId, topicId, this.workspaceId);
   }
 
   // ─── Related companies (manual) ──────────────────────────────────────────
@@ -920,7 +1029,7 @@ export class CRMService {
     employerId: string,
     companyId: string,
   ): Promise<RelatedCompanyWithEvidence[]> {
-    const employer = await this.employerRepo.findById(employerId);
+    const employer = await this.employerRepo.findById(employerId, this.workspaceId);
     if (!employer) throw new EmployerNotFoundError(employerId);
 
     const company = await this.companyRepo.findById(companyId);
@@ -947,7 +1056,12 @@ export class CRMService {
     );
   }
 
-  /** Hard-delete a manual related company link. No-op for auto rows. */
+  /**
+   * Remove a related company from the card: a manual link is hard-deleted (so
+   * it can be re-added), an auto suggestion is dismissed (so the next ingest
+   * does not resurrect it). Each repository call is guarded to its own
+   * source, so running both is safe and needs no read first.
+   */
   async removeRelatedCompanyFromEmployer(
     employerId: string,
     relatedCompanyId: string,
@@ -957,21 +1071,77 @@ export class CRMService {
       relatedCompanyId,
       this.workspaceId,
     );
+    await this.relatedCompanyRepo.dismissAuto(
+      employerId,
+      relatedCompanyId,
+      this.workspaceId,
+    );
   }
 
   // ─── Team members ────────────────────────────────────────────────────────
 
   async listTeam(employerId: string): Promise<TeamMember[]> {
-    return this.teamRepo.listForEmployer(employerId);
+    return this.teamRepo.listForEmployer(this.workspaceId, employerId);
   }
 
+  /**
+   * Replace this workspace's coverage of a firm. Only members of this
+   * workspace may be ADDED — anyone else's name would show on the card. A
+   * person already on this firm's team here (an ex-member, or a row the
+   * ingest wrote) may stay, so saving an unrelated change never fails on them.
+   */
   async setTeam(employerId: string, userIds: string[]): Promise<TeamMember[]> {
-    await this.teamRepo.setMembers(employerId, userIds);
-    return this.teamRepo.listForEmployer(employerId);
+    const wanted = [...new Set(userIds)];
+    if (wanted.length > 0) {
+      const [members, current] = await Promise.all([
+        this.teamRepo.listWorkspaceMembers(this.workspaceId),
+        this.teamRepo.listForEmployer(this.workspaceId, employerId),
+      ]);
+      const allowed = new Set([...members, ...current].map((m) => m.id));
+      const outsiders = wanted.filter((id) => !allowed.has(id));
+      if (outsiders.length > 0) throw new InvalidTeamMemberError(outsiders);
+    }
+    await this.teamRepo.setMembers(this.workspaceId, employerId, wanted);
+    return this.teamRepo.listForEmployer(this.workspaceId, employerId);
   }
 
   async listAllTeamUsers(): Promise<TeamMember[]> {
     return this.teamRepo.listAllTeamUsers();
+  }
+
+  /** Who the team picker may assign: this workspace's members only. */
+  async listWorkspaceMembers(): Promise<TeamMember[]> {
+    return this.teamRepo.listWorkspaceMembers(this.workspaceId);
+  }
+
+  // ─── Primary contact (PIC) ───────────────────────────────────────────────
+
+  /**
+   * Pick the firm's PIC for this workspace, or `null` to go back to the
+   * default (its oldest visible contact). The contact must be visible here and
+   * work at this firm — otherwise one workspace could point its PIC at a
+   * person it cannot see.
+   */
+  async setPrimaryContact(
+    employerId: string,
+    correspondentId: string | null,
+    editedBy: string | null,
+  ): Promise<void> {
+    if (correspondentId !== null) {
+      const contact = await this.correspondentRepo.findById(
+        correspondentId,
+        this.workspaceId,
+      );
+      if (!contact || contact.employer_id !== employerId) {
+        throw new CorrespondentNotFoundError(correspondentId);
+      }
+    }
+    await this.employerCurationRepo.upsert(
+      this.workspaceId,
+      employerId,
+      { primary_correspondent_id: correspondentId },
+      editedBy,
+    );
   }
 
   // ─── Insights ────────────────────────────────────────────────────────────
@@ -1007,7 +1177,7 @@ export class CRMService {
   }
 
   async listFlaggedEmployers(): Promise<Employer[]> {
-    return this.employerRepo.listFlagged();
+    return this.employerRepo.listFlagged(this.workspaceId);
   }
 
   /**
@@ -1030,7 +1200,7 @@ export class CRMService {
       } | null;
     }>
   > {
-    const flagged = await this.employerRepo.listFlagged();
+    const flagged = await this.employerRepo.listFlagged(this.workspaceId);
     // One batched correspondent read for all flagged employers instead of a
     // per-employer query (was an N+1). Group by employer_id in memory.
     const correspondents = await this.correspondentRepo.findByEmployerIds(

@@ -445,7 +445,7 @@ describe("lookupCrm — banker match mode", () => {
     expect(topicListForEmployersMock).toHaveBeenCalledTimes(1);
     expect(topicListForEmployersMock).toHaveBeenCalledWith(["emp-1", "emp-2"], "ws-1");
     expect(teamListForEmployersMock).toHaveBeenCalledTimes(1);
-    expect(teamListForEmployersMock).toHaveBeenCalledWith(["emp-1", "emp-2"]);
+    expect(teamListForEmployersMock).toHaveBeenCalledWith("ws-1", ["emp-1", "emp-2"]);
   });
 
   it("explains how the query was read, and flags terms it could not translate", async () => {

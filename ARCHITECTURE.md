@@ -174,6 +174,14 @@ and see-through in dark.
 is full-bleed, so page padding goes on the content below it, and its title is
 the page's only `<h1>`. Full rule: `.claude/rules/page-header.md`.
 
+**CRM firms and contacts are shared rows; everything people set on them is
+per workspace.** `employers` / `correspondents` belong to the email ingest and
+are seen by every workspace that syncs a mailbox that emails them. Edits, the
+PIC, team and topic tags live in workspace-keyed tables, and user-facing reads
+go through `correspondent_workspace_effective` / `employer_workspace_effective`
+filtered on `workspace_id` — never the global `*_effective` views, which carry
+no edits. See `docs/features/crm-per-workspace-editing.md`.
+
 **Migrations use a date + per-day counter, not a timestamp.** Always
 `pnpm db:migration:new <name>`; never hand-name a file or edit `_journal.json`.
 

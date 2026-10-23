@@ -98,7 +98,7 @@ export class CrmContactEnrichmentService {
     );
     if (!contact) throw new ContactNotFoundError(correspondentId);
 
-    const employer = await this.employerRepo.findById(contact.employer_id);
+    const employer = await this.employerRepo.findById(contact.employer_id, this.workspaceId);
     const employerName = employer?.name ?? 'an unknown firm';
     const missingFields = missingProfileFields(contact);
     const refresh = opts.refresh === true;

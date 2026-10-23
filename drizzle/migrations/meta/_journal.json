@@ -1289,6 +1289,13 @@
       "when": 1792540803000,
       "tag": "20261021000003_contact_relationship_overviews",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1792713600000,
+      "tag": "20261023000000_crm_per_workspace_curation",
+      "breakpoints": true
     }
   ]
 }

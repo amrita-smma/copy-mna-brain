@@ -473,7 +473,7 @@ geography (the region rather than the country), a different desk, or
   const employerIds = [...new Set(bankers.map((b) => b.employer_id))];
   const [topicRows, teamRows] = await Promise.all([
     topicRepo.listForEmployers(employerIds, workspaceId),
-    teamRepo.listForEmployers(employerIds),
+    teamRepo.listForEmployers(workspaceId, employerIds),
   ]);
   const topicsByEmployer = groupByEmployer(topicRows);
   const teamByEmployer = groupByEmployer(teamRows);
@@ -525,7 +525,7 @@ async function profileFirms(
           correspondentRepo.findByEmployerId(firm.id, workspaceId),
           relatedCompanyRepo.listForEmployer(firm.id, workspaceId),
           topicRepo.listForEmployer(firm.id, workspaceId),
-          teamRepo.listForEmployer(firm.id),
+          teamRepo.listForEmployer(workspaceId, firm.id),
           emailRepo.findByEmployerId(firm.id, { limit: RECENT_EMAILS }),
           noteRepo.findByEmployerId(firm.id, workspaceId),
         ]);

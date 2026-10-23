@@ -249,12 +249,12 @@ export class ContactInteractionRepository {
              mart.last_email_at,
              COALESCE(recent.recent_emails, 0) AS recent_emails
       FROM pairs pr
-      JOIN "public"."correspondent_effective" ce ON ce.id = pr.correspondent_id
-      JOIN "public"."workspace_correspondents" wc
-        ON wc.correspondent_id = ce.id
-       AND wc.workspace_id = ${workspaceId}
-      JOIN "public"."employer_effective" ee
+      JOIN "public"."correspondent_workspace_effective" ce
+        ON ce.id = pr.correspondent_id
+       AND ce.workspace_id = ${workspaceId}
+      JOIN "public"."employer_workspace_effective" ee
         ON ee.id = ce.employer_id
+       AND ee.workspace_id = ce.workspace_id
        AND ee.curation_status = 'published'
       LEFT JOIN mart
         ON mart.user_id = pr.user_id AND mart.correspondent_id = pr.correspondent_id

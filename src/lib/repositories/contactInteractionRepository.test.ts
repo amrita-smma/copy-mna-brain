@@ -88,7 +88,7 @@ describe('ContactInteractionRepository', () => {
       expect(sql).toContain('mci.workspace_id = $');
       expect(sql).toContain('uw.workspace_id = $');
       expect(sql).toContain('cuw.workspace_id = $');
-      expect(sql).toContain('wc.workspace_id = $');
+      expect(sql).toContain('ce.workspace_id = $');
       expect(params.filter((p) => p === 'w1').length).toBe(4);
       expect(params.filter((p) => p === 'u1').length).toBe(2);
       expect(params).not.toContain('u2');
@@ -111,8 +111,8 @@ describe('ContactInteractionRepository', () => {
       expect(sql).toContain("(up.role = 'from' AND cp.role IN ('to', 'cc'))");
       expect(sql).toContain("(cp.role = 'from' AND up.role IN ('to', 'cc'))");
       expect(sql).toContain('cp.user_id IS NULL');
-      expect(sql).toContain('"public"."correspondent_effective" ce');
-      expect(sql).toContain('"public"."workspace_correspondents" wc');
+      expect(sql).toContain('"public"."correspondent_workspace_effective" ce');
+      expect(sql).toContain('"public"."employer_workspace_effective" ee');
       expect(sql).toContain("ee.curation_status = 'published'");
     });
 

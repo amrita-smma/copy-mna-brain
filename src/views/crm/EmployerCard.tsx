@@ -25,17 +25,20 @@ import {
   Pencil,
   Plus,
   Sparkles,
+  Star,
+  Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EditContactDialog } from "./EditContactDialog";
+import { EditEmployerDialog } from "./EditEmployerDialog";
+import { EmployerNotesTab } from "./EmployerNotesTab";
 import type { ContactPanelSeed } from "./ContactInsightsPanel";
 import { FillContactButton, type EnrichmentRun } from "./FillContactButton";
 import type {
   Correspondent,
   EmployerDetail,
-  EmployerNote,
   EmployerRelatedCompany,
   EmployerSummary,
   EmployerTopicAssignment,
@@ -98,6 +101,9 @@ export function EmployerCard({
     .slice(0, 2);
   const matched = employer.matched_contacts ?? [];
   const [editingPrimary, setEditingPrimary] = useState(false);
+  // The card IS the record here, so a plain boolean is safe: the dialog is
+  // keyed by this firm's id and unmounts on close.
+  const [editingFirm, setEditingFirm] = useState(false);
 
   const pic = employer.primary_pic;
   // The primary PIC's full record (for the edit dialog) comes from the firm
@@ -338,6 +344,25 @@ export function EmployerCard({
         />
       )}
 
+      {editingFirm && detail && (
+        <EditEmployerDialog
+          key={employer.id}
+          employerId={employer.id}
+          name={employer.name}
+          industry={employer.industry}
+          team={detail.team}
+          open={editingFirm}
+          onOpenChange={(open) => {
+            if (!open) setEditingFirm(false);
+          }}
+          onSaved={() => {
+            setEditingFirm(false);
+            onRefreshDetail();
+            onRefreshList();
+          }}
+        />
+      )}
+
       {expanded && (
         <div className="border-t bg-background">
           {/* Only show the spinner on the INITIAL load (no detail yet). During a
@@ -352,6 +377,7 @@ export function EmployerCard({
             <ExpandedTabs
               employerId={employer.id}
               detail={detail}
+              onEditFirm={() => setEditingFirm(true)}
               matchedContactIds={matched.map((m) => m.id)}
               searchTerm={searchTerm}
               onAddContact={onAddContact}
@@ -520,6 +546,7 @@ function TopicDropZone({
 function ExpandedTabs({
   employerId,
   detail,
+  onEditFirm,
   matchedContactIds,
   searchTerm,
   onAddContact,
@@ -529,6 +556,7 @@ function ExpandedTabs({
 }: {
   employerId: string;
   detail: EmployerDetail;
+  onEditFirm: () => void;
   matchedContactIds: string[];
   searchTerm?: string;
   onAddContact: () => void;
@@ -538,7 +566,8 @@ function ExpandedTabs({
 }) {
   return (
     <Tabs defaultValue="contacts" className="w-full">
-      <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b bg-background px-5 pb-0 pt-5">
+      <div className="flex items-end justify-between gap-3 border-b bg-background px-5 pt-5">
+      <TabsList className="h-auto justify-start gap-6 rounded-none bg-background p-0">
         <TabsTrigger value="contacts" className={tabTriggerCls}>
           Contacts
           <span className="ml-1">
@@ -559,6 +588,18 @@ function ExpandedTabs({
           Notes
         </TabsTrigger>
       </TabsList>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-1 h-7 gap-1.5 px-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          onClick={onEditFirm}
+          title="Edit this firm's name, industry and team"
+          data-testid="crm-firm-edit"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Edit firm
+        </Button>
+      </div>
 
       <TabsContent value="contacts" className="px-5 pb-5 pt-4">
         <ContactsTab
@@ -595,7 +636,7 @@ function ExpandedTabs({
       </TabsContent>
 
       <TabsContent value="notes" className="px-5 pb-5 pt-4">
-        <NotesTab
+        <EmployerNotesTab
           employerId={employerId}
           notes={detail.notes}
           team={detail.team}
@@ -628,6 +669,43 @@ function ContactsTab({
   // tracked as a second boolean, per .claude/rules/dialog-open-state.md. The
   // row is already in hand, so there is no fetch to race on open.
   const [editing, setEditing] = useState<Correspondent | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Correspondent | null>(null);
+  const [busyContactId, setBusyContactId] = useState<string | null>(null);
+
+  // PIC and delete are per workspace: picking a PIC records this workspace's
+  // choice, and Delete unlinks the contact from this workspace only.
+  const makePrimary = async (c: Correspondent) => {
+    setBusyContactId(c.id);
+    try {
+      const res = await fetch(`/api/crm/employers/${employerId}/primary-contact`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ correspondent_id: c.id }),
+      });
+      if (!res.ok) throw new Error("Could not set the primary contact");
+      toast.success(`${c.name} is now the primary contact`);
+      onChanged();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusyContactId(null);
+    }
+  };
+
+  const removeContact = async (c: Correspondent) => {
+    setBusyContactId(c.id);
+    try {
+      const res = await fetch(`/api/crm/correspondents/${c.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Could not delete the contact");
+      toast.success(`${c.name} removed from this workspace`);
+      onChanged();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusyContactId(null);
+      setConfirmDelete(null);
+    }
+  };
   // Every row's latest @crm_contact run in one request, so the fill buttons
   // can render their state without a GET per rendered contact.
   const [enrichRuns, setEnrichRuns] = useState<Record<string, EnrichmentRun>>(
@@ -819,6 +897,32 @@ function ContactsTab({
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
+                    {!c.is_primary && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => void makePrimary(c)}
+                        disabled={busyContactId === c.id}
+                        aria-label={`Make ${c.name} the primary contact`}
+                        title="Make primary contact"
+                        data-testid="crm-contact-make-primary"
+                      >
+                        <Star className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => setConfirmDelete(c)}
+                      disabled={busyContactId === c.id}
+                      aria-label={`Delete ${c.name}`}
+                      title="Delete contact"
+                      data-testid="crm-contact-delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                     {onOpenContact && (
                       <button
                         type="button"
@@ -840,6 +944,40 @@ function ContactsTab({
         </div>
       )}
 
+      {confirmDelete && (
+        <Dialog
+          key={confirmDelete.id}
+          open={!!confirmDelete}
+          onOpenChange={(o) => {
+            if (!o) setConfirmDelete(null);
+          }}
+        >
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete {confirmDelete.name}?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              They are removed from this workspace&apos;s CRM. Other workspaces
+              keep them. If a synced mailbox here emails them again, they come
+              back.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void removeContact(confirmDelete)}
+                disabled={busyContactId === confirmDelete.id}
+                data-testid="crm-contact-delete-confirm"
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {editing && (
         <EditContactDialog
           key={editing.id}
@@ -859,7 +997,7 @@ function ContactsTab({
 }
 
 const CONTACT_GRID =
-  "grid grid-cols-[2.2fr_2.2fr_1.4fr_1.4fr_3.4fr_1.6fr]";
+  "grid grid-cols-[2.2fr_2.2fr_1.4fr_1.4fr_3fr_2.2fr]";
 
 /** Area / industry focus as one outlined tag, or "—". */
 function FocusTag({ value }: { value: string | null }) {
@@ -1237,102 +1375,6 @@ function TopicsTab({
   );
 }
 
-function NotesTab({
-  employerId,
-  notes,
-  team,
-  onChanged,
-}: {
-  employerId: string;
-  notes: EmployerNote[];
-  team: TeamMemberSummary[];
-  onChanged: () => void;
-}) {
-  const [content, setContent] = useState(notes[0]?.content ?? "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setContent(notes[0]?.content ?? "");
-  }, [notes]);
-
-  const save = async () => {
-    if (!content.trim()) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/crm/employers/${employerId}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
-      if (!res.ok) throw new Error("Save failed");
-      toast.success("Note saved");
-      onChanged();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div>
-      <div className="mb-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        Notes
-      </div>
-      <Textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        rows={5}
-        placeholder="Add a note about this firm…"
-      />
-      <div className="mt-2 flex justify-end">
-        <Button size="sm" onClick={save} disabled={saving || !content.trim()}>
-          {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
-          Save note
-        </Button>
-      </div>
-      {team.length > 0 && (
-        <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Team
-          <div className="flex gap-1">
-            {team.map((m) => (
-              <span
-                key={m.id}
-                className={cn(
-                  "grid h-5 w-5 place-items-center rounded-full bg-gradient-to-br text-[8px] font-bold text-white",
-                  colorForId(m.id),
-                )}
-                title={m.name}
-              >
-                {initialsOf(m.name)}
-              </span>
-            ))}
-          </div>
-          <span className="text-xs font-medium normal-case text-muted-foreground">
-            {team.map((m) => m.name.split(" ")[0]).join(", ")}
-          </span>
-        </div>
-      )}
-      {notes.length > 1 && (
-        <div className="mt-4 text-xs text-muted-foreground">
-          Past notes:
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {notes.slice(1).map((n) => (
-              <li key={n.id}>
-                <span className="text-[10px] text-muted-foreground">
-                  {format(new Date(n.created_at), "MMM d, yyyy")}
-                </span>{" "}
-                — {n.content.slice(0, 80)}
-                {n.content.length > 80 ? "…" : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 const CONFIDENCE_BADGE: Record<string, string> = {
   high: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300",
   medium: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300",
@@ -1455,21 +1497,24 @@ function RelatedCompaniesTab({
                     {expanded === c.id ? "Hide" : "Show"} evidence
                   </button>
                 )}
-                {c.source === "manual" && (
-                  <button
-                    type="button"
-                    aria-label="Remove company"
-                    disabled={removing === c.id}
-                    className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
-                    onClick={() => handleRemove(c.id)}
-                  >
-                    {removing === c.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <X className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                )}
+                {/* A manual link is deleted; an auto suggestion is dismissed
+                    for this workspace so the next ingest does not bring it
+                    back. The server picks which by the row's source. */}
+                <button
+                  type="button"
+                  aria-label={c.source === "manual" ? "Remove company" : "Dismiss suggestion"}
+                  title={c.source === "manual" ? "Remove company" : "Dismiss suggestion"}
+                  disabled={removing === c.id}
+                  className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
+                  onClick={() => handleRemove(c.id)}
+                  data-testid="crm-related-company-remove"
+                >
+                  {removing === c.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </button>
               </div>
             </div>
             {expanded === c.id && (

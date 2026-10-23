@@ -32,13 +32,21 @@ describe('EmployerRepository', () => {
   describe('findById', () => {
     it('returns the row when present', async () => {
       db.limit.mockResolvedValueOnce([{ id: '1', name: 'GS' }]);
-      const out = await repo.findById('1');
+      const out = await repo.findById('1', 'w1');
       expect(out).toEqual({ id: '1', name: 'GS' });
     });
 
     it('returns undefined when missing', async () => {
       db.limit.mockResolvedValueOnce([]);
-      expect(await repo.findById('x')).toBeUndefined();
+      expect(await repo.findById('x', 'w1')).toBeUndefined();
+    });
+
+    it("reads this workspace's row of the per-workspace view, so its rename wins", async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await repo.findById('1', 'w1');
+      const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(text).toContain('"employer_workspace_effective"."workspace_id" =');
+      expect(params).toEqual(['1', 'w1']);
     });
   });
 
@@ -70,7 +78,7 @@ describe('EmployerRepository', () => {
 
   describe('findByIds', () => {
     it('short-circuits to [] for an empty input', async () => {
-      const out = await repo.findByIds([]);
+      const out = await repo.findByIds([], 'w1');
       expect(out).toEqual([]);
       expect(db.select).not.toHaveBeenCalled();
     });
@@ -145,14 +153,25 @@ describe('EmployerRepository', () => {
       expect(text).toContain('employer_topics');
     });
 
-    it('scopes primary_pic to correspondents visible to the workspace, ordered by created_at (positional primary)', async () => {
+    it("picks primary_pic among the workspace's visible contacts: its chosen PIC first, else the oldest", async () => {
       db.offset.mockResolvedValueOnce([]);
       await repo.list({}, 'w1');
       const selectArg = db.select.mock.calls[0]?.[0];
-      const { sql: text } = new PgDialect().sqlToQuery(selectArg.primary_pic);
-      expect(text).toContain('workspace_correspondents');
-      expect(text).not.toContain('workspace_primary_correspondents');
-      expect(text).not.toContain('is_primary');
+      const { sql: text, params } = new PgDialect().sqlToQuery(selectArg.primary_pic);
+      expect(text).toContain('"correspondent_workspace_effective"');
+      expect(text).toContain('"cwe"."workspace_id" =');
+      expect(params).toContain('w1');
+      expect(text).toMatch(/ORDER BY "cwe"\."is_primary" DESC, "cwe"\."created_at" ASC/);
+    });
+
+    it("reads this workspace's tags, team and curated name only", async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const selectArg = db.select.mock.calls[0]?.[0];
+      const dialect = new PgDialect();
+      expect(dialect.sqlToQuery(selectArg.topics).sql).toContain('"employer_topics"."workspace_id" =');
+      expect(dialect.sqlToQuery(selectArg.team).sql).toContain('"employer_team_members"."workspace_id" =');
+      expect(dialect.sqlToQuery(selectArg.name).sql).toContain('"employer_curation"."workspace_id" =');
     });
 
     it('scopes the auto/manual source badge to correspondents visible to the workspace', async () => {
@@ -259,8 +278,9 @@ describe('EmployerRepository.list (search)', () => {
     const repo = new EmployerRepository(db as never);
     await repo.list({ search: 'jane' }, 'w1');
     const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
-    expect(text).toMatch(/"correspondent_effective"\."name" ILIKE/);
-    expect(text).toMatch(/"correspondent_effective"\."email" ILIKE/);
+    expect(text).toMatch(/"correspondent_workspace_effective"\."name" ILIKE/);
+    expect(text).toMatch(/"correspondent_workspace_effective"\."email" ILIKE/);
+    expect(text).toMatch(/"correspondent_workspace_effective"\."workspace_id" =/);
     expect(params).toContain('%jane%');
   });
 
@@ -297,7 +317,7 @@ describe('EmployerRepository.list (sort)', () => {
   it.each([
     ['name', /"employer_curation"\."name"/],
     ['industry', /"employer_curation"\."industry"/],
-    ['primary_pic', /LOWER\("correspondents"\."name"\)/],
+    ['primary_pic', /LOWER\("cwe"\."name"\)/],
     ['response_p50', /"mart_crm"\."response_p50_seconds"/],
     ['emails', /"mart_crm"\."email_count"/],
     ['team_members', /COUNT\(\*\)[\s\S]*"employer_team_members"/],

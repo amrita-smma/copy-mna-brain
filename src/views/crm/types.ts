@@ -89,7 +89,6 @@ export interface ContactFormValues {
   seniority: string;
   coverage_region: string;
   linkedin_url: string;
-  bio: string;
 }
 
 export interface EmployerNote {
@@ -98,6 +97,22 @@ export interface EmployerNote {
   content: string;
   created_at: string;
   updated_at: string;
+  author_user_id: string | null;
+  author_name: string | null;
+  /** Set once someone edits the note; null while it is as first written. */
+  updated_by: string | null;
+  updated_by_name: string | null;
+}
+
+/** One entry of a note's audit trail (`GET …/notes/:noteId/revisions`). */
+export interface EmployerNoteRevision {
+  id: string;
+  action: "create" | "edit" | "delete";
+  content_before: string | null;
+  content_after: string | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
+  changed_at: string;
 }
 
 export interface EmployerTopicAssignment {

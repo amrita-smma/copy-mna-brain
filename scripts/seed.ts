@@ -4804,6 +4804,7 @@ async function main() {
         await db
           .insert(employerTopics)
           .values({
+            workspace_id: MNA_WORKSPACE_ID,
             employer_id: employerId,
             topic_id: topicId,
             source: t.source,
@@ -4818,7 +4819,7 @@ async function main() {
         if (!userId) continue;
         await db
           .insert(employerTeamMembers)
-          .values({ employer_id: employerId, user_id: userId })
+          .values({ workspace_id: MNA_WORKSPACE_ID, employer_id: employerId, user_id: userId })
           .onConflictDoNothing();
         teamRows++;
       }
@@ -5148,6 +5149,7 @@ async function main() {
         await db
           .insert(employerTopics)
           .values({
+            workspace_id: TEST_WORKSPACE_2_ID,
             employer_id: isolationEmployerId,
             topic_id: starhouseTopic.id,
             source: 'manual',
@@ -5341,6 +5343,7 @@ async function main() {
         await db
           .insert(employerTopics)
           .values({
+            workspace_id: TEST_WORKSPACE_3_ID,
             employer_id: toganIsolationEmployerId,
             topic_id: toganTopic.id,
             source: 'manual',

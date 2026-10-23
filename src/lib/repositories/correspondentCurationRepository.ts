@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { correspondentCuration } from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
@@ -31,43 +31,59 @@ const EDITABLE_FIELDS = [
 ] as const;
 
 /**
- * Human overlay for correspondent machine fields (RFC §3.4). The CRM UI is the
- * only writer; the ETL never touches it. `is_primary` is deliberately NOT here
- * (it stays on the base table so the one-primary-per-employer unique index
- * keeps enforcing). Reads merge via the `correspondent_effective` view.
+ * Human overlay for correspondent machine fields (RFC §3.4), one row per
+ * (workspace, contact) since MB-687 — an edit in one workspace never shows in
+ * another. The CRM UI and @crm_contact are the only writers; the ETL never
+ * touches it. The workspace's PIC is not here: it is
+ * `employer_curation.primary_correspondent_id`. Reads merge via the
+ * `correspondent_workspace_effective` view.
  */
 export class CorrespondentCurationRepository {
   constructor(private readonly db: DbClient) {}
 
   async findByCorrespondentId(
+    workspaceId: string,
     correspondentId: string,
   ): Promise<CorrespondentCuration | null> {
     const [row] = await this.db
       .select()
       .from(correspondentCuration)
-      .where(eq(correspondentCuration.correspondent_id, correspondentId))
+      .where(
+        and(
+          eq(correspondentCuration.workspace_id, workspaceId),
+          eq(correspondentCuration.correspondent_id, correspondentId),
+        ),
+      )
       .limit(1);
     return row ?? null;
   }
 
   async findManyByCorrespondentIds(
+    workspaceId: string,
     ids: string[],
   ): Promise<CorrespondentCuration[]> {
     if (ids.length === 0) return [];
     return this.db
       .select()
       .from(correspondentCuration)
-      .where(inArray(correspondentCuration.correspondent_id, ids));
+      .where(
+        and(
+          eq(correspondentCuration.workspace_id, workspaceId),
+          inArray(correspondentCuration.correspondent_id, ids),
+        ),
+      );
   }
 
-  /** Upsert the overlay; only provided fields are written. */
+  /** Upsert this workspace's overlay; only provided fields are written. */
   async upsert(
+    workspaceId: string,
     correspondentId: string,
     edit: CorrespondentCurationEdit,
     editedBy: string | null,
   ): Promise<CorrespondentCuration> {
     const set: Record<string, unknown> = { edited_at: sql`now()`, edited_by: editedBy };
     const values: TablesInsert<'correspondent_curation'> = {
+      workspace_id: workspaceId,
       correspondent_id: correspondentId,
       edited_by: editedBy,
     };
@@ -82,7 +98,10 @@ export class CorrespondentCurationRepository {
     const [row] = await this.db
       .insert(correspondentCuration)
       .values(values)
-      .onConflictDoUpdate({ target: correspondentCuration.correspondent_id, set })
+      .onConflictDoUpdate({
+        target: [correspondentCuration.workspace_id, correspondentCuration.correspondent_id],
+        set,
+      })
       .returning();
     return row;
   }
@@ -94,6 +113,7 @@ export class CorrespondentCurationRepository {
    * only fills in what it actually carries.
    */
   async fillMany(
+    workspaceId: string,
     edits: Array<{ correspondentId: string; edit: CorrespondentCurationEdit }>,
     editedBy: string | null,
   ): Promise<void> {
@@ -105,6 +125,7 @@ export class CorrespondentCurationRepository {
     }
     const values = Array.from(byId, ([correspondentId, edit]) => {
       const row: Record<string, unknown> = {
+        workspace_id: workspaceId,
         correspondent_id: correspondentId,
         edited_by: editedBy,
       };
@@ -121,12 +142,20 @@ export class CorrespondentCurationRepository {
     await this.db
       .insert(correspondentCuration)
       .values(values)
-      .onConflictDoUpdate({ target: correspondentCuration.correspondent_id, set });
+      .onConflictDoUpdate({
+        target: [correspondentCuration.workspace_id, correspondentCuration.correspondent_id],
+        set,
+      });
   }
 
-  async clear(correspondentId: string): Promise<void> {
+  async clear(workspaceId: string, correspondentId: string): Promise<void> {
     await this.db
       .delete(correspondentCuration)
-      .where(eq(correspondentCuration.correspondent_id, correspondentId));
+      .where(
+        and(
+          eq(correspondentCuration.workspace_id, workspaceId),
+          eq(correspondentCuration.correspondent_id, correspondentId),
+        ),
+      );
   }
 }

@@ -101,10 +101,10 @@ const ORDER_BY: Record<BankerListSort, SQL> = {
  * in SQL so order holds across pages.
  *
  * Visibility is `CorrespondentRepository.search`'s rule: the contact is in the
- * workspace (`workspace_correspondents`) and its firm is published
- * (`employer_effective.curation_status = 'published'`, so flagged firms stay
- * hidden until approved, as on the Firms list). Names come from the
- * `*_effective` views, so curated names win.
+ * workspace (the rows of `correspondent_workspace_effective`) and its firm is
+ * published (`curation_status = 'published'`, so flagged firms stay hidden
+ * until approved, as on the Firms list). Names come from the per-workspace
+ * views, so this workspace's curated names win.
  *
  * Numbers (same sources as `ContactInsightsService.getInteractionSummaries`):
  * - emails and last contact: `analytics.mart_contact_email_totals` (distinct
@@ -165,13 +165,14 @@ export class BankerListRepository {
 
   private visibleFrom(workspaceId: string): SQL {
     return sql`
-      FROM "public"."correspondent_effective" ce
-      JOIN "public"."workspace_correspondents" wc
-        ON wc.correspondent_id = ce.id
-       AND wc.workspace_id = ${workspaceId}
-      JOIN "public"."employer_effective" ee
+      FROM "public"."correspondent_workspace_effective" ce
+      JOIN "public"."employer_workspace_effective" ee
         ON ee.id = ce.employer_id
+       AND ee.workspace_id = ce.workspace_id
        AND ee.curation_status = 'published'
+       -- The workspace filter sits in the ON clause, not a WHERE, because
+       -- callers append LEFT JOINs after this fragment.
+       AND ce.workspace_id = ${workspaceId}
     `;
   }
 

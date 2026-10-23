@@ -98,8 +98,9 @@ export type UpdateCrmContactInput = z.infer<typeof updateCrmContactSchema>;
  *
  * Everything lands in `correspondent_curation` — the human/agent overlay —
  * never on the ingest-owned `correspondents` row. `CRMService.updateContact`
- * does that routing, and the `correspondent_effective` view COALESCEs the
- * overlay back over the base on read, so the next MBOX re-ingest cannot
+ * does that routing (into this workspace's overlay row), and the
+ * `correspondent_workspace_effective` view COALESCEs it back over the base on
+ * read, so the next MBOX re-ingest cannot
  * clobber what was found here. (The one editable field that lives on the base
  * table is `email`, and this tool deliberately cannot write it — see
  * `../constants`.)

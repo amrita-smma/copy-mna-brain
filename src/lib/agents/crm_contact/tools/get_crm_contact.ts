@@ -91,6 +91,7 @@ export const getCrmContact = tool(
 
       const employer = await new EmployerRepository(db).findById(
         contact.employer_id,
+        workspaceId,
       );
       // Stored CRM text can carry ingest's HTML entities (`&amp;`): the model
       // must search the web for the real name, not the escaped one.

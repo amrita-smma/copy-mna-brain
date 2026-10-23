@@ -81,6 +81,27 @@ export class WorkspaceCorrespondentRepository {
       });
   }
 
+  /**
+   * Hide a contact from one workspace by dropping its membership. The shared
+   * correspondent row — and every other workspace's view of it — is left
+   * alone. Returns false when the contact was not visible here.
+   */
+  async removeMembership(
+    workspaceId: string,
+    correspondentId: string,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .delete(workspaceCorrespondents)
+      .where(
+        and(
+          eq(workspaceCorrespondents.workspace_id, workspaceId),
+          eq(workspaceCorrespondents.correspondent_id, correspondentId),
+        ),
+      )
+      .returning({ correspondent_id: workspaceCorrespondents.correspondent_id });
+    return rows.length > 0;
+  }
+
   async listVisibleCorrespondentIds(workspaceId: string): Promise<string[]> {
     const rows = await this.db
       .select({ correspondent_id: workspaceCorrespondents.correspondent_id })

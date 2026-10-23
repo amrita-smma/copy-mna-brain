@@ -46,6 +46,7 @@ type TableMap = {
   correspondents: typeof schema.correspondents;
   correspondent_curation: typeof schema.correspondentCuration;
   employer_notes: typeof schema.employerNotes;
+  employer_note_revisions: typeof schema.employerNoteRevisions;
   topics: typeof schema.topics;
   employer_topics: typeof schema.employerTopics;
   emails: typeof schema.emails;

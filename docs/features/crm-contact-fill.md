@@ -48,7 +48,7 @@ A refresh run is told to rewrite the bio from current evidence (it passes
 `bio` in `overwrite`) and to fill any empty field as usual. Every other filled
 field keeps the normal overwrite rule below — only against a current source
 showing the stored value is stale — because `correspondent_curation` is one
-row per contact and cannot tell a colleague's hand edit from an earlier run's
+row per contact per workspace and cannot tell a colleague's hand edit from an earlier run's
 value. A person who can no longer be confirmed at the firm is left unchanged.
 
 ## Testing locally
@@ -93,10 +93,12 @@ see.
 
 ## What it may write, and where
 
-Writes go to **`correspondent_curation`** — the human/agent override table —
-through `CRMService.updateContact`, never to the ingest-owned `correspondents`
-row. Reads come back merged through the `correspondent_effective` view, so the
-next MBOX re-ingest cannot clobber what the agent found. This is the same
+Writes go to **`correspondent_curation`** — the human/agent override table,
+one row per workspace — through `CRMService.updateContact`, never to the
+ingest-owned `correspondents` row. Reads come back merged through the
+`correspondent_workspace_effective` view, so the next MBOX re-ingest cannot
+clobber what the agent found, and a run fills the profile only for the
+workspace it ran in (see `crm-per-workspace-editing.md`). This is the same
 overlay the Edit-contact dialog writes to.
 
 Writable: `title`, `phone`, `type`, `department`, `specialization`,

@@ -579,6 +579,7 @@ async function main() {
         await db
           .insert(employerTopics)
           .values({
+            workspace_id: workspaceId,
             employer_id: employer.id,
             topic_id: topicId,
             source: t.source,
@@ -591,7 +592,7 @@ async function main() {
       for (const userId of memberIds) {
         await db
           .insert(employerTeamMembers)
-          .values({ employer_id: employer.id, user_id: userId, created_at: now })
+          .values({ workspace_id: workspaceId, employer_id: employer.id, user_id: userId, created_at: now })
           .onConflictDoNothing();
         teamRows++;
       }

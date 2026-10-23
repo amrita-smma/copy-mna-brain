@@ -347,13 +347,15 @@ export class CompanyContactDiscoveryService {
     company: Company,
   ): Promise<{ employer: Employer; matchedBy: CompanyCrmEmployer['matchedBy'] } | null> {
     if (company.crm_employer_id) {
-      const employer = await this.employerRepo.findById(company.crm_employer_id);
+      const employer = await this.employerRepo.findById(company.crm_employer_id, this.workspaceId);
       if (employer) return { employer, matchedBy: 'stored' };
     }
     const domain = domainFromWebsite(company.website);
     if (domain) {
       const mapping = await this.employerDomainRepo.findByDomain(domain);
-      const employer = mapping ? await this.employerRepo.findById(mapping.employer_id) : undefined;
+      const employer = mapping
+        ? await this.employerRepo.findById(mapping.employer_id, this.workspaceId)
+        : undefined;
       if (employer) return { employer, matchedBy: 'domain' };
     }
     const name = companyDisplayName(company, '');
@@ -391,7 +393,10 @@ export class CompanyContactDiscoveryService {
     const employerByDomain = new Map(domainRows.map((r) => [r.domain, r.employer_id]));
     const storedIds = companies.map((c) => c.crm_employer_id).filter((id): id is string => !!id);
     const byId = new Map(
-      (await this.employerRepo.findByIds([...new Set([...storedIds, ...employerByDomain.values()])]))
+      (await this.employerRepo.findByIds(
+        [...new Set([...storedIds, ...employerByDomain.values()])],
+        this.workspaceId,
+      ))
         .map((e) => [e.id, e]),
     );
     const byName = new Map<string, Employer>();

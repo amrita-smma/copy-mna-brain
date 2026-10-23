@@ -18,7 +18,6 @@ const EMPTY: ContactFormValues = {
   seniority: "",
   coverage_region: "",
   linkedin_url: "",
-  bio: "",
 };
 
 describe("safeProfileUrl", () => {
@@ -70,8 +69,11 @@ describe("contactFormToPayload", () => {
       seniority: null,
       coverage_region: null,
       linkedin_url: null,
-      bio: null,
     });
+  });
+
+  it("never sends the bio — it is the AI-generated profile, not a form field", () => {
+    expect(contactFormToPayload({ ...EMPTY, name: "Jane" })).not.toHaveProperty("bio");
   });
 
   it("carries every profile field through under its API name", () => {
@@ -84,7 +86,6 @@ describe("contactFormToPayload", () => {
         seniority: "Managing Director",
         coverage_region: "Asia Pacific",
         linkedin_url: "https://linkedin.com/in/jane",
-        bio: "Ex-Lazard.",
       }),
     ).toMatchObject({
       department: "M&A",
@@ -92,7 +93,6 @@ describe("contactFormToPayload", () => {
       seniority: "Managing Director",
       coverage_region: "Asia Pacific",
       linkedin_url: "https://linkedin.com/in/jane",
-      bio: "Ex-Lazard.",
     });
   });
 });
@@ -148,7 +148,6 @@ describe("contactToFormValues", () => {
       seniority: "Managing Director",
       coverage_region: "Asia Pacific",
       linkedin_url: "https://linkedin.com/in/jane",
-      bio: "Ex-Lazard.",
     });
   });
 });

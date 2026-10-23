@@ -46,7 +46,7 @@ describe('CorrespondentRepository', () => {
   });
 
   describe('findByEmployerId', () => {
-    it('marks the oldest (first created_at) correspondent as primary — positional, no user designation', async () => {
+    it('marks the first row primary — the query sorts the workspace pick first, then the oldest', async () => {
       db.orderBy.mockResolvedValueOnce([
         { id: 'c1', employer_id: 'e1', created_at: '2026-01-01' },
         { id: 'c2', employer_id: 'e1', created_at: '2026-01-02' },
@@ -56,6 +56,10 @@ describe('CorrespondentRepository', () => {
 
       expect(result[0]).toMatchObject({ id: 'c1', is_primary: true });
       expect(result[1]).toMatchObject({ id: 'c2', is_primary: false });
+      const order = db.orderBy.mock.calls[0].map(
+        (c: unknown) => new PgDialect().sqlToQuery(c as never).sql,
+      );
+      expect(order[0]).toContain('"is_primary" desc');
     });
 
     it('returns [] when no visible correspondents exist for the workspace', async () => {
@@ -71,15 +75,18 @@ describe('CorrespondentRepository', () => {
       const result = await repo.findById('c1', 'other-workspace');
 
       expect(result).toBeUndefined();
-      expect(db.where).toHaveBeenCalledTimes(2);
+      const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(text).toContain('"correspondent_workspace_effective"."workspace_id"');
+      expect(params).toContain('other-workspace');
     });
 
-    it('always returns is_primary: false (positional primary only applies to the full list)', async () => {
+    it("returns the workspace view's row, so its profile edits and PIC pick come with it", async () => {
       db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1', is_primary: true }]);
 
       const result = await repo.findById('c1', 'w1');
 
-      expect(result).toMatchObject({ id: 'c1', is_primary: false });
+      expect(result).toMatchObject({ id: 'c1', is_primary: true });
+      expect(db.from).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -111,7 +118,7 @@ describe('CorrespondentRepository', () => {
     });
 
     it('returns current row via findById when only is_primary is passed (no base-row update needed)', async () => {
-      db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1' }]);
+      db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1', is_primary: false }]);
 
       const result = await repo.update('c1', { is_primary: true } as never, 'w1');
 
@@ -140,9 +147,9 @@ describe('CorrespondentRepository', () => {
   });
 
   describe('search', () => {
-    /** The compiled WHERE of the main search query (call [1]; [0] is the visibility subquery). */
+    /** The compiled WHERE of the search query (visibility is the view's own rows). */
     function searchWhere() {
-      return new PgDialect().sqlToQuery(db.where.mock.calls[1]?.[0]);
+      return new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
     }
 
     it('returns [] without querying when no facet has a usable term', async () => {
@@ -185,13 +192,15 @@ describe('CorrespondentRepository', () => {
       db.limit.mockResolvedValueOnce([]);
       await repo.search({ departments: ['M&A'] }, 'w1');
 
-      // Visibility is the same membership subquery every other read uses.
-      const visibility = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
-      expect(visibility.sql).toContain('workspace_correspondents');
-
+      // Visibility is the workspace view's own rows: filter on its workspace.
       const { sql: text, params } = searchWhere();
-      expect(text).toContain('"correspondent_effective"."id" in');
+      expect(text).toContain('"correspondent_workspace_effective"."workspace_id" =');
+      expect(params).toContain('w1');
       expect(params).toContain('published');
+      // The firm side is joined in the same workspace, so its curated name
+      // is this workspace's.
+      const join = new PgDialect().sqlToQuery(db.innerJoin.mock.calls[0][1]).sql;
+      expect(join).toContain('"employer_workspace_effective"."workspace_id"');
     });
 
     it('returns a row when it matches any one facet, not all of them (scored OR)', async () => {
@@ -250,8 +259,10 @@ describe('CorrespondentRepository', () => {
 
       // A shared employer's numbers would otherwise sum across workspaces, and
       // another workspace's private topics would leak into the match.
-      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[1]?.[0]);
+      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
       expect(text).toContain('"topics"."workspace_id"');
+      // Tags themselves are per workspace too.
+      expect(text).toContain('"employer_topics"."workspace_id"');
 
       const selected = db.select.mock.calls[0]?.[0] ?? {};
       const marts = new PgDialect().sqlToQuery(selected.last_contact_at).sql;
@@ -266,16 +277,15 @@ describe('CorrespondentRepository', () => {
     });
   });
 
-  describe('visibleCorrespondentIds (via findByEmployerId)', () => {
+  describe('workspace visibility (via findByEmployerId)', () => {
     it('scopes on workspace membership alone — no source or email-sync gate, so an ingest-derived contact stays visible after the last mailbox is un-synced', async () => {
-      db.orderBy.mockResolvedValueOnce([]); // main query result
+      db.orderBy.mockResolvedValueOnce([]);
       await repo.findByEmployerId('e1', 'w1');
 
-      // db.where call order: [0] visibleCorrespondentIds subquery,
-      // [1] the outer findByEmployerId where().
-      const subqueryWhereArg = db.where.mock.calls[0]?.[0];
-      const { sql: text } = new PgDialect().sqlToQuery(subqueryWhereArg);
-      expect(text).toContain('workspace_correspondents');
+      // The view's rows ARE the workspace_correspondents memberships, so the
+      // only visibility predicate is its workspace column.
+      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+      expect(text).toContain('"correspondent_workspace_effective"."workspace_id"');
       expect(text).not.toContain("!= 'ingest'");
       expect(text).not.toContain('user_workspaces');
       expect(text).not.toContain('is_email_synced');
@@ -385,13 +395,12 @@ describe('CorrespondentRepository.searchInEmployers', () => {
     db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1', name: 'Jane' }]);
     const out = await repo.searchInEmployers(['e1', 'e2'], ' Jane ', 'w1');
     expect(out).toEqual([{ id: 'c1', employer_id: 'e1', name: 'Jane' }]);
-    // [0] is the workspace-visibility subquery, [1] the search itself.
-    const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[1][0]);
+    const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
     expect(text).toMatch(/"employer_id" in \(\$1, \$2\)/);
     expect(text).toMatch(/"name" ilike/i);
     expect(text).toMatch(/"email" ilike/i);
     expect(params).toContain('%Jane%');
-    expect(text).toMatch(/"correspondent_effective"\."id" in/i);
+    expect(text).toMatch(/"correspondent_workspace_effective"\."workspace_id" =/i);
     expect(db.orderBy).toHaveBeenCalledTimes(1);
     expect(db.limit).toHaveBeenCalledWith(1000);
   });

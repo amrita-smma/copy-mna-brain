@@ -179,6 +179,18 @@ describe('EmployerRelatedCompanyRepository.deleteManual', () => {
   });
 });
 
+describe('EmployerRelatedCompanyRepository.dismissAuto', () => {
+  it('soft-dismisses (sets dismissed_at) instead of deleting, so the ingest cannot resurrect it', async () => {
+    const db = makeDb();
+    db.where.mockResolvedValueOnce(undefined);
+    const repo = new EmployerRelatedCompanyRepository(db as never);
+    await repo.dismissAuto('emp-1', 'rc-auto', 'w1');
+    expect(db.update).toHaveBeenCalled();
+    expect(db.set).toHaveBeenCalledWith({ dismissed_at: expect.any(String) });
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+});
+
 describe('EmployerRelatedCompanyRepository.rankByRelatedCompanyCount', () => {
   it('maps the ranked rows, coercing the aggregate counts to numbers', async () => {
     const db = makeDb();

@@ -227,9 +227,9 @@ admin Features tab), since prototype v2.4 has only the firm list:
   workspace has no deal links. A row carries the person, firm, last contact,
   email totals, team member count, the top three team members, and deals
   brought / involved / reached L1 / conversion.
-- **Visibility** = `CorrespondentRepository.search`: contact in
-  `workspace_correspondents`, firm `employer_effective.curation_status =
-  'published'`, names from the `*_effective` views.
+- **Visibility** = `CorrespondentRepository.search`: a row of
+  `correspondent_workspace_effective` for the workspace, firm
+  `curation_status = 'published'`, names from the per-workspace views.
 - **Sorting, filtering and paging are SQL** (one page query + one count);
   ties break on last contact, name, then id. Emails and last contact come
   from `mart_contact_email_totals`, team from `mart_contact_interactions`.

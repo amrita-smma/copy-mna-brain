@@ -22,7 +22,7 @@ describe('CorrespondentCurationRepository.findByCorrespondentId', () => {
     db.where.mockReturnThis();
     db.limit.mockResolvedValueOnce([{ correspondent_id: 'c1', title: 'VP' }]);
     const repo = new CorrespondentCurationRepository(db as never);
-    expect(await repo.findByCorrespondentId('c1')).toMatchObject({ title: 'VP' });
+    expect(await repo.findByCorrespondentId('w1', 'c1')).toMatchObject({ title: 'VP' });
   });
 
   it('returns null when absent', async () => {
@@ -30,7 +30,7 @@ describe('CorrespondentCurationRepository.findByCorrespondentId', () => {
     db.where.mockReturnThis();
     db.limit.mockResolvedValueOnce([]);
     const repo = new CorrespondentCurationRepository(db as never);
-    expect(await repo.findByCorrespondentId('c1')).toBeNull();
+    expect(await repo.findByCorrespondentId('w1', 'c1')).toBeNull();
   });
 });
 
@@ -38,7 +38,7 @@ describe('CorrespondentCurationRepository.findManyByCorrespondentIds', () => {
   it('returns [] for empty input without hitting the DB', async () => {
     const db = makeDb();
     const repo = new CorrespondentCurationRepository(db as never);
-    expect(await repo.findManyByCorrespondentIds([])).toEqual([]);
+    expect(await repo.findManyByCorrespondentIds('w1', [])).toEqual([]);
     expect(db.select).not.toHaveBeenCalled();
   });
 });
@@ -48,7 +48,7 @@ describe('CorrespondentCurationRepository.upsert', () => {
     const db = makeDb();
     db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1', title: 'VP' }]);
     const repo = new CorrespondentCurationRepository(db as never);
-    await repo.upsert('c1', { title: 'VP' }, 'u1');
+    await repo.upsert('w1', 'c1', { title: 'VP' }, 'u1');
 
     const setArg = db.onConflictDoUpdate.mock.calls[0][0].set;
     expect(setArg).toHaveProperty('title', 'VP');
@@ -62,6 +62,7 @@ describe('CorrespondentCurationRepository.upsert', () => {
     db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
     const repo = new CorrespondentCurationRepository(db as never);
     await repo.upsert(
+      'w1',
       'c1',
       {
         department: 'M&A',
@@ -84,16 +85,26 @@ describe('CorrespondentCurationRepository.upsert', () => {
     };
     expect(db.onConflictDoUpdate.mock.calls[0][0].set).toMatchObject(expected);
     expect(db.values.mock.calls[0][0]).toMatchObject({
+      workspace_id: 'w1',
       correspondent_id: 'c1',
       ...expected,
     });
+  });
+
+  it('keys the conflict on (workspace, contact) so one workspace never overwrites another', async () => {
+    const db = makeDb();
+    db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
+    const repo = new CorrespondentCurationRepository(db as never);
+    await repo.upsert('w1', 'c1', { title: 'VP' }, 'u1');
+    expect(db.values.mock.calls[0][0]).toMatchObject({ workspace_id: 'w1' });
+    expect(db.onConflictDoUpdate.mock.calls[0][0].target).toHaveLength(2);
   });
 
   it('nulls a profile field that is explicitly cleared', async () => {
     const db = makeDb();
     db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
     const repo = new CorrespondentCurationRepository(db as never);
-    await repo.upsert('c1', { department: null }, 'u1');
+    await repo.upsert('w1', 'c1', { department: null }, 'u1');
     expect(db.onConflictDoUpdate.mock.calls[0][0].set).toHaveProperty(
       'department',
       null,
@@ -105,7 +116,7 @@ describe('CorrespondentCurationRepository.upsert', () => {
     db.returning.mockResolvedValueOnce([{ correspondent_id: 'c1' }]);
     const repo = new CorrespondentCurationRepository(db as never);
     // @ts-expect-error is_primary is intentionally not part of the overlay edit type
-    await repo.upsert('c1', { is_primary: true }, 'u1');
+    await repo.upsert('w1', 'c1', { is_primary: true }, 'u1');
     const setArg = db.onConflictDoUpdate.mock.calls[0][0].set;
     expect(setArg).not.toHaveProperty('is_primary');
   });
@@ -116,7 +127,7 @@ describe('CorrespondentCurationRepository.clear', () => {
     const db = makeDb();
     db.where.mockResolvedValueOnce(undefined);
     const repo = new CorrespondentCurationRepository(db as never);
-    await repo.clear('c1');
+    await repo.clear('w1', 'c1');
     expect(db.delete).toHaveBeenCalled();
   });
 });
@@ -125,7 +136,7 @@ describe('CorrespondentCurationRepository.fillMany', () => {
   it('does nothing for an empty batch', async () => {
     const db = makeDb();
     const repo = new CorrespondentCurationRepository(db as never);
-    await repo.fillMany([], 'u1');
+    await repo.fillMany('w1', [], 'u1');
     expect(db.insert).not.toHaveBeenCalled();
   });
 
@@ -134,6 +145,7 @@ describe('CorrespondentCurationRepository.fillMany', () => {
     db.onConflictDoUpdate.mockResolvedValueOnce(undefined);
     const repo = new CorrespondentCurationRepository(db as never);
     await repo.fillMany(
+      'w1',
       [
         { correspondentId: 'c1', edit: { title: 'VP' } },
         { correspondentId: 'c2', edit: { name: 'B' } },
@@ -145,6 +157,7 @@ describe('CorrespondentCurationRepository.fillMany', () => {
     const rows = db.values.mock.calls[0][0];
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
+      workspace_id: 'w1',
       correspondent_id: 'c1',
       title: 'VP',
       phone: '123',
@@ -157,7 +170,7 @@ describe('CorrespondentCurationRepository.fillMany', () => {
     const db = makeDb();
     db.onConflictDoUpdate.mockResolvedValueOnce(undefined);
     const repo = new CorrespondentCurationRepository(db as never);
-    await repo.fillMany([{ correspondentId: 'c1', edit: { title: 'VP' } }], null);
+    await repo.fillMany('w1', [{ correspondentId: 'c1', edit: { title: 'VP' } }], null);
     const { set } = db.onConflictDoUpdate.mock.calls[0][0];
     expect(new PgDialect().sqlToQuery(set.name).sql).toBe(
       'COALESCE(EXCLUDED.name, correspondent_curation.name)',

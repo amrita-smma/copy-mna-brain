@@ -145,7 +145,6 @@ export function contactFormToPayload(
     seniority: blankToNull(values.seniority),
     coverage_region: blankToNull(values.coverage_region),
     linkedin_url: blankToNull(values.linkedin_url),
-    bio: blankToNull(values.bio),
   };
 }
 
@@ -162,7 +161,6 @@ export function contactToFormValues(c: Correspondent): ContactFormValues {
     seniority: c.seniority ?? "",
     coverage_region: c.coverage_region ?? "",
     linkedin_url: c.linkedin_url ?? "",
-    bio: c.bio ?? "",
   };
 }
 

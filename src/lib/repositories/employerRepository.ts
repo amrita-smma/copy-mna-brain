@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
-  correspondentEffective,
+  correspondentWorkspaceEffective,
   correspondents,
   emailParticipants,
   emails,
@@ -9,10 +9,10 @@ import {
   employerDomains,
   employerEffective,
   employerNotes,
+  employerWorkspaceEffective,
   employerRelatedCompanies,
   employerTeamMembers,
   employerTopics,
-  topics,
   users,
   workspaceCorrespondents,
 } from "@/lib/db/schema";
@@ -118,10 +118,30 @@ function martCrmColumn<T = unknown>(column: string, workspaceId: string): SQL<T>
   )`;
 }
 
-/** The employer's curated name / industry when a human set one, else the ingested value. */
-function curatedColumn<T = unknown>(column: "name" | "industry"): SQL<T> {
-  return sql<T>`COALESCE((SELECT "employer_curation".${sql.identifier(column)} FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id"), "employers".${sql.identifier(column)})`;
+/**
+ * The employer's name / industry as this workspace curated it, else the
+ * ingested value. Curation is per workspace (MB-687), so the workspace is
+ * part of the lookup.
+ */
+function curatedColumn<T = unknown>(column: "name" | "industry", workspaceId: string): SQL<T> {
+  return sql<T>`COALESCE((SELECT "employer_curation".${sql.identifier(column)} FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id" AND "employer_curation"."workspace_id" = ${workspaceId}), "employers".${sql.identifier(column)})`;
 }
+
+/**
+ * The columns of `Employer`, read from `employer_workspace_effective` so a
+ * single-firm read carries this workspace's edits. Selected explicitly to keep
+ * the view's workspace_id / primary_correspondent_id off the `Employer` shape.
+ */
+const workspaceEmployerColumns = {
+  id: employerWorkspaceEffective.id,
+  name: employerWorkspaceEffective.name,
+  normalized_name: employerWorkspaceEffective.normalized_name,
+  industry: employerWorkspaceEffective.industry,
+  status: employerWorkspaceEffective.status,
+  curation_status: employerWorkspaceEffective.curation_status,
+  created_at: employerWorkspaceEffective.created_at,
+  updated_at: employerWorkspaceEffective.updated_at,
+};
 
 export class EmployerRepository {
   constructor(private db: DbClient) {}
@@ -171,29 +191,29 @@ export class EmployerRepository {
           SELECT 1 FROM ${employerNotes}
           WHERE ${employerNotes.employer_id} = ${employers.id}
             AND ${employerNotes.workspace_id} = ${workspaceId}
+            AND ${employerNotes.deleted_at} IS NULL
         )
         OR EXISTS (
           SELECT 1 FROM ${employerTopics}
-          JOIN ${topics} ON ${topics.id} = ${employerTopics.topic_id}
           WHERE ${employerTopics.employer_id} = ${employers.id}
-            AND ${topics.workspace_id} = ${workspaceId}
+            AND ${employerTopics.workspace_id} = ${workspaceId}
         )
       )`,
       filters.status ? eq(employers.status, filters.status) : undefined,
       searchPattern
         ? or(
             ilike(employers.name, searchPattern),
-            sql`EXISTS (SELECT 1 FROM ${employerCuration} WHERE ${employerCuration.employer_id} = ${employers.id} AND ${employerCuration.name} ILIKE ${searchPattern})`,
+            sql`EXISTS (SELECT 1 FROM ${employerCuration} WHERE ${employerCuration.employer_id} = ${employers.id} AND ${employerCuration.workspace_id} = ${workspaceId} AND ${employerCuration.name} ILIKE ${searchPattern})`,
             sql`EXISTS (SELECT 1 FROM ${employerDomains} WHERE ${employerDomains.employer_id} = ${employers.id} AND ${employerDomains.domain} ILIKE ${searchPattern})`,
-            // A person search: the overlay-aware (curated) name or the email,
-            // and only contacts this workspace can see — otherwise a firm
-            // surfaces for a match its card would never show.
+            // A person search: this workspace's curated name or the email, and
+            // only contacts this workspace can see (the view's rows are
+            // exactly those) — otherwise a firm surfaces for a match its card
+            // would never show.
             sql`EXISTS (
-              SELECT 1 FROM ${correspondentEffective}
-              JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondentEffective.id}
-              WHERE ${correspondentEffective.employer_id} = ${employers.id}
-                AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-                AND (${correspondentEffective.name} ILIKE ${searchPattern} OR ${correspondentEffective.email} ILIKE ${searchPattern})
+              SELECT 1 FROM ${correspondentWorkspaceEffective}
+              WHERE ${correspondentWorkspaceEffective.employer_id} = ${employers.id}
+                AND ${correspondentWorkspaceEffective.workspace_id} = ${workspaceId}
+                AND (${correspondentWorkspaceEffective.name} ILIKE ${searchPattern} OR ${correspondentWorkspaceEffective.email} ILIKE ${searchPattern})
             )`,
           )
         : undefined,
@@ -217,10 +237,10 @@ export class EmployerRepository {
           ) < ${filters.lastContactBefore}`
         : undefined,
       filters.topicIds && filters.topicIds.length > 0
-        ? sql`EXISTS (SELECT 1 FROM ${employerTopics} WHERE ${employerTopics.employer_id} = ${employers.id} AND ${inArray(employerTopics.topic_id, filters.topicIds)})`
+        ? sql`EXISTS (SELECT 1 FROM ${employerTopics} WHERE ${employerTopics.employer_id} = ${employers.id} AND ${employerTopics.workspace_id} = ${workspaceId} AND ${inArray(employerTopics.topic_id, filters.topicIds)})`
         : undefined,
       filters.teamUserIds && filters.teamUserIds.length > 0
-        ? sql`EXISTS (SELECT 1 FROM ${employerTeamMembers} WHERE ${employerTeamMembers.employer_id} = ${employers.id} AND ${inArray(employerTeamMembers.user_id, filters.teamUserIds)})`
+        ? sql`EXISTS (SELECT 1 FROM ${employerTeamMembers} WHERE ${employerTeamMembers.employer_id} = ${employers.id} AND ${employerTeamMembers.workspace_id} = ${workspaceId} AND ${inArray(employerTeamMembers.user_id, filters.teamUserIds)})`
         : undefined,
     );
   }
@@ -234,18 +254,16 @@ export class EmployerRepository {
    */
   private orderByFor(filters: EmployerListFilters, workspaceId: string): SQL {
     const expressions: Record<EmployerListSort, SQL> = {
-      name: sql`LOWER(${curatedColumn("name")})`,
-      industry: sql`LOWER(NULLIF(${curatedColumn("industry")}, ''))`,
-      // Same pick as the primary_pic select: the oldest correspondent this
-      // workspace can see.
+      name: sql`LOWER(${curatedColumn("name", workspaceId)})`,
+      industry: sql`LOWER(NULLIF(${curatedColumn("industry", workspaceId)}, ''))`,
+      // Same pick as the primary_pic select: this workspace's chosen PIC,
+      // else the oldest correspondent it can see.
       primary_pic: sql`(
-        SELECT LOWER("correspondents"."name")
-        FROM "correspondents"
-        JOIN "workspace_correspondents"
-          ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
-          AND "workspace_correspondents"."workspace_id" = ${workspaceId}
-        WHERE "correspondents"."employer_id" = "employers"."id"
-        ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
+        SELECT LOWER("cwe"."name")
+        FROM "correspondent_workspace_effective" "cwe"
+        WHERE "cwe"."employer_id" = "employers"."id"
+          AND "cwe"."workspace_id" = ${workspaceId}
+        ORDER BY "cwe"."is_primary" DESC, "cwe"."created_at" ASC, "cwe"."id" ASC
         LIMIT 1
       )`,
       response_p50: martCrmColumn("response_p50_seconds", workspaceId),
@@ -255,6 +273,7 @@ export class EmployerRepository {
         SELECT COUNT(*)
         FROM "employer_team_members"
         WHERE "employer_team_members"."employer_id" = "employers"."id"
+          AND "employer_team_members"."workspace_id" = ${workspaceId}
       )`,
     };
     const expression = expressions[filters.sort ?? "last_contact"] ?? expressions.last_contact;
@@ -277,9 +296,9 @@ export class EmployerRepository {
         id: employers.id,
         // Effective (overlay-aware) name/industry — human override wins. The
         // rest of this query stays correlated on "employers"."id".
-        name: curatedColumn<string>("name"),
+        name: curatedColumn<string>("name", workspaceId),
         normalized_name: employers.normalized_name,
-        industry: curatedColumn<string | null>("industry"),
+        industry: curatedColumn<string | null>("industry", workspaceId),
         status: employers.status,
         curation_status: employers.curation_status,
         created_at: employers.created_at,
@@ -300,30 +319,24 @@ export class EmployerRepository {
         last_contact_at: martCrmColumn<string | null>("last_contact_at", workspaceId),
         response_p50_seconds: martCrmColumn<number | null>("response_p50_seconds", workspaceId),
         response_pair_count: sql<number>`COALESCE(${martCrmColumn("response_pair_count", workspaceId)}, 0)`,
-        // Scoped to correspondents THIS workspace can see (workspace_correspondents),
-        // ordered by whether this workspace designated them primary
-        // (workspace_primary_correspondents — see
-        // 20260705000004_workspace_primary_correspondents.sql), falling back to
-        // oldest-visible when no explicit designation exists. Unscoped reads
-        // here previously leaked another workspace's private contact.
-        // Same visibility rule as CorrespondentRepository.visibleCorrespondentIds
-        // — workspace membership only, no email-sync gate — otherwise the
-        // list could show a "primary contact" that findByEmployerId's detail
-        // read wouldn't (or hide one it would).
+        // Scoped to correspondents THIS workspace can see — the rows of
+        // correspondent_workspace_effective — with this workspace's profile
+        // edits applied. The workspace's chosen PIC (`is_primary`, from
+        // employer_curation.primary_correspondent_id) wins; otherwise the
+        // oldest visible one. Same rule as CorrespondentRepository's
+        // findByEmployerId, so the list and the detail card agree.
         primary_pic: sql<EmployerSummary["primary_pic"]>`(
           SELECT jsonb_build_object(
-            'id', "correspondents"."id",
-            'name', "correspondents"."name",
-            'title', "correspondents"."title",
-            'email', "correspondents"."email",
-            'phone', "correspondents"."phone"
+            'id', "cwe"."id",
+            'name', "cwe"."name",
+            'title', "cwe"."title",
+            'email', "cwe"."email",
+            'phone', "cwe"."phone"
           )
-          FROM "correspondents"
-          JOIN "workspace_correspondents"
-            ON "workspace_correspondents"."correspondent_id" = "correspondents"."id"
-            AND "workspace_correspondents"."workspace_id" = ${workspaceId}
-          WHERE "correspondents"."employer_id" = "employers"."id"
-          ORDER BY "correspondents"."created_at" ASC, "correspondents"."id" ASC
+          FROM "correspondent_workspace_effective" "cwe"
+          WHERE "cwe"."employer_id" = "employers"."id"
+            AND "cwe"."workspace_id" = ${workspaceId}
+          ORDER BY "cwe"."is_primary" DESC, "cwe"."created_at" ASC, "cwe"."id" ASC
           LIMIT 1
         )`,
         topics: sql<EmployerSummary["topics"]>`COALESCE((
@@ -336,6 +349,7 @@ export class EmployerRepository {
           FROM "employer_topics"
           JOIN "topics" ON "topics"."id" = "employer_topics"."topic_id"
           WHERE "employer_topics"."employer_id" = "employers"."id"
+            AND "employer_topics"."workspace_id" = ${workspaceId}
             AND ("topics"."workspace_id" IS NULL OR "topics"."workspace_id" = ${workspaceId})
         ), '[]'::jsonb)`,
         team: sql<EmployerSummary["team"]>`COALESCE((
@@ -347,6 +361,7 @@ export class EmployerRepository {
           FROM "employer_team_members"
           JOIN "users" ON "users"."id" = "employer_team_members"."user_id"
           WHERE "employer_team_members"."employer_id" = "employers"."id"
+            AND "employer_team_members"."workspace_id" = ${workspaceId}
         ), '[]'::jsonb)`,
         // Auto vs manual is decided by the FIRST correspondent ever registered
         // for this employer — if it came from the mbox ingest the employer is
@@ -410,15 +425,24 @@ export class EmployerRepository {
     return Number(rows[0]?.n ?? 0);
   }
 
-  // Reads go through the effective view so the human overlay wins (RFC §3).
-  async findById(id: string): Promise<Employer | undefined> {
+  // Reads a user sees go through the workspace view so this workspace's
+  // overlay wins (RFC §3, per workspace since MB-687).
+  async findById(id: string, workspaceId: string): Promise<Employer | undefined> {
     const rows = await this.db
-      .select()
-      .from(employerEffective)
-      .where(eq(employerEffective.id, id))
+      .select(workspaceEmployerColumns)
+      .from(employerWorkspaceEffective)
+      .where(
+        and(
+          eq(employerWorkspaceEffective.id, id),
+          eq(employerWorkspaceEffective.workspace_id, workspaceId),
+        ),
+      )
       .limit(1);
     return rows[0];
   }
+
+  // Matching by the machine key: the shared row, no workspace overlay. The
+  // ingest and the "does this firm exist" checks only need its id.
 
   async findByNormalizedName(
     normalizedName: string,
@@ -461,13 +485,18 @@ export class EmployerRepository {
     await this.db.delete(employers).where(eq(employers.id, id));
   }
 
-  async findByIds(ids: string[]): Promise<Employer[]> {
+  async findByIds(ids: string[], workspaceId: string): Promise<Employer[]> {
     if (ids.length === 0) return [];
     return this.db
-      .select()
-      .from(employerEffective)
-      .where(inArray(employerEffective.id, ids))
-      .orderBy(desc(employerEffective.updated_at));
+      .select(workspaceEmployerColumns)
+      .from(employerWorkspaceEffective)
+      .where(
+        and(
+          inArray(employerWorkspaceEffective.id, ids),
+          eq(employerWorkspaceEffective.workspace_id, workspaceId),
+        ),
+      )
+      .orderBy(desc(employerWorkspaceEffective.updated_at));
   }
 
   async countFlagged(workspaceId: string): Promise<number> {
@@ -488,12 +517,17 @@ export class EmployerRepository {
     return Number(rows[0]?.n ?? 0);
   }
 
-  async listFlagged(): Promise<Employer[]> {
+  async listFlagged(workspaceId: string): Promise<Employer[]> {
     return this.db
-      .select()
-      .from(employerEffective)
-      .where(eq(employerEffective.curation_status, "flagged"))
-      .orderBy(asc(employerEffective.created_at));
+      .select(workspaceEmployerColumns)
+      .from(employerWorkspaceEffective)
+      .where(
+        and(
+          eq(employerWorkspaceEffective.curation_status, "flagged"),
+          eq(employerWorkspaceEffective.workspace_id, workspaceId),
+        ),
+      )
+      .orderBy(asc(employerWorkspaceEffective.created_at));
   }
 
   /**

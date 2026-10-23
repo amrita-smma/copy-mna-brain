@@ -4,6 +4,7 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import { pickEditableContactFields } from '@/lib/services/crmService';
+import { crmContactErrorResponse } from '../errorResponse';
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -53,13 +54,10 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params;
     const db = createDb();
     const { crmService } = createContainer(db, await getActiveWorkspaceId());
+    // Unlinks the contact from this workspace; the shared record stays.
     await crmService.deleteContact(id);
     return NextResponse.json({ data: { ok: true } });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 },
-    );
+    return crmContactErrorResponse(err, '[DELETE /api/crm/correspondents/:id]');
   }
 }

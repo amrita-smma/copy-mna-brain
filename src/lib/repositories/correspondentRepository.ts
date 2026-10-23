@@ -1,8 +1,9 @@
-import { and, asc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
   correspondents,
   correspondentEffective,
-  employerEffective,
+  correspondentWorkspaceEffective,
+  employerWorkspaceEffective,
   workspaceCorrespondents,
 } from "@/lib/db/schema";
 import type { DbClient } from "./types";
@@ -10,6 +11,40 @@ import type { MatchedContact } from "./employerRepository";
 import { escapeLikePattern } from "./insightRepository";
 
 export type Correspondent = typeof correspondents.$inferSelect;
+
+/**
+ * Every read a user sees goes through the per-workspace views (MB-687): `cwe`
+ * holds exactly the contacts visible in a workspace, with that workspace's
+ * profile edits applied, and `ewe` the firm with its name/industry edits. The
+ * global `correspondentEffective` is the shared row only, kept for matching by
+ * email across firms.
+ */
+const cwe = correspondentWorkspaceEffective;
+const ewe = employerWorkspaceEffective;
+
+/** `Correspondent`'s columns, read from `cwe` (keeps workspace_id off the shape). */
+const workspaceCorrespondentColumns = {
+  id: cwe.id,
+  employer_id: cwe.employer_id,
+  name: cwe.name,
+  title: cwe.title,
+  email: cwe.email,
+  phone: cwe.phone,
+  type: cwe.type,
+  is_primary: cwe.is_primary,
+  source: cwe.source,
+  origin: cwe.origin,
+  last_edited_by_user_id: cwe.last_edited_by_user_id,
+  last_edited_at: cwe.last_edited_at,
+  created_at: cwe.created_at,
+  updated_at: cwe.updated_at,
+  department: cwe.department,
+  specialization: cwe.specialization,
+  seniority: cwe.seniority,
+  coverage_region: cwe.coverage_region,
+  linkedin_url: cwe.linkedin_url,
+  bio: cwe.bio,
+};
 export type CorrespondentInsert = typeof correspondents.$inferInsert;
 export type CorrespondentUpdate = Partial<CorrespondentInsert>;
 
@@ -162,32 +197,32 @@ export class CorrespondentRepository {
       .where(eq(workspaceCorrespondents.workspace_id, workspaceId));
   }
 
-  // Reads go through the effective view so the human overlay wins (RFC §3.4).
-  // Primary PIC is always the oldest visible correspondent — no user-settable
-  // designation, just positional: first in the sorted list.
+  // Reads go through the workspace view so this workspace's overlay wins
+  // (RFC §3.4). The primary PIC is the workspace's pick (`cwe.is_primary`)
+  // when it made one, else the oldest visible contact: sorting the pick first
+  // makes it positional either way — the first row is the primary.
   async findByEmployerId(
     employerId: string,
     workspaceId: string,
   ): Promise<Correspondent[]> {
     const rows = await this.db
-      .select()
-      .from(correspondentEffective)
+      .select(workspaceCorrespondentColumns)
+      .from(cwe)
       .where(
         and(
-          eq(correspondentEffective.employer_id, employerId),
-          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+          eq(cwe.employer_id, employerId),
+          eq(cwe.workspace_id, workspaceId),
         ),
       )
-      .orderBy(asc(correspondentEffective.created_at), asc(correspondentEffective.id));
+      .orderBy(desc(cwe.is_primary), asc(cwe.created_at), asc(cwe.id));
     return rows.map((r, i) => ({ ...r, is_primary: i === 0 }));
   }
 
   /**
    * Batched counterpart to findByEmployerId — the primary-PIC lookup for many
-   * employers in one query. `is_primary` stays positional (oldest visible
-   * correspondent per employer), computed by grouping the ordered rows and
-   * flagging the first of each employer's group. Callers group by
-   * `employer_id` to reconstruct each employer's list.
+   * employers in one query. Same rule: the workspace's pick sorts first within
+   * each employer, then the oldest, and the first of each employer's group is
+   * flagged primary. Callers group by `employer_id` to reconstruct each list.
    */
   async findByEmployerIds(
     employerIds: string[],
@@ -195,18 +230,19 @@ export class CorrespondentRepository {
   ): Promise<Correspondent[]> {
     if (employerIds.length === 0) return [];
     const rows = await this.db
-      .select()
-      .from(correspondentEffective)
+      .select(workspaceCorrespondentColumns)
+      .from(cwe)
       .where(
         and(
-          inArray(correspondentEffective.employer_id, employerIds),
-          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+          inArray(cwe.employer_id, employerIds),
+          eq(cwe.workspace_id, workspaceId),
         ),
       )
       .orderBy(
-        asc(correspondentEffective.employer_id),
-        asc(correspondentEffective.created_at),
-        asc(correspondentEffective.id),
+        asc(cwe.employer_id),
+        desc(cwe.is_primary),
+        asc(cwe.created_at),
+        asc(cwe.id),
       );
     const seen = new Set<string>();
     return rows.map((r) => {
@@ -255,34 +291,34 @@ export class CorrespondentRepository {
       const pattern = likePattern(filters.banker);
       push(
         "banker",
-        sql`(${correspondentEffective.name} ILIKE ${pattern} OR ${correspondentEffective.email} ILIKE ${pattern})`,
+        sql`(${cwe.name} ILIKE ${pattern} OR ${cwe.email} ILIKE ${pattern})`,
       );
     }
 
     if (filters.firm?.trim()) {
-      push("firm", sql`${employerEffective.name} ILIKE ${likePattern(filters.firm)}`);
+      push("firm", sql`${ewe.name} ILIKE ${likePattern(filters.firm)}`);
     }
 
     regexFacet("departments", filters.departments, [
-      sql`${correspondentEffective.department}`,
+      sql`${cwe.department}`,
     ]);
     regexFacet("expertise", filters.expertise, [
-      sql`${correspondentEffective.specialization}`,
-      sql`${correspondentEffective.title}`,
-      sql`${correspondentEffective.bio}`,
+      sql`${cwe.specialization}`,
+      sql`${cwe.title}`,
+      sql`${cwe.bio}`,
     ]);
     regexFacet("regions", filters.regions, [
-      sql`${correspondentEffective.coverage_region}`,
+      sql`${cwe.coverage_region}`,
     ]);
     regexFacet("broadRegions", filters.broadRegions, [
-      sql`${correspondentEffective.coverage_region}`,
+      sql`${cwe.coverage_region}`,
     ]);
     regexFacet("seniorities", filters.seniorities, [
-      sql`${correspondentEffective.seniority}`,
-      sql`${correspondentEffective.title}`,
+      sql`${cwe.seniority}`,
+      sql`${cwe.title}`,
     ]);
     regexFacet("industries", filters.industries, [
-      sql`${employerEffective.industry}`,
+      sql`${ewe.industry}`,
     ]);
 
     const topicPattern = termsRegex(filters.topics);
@@ -292,7 +328,8 @@ export class CorrespondentRepository {
         sql`EXISTS (
           SELECT 1 FROM "employer_topics"
           JOIN "topics" ON "topics"."id" = "employer_topics"."topic_id"
-          WHERE "employer_topics"."employer_id" = "employer_effective"."id"
+          WHERE "employer_topics"."employer_id" = "employer_workspace_effective"."id"
+            AND "employer_topics"."workspace_id" = ${workspaceId}
             AND ("topics"."workspace_id" IS NULL OR "topics"."workspace_id" = ${workspaceId})
             AND "topics"."name" ~* ${topicPattern}
         )`,
@@ -304,16 +341,16 @@ export class CorrespondentRepository {
       push(
         "keyword",
         or(
-          sql`${correspondentEffective.name} ILIKE ${pattern}`,
-          sql`${correspondentEffective.title} ILIKE ${pattern}`,
-          sql`${correspondentEffective.department} ILIKE ${pattern}`,
-          sql`${correspondentEffective.specialization} ILIKE ${pattern}`,
-          sql`${correspondentEffective.seniority} ILIKE ${pattern}`,
-          sql`${correspondentEffective.coverage_region} ILIKE ${pattern}`,
-          sql`${correspondentEffective.bio} ILIKE ${pattern}`,
-          sql`${correspondentEffective.email} ILIKE ${pattern}`,
-          sql`${employerEffective.name} ILIKE ${pattern}`,
-          sql`${employerEffective.industry} ILIKE ${pattern}`,
+          sql`${cwe.name} ILIKE ${pattern}`,
+          sql`${cwe.title} ILIKE ${pattern}`,
+          sql`${cwe.department} ILIKE ${pattern}`,
+          sql`${cwe.specialization} ILIKE ${pattern}`,
+          sql`${cwe.seniority} ILIKE ${pattern}`,
+          sql`${cwe.coverage_region} ILIKE ${pattern}`,
+          sql`${cwe.bio} ILIKE ${pattern}`,
+          sql`${cwe.email} ILIKE ${pattern}`,
+          sql`${ewe.name} ILIKE ${pattern}`,
+          sql`${ewe.industry} ILIKE ${pattern}`,
         ),
       );
     }
@@ -369,55 +406,52 @@ export class CorrespondentRepository {
     const lastContact = sql<string | null>`(
       SELECT "mart_crm"."last_contact_at"
       FROM "analytics"."mart_crm"
-      WHERE "mart_crm"."employer_id" = "employer_effective"."id"
+      WHERE "mart_crm"."employer_id" = "employer_workspace_effective"."id"
         AND "mart_crm"."workspace_id" = ${workspaceId}
     )`;
 
     const rows = await this.db
       .select({
-        id: correspondentEffective.id,
-        name: correspondentEffective.name,
-        title: correspondentEffective.title,
-        email: correspondentEffective.email,
-        phone: correspondentEffective.phone,
-        department: correspondentEffective.department,
-        specialization: correspondentEffective.specialization,
-        seniority: correspondentEffective.seniority,
-        coverage_region: correspondentEffective.coverage_region,
-        linkedin_url: correspondentEffective.linkedin_url,
-        bio: correspondentEffective.bio,
-        employer_id: employerEffective.id,
-        employer_name: employerEffective.name,
-        employer_industry: employerEffective.industry,
+        id: cwe.id,
+        name: cwe.name,
+        title: cwe.title,
+        email: cwe.email,
+        phone: cwe.phone,
+        department: cwe.department,
+        specialization: cwe.specialization,
+        seniority: cwe.seniority,
+        coverage_region: cwe.coverage_region,
+        linkedin_url: cwe.linkedin_url,
+        bio: cwe.bio,
+        employer_id: ewe.id,
+        employer_name: ewe.name,
+        employer_industry: ewe.industry,
         last_contact_at: lastContact,
         email_count: sql<number>`COALESCE((
           SELECT "mart_crm"."email_count"
           FROM "analytics"."mart_crm"
-          WHERE "mart_crm"."employer_id" = "employer_effective"."id"
+          WHERE "mart_crm"."employer_id" = "employer_workspace_effective"."id"
             AND "mart_crm"."workspace_id" = ${workspaceId}
         ), 0)`,
         match_score: score,
         matched,
       })
-      .from(correspondentEffective)
+      .from(cwe)
       .innerJoin(
-        employerEffective,
-        eq(employerEffective.id, correspondentEffective.employer_id),
+        ewe,
+        and(eq(ewe.id, cwe.employer_id), eq(ewe.workspace_id, cwe.workspace_id)),
       )
       .where(
         and(
-          inArray(
-            correspondentEffective.id,
-            this.visibleCorrespondentIds(workspaceId),
-          ),
-          eq(employerEffective.curation_status, "published"),
+          eq(cwe.workspace_id, workspaceId),
+          eq(ewe.curation_status, "published"),
           or(...facets.map((facet) => facet.predicate)),
         ),
       )
       .orderBy(
         sql`${score} DESC`,
         sql`${lastContact} DESC NULLS LAST`,
-        asc(correspondentEffective.name),
+        asc(cwe.name),
       )
       .limit(Math.min(Math.max(filters.limit ?? 10, 1), 50));
 
@@ -434,18 +468,18 @@ export class CorrespondentRepository {
     workspaceId: string,
   ): Promise<Correspondent | undefined> {
     const rows = await this.db
-      .select()
-      .from(correspondentEffective)
+      .select(workspaceCorrespondentColumns)
+      .from(cwe)
       .where(
         and(
-          eq(correspondentEffective.id, id),
-          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+          eq(cwe.id, id),
+          eq(cwe.workspace_id, workspaceId),
         ),
       )
       .limit(1);
-    const row = rows[0];
-    if (!row) return undefined;
-    return { ...row, is_primary: false };
+    // `is_primary` here is only the workspace's explicit pick; the oldest-
+    // contact fallback needs the whole firm, which findByEmployerId has.
+    return rows[0];
   }
 
   async findByEmployerAndEmail(
@@ -511,24 +545,24 @@ export class CorrespondentRepository {
     const pattern = `%${escapeLikePattern(term)}%`;
     return this.db
       .select({
-        id: correspondentEffective.id,
-        employer_id: correspondentEffective.employer_id,
-        name: correspondentEffective.name,
-        title: correspondentEffective.title,
-        email: correspondentEffective.email,
+        id: cwe.id,
+        employer_id: cwe.employer_id,
+        name: cwe.name,
+        title: cwe.title,
+        email: cwe.email,
       })
-      .from(correspondentEffective)
+      .from(cwe)
       .where(
         and(
-          inArray(correspondentEffective.employer_id, employerIds),
-          inArray(correspondentEffective.id, this.visibleCorrespondentIds(workspaceId)),
+          inArray(cwe.employer_id, employerIds),
+          eq(cwe.workspace_id, workspaceId),
           or(
-            ilike(correspondentEffective.name, pattern),
-            ilike(correspondentEffective.email, pattern),
+            ilike(cwe.name, pattern),
+            ilike(cwe.email, pattern),
           ),
         ),
       )
-      .orderBy(asc(correspondentEffective.employer_id), asc(correspondentEffective.name))
+      .orderBy(asc(cwe.employer_id), asc(cwe.name))
       .limit(limit);
   }
 

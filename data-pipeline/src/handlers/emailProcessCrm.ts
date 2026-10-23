@@ -598,20 +598,44 @@ export async function upsertEphemeralCrmBatch(
     }
     await emailRepo.insertTopicsBatch(etRows);
 
-    await db.execute(sql`
-      INSERT INTO employer_topics (employer_id, topic_id, source)
-      SELECT DISTINCT e.employer_id, et.topic_id, 'auto'
-      FROM analytics.emails e
-      JOIN analytics.email_topics et ON et.email_id = e.id
-      WHERE e.employer_id IS NOT NULL
-        AND e.message_id IN (${sql.join(
-          messages.map((m) => sql`${m.message_id}`),
+    // Firm tags are per workspace (MB-687): an email's auto tags land only in
+    // the workspaces its custodian syncs into — the same wsCache that scopes
+    // the contact memberships above — never in a workspace that cannot see
+    // the email.
+    const custodianWorkspaces = [
+      ...new Set(messages.map((m) => m.custodian_email.toLowerCase())),
+    ].flatMap((custodian) =>
+      (wsCache.get(custodian) ?? []).map((workspaceId) => ({ custodian, workspaceId })),
+    );
+    if (custodianWorkspaces.length > 0) {
+      await db.execute(sql`
+        INSERT INTO employer_topics (workspace_id, employer_id, topic_id, source)
+        SELECT DISTINCT cw.workspace_id, e.employer_id, et.topic_id, 'auto'
+        FROM analytics.emails e
+        JOIN analytics.email_topics et ON et.email_id = e.id
+        JOIN (VALUES ${sql.join(
+          custodianWorkspaces.map(
+            (cw) => sql`(${cw.custodian}, ${cw.workspaceId}::uuid)`,
+          ),
           sql`, `,
-        )})
-      ON CONFLICT (employer_id, topic_id) DO NOTHING
-    `);
+        )}) AS cw(custodian, workspace_id)
+          ON cw.custodian = lower(e.custodian_email)
+        WHERE e.employer_id IS NOT NULL
+          AND e.message_id IN (${sql.join(
+            messages.map((m) => sql`${m.message_id}`),
+            sql`, `,
+          )})
+        ON CONFLICT (workspace_id, employer_id, topic_id) DO NOTHING
+      `);
+    }
 
-    const teamAssignments: Array<{ employer_id: string; user_id: string }> = [];
+    // Coverage is per workspace too: each assignment lands in every workspace
+    // the email's custodian syncs into.
+    const teamAssignments: Array<{
+      workspace_id: string;
+      employer_id: string;
+      user_id: string;
+    }> = [];
     for (const m of messages) {
       const userIds = new Set<string>();
       for (const a of [
@@ -638,9 +662,12 @@ export async function upsertEphemeralCrmBatch(
         const eid = domainToEmployerId.get(d);
         if (eid) employerIds.add(eid);
       }
-      for (const employer_id of employerIds) {
-        for (const user_id of userIds) {
-          teamAssignments.push({ employer_id, user_id });
+      const workspaceIds = wsCache.get(m.custodian_email.toLowerCase()) ?? [];
+      for (const workspace_id of workspaceIds) {
+        for (const employer_id of employerIds) {
+          for (const user_id of userIds) {
+            teamAssignments.push({ workspace_id, employer_id, user_id });
+          }
         }
       }
     }

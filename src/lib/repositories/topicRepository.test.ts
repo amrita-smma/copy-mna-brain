@@ -169,18 +169,21 @@ describe('TopicRepository', () => {
   describe('assignToEmployer', () => {
     it('inserts with source and is_highlight', async () => {
       db.returning.mockResolvedValueOnce([{ id: 'et1', employer_id: 'e1', topic_id: 't1', source: 'auto', is_highlight: false }]);
-      await repo.assignToEmployer('e1', 't1', { source: 'auto' });
+      await repo.assignToEmployer('e1', 't1', 'w1', { source: 'auto' });
       expect(db.values).toHaveBeenCalledWith(
-        expect.objectContaining({ source: 'auto', is_highlight: false }),
+        expect.objectContaining({ workspace_id: 'w1', source: 'auto', is_highlight: false }),
       );
     });
 
     it('upserts on conflict preserving source and is_highlight', async () => {
       db.returning.mockResolvedValueOnce([{ id: 'et2', employer_id: 'e1', topic_id: 't2', source: 'manual', is_highlight: false }]);
-      await repo.assignToEmployer('e1', 't2');
+      await repo.assignToEmployer('e1', 't2', 'w1');
       expect(db.onConflictDoUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ set: expect.objectContaining({ source: 'manual' }) }),
       );
+      // Keyed per workspace, so tagging a shared firm never touches another
+      // workspace's tag row.
+      expect(db.onConflictDoUpdate.mock.calls[0][0].target).toHaveLength(3);
     });
   });
 

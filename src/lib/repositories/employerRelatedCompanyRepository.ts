@@ -197,6 +197,30 @@ export class EmployerRelatedCompanyRepository {
       .where(eq(employerRelatedCompanies.id, relatedCompanyId));
   }
 
+  /**
+   * Hide an auto (email-detected) suggestion from this workspace's card.
+   * Scoped to the employer and workspace, and to source='auto' — a manual link
+   * is removed with {@link deleteManual} instead. `upsertAuto` never clears
+   * `dismissed_at`, so a later ingest does not bring it back.
+   */
+  async dismissAuto(
+    employerId: string,
+    id: string,
+    workspaceId: string,
+  ): Promise<void> {
+    await this.db
+      .update(employerRelatedCompanies)
+      .set({ dismissed_at: new Date().toISOString() })
+      .where(
+        and(
+          eq(employerRelatedCompanies.id, id),
+          eq(employerRelatedCompanies.employer_id, employerId),
+          eq(employerRelatedCompanies.workspace_id, workspaceId),
+          eq(employerRelatedCompanies.source, 'auto'),
+        ),
+      );
+  }
+
   async dismiss(id: string): Promise<void> {
     await this.db
       .update(employerRelatedCompanies)

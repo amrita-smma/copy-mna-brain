@@ -135,6 +135,9 @@ export class TopicRepository {
       .where(
         and(
           eq(employerTopics.employer_id, employerId),
+          // Tags are per workspace (MB-687); the topic vocabulary filter
+          // still hides another workspace's private topic names.
+          eq(employerTopics.workspace_id, workspaceId),
           or(isNull(topics.workspace_id), eq(topics.workspace_id, workspaceId)),
         ),
       )
@@ -173,6 +176,7 @@ export class TopicRepository {
       .where(
         and(
           inArray(employerTopics.employer_id, employerIds),
+          eq(employerTopics.workspace_id, workspaceId),
           or(isNull(topics.workspace_id), eq(topics.workspace_id, workspaceId)),
         ),
       )
@@ -186,18 +190,24 @@ export class TopicRepository {
   async assignToEmployer(
     employerId: string,
     topicId: string,
+    workspaceId: string,
     opts: { source?: "auto" | "manual"; is_highlight?: boolean } = {},
   ): Promise<EmployerTopic> {
     const [row] = await this.db
       .insert(employerTopics)
       .values({
+        workspace_id: workspaceId,
         employer_id: employerId,
         topic_id: topicId,
         source: opts.source ?? "manual",
         is_highlight: opts.is_highlight ?? false,
       })
       .onConflictDoUpdate({
-        target: [employerTopics.employer_id, employerTopics.topic_id],
+        target: [
+          employerTopics.workspace_id,
+          employerTopics.employer_id,
+          employerTopics.topic_id,
+        ],
         set: {
           source: opts.source ?? "manual",
           is_highlight: opts.is_highlight ?? false,
@@ -210,22 +220,29 @@ export class TopicRepository {
   async removeFromEmployer(
     employerId: string,
     topicId: string,
+    workspaceId: string,
   ): Promise<void> {
     await this.db
       .delete(employerTopics)
       .where(
         and(
+          eq(employerTopics.workspace_id, workspaceId),
           eq(employerTopics.employer_id, employerId),
           eq(employerTopics.topic_id, topicId),
         ),
       );
   }
 
-  async countEmployerTopics(employerId: string): Promise<number> {
+  async countEmployerTopics(employerId: string, workspaceId: string): Promise<number> {
     const rows = await this.db
       .select({ n: sql<number>`COUNT(*)` })
       .from(employerTopics)
-      .where(eq(employerTopics.employer_id, employerId));
+      .where(
+        and(
+          eq(employerTopics.workspace_id, workspaceId),
+          eq(employerTopics.employer_id, employerId),
+        ),
+      );
     return Number(rows[0]?.n ?? 0);
   }
 

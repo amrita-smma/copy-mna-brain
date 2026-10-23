@@ -136,7 +136,7 @@ export async function runContactRelationshipOverview(
 
     const contact = await correspondentRepo.findById(correspondentId, workspaceId);
     const firm = contact?.employer_id
-      ? await employerRepo.findById(contact.employer_id)
+      ? await employerRepo.findById(contact.employer_id, workspaceId)
       : null;
 
     // The overview is shared, so it reads every note and evidence (system reads).
