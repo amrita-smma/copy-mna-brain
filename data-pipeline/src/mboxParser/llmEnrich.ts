@@ -67,6 +67,8 @@ export interface LlmPerson {
   name: string | null;
   role: string | null;
   company: string | null;
+  specialization?: string | null;
+  coverage_region?: string | null;
   candidate_indices: number[];
 }
 
@@ -100,6 +102,10 @@ export interface EnrichedPerson {
   name: string | null;
   role: string | null;
   company: string | null;
+  /** Sector / product focus stated in the context (the CRM's Industry Focus). */
+  specialization: string | null;
+  /** Markets they cover stated in the context (the CRM's Area Focus). */
+  coverage_region: string | null;
   email: string | null;
   phone: string | null;
 }
@@ -167,6 +173,16 @@ export const EMAIL_EXTRACTION_SCHEMA = {
             type: ['string', 'null'],
             description: 'Company or organization from context; null if not in context',
           },
+          specialization: {
+            type: ['string', 'null'],
+            description:
+              'Industry / sector or product focus stated in the context, e.g. "Industrials", "TMT", "Healthcare", "Leveraged Finance"; null if not stated. See PEOPLE RULES.',
+          },
+          coverage_region: {
+            type: ['string', 'null'],
+            description:
+              'Geography of the markets they cover, stated in the context, e.g. "Southeast Asia", "Greater China"; null if not stated. NEVER an office address or city. See PEOPLE RULES.',
+          },
           candidate_indices: {
             type: 'array',
             items: { type: 'integer', minimum: 0 },
@@ -174,7 +190,7 @@ export const EMAIL_EXTRACTION_SCHEMA = {
               'REQUIRED: indices [0, 1, ...] of the input CANDIDATES that belong to this person. If a person has both an email and phone candidate in the same signature, include BOTH indices.',
           },
         },
-        required: ['name', 'role', 'company', 'candidate_indices'],
+        required: ['name', 'role', 'company', 'specialization', 'coverage_region', 'candidate_indices'],
       },
     },
     related_companies: {
@@ -303,7 +319,9 @@ PEOPLE RULES:
 - Each CANDIDATE has an [index], a type (EMAIL or PHONE), a value, and a CONTEXT.
 - Read the CONTEXT to find a name attached to the candidate. Names usually appear DIRECTLY before the address, e.g. "John Smith <john@acme.com>", "Sarah Lim sarah.lim@firm.com", or in a signature block right above the address.
 - If the same person owns multiple candidates (e.g. email and phone in the same signature), output ONE Person with all their candidate indices in \`candidate_indices\`.
-- Use ONLY what is explicitly in the CONTEXT for name/role/company. If something isn't there, return null. NEVER invent.
+- Use ONLY what is explicitly in the CONTEXT for name/role/company/specialization/coverage_region. If something isn't there, return null. NEVER invent.
+- specialization is the sector or product the person covers, as their title or signature states it: "Managing Director, Industrials Group" → "Industrials"; "Head of TMT Coverage" → "TMT". Write it short, without "Group"/"Coverage"/"Team". Do NOT infer it from the firm's business or from what the email discusses.
+- coverage_region is the geography of their mandate, as their title or signature states it: "Head of M&A, Southeast Asia" → "Southeast Asia"; "Director, Greater China Coverage" → "Greater China". It is NOT where they sit: an office address, a city under the signature or a phone country code never fills it. A Singapore office address alone means null.
 - If NO candidates were provided, return an empty people list. Do NOT extract people from the email body alone.
 
 EXAMPLE INPUT:
@@ -318,8 +336,8 @@ CANDIDATES:
 EXAMPLE OUTPUT:
 {
   "people": [
-    {"name": "John Smith", "role": "Managing Director, Industrials Group", "company": "Goldman Sachs", "candidate_indices": [0, 1]},
-    {"name": null, "role": null, "company": null, "candidate_indices": [2]}
+    {"name": "John Smith", "role": "Managing Director, Industrials Group", "company": "Goldman Sachs", "specialization": "Industrials", "coverage_region": null, "candidate_indices": [0, 1]},
+    {"name": null, "role": null, "company": null, "specialization": null, "coverage_region": null, "candidate_indices": [2]}
   ]
 }
 
@@ -705,6 +723,15 @@ export function sanitizeEmailNote(
   };
 }
 
+// The CRM shows a focus as one short tag; anything longer than this is a
+// sentence the model copied, not a focus.
+const MAX_FOCUS_CHARS = 120;
+
+function focusValue(raw: string | null | undefined): string | null {
+  const v = raw?.trim();
+  return v && v.length <= MAX_FOCUS_CHARS ? v : null;
+}
+
 // Merge LLM-extracted name/role/company with the deterministic email/phone
 // candidate values. Drops people the model emitted without any candidate
 // ownership (hallucinations from the body).
@@ -718,6 +745,8 @@ export function mergePeopleWithCandidates(
       name: p.name ?? null,
       role: p.role ?? null,
       company: p.company ?? null,
+      specialization: focusValue(p.specialization),
+      coverage_region: focusValue(p.coverage_region),
       email: null,
       phone: null,
     };

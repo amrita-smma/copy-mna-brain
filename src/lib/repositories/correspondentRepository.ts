@@ -528,6 +528,104 @@ export class CorrespondentRepository {
   }
 
   /**
+   * Contacts in this workspace whose first two-way exchange happened at or
+   * after `since` and who are worth an automatic profile run — the hourly
+   * auto-enrich sweep's candidate list.
+   *
+   * Two-way uses `mart_contact_interactions`' definition of an exchange: a
+   * workspace member is the sender and the contact a to/cc ("from us"), or
+   * the other way round ("from them"). The contact's first reply is their
+   * first "from them" email after our first "from us" one, over all time, so
+   * a long-standing contact who writes again is not new. Re-extracting old
+   * mail keeps its original `sent_at`, so it never qualifies.
+   *
+   * Every exclusion runs here, before the `LIMIT`, so a contact skipped once
+   * cannot hold a slot every hour: no bio yet, a name that is more than the
+   * address or its local part, not internal, and no `agentName` run in this
+   * workspace ever (any status — a run that found nothing is not retried).
+   * Oldest reply first, so a backlog drains before it leaves the window.
+   *
+   * Driven by `idx_email_sent_at`, then `uq_email_participant` /
+   * `idx_email_participant_correspondent` per candidate.
+   */
+  async findNewlyTwoWayWithoutProfile(
+    workspaceId: string,
+    since: string,
+    agentName: string,
+    limit: number,
+  ): Promise<Array<{ id: string; name: string; email: string | null; first_reply_at: string }>> {
+    // A direct exchange between a member of this workspace and the contact,
+    // `contactRole` being the contact's side ('from' = they wrote to us).
+    const exchange = (contactRole: 'from' | 'to_cc') => sql`
+      FROM analytics.emails em
+      JOIN analytics.email_workspace ew
+        ON ew.email_id = em.id AND ew.workspace_id = ${workspaceId}
+      JOIN analytics.email_participants cp
+        ON cp.email_id = em.id
+       AND cp.correspondent_id IS NOT NULL
+       AND cp.user_id IS NULL
+       AND ${contactRole === 'from' ? sql`cp.role = 'from'` : sql`cp.role IN ('to', 'cc')`}
+      JOIN analytics.email_participants up
+        ON up.email_id = em.id
+       AND up.user_id IS NOT NULL
+       AND up.address <> cp.address
+       AND ${contactRole === 'from' ? sql`up.role IN ('to', 'cc')` : sql`up.role = 'from'`}
+      JOIN public.user_workspaces uw
+        ON uw.user_id = up.user_id AND uw.workspace_id = ew.workspace_id`;
+
+    const { rows } = await this.db.execute<{
+      id: string;
+      name: string;
+      email: string | null;
+      first_reply_at: unknown;
+    }>(sql`
+      WITH recent AS (
+        SELECT DISTINCT cp.correspondent_id
+        ${exchange('from')}
+        WHERE em.sent_at >= ${since}
+      ),
+      first_reply AS (
+        SELECT r.correspondent_id, fr.first_reply_at
+        FROM recent r
+        CROSS JOIN LATERAL (
+          SELECT min(em.sent_at) AS first_out
+          ${exchange('to_cc')}
+          WHERE cp.correspondent_id = r.correspondent_id
+        ) o
+        CROSS JOIN LATERAL (
+          SELECT min(em.sent_at) AS first_reply_at
+          ${exchange('from')}
+          WHERE cp.correspondent_id = r.correspondent_id
+            AND em.sent_at > o.first_out
+        ) fr
+        WHERE fr.first_reply_at >= ${since}
+      )
+      SELECT ce.id, ce.name, ce.email, fr.first_reply_at
+      FROM first_reply fr
+      JOIN public.correspondent_workspace_effective ce
+        ON ce.id = fr.correspondent_id AND ce.workspace_id = ${workspaceId}
+      WHERE COALESCE(btrim(ce.bio), '') = ''
+        AND ce.type IS DISTINCT FROM 'internal'
+        AND NOT ${addressLikeNameSql(sql`ce.name`, sql`ce.email`)}
+        AND lower(btrim(ce.name)) <> lower(split_part(COALESCE(ce.email, ''), '@', 1))
+        AND NOT EXISTS (
+          SELECT 1 FROM public.ai_workforce_queue q
+          WHERE q.workspace_id = ${workspaceId}
+            AND q.agent_name = ${agentName}
+            AND q.trigger_meta->>'correspondent_id' = ce.id::text
+        )
+      ORDER BY fr.first_reply_at ASC, ce.id
+      LIMIT ${limit}
+    `);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      first_reply_at: new Date(r.first_reply_at as string | Date).toISOString(),
+    }));
+  }
+
+  /**
    * Contacts under `employerIds` whose overlay-aware name or email contains
    * `search` (case-insensitive), restricted to this workspace's visible
    * contacts. Backs the CRM list's person search: one query for the whole
@@ -678,6 +776,8 @@ export class CorrespondentRepository {
             name: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.name} WHEN ${addressLikeNameSql(sql`EXCLUDED.name`, sql`EXCLUDED.email`)} AND NOT ${addressLikeNameSql(sql`${correspondents.name}`, sql`${correspondents.email}`)} THEN ${correspondents.name} ELSE EXCLUDED.name END`,
             title: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.title} ELSE COALESCE(EXCLUDED.title, ${correspondents.title}) END`,
             phone: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.phone} ELSE COALESCE(EXCLUDED.phone, ${correspondents.phone}) END`,
+            specialization: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.specialization} ELSE COALESCE(EXCLUDED.specialization, ${correspondents.specialization}) END`,
+            coverage_region: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.coverage_region} ELSE COALESCE(EXCLUDED.coverage_region, ${correspondents.coverage_region}) END`,
             type: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.type} ELSE EXCLUDED.type END`,
             source: sql`CASE WHEN ${correspondents.origin} = 'manual' THEN ${correspondents.source} ELSE EXCLUDED.source END`,
             updated_at: sql`now()`,

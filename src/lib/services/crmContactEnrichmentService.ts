@@ -14,7 +14,9 @@ import {
   buildContactEnrichmentPrompt,
   buildContactEnrichmentTitle,
 } from '@/lib/agents/crm_contact/prompt';
+import { isAddressLikeName } from '@/lib/crm/contactName';
 import { enqueueAgentRun } from '@/lib/workforce';
+import type { TriggerSource } from '@/lib/workforce/enqueue';
 
 export { CRM_CONTACT_AGENT_NAME } from '@/lib/agents/crm_contact/constants';
 
@@ -34,6 +36,31 @@ export interface ContactEnrichmentRun {
    * picked up a second time by the button that replaces it.
    */
   mode: 'fill' | 'refresh';
+}
+
+/**
+ * Automatic runs queue below a click (`priority` 0), so a user waiting on the
+ * Get Full Profile button is never stuck behind the sweep.
+ */
+export const AUTO_ENRICH_PRIORITY = -1;
+/**
+ * How far back the sweep looks for a contact's first reply. Wider than the
+ * hourly cadence so mail that reaches the pipeline a day or two late still
+ * counts; anything older is treated as history, not a new relationship.
+ */
+export const AUTO_ENRICH_WINDOW_DAYS = 7;
+/** Runs one workspace's sweep may queue per hour — the queue runs one at a time. */
+export const AUTO_ENRICH_PER_SWEEP = 5;
+
+/**
+ * Whether web research has a name to search for: more than the address, and
+ * more than its local part ("jdoe" from jdoe@firm.com). The sweep's SQL in
+ * `CorrespondentRepository.findNewlyTwoWayWithoutProfile` applies the same rule.
+ */
+export function isSearchableContactName(name: string, email: string | null): boolean {
+  if (isAddressLikeName(name, email)) return false;
+  const localPart = email?.split('@')[0]?.trim().toLowerCase();
+  return !localPart || name.trim().toLowerCase() !== localPart;
 }
 
 export class ContactNotFoundError extends Error {
@@ -81,7 +108,12 @@ export class CrmContactEnrichmentService {
    */
   async enrich(
     correspondentId: string,
-    opts: { triggeredByUserId?: string | null; refresh?: boolean } = {},
+    opts: {
+      triggeredByUserId?: string | null;
+      refresh?: boolean;
+      priority?: number;
+      triggerSource?: TriggerSource;
+    } = {},
   ): Promise<{ run: ContactEnrichmentRun; created: boolean }> {
     const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const existing = await queueRepo.findLatestByCorrespondentId(
@@ -114,7 +146,7 @@ export class CrmContactEnrichmentService {
     const enqueue = (idempotencyKey: string | null) =>
       enqueueAgentRun(this.db, {
         agentName: CRM_CONTACT_AGENT_NAME,
-        triggerSource: 'api',
+        triggerSource: opts.triggerSource ?? 'api',
         // `correspondent_id` is what findLatestByCorrespondentId matches on —
         // it has to be in trigger_meta, not only in the prompt text.
         triggerMeta: {
@@ -130,6 +162,8 @@ export class CrmContactEnrichmentService {
         },
         triggeredByUserId: opts.triggeredByUserId ?? null,
         idempotencyKey,
+        priority: opts.priority ?? 0,
+        workspaceId: this.workspaceId,
       });
 
     let { runId, created } = await enqueue(
@@ -152,6 +186,59 @@ export class CrmContactEnrichmentService {
     // surfacing rather than a state the caller can act on.
     if (!row) throw new Error(`enrich: queue row ${runId} is not readable`);
     return { run: toContactEnrichmentRun(row), created };
+  }
+
+  /**
+   * A teammate just made this contact the firm's primary: fill the profile
+   * without waiting for a click, when it is worth a run. Skipped — returning
+   * `false` — when the contact was ever enriched in this workspace (a run that
+   * found nothing is not retried), already has a bio, or has no name to search
+   * for beyond the address. Attributed to the teammate who picked them.
+   */
+  async enrichNewPrimary(
+    correspondentId: string,
+    triggeredByUserId: string | null,
+  ): Promise<boolean> {
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
+    const prior = await queueRepo.findLatestByCorrespondentId(
+      CRM_CONTACT_AGENT_NAME,
+      correspondentId,
+    );
+    if (prior) return false;
+    const contact = await this.correspondentRepo.findById(correspondentId, this.workspaceId);
+    if (!contact || contact.bio?.trim()) return false;
+    if (!isSearchableContactName(contact.name, contact.email)) return false;
+    await this.enrich(correspondentId, {
+      triggeredByUserId,
+      priority: AUTO_ENRICH_PRIORITY,
+    });
+    return true;
+  }
+
+  /**
+   * The hourly sweep: queue a profile run for each contact in this workspace
+   * whose first two-way exchange with the team happened in the last
+   * {@link AUTO_ENRICH_WINDOW_DAYS} days, up to {@link AUTO_ENRICH_PER_SWEEP}.
+   * Eligibility (no bio, searchable name, never enriched here) is decided in
+   * the query, before the cap. Returns how many runs were queued.
+   */
+  async enrichNewTwoWayContacts(now: Date = new Date()): Promise<number> {
+    const since = new Date(now.getTime() - AUTO_ENRICH_WINDOW_DAYS * 86_400_000).toISOString();
+    const candidates = await this.correspondentRepo.findNewlyTwoWayWithoutProfile(
+      this.workspaceId,
+      since,
+      CRM_CONTACT_AGENT_NAME,
+      AUTO_ENRICH_PER_SWEEP,
+    );
+    let queued = 0;
+    for (const c of candidates) {
+      const { created } = await this.enrich(c.id, {
+        priority: AUTO_ENRICH_PRIORITY,
+        triggerSource: 'cron',
+      });
+      if (created) queued += 1;
+    }
+    return queued;
   }
 
   /**

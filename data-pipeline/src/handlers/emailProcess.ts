@@ -86,8 +86,12 @@ export const PROCESS_BATCH_SIZE = 50;
 export const LLM_CONCURRENCY = 5;
 /** Fail budget (hard + soft) before a source is terminally abandoned. */
 export const MAX_PROCESS_FAIL_COUNT = 5;
-/** Output budget for one email's extraction (topics, people, note, roles). */
-export const EXTRACT_MAX_TOKENS = 1500;
+/**
+ * Output budget for one email's extraction (topics, people, note, roles).
+ * Every person carries two focus keys and candidates are not capped, so a
+ * long To/Cc list needs headroom before it falls back to the retry.
+ */
+export const EXTRACT_MAX_TOKENS = 2000;
 /**
  * Budget for the one retry of an extraction that hit EXTRACT_MAX_TOKENS. A
  * long thread can legitimately need more; an email that overflows even this

@@ -3334,6 +3334,16 @@ export const aiWorkforceQueue = pgTable(
           table.created_at.desc(),
         )
         .where(sql`agent_name = 'crm_company_contacts'`),
+      // Newest crm_contact run per contact (the Profile cell, the auto-enrich sweep).
+      idxAiWorkforceQueueCrmContactCorrespondent: index(
+        "idx_ai_workforce_queue_crm_contact_correspondent",
+      )
+        .on(
+          table.workspace_id,
+          sql`(${table.trigger_meta}->>'correspondent_id')`,
+          table.created_at.desc(),
+        )
+        .where(sql`agent_name = 'crm_contact'`),
       idxAiWorkforceQueueTerminal: index(
         "idx_ai_workforce_queue_terminal",
       ).using("btree", table.ended_at.desc().nullsLast().op("timestamptz_ops")),

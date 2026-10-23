@@ -115,6 +115,23 @@ describe('enqueueAgentRun', () => {
     expect(insertArg.workspace_id).toBeTruthy();
   });
 
+  it('stamps the passed workspace instead of the fallback when a caller has no request', async () => {
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({
+      row: { id: 'r-1' },
+      created: true,
+    });
+
+    await enqueueAgentRun(fakeDb, {
+      agentName: 'crm_contact',
+      triggerSource: 'cron',
+      input: { title: 'X' },
+      workspaceId: 'ws-b',
+    });
+
+    const [insertArg] = createOrGetByIdempotencyKey.mock.calls[0];
+    expect(insertArg.workspace_id).toBe('ws-b');
+  });
+
   it('does not schedule dispatch when idempotency-key returned an existing row', async () => {
     createOrGetByIdempotencyKey.mockResolvedValueOnce({
       row: { id: 'r-existing' },

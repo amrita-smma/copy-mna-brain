@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TruncatedText } from "@/components/common/TruncatedText";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
 import {
@@ -185,20 +186,25 @@ export function EmployerCard({
           </div>
         </div>
 
-        <div className="min-w-0 truncate text-xs">{employer.industry ?? "—"}</div>
+        <div className="flex min-w-0 text-xs">
+          <TruncatedText text={employer.industry ?? "—"} />
+        </div>
 
-        <div className="min-w-0 break-words">
+        <div className="flex min-w-0 flex-col">
           {pic ? (
             <>
-              <div className="truncate text-sm font-bold">{pic.name}</div>
-              <div className="truncate text-xs text-muted-foreground">{pic.title ?? "—"}</div>
+              <TruncatedText text={pic.name} className="text-sm font-bold" />
+              <TruncatedText
+                text={pic.title ?? "—"}
+                className="text-xs text-muted-foreground"
+              />
               {pic.email && (
                 <a
                   href={`mailto:${pic.email}`}
                   onClick={(e) => e.stopPropagation()}
-                  className="block truncate text-xs text-primary hover:underline"
+                  className="flex min-w-0 text-xs text-primary hover:underline"
                 >
-                  {pic.email}
+                  <TruncatedText text={pic.email} />
                 </a>
               )}
             </>
@@ -293,7 +299,7 @@ export function EmployerCard({
               }}
               className="grid h-[26px] w-[26px] place-items-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/20"
               aria-label={`Conversation with ${pic.name}`}
-              title="Conversation — AI-summarised notes from your team"
+              title={`Conversation with ${pic.name} (primary contact)`}
               data-testid="crm-firm-conversation"
             >
               <MessagesSquare className="h-3.5 w-3.5" />
@@ -685,6 +691,9 @@ function ContactsTab({
       if (!res.ok) throw new Error("Could not set the primary contact");
       toast.success(`${c.name} is now the primary contact`);
       onChanged();
+      // A new primary may have queued Get Full Profile; pick its run up so
+      // the Profile cell shows it working.
+      void loadEnrichRuns();
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -818,9 +827,7 @@ function ContactsTab({
                 >
                   <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-1.5">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate" title={c.name}>
-                        {c.name}
-                      </span>
+                      <TruncatedText text={c.name} />
                       {linkedinHref && (
                         <a
                           href={linkedinHref}
@@ -843,12 +850,10 @@ function ContactsTab({
                       )}
                     </div>
                     {subtitle && (
-                      <span
-                        className="truncate text-xs text-muted-foreground"
-                        title={subtitle}
-                      >
-                        {subtitle}
-                      </span>
+                      <TruncatedText
+                        text={subtitle}
+                        className="text-xs text-muted-foreground"
+                      />
                     )}
                   </div>
                   <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-1.5">
@@ -856,17 +861,18 @@ function ContactsTab({
                       <CopyLine value={c.email} label="email">
                         <a
                           href={`mailto:${c.email}`}
-                          className="truncate font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
+                          className="flex min-w-0 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
                         >
-                          {c.email}
+                          <TruncatedText text={c.email} />
                         </a>
                       </CopyLine>
                     )}
                     {c.phone && (
                       <CopyLine value={c.phone} label="phone">
-                        <span className="truncate font-mono text-xs text-muted-foreground">
-                          {c.phone}
-                        </span>
+                        <TruncatedText
+                          text={c.phone}
+                          className="font-mono text-xs text-muted-foreground"
+                        />
                       </CopyLine>
                     )}
                     {!c.email && !c.phone && (
@@ -1011,11 +1017,8 @@ const CONTACT_GRID =
 function FocusTag({ value }: { value: string | null }) {
   if (!value) return <span className="text-muted-foreground">—</span>;
   return (
-    <span
-      className="inline-flex h-5 max-w-full items-center rounded border bg-muted px-1.5 text-xs text-muted-foreground"
-      title={value}
-    >
-      <span className="truncate">{value}</span>
+    <span className="inline-flex h-5 max-w-full items-center rounded border bg-muted px-1.5 text-xs text-muted-foreground">
+      <TruncatedText text={value} />
     </span>
   );
 }
@@ -1039,7 +1042,7 @@ function CopyLine({
     }
   };
   return (
-    <div className="group/copy flex min-w-0 items-center gap-1" title={value}>
+    <div className="group/copy flex min-w-0 items-center gap-1">
       {children}
       <button
         type="button"

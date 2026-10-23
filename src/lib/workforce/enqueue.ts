@@ -22,6 +22,10 @@ export interface EnqueueAgentRunInput {
   // the owner); null for cron (use trigger_meta.routine_id to find creator)
   // and webhook (no human user).
   triggeredByUserId?: string | null;
+  // Workspace the run belongs to. Defaults to the request's active workspace;
+  // a caller with no request (a cron sweep) must pass it, or the run lands in
+  // the fallback workspace.
+  workspaceId?: string;
 }
 
 export interface EnqueueAgentRunResult {
@@ -46,7 +50,7 @@ export async function enqueueAgentRun(
   db: DbClient,
   input: EnqueueAgentRunInput,
 ): Promise<EnqueueAgentRunResult> {
-  const workspaceId = await getActiveWorkspaceId();
+  const workspaceId = input.workspaceId ?? (await getActiveWorkspaceId());
   const queueRepo = new AiWorkforceQueueRepository(db, workspaceId);
 
   const { row, created } = await queueRepo.createOrGetByIdempotencyKey({

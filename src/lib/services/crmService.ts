@@ -28,6 +28,7 @@ import type {
   WorkspaceCorrespondentRepository,
 } from "@/lib/repositories";
 import { normalizeCompanyName } from "@/lib/crm/normalizeCompanyName";
+import type { CrmContactEnrichmentService } from "./crmContactEnrichmentService";
 import {
   collapseByEmail,
   normalizeEmail,
@@ -287,6 +288,9 @@ export class CRMService {
     private companyRepo: CompanyRepository,
     private workspaceCorrespondentRepo: WorkspaceCorrespondentRepository,
     private workspaceId: string,
+    // Fills a new primary contact's profile; absent where the caller never
+    // changes the primary (and in tests that don't exercise it).
+    private contactEnrichment?: Pick<CrmContactEnrichmentService, "enrichNewPrimary">,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -1121,6 +1125,10 @@ export class CRMService {
    * default (its oldest visible contact). The contact must be visible here and
    * work at this firm — otherwise one workspace could point its PIC at a
    * person it cannot see.
+   *
+   * A teammate picking a contact also queues Get Full Profile for them when
+   * it is worth a run (`CrmContactEnrichmentService.enrichNewPrimary`). The
+   * pick is already saved by then, so a queue failure is logged, not thrown.
    */
   async setPrimaryContact(
     employerId: string,
@@ -1142,6 +1150,12 @@ export class CRMService {
       { primary_correspondent_id: correspondentId },
       editedBy,
     );
+    if (correspondentId === null || !this.contactEnrichment) return;
+    try {
+      await this.contactEnrichment.enrichNewPrimary(correspondentId, editedBy);
+    } catch (err) {
+      console.error("[crm] auto profile for new primary contact failed:", err);
+    }
   }
 
   // ─── Insights ────────────────────────────────────────────────────────────

@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 240 | `src/app/api/**/route.ts` |
+| API routes | 241 | `src/app/api/**/route.ts` |
 | Services | 98 | `src/lib/services/` |
 | Repositories | 86 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 14 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 186 | `drizzle/migrations/` |
+| Migrations (app) | 187 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -193,6 +193,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/cron/cleanup-jobs` | GET | `jobService` |
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/compact-checkpoints` | GET | `checkpointCompactionService` |
+| `/api/cron/crm-auto-enrich` | GET | `crmContactEnrichmentService` |
 | `/api/cron/crm-suggested-questions` | GET | `crmSuggestedQuestionService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |

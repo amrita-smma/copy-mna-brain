@@ -88,7 +88,16 @@ describe('emailProcessCrm domain gates', () => {
 });
 
 function person(p: Partial<EnrichedPerson>): EnrichedPerson {
-  return { name: null, role: null, company: null, email: null, phone: null, ...p };
+  return {
+    name: null,
+    role: null,
+    company: null,
+    specialization: null,
+    coverage_region: null,
+    email: null,
+    phone: null,
+    ...p,
+  };
 }
 
 describe('collectCorrespondentCandidates', () => {
@@ -129,6 +138,28 @@ describe('collectCorrespondentCandidates', () => {
       title: 'MD',
       phone: '+1 555',
       employer_id: 'emp-gs',
+    });
+  });
+
+  it('keeps the first stated focus and fills a missing one from later sightings', () => {
+    const out = collectCorrespondentCandidates(
+      [fromJane, fromJane],
+      [
+        [person({ email: 'jane@gs.com', specialization: 'Industrials' })],
+        [
+          person({
+            email: 'jane@gs.com',
+            specialization: 'TMT',
+            coverage_region: 'Southeast Asia',
+          }),
+        ],
+      ],
+      employers,
+      none,
+    );
+    expect(out.get('jane@gs.com')).toMatchObject({
+      specialization: 'Industrials',
+      coverage_region: 'Southeast Asia',
     });
   });
 

@@ -522,6 +522,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         companyRepo(),
         workspaceCorrespondentRepo(),
         workspaceId,
+        crmContactEnrichmentService(),
       ),
   );
 

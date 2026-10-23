@@ -1303,6 +1303,13 @@
       "when": 1792713601000,
       "tag": "20261023000001_drop_legacy_related_company_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1792713602000,
+      "tag": "20261023000002_crm_contact_queue_correspondent_index",
+      "breakpoints": true
     }
   ]
 }

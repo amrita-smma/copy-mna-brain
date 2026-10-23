@@ -51,6 +51,32 @@ showing the stored value is stale — because `correspondent_curation` is one
 row per contact per workspace and cannot tell a colleague's hand edit from an earlier run's
 value. A person who can no longer be confirmed at the firm is left unchanged.
 
+## Automatic runs
+
+Two moments queue the same fill run without a click:
+
+- **A teammate makes a contact primary** (the ☆ in the contacts table →
+  `CRMService.setPrimaryContact` → `CrmContactEnrichmentService.enrichNewPrimary`).
+  The run is attributed to that teammate. Clearing the pick queues nothing, and
+  a queue failure is logged without failing the pick, which is already saved.
+- **A contact replies to the team for the first time** (`/api/cron/crm-auto-enrich`,
+  hourly → `enrichNewTwoWayContacts`). "Replies" uses the Banker Insights
+  definition of an exchange: their first email to a workspace member after
+  that member's side first wrote to them. Only first replies in the last 7 days
+  count, so re-extracting old mail never triggers it, and a long-standing
+  contact who writes again is not new. One query per workspace
+  (`CorrespondentRepository.findNewlyTwoWayWithoutProfile`) applies every
+  rule before the cap, then at most 5 runs per workspace per hour, oldest reply
+  first.
+
+Both skip a contact that already has a bio, whose name is only their address
+or its local part (`dtan@…`, `jdoe`), or that has **any** earlier
+`crm_contact` run in the workspace, so each contact is tried once and a run
+that found nothing is not repeated; refreshing stays manual. Automatic runs
+queue at priority −1, behind button clicks. Ingest itself never pulls the agent
+in; area and industry focus from signatures come from the pipeline (see
+`crm-data-pipeline.md`).
+
 ## Testing locally
 
 `pnpm db:seed` adds a handful of real, publicly documented dealmakers at their
@@ -132,6 +158,7 @@ Writable: `title`, `phone`, `type`, `department`, `specialization`,
 | Agent | `src/lib/agents/crm_contact/` |
 | Service | `src/lib/services/crmContactEnrichmentService.ts` |
 | Route | `src/app/api/crm/correspondents/[id]/enrich/route.ts` |
+| Auto sweep | `src/app/api/cron/crm-auto-enrich/route.ts` |
 | Batched status | `src/app/api/crm/employers/[id]/contact-enrichment/route.ts` |
 | Button | `src/views/crm/FillContactButton.tsx` (rendered by `EmployerCard.tsx`) |
 | Workforce routing | `src/lib/workforce/runAgent.ts` (`isCrmContactAgent`) |

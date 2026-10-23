@@ -153,6 +153,8 @@ export interface CorrespondentCandidate {
   email: string;
   name: string;
   title: string | null;
+  specialization: string | null;
+  coverage_region: string | null;
   phone: string | null;
   type: 'internal' | 'external';
   source: string;
@@ -161,8 +163,8 @@ export interface CorrespondentCandidate {
 /**
  * One correspondent row per address across the batch. When an address is seen
  * more than once, the best name wins (`pickBetterContactName`: a real name
- * beats an address-like one, the first real name is kept) and title/phone keep
- * the first non-null value.
+ * beats an address-like one, the first real name is kept) and title, phone,
+ * specialization and coverage_region keep the first non-null value.
  */
 export function collectCorrespondentCandidates(
   messages: Pick<
@@ -198,6 +200,8 @@ export function collectCorrespondentCandidates(
           email: key,
           name,
           title: person?.role ?? null,
+          specialization: person?.specialization ?? null,
+          coverage_region: person?.coverage_region ?? null,
           phone: person?.phone ?? null,
           type: 'external',
           source: 'mbox',
@@ -206,6 +210,8 @@ export function collectCorrespondentCandidates(
       }
       prev.name = pickBetterContactName(prev.name, name, key);
       prev.title = prev.title ?? person?.role ?? null;
+      prev.specialization = prev.specialization ?? person?.specialization ?? null;
+      prev.coverage_region = prev.coverage_region ?? person?.coverage_region ?? null;
       prev.phone = prev.phone ?? person?.phone ?? null;
     }
   });

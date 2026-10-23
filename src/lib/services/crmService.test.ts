@@ -119,6 +119,8 @@ const workspaceCorrespondentRepo = {
   removeMembership: vi.fn(),
 };
 
+const contactEnrichment = { enrichNewPrimary: vi.fn() };
+
 const WORKSPACE_ID = 'ws-1';
 
 function makeService(): CRMService {
@@ -135,6 +137,7 @@ function makeService(): CRMService {
     companyRepo as never,
     workspaceCorrespondentRepo as never,
     WORKSPACE_ID,
+    contactEnrichment,
   );
 }
 
@@ -1232,6 +1235,29 @@ describe('CRMService.addContactsToEmployer', () => {
 });
 
 describe('CRMService.setPrimaryContact', () => {
+  beforeEach(() => {
+    contactEnrichment.enrichNewPrimary.mockReset().mockResolvedValue(true);
+  });
+
+  it('asks for a profile run for the new primary, attributed to whoever picked them', async () => {
+    correspondentRepo.findById.mockResolvedValue({ id: 'c2', employer_id: 'e1' });
+    await makeService().setPrimaryContact('e1', 'c2', 'u1');
+    expect(contactEnrichment.enrichNewPrimary).toHaveBeenCalledWith('c2', 'u1');
+  });
+
+  it('keeps the saved pick when queueing the profile run fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    correspondentRepo.findById.mockResolvedValue({ id: 'c2', employer_id: 'e1' });
+    contactEnrichment.enrichNewPrimary.mockRejectedValueOnce(new Error('queue down'));
+    await expect(makeService().setPrimaryContact('e1', 'c2', 'u1')).resolves.toBeUndefined();
+    expect(employerCurationRepo.upsert).toHaveBeenCalled();
+  });
+
+  it('asks for no profile run when the pick is cleared', async () => {
+    await makeService().setPrimaryContact('e1', null, 'u1');
+    expect(contactEnrichment.enrichNewPrimary).not.toHaveBeenCalled();
+  });
+
   it("records this workspace's PIC pick after checking the contact is visible and at this firm", async () => {
     correspondentRepo.findById.mockResolvedValue({ id: 'c2', employer_id: 'e1' });
     await makeService().setPrimaryContact('e1', 'c2', 'u1');

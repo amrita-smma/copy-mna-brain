@@ -354,9 +354,31 @@ describe('CorrespondentRepository email join key', () => {
     await repo.upsertBatch([{ employer_id: 'e1', name: 'A', email: 'a@b.com' }]);
     const { set } = db.onConflictDoUpdate.mock.calls[0][0];
     const dialect = new PgDialect();
-    for (const col of ['name', 'title', 'phone', 'type', 'source']) {
+    for (const col of [
+      'name',
+      'title',
+      'phone',
+      'specialization',
+      'coverage_region',
+      'type',
+      'source',
+    ]) {
       expect(dialect.sqlToQuery(set[col]).sql).toMatch(
         /CASE WHEN "correspondents"\."origin" = 'manual'/,
+      );
+    }
+  });
+
+  it('upsertBatch fills the focus from ingest but never blanks a stored one', async () => {
+    db.onConflictDoUpdate.mockReturnThis();
+    db.returning.mockResolvedValueOnce([{ id: 'c1', email: 'a@b.com' }]);
+    await repo.upsertBatch([{ employer_id: 'e1', name: 'A', email: 'a@b.com' }]);
+    const { set } = db.onConflictDoUpdate.mock.calls[0][0];
+    const dialect = new PgDialect();
+    for (const col of ['specialization', 'coverage_region']) {
+      expect(dialect.sqlToQuery(set[col]).sql).toBe(
+        `CASE WHEN "correspondents"."origin" = 'manual' THEN "correspondents"."${col}" ` +
+          `ELSE COALESCE(EXCLUDED.${col}, "correspondents"."${col}") END`,
       );
     }
   });
@@ -403,5 +425,44 @@ describe('CorrespondentRepository.searchInEmployers', () => {
     expect(text).toMatch(/"correspondent_workspace_effective"\."workspace_id" =/i);
     expect(db.orderBy).toHaveBeenCalledTimes(1);
     expect(db.limit).toHaveBeenCalledWith(1000);
+  });
+});
+
+describe('CorrespondentRepository.findNewlyTwoWayWithoutProfile', () => {
+  function run(rows: unknown[] = []) {
+    const execute = vi.fn().mockResolvedValue({ rows });
+    const repo = new CorrespondentRepository({ execute } as never);
+    return { execute, repo };
+  }
+
+  it('applies every exclusion in the query, before the cap, and scopes to the workspace', async () => {
+    const { execute, repo } = run();
+    await repo.findNewlyTwoWayWithoutProfile('ws-1', '2026-10-16T00:00:00.000Z', 'crm_contact', 5);
+
+    const query = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+    const text = query.sql.replace(/\s+/g, ' ');
+    // No bio yet, a searchable name, not internal, never enriched here.
+    expect(text).toContain("COALESCE(btrim(ce.bio), '') = ''");
+    expect(text).toContain("ce.type IS DISTINCT FROM 'internal'");
+    expect(text).toContain("strpos(ce.name, '@') > 0");
+    expect(text).toContain("split_part(COALESCE(ce.email, ''), '@', 1)");
+    expect(text).toContain("q.trigger_meta->>'correspondent_id' = ce.id::text");
+    // Exclusions come before the cap; the oldest reply goes first.
+    expect(text.indexOf('NOT EXISTS')).toBeLessThan(text.indexOf('LIMIT'));
+    expect(text).toContain('ORDER BY fr.first_reply_at ASC');
+    // Our first email to them is looked up over all time, not only the window.
+    expect(text).toMatch(/SELECT min\(em\.sent_at\) AS first_out (?:(?!sent_at >=).)*\) o/);
+    expect(query.params).toEqual(expect.arrayContaining(['ws-1', '2026-10-16T00:00:00.000Z', 'crm_contact', 5]));
+  });
+
+  it('returns the candidates with an ISO first-reply time', async () => {
+    const { repo } = run([
+      { id: 'c1', name: 'Jane Doe', email: 'jane@gs.com', first_reply_at: new Date('2026-10-20T03:00:00Z') },
+    ]);
+    await expect(
+      repo.findNewlyTwoWayWithoutProfile('ws-1', '2026-10-16T00:00:00.000Z', 'crm_contact', 5),
+    ).resolves.toEqual([
+      { id: 'c1', name: 'Jane Doe', email: 'jane@gs.com', first_reply_at: '2026-10-20T03:00:00.000Z' },
+    ]);
   });
 });

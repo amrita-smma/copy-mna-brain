@@ -94,10 +94,36 @@ describe('mergePeopleWithCandidates', () => {
         name: 'John Smith',
         role: 'MD',
         company: 'Goldman',
+        specialization: null,
+        coverage_region: null,
         email: 'john@goldman.com',
         phone: '+12125550100',
       },
     ]);
+  });
+
+  it('carries the stated focus and drops blank or sentence-length values', () => {
+    const people: LlmPerson[] = [
+      {
+        name: 'John Smith',
+        role: 'MD, Industrials Group',
+        company: 'Goldman',
+        specialization: '  Industrials ',
+        coverage_region: 'Southeast Asia',
+        candidate_indices: [0],
+      },
+      {
+        name: 'Jen',
+        role: null,
+        company: null,
+        specialization: '   ',
+        coverage_region: 'x'.repeat(121),
+        candidate_indices: [2],
+      },
+    ];
+    const out = mergePeopleWithCandidates(people, candidates);
+    expect(out[0]).toMatchObject({ specialization: 'Industrials', coverage_region: 'Southeast Asia' });
+    expect(out[1]).toMatchObject({ specialization: null, coverage_region: null });
   });
 
   it('drops people whose candidate_indices resolve to nothing (model hallucinations)', () => {
