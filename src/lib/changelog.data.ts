@@ -6,6 +6,24 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
+    "date": "2026-10-23",
+    "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
+    "category": "improvement"
+  },
+  {
+    "hash": "32b5d318012aab8ce0f6e9ef051e473fa13b0da8",
+    "date": "2026-10-23",
+    "subject": "Deal sponsor is now auto-assigned for companies detected in emails",
+    "category": "improvement"
+  },
+  {
+    "hash": "25e1b725fff00e4d483c9e9f7251757a32ce35af",
+    "date": "2026-10-23",
+    "subject": "Banker insights and contact deep dives now available in the CRM",
+    "category": "improvement"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
@@ -33,6 +51,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "b1fb970e7000c0cf86a7a3942676fda076fa1202",
+    "date": "2026-10-22",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "bfbda4f08f25dda4181081e0ca529c0cba531d2f",
     "date": "2026-10-22",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
