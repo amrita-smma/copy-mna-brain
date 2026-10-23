@@ -816,31 +816,35 @@ function ContactsTab({
                   )}
                   data-testid="crm-contact-row"
                 >
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-1.5">
-                    <span className="whitespace-nowrap">{c.name}</span>
-                    {linkedinHref && (
-                      <a
-                        href={linkedinHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label={`${c.name} on LinkedIn`}
-                        title="LinkedIn"
-                      >
-                        <Linkedin className="h-3.5 w-3.5" />
-                      </a>
-                    )}
-                    {c.is_primary && (
-                      <Badge
-                        variant="outline"
-                        className="h-auto border-transparent bg-emerald-50 px-1.5 py-0.5 text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                      >
-                        Primary
-                      </Badge>
-                    )}
+                  <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate" title={c.name}>
+                        {c.name}
+                      </span>
+                      {linkedinHref && (
+                        <a
+                          href={linkedinHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-label={`${c.name} on LinkedIn`}
+                          title="LinkedIn"
+                        >
+                          <Linkedin className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                      {c.is_primary && (
+                        <Badge
+                          variant="outline"
+                          className="h-auto shrink-0 border-transparent bg-emerald-50 px-1.5 py-0.5 text-xs font-normal text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                        >
+                          Primary
+                        </Badge>
+                      )}
+                    </div>
                     {subtitle && (
                       <span
-                        className="w-full truncate text-xs text-muted-foreground"
+                        className="truncate text-xs text-muted-foreground"
                         title={subtitle}
                       >
                         {subtitle}
@@ -996,8 +1000,12 @@ function ContactsTab({
   );
 }
 
+// Every row is its own grid, so a bare `fr` track (min `auto`) would widen to
+// fit that row's content and knock its columns out of line with the others.
+// `minmax(0,…)` holds the tracks to the same widths in every row; cells
+// truncate instead. The action track is fixed to fit its widest row.
 const CONTACT_GRID =
-  "grid grid-cols-[2.2fr_2.2fr_1.4fr_1.4fr_3fr_2.2fr]";
+  "grid grid-cols-[minmax(0,2.2fr)_minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,3fr)_15rem]";
 
 /** Area / industry focus as one outlined tag, or "—". */
 function FocusTag({ value }: { value: string | null }) {
