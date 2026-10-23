@@ -40,6 +40,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "e0fb741065d8eaf14b2d3d4509f3736791e1b707",
+    "date": "2026-10-23",
+    "subject": "Email pipeline: stop attachment OOM crash loops; useful alarms",
+    "category": "improvement"
+  },
+  {
+    "hash": "886c5a5348153fce070852b881cfc0cb97c53b0a",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
