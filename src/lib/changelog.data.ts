@@ -112,6 +112,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "59ddacb75b19cbed53fe3962538cf03998845d2b",
+    "date": "2026-10-23",
+    "subject": "Added hover tooltips and automatic full profile lookup for CRM contacts",
+    "category": "improvement"
+  },
+  {
+    "hash": "1570ee224d81d54c3a8ed5f7f608e1ad5f36becc",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "810699a3f6c3aab8614b83ccebef56d315868b5f",
     "date": "2026-10-22",
     "subject": "Copilot bots now have personas, searchable history, and bot-to-bot messaging",
