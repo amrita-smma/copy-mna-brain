@@ -57,6 +57,7 @@ vi.mock('@/lib/services/googleVaultService', () => ({
 
 vi.mock('../handlers/vaultArchive', () => ({
   inferCustodianFromEntry: mocks.inferCustodianFromEntry,
+  REEXTRACT_MODE: 'reextract',
 }));
 
 vi.mock('../handlers/emailProcess', () => ({
@@ -148,6 +149,7 @@ function exportRow(overrides: { fail_count?: number } = {}) {
     mode: 'daily',
     custodian_emails: ['analyst@starcapital.co.id'],
     fail_count: overrides.fail_count ?? 0,
+    created_at: '2026-10-22 01:00:00.123456+00',
   };
 }
 
@@ -167,9 +169,12 @@ function sqlText(q: unknown): string {
 
 describe('vaultArchivePoll no-S3 cutover', () => {
   const tmpPathsSeen: string[] = [];
+  /** Merged over the claimed export row (e.g. a re-extract `mode`). */
+  let claimOverrides: Record<string, unknown> = {};
 
   beforeEach(() => {
     vi.clearAllMocks();
+    claimOverrides = {};
     tmpPathsSeen.length = 0;
     mocks.unlinkCalls.length = 0;
 
@@ -193,7 +198,9 @@ describe('vaultArchivePoll no-S3 cutover', () => {
         flat.includes('FOR UPDATE') &&
         flat.includes('RETURNING')
       ) {
-        return { rows: [exportRow({ fail_count: connectionFailCount })] };
+        return {
+          rows: [{ ...exportRow({ fail_count: connectionFailCount }), ...claimOverrides }],
+        };
       }
       if (flat.includes('fail_count = fail_count + 1') && flat.includes('RETURNING')) {
         connectionFailCount += 1;
@@ -280,6 +287,33 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(sourceArg.custodianEmail).toBe('analyst@starcapital.co.id');
     expect(mocks.closeVaultMatter).toHaveBeenCalledWith('token', 'matter-1');
     // No S3 Upload / PutObject modules are even imported by this lambda.
+  });
+
+  it.each([
+    ['a re-extract export passes its created_at as reextractSince', 'reextract', '2026-10-22 01:00:00.123456+00'],
+    ['a daily export passes no reextractSince', 'daily', null],
+  ])('%s', async (_name, mode, expected) => {
+    claimOverrides = { mode };
+    const zipBuf = makeZipWithEntries([
+      { name: 'analyst@starcapital.co.id.mbox', body: 'From x\n\nhello\n' },
+    ]);
+    mocks.pollVaultExport.mockResolvedValue({
+      status: 'COMPLETED',
+      files: [{ objectName: 'export.zip', size: zipBuf.length, bucketName: 'b', md5Hash: 'x' }],
+    });
+    mocks.downloadExportFileStream.mockResolvedValue(Readable.from([zipBuf]));
+
+    await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(mocks.processMboxSource).toHaveBeenCalledWith(
+      expect.objectContaining({ reextractSince: expected }),
+      expect.anything(),
+      expect.anything(),
+    );
+    const claim = mocks.dbExecute.mock.calls
+      .map(([query]) => sqlText(query))
+      .find((text) => text.includes('FOR UPDATE'));
+    expect(claim).toContain('created_at::text AS created_at');
   });
 
   it('soft-stop keeps matter open and sets export back to exporting', async () => {

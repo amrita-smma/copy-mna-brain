@@ -244,6 +244,12 @@ export interface MboxSource {
   sourceKey: string;
   custodianEmail: string;
   exportId?: string | null;
+  /**
+   * Set for a re-extract export (its `created_at`): emails ingested before this
+   * instant are extracted again and replace their old rows, and no attachment
+   * goes to Smart Files — the first ingest already delivered them.
+   */
+  reextractSince?: string | null;
   /** Opens the raw (decompressed) mbox byte stream. Called once per attempt. */
   openStream: () =>
     | Promise<AsyncIterable<Buffer>>
@@ -927,6 +933,7 @@ export async function processMboxSource(
   const uploadedDigests = new Set(run.afd_uploaded_digests);
 
   const custodianEmail = source.custodianEmail ?? '';
+  const reextractSince = source.reextractSince ?? null;
 
   try {
     if (!custodianEmail || custodianEmail === 'unknown') {
@@ -950,6 +957,7 @@ export async function processMboxSource(
       custodian_hash: custodianHash(custodianEmail),
       resume_offset: run.message_offset,
       fail_count: run.fail_count,
+      reextract: reextractSince !== null,
     });
 
     const overrideRepo = new EmployerOverrideRepository(deps.db);
@@ -1144,6 +1152,8 @@ export async function processMboxSource(
         batch[0] !== undefined ? batch[0].offset - 1 : result.message_offset;
 
       const mids = batch.map((b) => b.messageId);
+      // Re-extract: only rows this re-extract already wrote count as done, so a
+      // resume or a second custodian's copy of the email is not extracted twice.
       const existing = queryRows<{ message_id: string }>(
         await deps.db.execute(sql`
           SELECT message_id FROM analytics.emails
@@ -1151,6 +1161,7 @@ export async function processMboxSource(
             mids.map((m) => sql`${m}`),
             sql`, `,
           )})
+          ${reextractSince ? sql`AND created_at >= ${reextractSince}::timestamptz` : sql``}
         `),
       );
       const existingSet = new Set(existing.map((r) => r.message_id));
@@ -1256,7 +1267,7 @@ export async function processMboxSource(
       // Resume path: same predicate as fresh — subject heuristic on re-parsed
       // mbox + DB deal-topic / related-company evidence (no LLM re-run).
       const dbDealSignalByMid = new Map<string, boolean>();
-      if (dupCandidates.length > 0) {
+      if (dupCandidates.length > 0 && !reextractSince) {
         const needDb = dupCandidates.filter(
           (d) => !subjectLooksDealRelated(d.parsed.subject),
         );
@@ -1309,10 +1320,17 @@ export async function processMboxSource(
       }
 
       if (crmMessages.length > 0) {
-        const crm = await upsertEphemeralCrmBatch(crmMessages, { db: deps.db });
+        const crm = await upsertEphemeralCrmBatch(crmMessages, {
+          db: deps.db,
+          replaceBefore: reextractSince,
+        });
         result.messages_ingested += crm.emails_inserted;
         if (crm.emails_inserted > 0) notesWritten = true;
       }
+
+      // A re-extract export's run has no record of the digests the first
+      // ingest delivered, so delivering here would duplicate Smart Files.
+      if (reextractSince) attachQueue.length = 0;
 
       let afdRetryFromOffset: number | null = null;
       for (const entry of attachQueue) {

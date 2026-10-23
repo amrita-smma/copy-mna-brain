@@ -15,7 +15,11 @@ import {
   daysBetween,
   dayWindow,
   parseFloorDay,
+  coveredWindowStarts,
+  resolveRewind,
+  REEXTRACT_MODE,
   VAULT_BACKFILL_FLOOR_DAILY_DEFAULT,
+  type RewindRequest,
 } from '../handlers/vaultArchive';
 
 // Maximum concurrent Vault exports (quota cap for this service account).
@@ -24,6 +28,12 @@ const log = (msg: string) => console.log(`[vault-archive-start] ${msg}`);
 
 export interface VaultArchiveStartEvent {
   count?: number; // how many new exports to kick off (default 1, max 3)
+  /**
+   * Re-extract these days with the current extraction logic: creates
+   * `mode = 'reextract'` exports even for days already archived. Invoke again
+   * with the same payload until it dispatches nothing.
+   */
+  rewind?: RewindRequest;
 }
 
 export interface VaultArchiveStartResult {
@@ -42,6 +52,9 @@ export const handler = async (
 ): Promise<{ ok: boolean; result: VaultArchiveStartResult }> => {
   const ev = (event ?? {}) as VaultArchiveStartEvent;
   const wantNew = Math.max(1, Math.min(MAX_IN_FLIGHT, Number(ev.count ?? 1)));
+  // Validate before any DB or Vault call so a typo fails loudly and cheaply.
+  const rewind = ev.rewind ? resolveRewind(ev.rewind) : null;
+  const mode = rewind ? REEXTRACT_MODE : 'daily';
 
   await loadSecretsFromSsm();
   const { pgClient, db } = await createLambdaDb();
@@ -74,11 +87,16 @@ export const handler = async (
     }
     const toCreate = Math.min(wantNew, slots);
 
-    // 2. Walk daily windows from floor to yesterday (last closed day).
-    const floorDay = parseFloorDay(
-      process.env.VAULT_BACKFILL_FLOOR_DAILY ?? VAULT_BACKFILL_FLOOR_DAILY_DEFAULT,
-    );
-    const ceiling = previousDay(currentDayUTC());
+    // 2. Walk daily windows from floor to yesterday (last closed day) — or
+    //    over the rewind range, capped at yesterday.
+    const yesterday = previousDay(currentDayUTC());
+    const floorDay =
+      rewind?.from ??
+      parseFloorDay(
+        process.env.VAULT_BACKFILL_FLOOR_DAILY ?? VAULT_BACKFILL_FLOOR_DAILY_DEFAULT,
+      );
+    const ceiling =
+      rewind && ymdLessThanOrEqual(rewind.to, yesterday) ? rewind.to : yesterday;
     if (!ymdLessThanOrEqual(floorDay, ceiling)) {
       log('floor is after ceiling — nothing to archive');
       return { ok: true, result: { dispatched: [], skipped_in_flight: Number(inFlight) } };
@@ -88,28 +106,19 @@ export const handler = async (
 
     // 3. Fetch all already-covered window_starts in one query, then find gaps.
     //    One query regardless of how many days have passed — O(1) vs O(n) per day.
+    //    A rewind only counts its own re-extract exports: the day's original
+    //    export is exactly what it means to redo.
     const floorIso = dayWindow(floorDay.year, floorDay.month, floorDay.day).start.toISOString();
     const ceilingIso = dayWindow(ceiling.year, ceiling.month, ceiling.day).end.toISOString();
-    const MAX_RETRIES = 3;
     const { rows: coveredRows } = await db.execute<{ window_start: string; status: string }>(
       sql`SELECT window_start::text, status FROM analytics.vault_exports
           WHERE window_start >= ${floorIso}::timestamptz
-            AND window_start <  ${ceilingIso}::timestamptz`,
+            AND window_start <  ${ceilingIso}::timestamptz
+            ${rewind
+              ? sql`AND mode = ${REEXTRACT_MODE} AND created_at >= ${rewind.startedAtIso}::timestamptz`
+              : sql``}`,
     );
-    const failureCounts = new Map<string, number>();
-    const coveredStarts = new Set<string>();
-    for (const r of coveredRows) {
-      const ws = new Date(r.window_start).toISOString();
-      if (r.status === 'failed') {
-        failureCounts.set(ws, (failureCounts.get(ws) ?? 0) + 1);
-      } else {
-        coveredStarts.add(ws);
-      }
-    }
-    // Windows that have hit the retry limit are also covered (give up).
-    for (const [ws, count] of failureCounts) {
-      if (count >= MAX_RETRIES) coveredStarts.add(ws);
-    }
+    const coveredStarts = coveredWindowStarts(coveredRows);
 
     const dispatched: VaultArchiveStartResult['dispatched'] = [];
 
@@ -153,7 +162,7 @@ export const handler = async (
               ARRAY[${sql.join(custodianEmails.map((e) => sql`${e}`), sql`, `)}]::text[],
               ${windowStartIso}::timestamptz,
               ${windowEndIso}::timestamptz,
-              'daily',
+              ${mode},
               'exporting'
             )`,
       );
@@ -166,7 +175,7 @@ export const handler = async (
       });
     }
 
-    log(`dispatched ${dispatched.length} new exports`);
+    log(`dispatched ${dispatched.length} new ${mode} exports`);
     return { ok: true, result: { dispatched, skipped_in_flight: Number(inFlight) } };
   } finally {
     await pgClient.end();

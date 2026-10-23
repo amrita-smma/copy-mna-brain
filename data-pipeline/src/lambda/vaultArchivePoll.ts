@@ -40,7 +40,7 @@ import {
   closeVaultMatter,
   type VaultExportFile,
 } from '@/lib/services/googleVaultService';
-import { inferCustodianFromEntry } from '../handlers/vaultArchive';
+import { inferCustodianFromEntry, REEXTRACT_MODE } from '../handlers/vaultArchive';
 import {
   processMboxSource,
   getSourceRunState,
@@ -72,6 +72,8 @@ interface VaultExportsRow extends Record<string, unknown> {
   // time — matched against exactly what was requested for this export.
   custodian_emails: string[];
   fail_count?: number;
+  /** Postgres text form, so microseconds survive the round trip. */
+  created_at: string;
 }
 
 interface ExportProcessOutcome {
@@ -295,6 +297,7 @@ async function processExportZip(opts: {
             sourceKey,
             custodianEmail: custodian,
             exportId: row.export_id,
+            reextractSince: row.mode === REEXTRACT_MODE ? row.created_at : null,
             openStream: () => createReadStream(tmpPath),
           },
           { softStopMs: softStopBudget(remainingMs()) },
@@ -380,7 +383,8 @@ export const handler = async (
           ) AS pick
           WHERE ve.id = pick.id
           RETURNING ve.id, ve.matter_id, ve.export_id, ve.window_start,
-                    ve.window_end, ve.mode, ve.custodian_emails, ve.fail_count`,
+                    ve.window_end, ve.mode, ve.custodian_emails, ve.fail_count,
+                    ve.created_at::text AS created_at`,
     );
     const row = rows[0];
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const anthropicMocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -51,6 +51,20 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
     ...actual,
     UserWorkspaceRepository,
     EmployerOverrideRepository,
+  };
+});
+
+// Real extraction unless a test sets an implementation (fake PDF bytes would
+// otherwise fail local validation before triage).
+const extractTextMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/fileExtractor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/fileExtractor')>();
+  return {
+    ...actual,
+    extractTextFromFile: (...args: Parameters<typeof actual.extractTextFromFile>) =>
+      extractTextMock.getMockImplementation()
+        ? extractTextMock(...args)
+        : actual.extractTextFromFile(...args),
   };
 });
 
@@ -733,6 +747,8 @@ function makeMbox(
 
 function createProcessDb(opts: {
   existingEmails?: string[];
+  /** Rows a re-extract already wrote (matched by its `created_at >=` filter). */
+  reextractedEmails?: string[];
   noteStatus?: Array<{ message_id: string; id: string; has_note: boolean }>;
 }) {
   const existingEmailSet = new Set(opts.existingEmails ?? []);
@@ -744,6 +760,13 @@ function createProcessDb(opts: {
 
       if (sqlStr.includes('has_note')) {
         return noteStatus;
+      }
+
+      if (
+        sqlStr.includes('SELECT message_id FROM analytics.emails') &&
+        sqlStr.includes('created_at >=')
+      ) {
+        return (opts.reextractedEmails ?? []).map((mid) => ({ message_id: mid }));
       }
 
       if (sqlStr.includes('email_process_runs')) {
@@ -1038,3 +1061,194 @@ describe('Backfill notes for existing emails', () => {
   });
 });
 
+
+describe('Re-extract export', () => {
+  const SINCE = '2026-10-22 01:00:00.123456+00';
+
+  const extraction = {
+    topics: [{ name: 'Project Falcon sale', is_deal_related: true }],
+    related_companies: [],
+    people: [],
+    is_personal: false,
+    email_note: {
+      summary: 'Banker shares the Project Falcon teaser.',
+      key_points: [],
+      next_step: null,
+      next_step_status: 'none',
+      sentiment: 'neutral',
+      counterparty_roles: [],
+    },
+  };
+
+  /** Extraction for `extract_email_info`, a deal-teaser verdict for PDF triage. */
+  function answerByTool() {
+    anthropicMocks.create.mockImplementation(
+      async (req: { tool_choice?: { name?: string } }) => ({
+        content: [
+          {
+            type: 'tool_use',
+            input:
+              req.tool_choice?.name === 'classify_document'
+                ? { doc_type: 'teaser', confidence: 'high' }
+                : extraction,
+          },
+        ],
+        stop_reason: 'end_turn',
+      }),
+    );
+  }
+
+  /** One deal email carrying a PDF large enough to reach triage. */
+  function makePdfMbox(id: string) {
+    const pdf = Buffer.alloc(30_000, 'a').toString('base64').replace(/(.{76})/g, '$1\n');
+    const content = [
+      `From envelope-${id} Mon Jan  1 00:00:00 2024`,
+      'From: banker@external.com',
+      'To: alice@starcapital.co.id',
+      'Subject: Project Falcon teaser',
+      'Date: Mon, 01 Jan 2024 10:00:00 +0000',
+      `Message-ID: <${id}>`,
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/mixed; boundary="BOUND"',
+      '',
+      '--BOUND',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Attached is the teaser for the Project Falcon acquisition and M&A advisory mandate.',
+      '--BOUND',
+      'Content-Type: application/pdf; name="Falcon_Teaser.pdf"',
+      'Content-Transfer-Encoding: base64',
+      'Content-Disposition: attachment; filename="Falcon_Teaser.pdf"',
+      '',
+      pdf,
+      '--BOUND--',
+      '',
+    ].join('\n');
+    return async function* () {
+      yield Buffer.from(content, 'utf-8');
+    };
+  }
+
+  const uploadUrlCalls = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/smart-files/upload-url'));
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset();
+    crmMocks.upsertEphemeralCrmBatch.mockReset().mockResolvedValue({ emails_inserted: 1 });
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+    extractTextMock.mockReset().mockResolvedValue('Project Falcon teaser');
+  });
+
+  afterEach(() => {
+    extractTextMock.mockReset();
+  });
+
+  it('extracts an email ingested before the re-extract again and replaces its row', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: ['msg-old-1'], reextractedEmails: [] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-reextract-1',
+        custodianEmail: 'alice@starcapital.co.id',
+        reextractSince: SINCE,
+        openStream: makeMbox([{ id: 'msg-old-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(anthropicMocks.create).toHaveBeenCalledTimes(1);
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledWith(
+      [expect.objectContaining({ message_id: 'msg-old-1' })],
+      { db, replaceBefore: SINCE },
+    );
+  });
+
+  it('skips an email this re-extract already wrote, with no LLM call', async () => {
+    const db = createProcessDb({
+      existingEmails: ['msg-done-1'],
+      reextractedEmails: ['msg-done-1'],
+      noteStatus: [{ message_id: 'msg-done-1', id: 'e-1', has_note: true }],
+    });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-reextract-2',
+        custodianEmail: 'alice@starcapital.co.id',
+        reextractSince: SINCE,
+        openStream: makeMbox([{ id: 'msg-done-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(anthropicMocks.create).not.toHaveBeenCalled();
+    expect(crmMocks.upsertEphemeralCrmBatch).not.toHaveBeenCalled();
+  });
+
+  it('a normal ingest passes no replaceBefore', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: [] });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-reextract-3',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-new-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledWith(expect.any(Array), {
+      db,
+      replaceBefore: null,
+    });
+  });
+
+  it('sends a deal attachment to Smart Files on a normal ingest', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: [] });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-reextract-4',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makePdfMbox('msg-pdf-1'),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(uploadUrlCalls().length).toBeGreaterThan(0);
+  });
+
+  it('never triages or sends an attachment to Smart Files on a re-extract', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: ['msg-pdf-2'], reextractedEmails: [] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-reextract-5',
+        custodianEmail: 'alice@starcapital.co.id',
+        reextractSince: SINCE,
+        openStream: makePdfMbox('msg-pdf-2'),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledTimes(1);
+    expect(
+      anthropicMocks.create.mock.calls.filter(
+        ([req]) => req.tool_choice?.name === 'classify_document',
+      ),
+    ).toHaveLength(0);
+    expect(uploadUrlCalls()).toHaveLength(0);
+  });
+});

@@ -38,6 +38,59 @@ The former durable pipeline and its tables (`mbox_files`, `raw_emails`,
 `raw_email_enrichments`, `llm_batches`, `domain_classifications`, and
 `email_attachments`) have been removed.
 
+## Re-extracting a date range
+
+A re-extract runs already-ingested mail through the current extraction again
+(topics, people, notes, role signals, related companies). It is a
+`vault-archive-start` invoke with a `rewind` payload:
+
+```bash
+aws lambda invoke --region ap-southeast-3 \
+  --function-name mna-<staging|production>-pipeline-vault-archive-start \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"count":2,"rewind":{"from":"2026-09-01","to":"2026-09-30"}}' out.json
+```
+
+- `from` / `to` are UTC days, both inclusive; `to` is capped at yesterday.
+- Each invoke creates up to `count` (max 3) exports with
+  `mode = 'reextract'`. They share the 3-in-flight cap with the daily export,
+  so keep `count` at 2 or less: with 3 in flight the 00:10 UTC daily start
+  finds no slot and yesterday's mail waits a day. The poll takes the oldest
+  export first, so new mail also queues behind the rewind.
+- Invoke again with the **same payload** until `dispatched` comes back empty
+  and nothing is in flight. The scheduled poll processes them.
+- A day counts as done once it has a non-failed `reextract` export created at
+  or after `rewind.startedAt` (default: any). To re-run a range that was
+  already rewound, add `"startedAt"` set to when the new rewind began, and
+  keep it the same on every invoke.
+
+What a re-extract export does differently:
+
+- **Replaces, never skips.** An email ingested before the export was created
+  is extracted again, and its row is deleted and re-inserted in the batch's
+  CRM transaction, so its notes, topics, participants, role signals and
+  related-company evidence (all `ON DELETE CASCADE`) are rebuilt and the CRM
+  never shows a gap. The new row keeps the old row's `custodian_email`, so
+  who can read its note does not change. Rows the re-extract itself wrote
+  count as done, so a resume or a second custodian's copy of the email is not
+  extracted twice.
+- **No Smart Files.** No attachment is triaged or uploaded: the first ingest
+  delivered them, and a new export's run has no record of their digests.
+  Company detection and Deal Sponsor auto-assignment therefore don't re-run.
+
+What it leaves alone:
+
+- **CRM facts only accumulate.** Employers, contacts, employer topics and
+  related companies the earlier extraction created stay; human curation and
+  `origin = 'manual'` contacts are never touched.
+- **Mail the filters now drop keeps its old row.** The privacy filter and
+  `is_personal` skip a message before the replace, so its earlier row stays.
+
+Cost: one extraction call per email in the window, plus contact-overview
+regeneration — each mailbox run regenerates at most 10 stale overviews per
+workspace, and an overview already pending is skipped. On production, take an
+RDS snapshot first and start with one day.
+
 ## Local commands
 
 ```bash

@@ -45,6 +45,46 @@ describe('EmailRepository workspace visibility', () => {
     });
   });
 
+  describe('deleteByMessageIdsCreatedBefore', () => {
+    function makeDeleteDb() {
+      return {
+        delete: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        returning: vi.fn().mockResolvedValue([
+          { message_id: 'm1', custodian_email: 'a@starcapital.co.id' },
+          { message_id: 'm2', custodian_email: 'b@starcapital.co.id' },
+        ]),
+      };
+    }
+
+    it('returns [] without hitting the DB when the id list is empty', async () => {
+      const del = makeDeleteDb();
+      const out = await new EmailRepository(del as never).deleteByMessageIdsCreatedBefore(
+        [],
+        '2026-10-22T00:00:00Z',
+      );
+      expect(out).toEqual([]);
+      expect(del.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes only the given Message-IDs created before the cutoff', async () => {
+      const del = makeDeleteDb();
+      const out = await new EmailRepository(del as never).deleteByMessageIdsCreatedBefore(
+        ['m1', 'm2'],
+        '2026-10-22T00:00:00Z',
+      );
+      expect(out).toHaveLength(2);
+      expect(del.returning).toHaveBeenCalledWith({
+        message_id: expect.anything(),
+        custodian_email: expect.anything(),
+      });
+      const query = new PgDialect().sqlToQuery(del.where.mock.calls[0][0]);
+      expect(query.sql).toContain('"message_id" in');
+      expect(query.sql).toContain('"created_at" <');
+      expect(query.params).toEqual(['m1', 'm2', '2026-10-22T00:00:00Z']);
+    });
+  });
+
   describe('countStaleEmployers', () => {
     it('counts ingest-derived employers without requiring an email-synced member', async () => {
       db.where.mockResolvedValueOnce([{ n: 3 }]);

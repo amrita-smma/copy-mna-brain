@@ -1,13 +1,63 @@
 import { describe, expect, it } from 'vitest';
 import {
+  coveredWindowStarts,
   currentDayUTC,
   dayWindow,
   daysBetween,
   inferCustodianFromEntry,
+  MAX_WINDOW_EXPORT_ATTEMPTS,
   parseFloorDay,
   previousDay,
+  resolveRewind,
   ymdLessThanOrEqual,
 } from './vaultArchive';
+
+describe('coveredWindowStarts', () => {
+  const day1 = '2026-09-01 00:00:00+00';
+  const day2 = '2026-09-02 00:00:00+00';
+
+  it('covers a window with any non-failed export', () => {
+    const covered = coveredWindowStarts([
+      { window_start: day1, status: 'archived' },
+      { window_start: day2, status: 'failed' },
+    ]);
+    expect([...covered]).toEqual(['2026-09-01T00:00:00.000Z']);
+  });
+
+  it('gives up on a window once its exports failed the maximum number of times', () => {
+    const rows = Array.from({ length: MAX_WINDOW_EXPORT_ATTEMPTS }, () => ({
+      window_start: day2,
+      status: 'failed',
+    }));
+    expect(coveredWindowStarts(rows).has('2026-09-02T00:00:00.000Z')).toBe(true);
+    expect(coveredWindowStarts(rows.slice(1)).has('2026-09-02T00:00:00.000Z')).toBe(false);
+  });
+});
+
+describe('resolveRewind', () => {
+  it('parses an inclusive day range; without startedAt every re-extract export counts', () => {
+    expect(resolveRewind({ from: '2026-09-01', to: '2026-09-30' })).toEqual({
+      from: { year: 2026, month: 9, day: 1 },
+      to: { year: 2026, month: 9, day: 30 },
+      startedAtIso: '1970-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('normalizes startedAt to ISO', () => {
+    expect(
+      resolveRewind({ from: '2026-09-01', to: '2026-09-01', startedAt: '2026-10-22T08:00:00+07:00' })
+        .startedAtIso,
+    ).toBe('2026-10-22T01:00:00.000Z');
+  });
+
+  it('rejects a bad day, a reversed range and a bad startedAt', () => {
+    expect(() => resolveRewind({ from: '2026/09/01', to: '2026-09-02' })).toThrow('rewind.from');
+    expect(() => resolveRewind({ from: '2026-09-02', to: '2026-09-01' })).toThrow('after rewind.to');
+    expect(() =>
+      resolveRewind({ from: '2026-09-01', to: '2026-09-02', startedAt: 'yesterday' }),
+    ).toThrow('rewind.startedAt');
+  });
+});
 
 describe('daily Vault windows', () => {
   it('parses a valid backfill floor', () => {

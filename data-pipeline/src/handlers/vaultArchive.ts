@@ -2,6 +2,35 @@ import { VAULT_CUSTODIAN_EMAILS } from '@/lib/services/googleVaultService';
 
 export const VAULT_BACKFILL_FLOOR_DAILY_DEFAULT = '2026-01-01';
 
+/** `vault_exports.mode` of an export that re-extracts already-ingested mail. */
+export const REEXTRACT_MODE = 'reextract';
+
+/** Exports created for one window before start stops retrying it. */
+export const MAX_WINDOW_EXPORT_ATTEMPTS = 3;
+
+/**
+ * ISO window starts that need no new export: one with a non-failed export, or
+ * one whose exports have failed `MAX_WINDOW_EXPORT_ATTEMPTS` times (give up).
+ */
+export function coveredWindowStarts(
+  rows: Array<{ window_start: string; status: string }>,
+): Set<string> {
+  const failureCounts = new Map<string, number>();
+  const covered = new Set<string>();
+  for (const r of rows) {
+    const ws = new Date(r.window_start).toISOString();
+    if (r.status === 'failed') {
+      failureCounts.set(ws, (failureCounts.get(ws) ?? 0) + 1);
+    } else {
+      covered.add(ws);
+    }
+  }
+  for (const [ws, count] of failureCounts) {
+    if (count >= MAX_WINDOW_EXPORT_ATTEMPTS) covered.add(ws);
+  }
+  return covered;
+}
+
 export interface YearMonthDay {
   year: number;
   month: number;
@@ -70,6 +99,49 @@ export function daysBetween(floor: YearMonthDay, ceiling: YearMonthDay): YearMon
   }
 
   return days;
+}
+
+export interface RewindRequest {
+  /** First UTC day to re-extract, YYYY-MM-DD. */
+  from: string;
+  /** Last UTC day to re-extract (inclusive), YYYY-MM-DD. */
+  to: string;
+  /**
+   * Re-extract exports created before this instant don't count as covering a
+   * day. Omit it to rewind a range once; to re-run a range that was already
+   * rewound, pass the time the new rewind started on every invoke.
+   */
+  startedAt?: string;
+}
+
+export interface ResolvedRewind {
+  from: YearMonthDay;
+  to: YearMonthDay;
+  startedAtIso: string;
+}
+
+export function resolveRewind(raw: RewindRequest): ResolvedRewind {
+  const day = (field: 'from' | 'to'): YearMonthDay => {
+    try {
+      return parseFloorDay(String(raw[field] ?? ''));
+    } catch (err) {
+      throw new Error(`rewind.${field}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const from = day('from');
+  const to = day('to');
+  if (!ymdLessThanOrEqual(from, to)) {
+    throw new Error(`rewind.from ${raw.from} is after rewind.to ${raw.to}`);
+  }
+  let startedAtIso = new Date(0).toISOString();
+  if (raw.startedAt !== undefined) {
+    const startedAt = new Date(raw.startedAt);
+    if (Number.isNaN(startedAt.getTime())) {
+      throw new Error(`rewind.startedAt is not a timestamp: ${raw.startedAt}`);
+    }
+    startedAtIso = startedAt.toISOString();
+  }
+  return { from, to, startedAtIso };
 }
 
 export function dayWindow(

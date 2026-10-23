@@ -139,6 +139,32 @@ export class EmailRepository {
   }
 
   /**
+   * Deletes the emails with these Message-IDs that were ingested before
+   * `beforeIso`, so a re-extract can insert them again. Notes, role signals,
+   * topics, participants and related-company evidence cascade with them.
+   * Rows written at or after `beforeIso` (this re-extract's own) are kept.
+   * Returns each deleted row's Message-ID and custodian.
+   */
+  async deleteByMessageIdsCreatedBefore(
+    messageIds: string[],
+    beforeIso: string,
+  ): Promise<Array<{ message_id: string | null; custodian_email: string | null }>> {
+    if (messageIds.length === 0) return [];
+    return this.db
+      .delete(emails)
+      .where(
+        and(
+          inArray(emails.message_id, messageIds),
+          sql`${emails.created_at} < ${beforeIso}::timestamptz`,
+        ),
+      )
+      .returning({
+        message_id: emails.message_id,
+        custodian_email: emails.custodian_email,
+      });
+  }
+
+  /**
    * Bulk insert participants, deduping on `UNIQUE(email_id, address, role)`.
    * Mirrors `crmIngest` participant insert.
    */

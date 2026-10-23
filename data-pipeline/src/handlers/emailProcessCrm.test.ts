@@ -12,6 +12,7 @@ const repo = vi.hoisted(() => ({
   findUsersByEmails: vi.fn(),
   findWorkspaceIdsBySyncedEmail: vi.fn(),
   addTeam: vi.fn(),
+  emailDeleteCreatedBefore: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock('@/lib/repositories', () => {
@@ -30,6 +31,7 @@ vi.mock('@/lib/repositories', () => {
   }
   class EmailRepository {
     insertBatchIgnoringDupes = repo.emailInsertBatch;
+    deleteByMessageIdsCreatedBefore = repo.emailDeleteCreatedBefore;
     insertParticipantsBatch = asyncEmpty();
     insertTopicsBatch = asyncEmpty();
   }
@@ -342,6 +344,73 @@ describe('upsertEphemeralCrmBatch new-employer naming', () => {
     });
     expect(executed.filter((s) => s.includes('analytics.email_notes'))).toHaveLength(1);
     expect(executed.filter((s) => s.includes('analytics.email_role_signals'))).toHaveLength(1);
+  });
+});
+
+describe('upsertEphemeralCrmBatch replaceBefore (re-extract)', () => {
+  const db = {
+    execute: vi.fn().mockResolvedValue([]),
+    transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
+  };
+  const message = (message_id: string): EphemeralCrmMessage => ({
+    message_id,
+    from_address: 'jane@gs.com',
+    from_display_name: 'Jane Doe',
+    to_addresses: ['me@starcapital.co.id'],
+    cc_addresses: [],
+    subject: null,
+    sent_at: '2026-10-01T00:00:00Z',
+    in_reply_to: null,
+    custodian_email: 'me@starcapital.co.id',
+    direction: 'inbound',
+    candidates: [],
+    llm: null,
+  });
+
+  beforeEach(() => {
+    repo.listOverrides.mockReset().mockResolvedValue([]);
+    repo.findByNormalizedNames.mockReset().mockResolvedValue([]);
+    repo.employerUpsertBatch.mockReset().mockResolvedValue([]);
+    repo.correspondentUpsertBatch.mockReset().mockResolvedValue([]);
+    repo.emailInsertBatch.mockClear();
+    repo.emailDeleteCreatedBefore.mockReset().mockResolvedValue([]);
+  });
+
+  it('keeps the mailbox a replaced email was first ingested from', async () => {
+    repo.emailDeleteCreatedBefore.mockResolvedValue([
+      { message_id: '<a@gs.com>', custodian_email: 'first@starcapital.co.id' },
+    ]);
+
+    await upsertEphemeralCrmBatch([message('<a@gs.com>'), message('<b@gs.com>')], {
+      db: db as never,
+      replaceBefore: '2026-10-22 01:00:00.123456+00',
+    });
+
+    expect(repo.emailInsertBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ message_id: '<a@gs.com>', custodian_email: 'first@starcapital.co.id' }),
+      expect.objectContaining({ message_id: '<b@gs.com>', custodian_email: 'me@starcapital.co.id' }),
+    ]);
+  });
+
+  it('deletes the batch rows ingested before the cutoff, then inserts them again', async () => {
+    const out = await upsertEphemeralCrmBatch([message('<a@gs.com>'), message('<b@gs.com>')], {
+      db: db as never,
+      replaceBefore: '2026-10-22 01:00:00.123456+00',
+    });
+
+    expect(repo.emailDeleteCreatedBefore).toHaveBeenCalledWith(
+      ['<a@gs.com>', '<b@gs.com>'],
+      '2026-10-22 01:00:00.123456+00',
+    );
+    expect(repo.emailDeleteCreatedBefore.mock.invocationCallOrder[0]).toBeLessThan(
+      repo.emailInsertBatch.mock.invocationCallOrder[0]!,
+    );
+    expect(out.emails_inserted).toBe(2);
+  });
+
+  it('never deletes on a normal ingest', async () => {
+    await upsertEphemeralCrmBatch([message('<a@gs.com>')], { db: db as never });
+    expect(repo.emailDeleteCreatedBefore).not.toHaveBeenCalled();
   });
 });
 

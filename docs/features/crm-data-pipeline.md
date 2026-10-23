@@ -26,3 +26,9 @@ A contact name is **address-like** when it is empty after trimming, contains `@`
 - **Repair**: pipeline migration `20261017000000_repair_correspondent_address_names` sets the name of every non-manual contact whose name is address-like to the most recent real `From` display name that address sent in `analytics.emails`.
 
 A **new employer** (a domain with no `employer_domains` row) is named, in order: the curated `employer_overrides.employer_name` for the domain; the company the LLM extraction most often attributes to people at that domain in the batch (`LlmPerson.company`, ties to the first seen); the capitalised first domain label (`gs.com` → `Gs`). When that name normalizes to an existing employer, the domain links to the existing row and the employer is not renamed. Existing employers are never renamed by ingest. Excluded, internal and personal-provider domains never become employers.
+
+## Re-extracting already-ingested mail
+
+To run a date range through the current extraction again, invoke
+`vault-archive-start` with a `rewind` payload. Steps and behaviour:
+[Re-extracting a date range](../../data-pipeline/README.md#re-extracting-a-date-range).

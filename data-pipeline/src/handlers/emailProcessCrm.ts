@@ -278,10 +278,14 @@ export async function upsertEmailNotes(
 /**
  * Bulk-insert email envelopes + topics/employers/correspondents/participants/
  * related-company evidence for a batch that already passed privacy + LLM gates.
+ *
+ * `replaceBefore` (re-extract): emails in the batch ingested before that
+ * instant are deleted and inserted again in the same transaction, so their
+ * notes, topics, participants and evidence come from this extraction.
  */
 export async function upsertEphemeralCrmBatch(
   messages: EphemeralCrmMessage[],
-  deps: { db: DbClient },
+  deps: { db: DbClient; replaceBefore?: string | null },
 ): Promise<EphemeralCrmResult> {
   const empty: EphemeralCrmResult = {
     emails_inserted: 0,
@@ -464,6 +468,22 @@ export async function upsertEphemeralCrmBatch(
         custodian_email: m.custodian_email,
       };
     });
+    if (deps.replaceBefore) {
+      const replaced = await emailRepo.deleteByMessageIdsCreatedBefore(
+        messages.map((m) => m.message_id),
+        deps.replaceBefore,
+      );
+      // A replaced email keeps the mailbox it was first ingested from: the
+      // custodian is one of the people who can read its note.
+      const custodianByMid = new Map(
+        replaced.flatMap((r) =>
+          r.message_id && r.custodian_email ? [[r.message_id, r.custodian_email] as const] : [],
+        ),
+      );
+      for (const row of emailInserts) {
+        row.custodian_email = custodianByMid.get(row.message_id) ?? row.custodian_email;
+      }
+    }
     const inserted = await emailRepo.insertBatchIgnoringDupes(emailInserts);
     result.emails_inserted = inserted.length;
     const midToEmailId = new Map(
