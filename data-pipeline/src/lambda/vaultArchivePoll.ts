@@ -1,10 +1,11 @@
 /**
  * vault-archive-poll (no-S3 email cutover).
  *
- * Polls in-flight Vault exports. On COMPLETED it streams each ZIP, spools ONE
- * `.mbox` entry at a time to Lambda /tmp, and runs the single-pass processor
- * (privacy → LLM → CRM → Smart Files) directly against that file. No MBOX bytes are
- * ever written to S3. Each spooled file is unlinked in a finally.
+ * Polls in-flight Vault exports. On COMPLETED it downloads each ZIP to Lambda
+ * /tmp, opens it from its central directory, and runs the single-pass
+ * processor (privacy → LLM → CRM → Smart Files) on each `.mbox` entry read
+ * straight out of the ZIP. No MBOX bytes are ever written to S3. The ZIP is
+ * unlinked in a finally.
  *
  * Resume: each entry is keyed by a stable source_key (export_id + zip object
  * name + entry path) in analytics.email_process_runs. On soft-stop (or when the
@@ -24,13 +25,13 @@
 import { loadSecretsFromSsm } from '../secrets';
 import { sql } from 'drizzle-orm';
 import { createLambdaDb } from '../db';
-import { createWriteStream, createReadStream } from 'node:fs';
-import { unlink, mkdir } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { unlink, mkdir, stat, statfs } from 'node:fs/promises';
 import { pipeline as streamPipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Readable } from 'node:stream';
+import { Transform, type Readable } from 'node:stream';
 import * as unzipper from 'unzipper';
 import {
   loadVaultCredentials,
@@ -61,29 +62,72 @@ const STALE_PROCESSING_INTERVAL = '15 minutes';
 /** Vault auth / poll / ZIP download failures before the export is abandoned. */
 export const MAX_VAULT_POLL_FAIL_COUNT = 5;
 /**
- * Longest one ZIP read step (the next entry, draining one, spooling one to
- * /tmp) may take. A read that never settles otherwise leaves nothing for Node
- * to wait on, and the process exits mid-run (Runtime.NodeJsExit) without any
- * failure path running.
+ * Longest the ZIP download may go without receiving a byte. A download that
+ * stalls without erroring would otherwise leave nothing for Node to wait on,
+ * and the process exits mid-run (Runtime.NodeJsExit) without any failure path.
  */
 export const ZIP_READ_TIMEOUT_MS = 180_000;
 
-/** The Vault ZIP download broke or stalled; counts against the export's budget. */
+/** Free /tmp kept beyond the ZIP itself. */
+const TMP_HEADROOM_BYTES = 256 * 1024 * 1024;
+
+/** The Vault ZIP couldn't be downloaded or opened; counts against the export's budget. */
 export class ZipReadError extends Error {}
 
-/** Rejects with a ZipReadError when `promise` hasn't settled within `ms`. */
-async function withReadTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+/** Passes bytes through; errors with a ZipReadError after `ms` without one. */
+function stallGuard(ms: number, what: string): Transform {
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const guard = new Transform({
+    transform(chunk, _encoding, callback) {
+      arm();
+      callback(null, chunk);
+    },
+    flush(callback) {
+      clearTimeout(timer);
+      callback();
+    },
+    destroy(err, callback) {
+      clearTimeout(timer);
+      callback(err);
+    },
+  });
+  const arm = () => {
+    clearTimeout(timer);
     timer = setTimeout(
-      () => reject(new ZipReadError(`ZIP read stalled for ${Math.round(ms / 1000)}s: ${what}`)),
+      () => guard.destroy(new ZipReadError(`no data for ${Math.round(ms / 1000)}s while ${what}`)),
       ms,
     );
-  });
+  };
+  arm();
+  return guard;
+}
+
+/**
+ * Downloads the export ZIP to `zipPath`, refusing one that doesn't fit in
+ * /tmp and checking the bytes on disk against Vault's size. Every failure is
+ * a ZipReadError.
+ */
+async function downloadZipToDisk(token: string, file: VaultExportFile, zipPath: string): Promise<void> {
+  const expected = Number(file.size);
+  const disk = await statfs(join(zipPath, '..'));
+  const free = Number(disk.bavail) * Number(disk.bsize);
+  if (Number.isFinite(expected) && expected + TMP_HEADROOM_BYTES > free) {
+    throw new ZipReadError(`ZIP is ${expected} bytes; /tmp has ${free} free`);
+  }
+  const body = (await downloadExportFileStream(token, file)) as unknown as Readable;
   try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer);
+    await streamPipeline(
+      body,
+      stallGuard(ZIP_READ_TIMEOUT_MS, `downloading ${file.objectName}`),
+      createWriteStream(zipPath),
+    );
+  } catch (err) {
+    if (err instanceof ZipReadError) throw err;
+    throw new ZipReadError(`ZIP download failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const { size } = await stat(zipPath);
+  if (Number.isFinite(expected) && size !== expected) {
+    throw new ZipReadError(`ZIP download ended early: ${size} of ${expected} bytes`);
   }
 }
 
@@ -314,10 +358,13 @@ export async function inferCustodianFromMbox(
 }
 
 /**
- * Stream a single Vault ZIP, spooling each `.mbox` entry to /tmp and running
- * the processor against it. Returns per-entry outcome for the caller to decide
- * matter close vs resume. ZIP download failures propagate to the caller so
- * they can hit the connection fail budget.
+ * Download one Vault ZIP to /tmp and run the processor on each `.mbox` entry,
+ * read straight out of the ZIP. Entries are found through the central
+ * directory, which records every entry's exact size: Vault writes ZIPs whose
+ * local headers carry no sizes, and a streaming reader has to scan for where
+ * each entry ends, which stalled on a real export. Returns per-entry outcome
+ * for the caller to decide matter close vs resume. Download failures propagate
+ * as ZipReadError so they hit the export's fail budget.
  */
 async function processExportZip(opts: {
   token: string;
@@ -336,51 +383,35 @@ async function processExportZip(opts: {
     failures: [],
   };
 
-  // Only download/stream-open failures should propagate as connection errors.
-  // Reset fail_count only after the ZIP is fully consumed (see below) so a
-  // sticky COMPLETED + mid-body drop cannot wipe the budget every attempt.
-  const zipStream = (await downloadExportFileStream(
-    token,
-    file,
-  )) as unknown as Readable;
-  outcome.downloadOk = true;
-
-  const parser = unzipper.Parse({ forceStream: true });
-  // .pipe() forwards neither a source error nor an early end, so a broken
-  // download would leave the parser, and every await on it, pending.
-  zipStream.once('error', (err) =>
-    parser.destroy(new ZipReadError(`ZIP download failed: ${err.message}`)),
-  );
-  zipStream.pipe(parser);
-  const entries = (parser as AsyncIterable<unzipper.Entry>)[Symbol.asyncIterator]();
-  const readBudget = () =>
-    Math.max(1_000, Math.min(ZIP_READ_TIMEOUT_MS, remainingMs() - TEARDOWN_RESERVE_MS));
-
+  const zipPath = join(tmpDir, `${randomUUID()}.zip`);
   try {
-    while (true) {
-      const next = await withReadTimeout(entries.next(), readBudget(), 'waiting for the next entry');
-      if (next.done) break;
-      const entry = next.value;
-      const entryPath: string = entry.path;
-      if (entry.type === 'Directory' || !entryPath.endsWith('.mbox')) {
-        await withReadTimeout(entry.autodrain().promise(), readBudget(), `draining ${entryPath}`);
-        continue;
-      }
-      // Before any read of the entry, so a crash's last line names it.
-      log(`entry ${entryPath} (${entry.extra?.uncompressedSize ?? '?'} bytes uncompressed)`);
+    await downloadZipToDisk(token, file, zipPath);
+    outcome.downloadOk = true;
+
+    let directory: unzipper.CentralDirectory;
+    try {
+      directory = await unzipper.Open.file(zipPath);
+    } catch (err) {
+      throw new ZipReadError(`ZIP unreadable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    for (const entry of directory.files) {
+      const entryPath = entry.path;
+      if (entry.type !== 'File' || !entryPath.endsWith('.mbox')) continue;
+      // Before any read of the entry, so a failure's last line names it.
+      log(`entry ${entryPath} (${entry.uncompressedSize} bytes uncompressed)`);
 
       const sourceKey = `${row.export_id}::${file.objectName}::${entryPath}`;
 
-      // Cheap terminal skip so re-downloaded ZIPs don't re-spool finished work.
+      // Cheap terminal skip so a re-downloaded ZIP doesn't redo finished work.
       const state = await getSourceRunState(db, sourceKey);
       if (isSourceTerminal(state)) {
         if (state!.status === 'completed') outcome.completed++;
         else outcome.abandoned++;
-        await withReadTimeout(entry.autodrain().promise(), readBudget(), `draining ${entryPath}`);
         continue;
       }
 
-      // Not enough time to safely spool + soft-stop + tear down: defer the rest.
+      // Not enough time to process + soft-stop + tear down: defer the rest.
       if (remainingMs() < MIN_ENTRY_REMAINING_MS) {
         outcome.unfinished = true;
         break;
@@ -390,19 +421,10 @@ async function processExportZip(opts: {
         `${file.objectName}/${entryPath}`,
         row.custodian_emails,
       );
-      const tmpPath = join(tmpDir, `${randomUUID()}.mbox`);
 
       try {
-        await withReadTimeout(
-          streamPipeline(entry as unknown as Readable, createWriteStream(tmpPath)),
-          readBudget(),
-          `spooling ${entryPath}`,
-        );
         if (custodian === 'unknown') {
-          custodian = await inferCustodianFromMbox(
-            () => createReadStream(tmpPath),
-            row.custodian_emails,
-          );
+          custodian = await inferCustodianFromMbox(() => entry.stream(), row.custodian_emails);
         }
 
         const result = await processMboxSource(
@@ -411,7 +433,7 @@ async function processExportZip(opts: {
             custodianEmail: custodian,
             exportId: row.export_id,
             reextractSince: row.mode === REEXTRACT_MODE ? row.created_at : null,
-            openStream: () => createReadStream(tmpPath),
+            openStream: () => entry.stream(),
           },
           { softStopMs: softStopBudget(remainingMs()) },
           { db },
@@ -432,10 +454,7 @@ async function processExportZip(opts: {
           outcome.failures.push(`${entryPath}: failed (will retry)`);
         }
       } catch (err) {
-        // A broken ZIP read is the export's problem, not this entry's: let it
-        // reach the export's fail budget instead of resetting it below.
-        if (err instanceof ZipReadError) throw err;
-        // Only infra errors (e.g. spool / ensureRun) reach here; retry later.
+        // Only infra errors (e.g. ensureRun) reach here; retry later.
         outcome.unfinished = true;
         const msg = err instanceof Error ? err.message : String(err);
         outcome.failures.push(`${entryPath}: ${msg}`);
@@ -443,14 +462,10 @@ async function processExportZip(opts: {
           `[vault-archive-poll] entry errored (will retry): ${entryPath}`,
           err,
         );
-      } finally {
-        await unlink(tmpPath).catch(() => undefined);
       }
     }
   } finally {
-    // Ensure the download socket is released even when we break early.
-    zipStream.destroy();
-    parser.destroy();
+    await unlink(zipPath).catch(() => undefined);
   }
 
   // Body streamed without connection abort — clear prior auth/poll/download bumps.

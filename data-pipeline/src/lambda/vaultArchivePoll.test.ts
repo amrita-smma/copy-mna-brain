@@ -10,6 +10,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { Readable } from 'node:stream';
 import { existsSync } from 'node:fs';
 import AdmZip from 'adm-zip';
+import JSZip from 'jszip';
 
 const mocks = vi.hoisted(() => ({
   loadSecretsFromSsm: vi.fn().mockResolvedValue(undefined),
@@ -445,7 +446,7 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(mocks.processMboxSource).toHaveBeenCalledTimes(2);
   });
 
-  it('unlinks /tmp even when processMboxSource throws', async () => {
+  it('unlinks the downloaded ZIP even when processMboxSource throws', async () => {
     const zipBuf = makeZipWithEntries([
       { name: 'boom.mbox', body: 'From boom\n\n' },
     ]);
@@ -465,7 +466,7 @@ describe('vaultArchivePoll no-S3 cutover', () => {
     expect(result.action).toBe('resuming');
     expect(mocks.closeVaultMatter).not.toHaveBeenCalled();
     const unlinked = mocks.unlinkCalls.filter(
-      (p) => p.includes('/tmp/vault-mbox/') && p.endsWith('.mbox'),
+      (p) => p.includes('/vault-mbox/') && p.endsWith('.zip'),
     );
     expect(unlinked.length).toBeGreaterThan(0);
     for (const p of unlinked) {
@@ -664,19 +665,39 @@ describe('vaultArchivePoll no-S3 cutover', () => {
       expect(mocks.processMboxSource).not.toHaveBeenCalled();
     });
 
-    it('a download that ends mid-ZIP is reported once the read times out, instead of hanging', async () => {
+    it('a download that ends early is caught by the size check', async () => {
+      const buf = zipBuf();
+      mocks.pollVaultExport.mockResolvedValue(completed(buf.length));
+      // Ends cleanly partway: no error, just fewer bytes than Vault reported.
+      mocks.downloadExportFileStream.mockResolvedValue(Readable.from([buf.subarray(0, 120)]));
+
+      const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+      expect(result).toEqual({ ok: true, action: 'poll_error' });
+      expect(mocks.processMboxSource).not.toHaveBeenCalled();
+    });
+
+    it('a download that stalls without erroring is cut off after the inactivity timeout', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const buf = zipBuf();
       mocks.pollVaultExport.mockResolvedValue(completed(buf.length));
-      // Ends cleanly halfway through the first entry: no error, just no more bytes.
-      mocks.downloadExportFileStream.mockResolvedValue(Readable.from([buf.subarray(0, 120)]));
+      let pushed = false;
+      // Sends a first chunk, then never sends more, ends or errors.
+      mocks.downloadExportFileStream.mockResolvedValue(
+        new Readable({
+          read() {
+            if (!pushed) {
+              pushed = true;
+              this.push(buf.subarray(0, 200));
+            }
+          },
+        }),
+      );
 
       let settled = false;
       const pending = handler({}, { getRemainingTimeInMillis: () => 600_000 }).finally(() => {
         settled = true;
       });
-      // The read timer is only set once the handler reaches the ZIP; step the
-      // clock until it has fired.
       for (let waited = 0; !settled && waited <= ZIP_READ_TIMEOUT_MS * 2; waited += 10_000) {
         await vi.advanceTimersByTimeAsync(10_000);
       }
@@ -684,6 +705,46 @@ describe('vaultArchivePoll no-S3 cutover', () => {
 
       expect(result).toEqual({ ok: true, action: 'poll_error' });
       expect(mocks.processMboxSource).not.toHaveBeenCalled();
+    });
+
+    it('refuses a ZIP that does not fit in /tmp, before downloading it', async () => {
+      mocks.pollVaultExport.mockResolvedValue(completed(Number.MAX_SAFE_INTEGER));
+
+      const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+      expect(result).toEqual({ ok: true, action: 'poll_error' });
+      expect(mocks.downloadExportFileStream).not.toHaveBeenCalled();
+    });
+
+    it('reads every entry of a ZIP whose sizes are only in the central directory (Vault format)', async () => {
+      // streamFiles writes each entry with a data descriptor: no sizes in the
+      // local headers, as in the Vault export that stalled the streaming reader.
+      const zip = new JSZip();
+      const bodies = {
+        'first@starcapital.co.id.mbox': `From x\n\n${'a'.repeat(200_000)}\n`,
+        'analyst@starcapital.co.id.mbox': `From y\n\n${'b'.repeat(300_000)}\n`,
+      };
+      for (const [name, body] of Object.entries(bodies)) zip.file(name, body);
+      const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', streamFiles: true });
+      mocks.pollVaultExport.mockResolvedValue(completed(buf.length));
+      mocks.downloadExportFileStream.mockResolvedValue(Readable.from([buf]));
+      const read: Record<string, number> = {};
+      mocks.processMboxSource.mockImplementation(
+        async (source: { sourceKey: string; openStream: () => AsyncIterable<Buffer> }) => {
+          let bytes = 0;
+          for await (const chunk of source.openStream()) bytes += chunk.length;
+          read[source.sourceKey.split('::').pop()!] = bytes;
+          return { run_id: 'r', status: 'completed', messages_seen: 1, messages_skipped: 0, messages_ingested: 1, attachments_uploaded: 0, message_offset: 1, fail_count: 0 };
+        },
+      );
+
+      const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+      expect(result.action).toBe('archived');
+      expect(read).toEqual({
+        'first@starcapital.co.id.mbox': bodies['first@starcapital.co.id.mbox'].length,
+        'analyst@starcapital.co.id.mbox': bodies['analyst@starcapital.co.id.mbox'].length,
+      });
     });
 
     it('fails an export whose streaming attempts keep dying, and frees its slot', async () => {
