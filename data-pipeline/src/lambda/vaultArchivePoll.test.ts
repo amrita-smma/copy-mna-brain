@@ -664,3 +664,66 @@ describe('terraform cutover surface (static)', () => {
     expect(s3).not.toMatch(/prefix\s*=\s*"ephemeral\//);
   });
 });
+
+describe('vaultArchivePoll in-flight export metrics', () => {
+  let stdout: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.createLambdaDb.mockResolvedValue({
+      pgClient: { end: mocks.pgClientEnd },
+      db: { execute: mocks.dbExecute },
+    });
+    stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stdout.mockRestore();
+  });
+
+  const emfLines = () =>
+    (stdout.mock.calls as unknown[][])
+      .map((args) => String(args[0]))
+      .filter((line: string) => line.startsWith('{"_aws"'))
+      .map((line: string) => JSON.parse(line));
+
+  it('publishes the in-flight count and oldest age as an EMF line before claiming', async () => {
+    const order: string[] = [];
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      const text = sqlText(q);
+      if (text.includes('oldest_minutes')) {
+        order.push('metrics');
+        return { rows: [{ in_flight: '2', oldest_minutes: '1634.6' }] };
+      }
+      if (text.includes('FOR UPDATE')) order.push('claim');
+      return { rows: [] };
+    });
+
+    await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(order).toEqual(['metrics', 'claim']);
+    const [line] = emfLines();
+    expect(line._aws.CloudWatchMetrics[0]).toEqual({
+      Namespace: 'MNA/Pipeline',
+      Dimensions: [['Environment']],
+      Metrics: [
+        { Name: 'InFlightExports', Unit: 'Count' },
+        { Name: 'OldestInFlightExportMinutes', Unit: 'None' },
+      ],
+    });
+    expect(line).toMatchObject({ InFlightExports: 2, OldestInFlightExportMinutes: 1635 });
+    expect(typeof line.Environment).toBe('string');
+  });
+
+  it('a failing metrics query never stops the poll', async () => {
+    mocks.dbExecute.mockImplementation(async (q: unknown) => {
+      if (sqlText(q).includes('oldest_minutes')) throw new Error('db blip');
+      return { rows: [] };
+    });
+
+    const result = await handler({}, { getRemainingTimeInMillis: () => 600_000 });
+
+    expect(result).toEqual({ ok: true, action: 'idle' });
+    expect(emfLines()).toEqual([]);
+  });
+});

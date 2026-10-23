@@ -117,7 +117,23 @@ an Anthropic API key, and Smart Files API credentials. Lambda has no S3 permissi
 `vault-archive-poll` uses expanded ephemeral storage because Vault entries are
 temporarily spooled to `/tmp`. A source resumes by its stable
 `export_id + ZIP object + entry path` key and is abandoned after its fail budget
-is exhausted.
+is exhausted. Each attempt is counted before any work starts and given back on
+progress or a clean soft stop, so an entry that crashes the Lambda outright
+(out of memory, hard timeout) is abandoned after 5 attempts instead of being
+retried forever.
+
+Attachment triage never inflates a whole attachment:
+
+- **PDF** (up to 8 MB): only the object structure is parsed (`pdf-lib`), to
+  reject encrypted, unreadable or over-100-page files. Anthropic reads the
+  bytes; a request it rejects as bad is skipped, not retried.
+- **.docx / .pptx**: refused when their XML would inflate past 100 MB
+  (sized from the zip directory) before text is extracted.
+- **.xlsx**: read as a stream up to the 12,000-character triage prefix; refused
+  when the shared-strings table alone exceeds 50 MB.
+
+Every attachment logs `attachment_triage` with its kind, extension and size
+(never its name) before parsing, so a crash's last log line identifies it.
 
 ## RSS news lake
 

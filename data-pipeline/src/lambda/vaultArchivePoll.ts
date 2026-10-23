@@ -169,6 +169,55 @@ async function reclaimStaleProcessing(db: DbClient): Promise<void> {
   );
 }
 
+/** CloudWatch namespace of the pipeline's own metrics (embedded metric format). */
+export const PIPELINE_METRICS_NAMESPACE = 'MNA/Pipeline';
+
+/**
+ * Publishes the in-flight export count and the age of the oldest one as
+ * CloudWatch embedded-metric-format log lines. The "stuck" alarm watches the
+ * age: it grows whatever the cause — a crash loop, Vault, Anthropic — while
+ * the Errors metric only sees the crashes. Written to raw stdout because the
+ * runtime's console prefix would break the JSON CloudWatch parses. Never
+ * fails the poll.
+ */
+async function reportInFlightExports(db: DbClient): Promise<void> {
+  try {
+    const [row] = queryRows<{ in_flight: number | string; oldest_minutes: number | string }>(
+      await db.execute(
+        sql`SELECT count(*) AS in_flight,
+                   COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)) / 60, 0) AS oldest_minutes
+            FROM analytics.vault_exports
+            WHERE status IN ('exporting', 'processing')`,
+      ),
+    );
+    const metrics = {
+      InFlightExports: Number(row?.in_flight ?? 0),
+      OldestInFlightExportMinutes: Math.round(Number(row?.oldest_minutes ?? 0)),
+    };
+    process.stdout.write(
+      `${JSON.stringify({
+        _aws: {
+          Timestamp: Date.now(),
+          CloudWatchMetrics: [
+            {
+              Namespace: PIPELINE_METRICS_NAMESPACE,
+              Dimensions: [['Environment']],
+              Metrics: [
+                { Name: 'InFlightExports', Unit: 'Count' },
+                { Name: 'OldestInFlightExportMinutes', Unit: 'None' },
+              ],
+            },
+          ],
+        },
+        Environment: process.env.NODE_ENV ?? 'unknown',
+        ...metrics,
+      })}\n`,
+    );
+  } catch (err) {
+    console.error('[vault-archive-poll] failed to report in-flight exports:', err);
+  }
+}
+
 function softStopBudget(remainingMs: number): number {
   if (!Number.isFinite(remainingMs)) return SOFT_STOP_MS;
   return Math.max(
@@ -366,6 +415,8 @@ export const handler = async (
     // A hard Lambda timeout cannot execute the normal requeue path. Reclaim
     // claims older than the maximum invocation window before selecting work.
     await reclaimStaleProcessing(db);
+    // Before the claim, so a poll that then crashes has still reported.
+    await reportInFlightExports(db);
 
     // 1. Atomically claim ONE exporting row (oldest first). A single UPDATE
     // with FOR UPDATE SKIP LOCKED holds the lock for the claim, so concurrent

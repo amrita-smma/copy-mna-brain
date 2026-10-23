@@ -33,6 +33,7 @@ import {
   shouldBypassOfficeTriage,
   clipOfficeTriageText,
   hasEnoughOfficeExtractText,
+  OFFICE_TRIAGE_MAX_CHARS,
   type LlmExtraction,
   type ParsedEmail,
   type RawMessage,
@@ -50,6 +51,12 @@ import type { DbClient } from '@/lib/repositories';
 import { stripAngleBrackets } from '@/lib/services/googleVaultService';
 import { extractTextFromFile } from '@/lib/fileExtractor';
 import { MartRepository } from '../repositories';
+import {
+  inspectPdf,
+  officeSizeRefusal,
+  xlsxTextPrefix,
+  zipEntrySizes,
+} from '../lib/attachmentInspect';
 import {
   buildNoteOnlyPrompt,
   EMAIL_NOTE_SCHEMA,
@@ -770,9 +777,22 @@ export type AttachmentTriageOutcome =
   | { kind: 'upload'; fileTypeOverride?: SmartFileTypeOverride }
   | { kind: 'retry'; err: unknown };
 
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** Anthropic rejected the request itself (e.g. a PDF it can't read) — retrying can't help. */
+function isRequestRejected(err: unknown): boolean {
+  return (err as { status?: unknown } | null)?.status === 400;
+}
+
 /**
  * Classify a PDF or Office attachment for Smart Files. Fail closed on extract/triage
  * errors (retry). Skip non-deal, oversized, empty-extract, and non-deal types.
+ *
+ * Nothing here inflates a whole attachment: a PDF is checked by its object
+ * structure only (Anthropic reads the bytes), an Office file's uncompressed
+ * XML is sized from the zip directory before extraction, and a workbook is
+ * read as a stream up to the triage prefix. A parser that runs the Lambda out
+ * of memory would otherwise crash on the same attachment every poll.
  */
 export async function triageAttachmentForSmartFiles(opts: {
   mime: string;
@@ -781,6 +801,9 @@ export async function triageAttachmentForSmartFiles(opts: {
   client: Anthropic;
   model: string;
   extractText?: typeof extractTextFromFile;
+  inspectPdfBytes?: typeof inspectPdf;
+  readZipSizes?: typeof zipEntrySizes;
+  readXlsxPrefix?: typeof xlsxTextPrefix;
 }): Promise<AttachmentTriageOutcome> {
   const {
     mime,
@@ -789,6 +812,9 @@ export async function triageAttachmentForSmartFiles(opts: {
     client,
     model,
     extractText = extractTextFromFile,
+    inspectPdfBytes = inspectPdf,
+    readZipSizes = zipEntrySizes,
+    readXlsxPrefix = xlsxTextPrefix,
   } = opts;
   const isPdf =
     mime === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
@@ -797,13 +823,15 @@ export async function triageAttachmentForSmartFiles(opts: {
 
   if (isPdf) {
     if (shouldBypassPdfTriage(bytes.length)) return { kind: 'skip' };
-    try {
-      // Validate locally before calling Anthropic. Corrupt or encrypted PDFs
-      // fail deterministically, so retrying would eventually abandon the
-      // whole mbox source and lose every later message.
-      await extractText(bytes, 'application/pdf', fileName);
-    } catch (err) {
-      pipelineError(SCOPE, 'pdf_extract_failed', err);
+    // Validate locally before calling Anthropic. Corrupt, encrypted and
+    // over-long PDFs fail deterministically, so retrying would eventually
+    // abandon the whole mbox source and lose every later message.
+    const inspection = await inspectPdfBytes(bytes);
+    if ('reason' in inspection) {
+      pipelineLog(SCOPE, 'pdf_triage_skip', {
+        reason: inspection.reason,
+        pages: inspection.pages ?? null,
+      });
       return { kind: 'skip' };
     }
     try {
@@ -817,15 +845,29 @@ export async function triageAttachmentForSmartFiles(opts: {
         ),
       };
     } catch (err) {
+      // The structure check is lenient, so a PDF Anthropic can't read is
+      // rejected here — every time, like a local validation failure.
+      if (isRequestRejected(err)) {
+        pipelineError(SCOPE, 'pdf_triage_rejected', err);
+        return { kind: 'skip' };
+      }
       return { kind: 'retry', err };
     }
   }
 
-  // Office: size gate → extract → empty check → text triage → deal-only upload
+  // Office: size gate → XML size check → extract → empty check → text triage
   if (shouldBypassOfficeTriage(bytes.length)) return { kind: 'skip' };
+  const isXlsx = mime === XLSX_MIME || fileName.toLowerCase().endsWith('.xlsx');
   let extracted: string;
   try {
-    extracted = await extractText(bytes, mime, fileName);
+    const refusal = officeSizeRefusal(isXlsx, await readZipSizes(bytes));
+    if (refusal) {
+      pipelineLog(SCOPE, 'office_triage_skip', { reason: refusal });
+      return { kind: 'skip' };
+    }
+    extracted = isXlsx
+      ? await readXlsxPrefix(bytes, OFFICE_TRIAGE_MAX_CHARS)
+      : await extractText(bytes, mime, fileName);
   } catch (err) {
     // Corrupt / password-protected / unparseable Office file. This fails the
     // same way on every attempt, so 'retry' would rewind the cursor each poll
@@ -930,6 +972,12 @@ export async function processMboxSource(
   result.message_offset = run.message_offset;
   let failCount = run.fail_count ?? 0;
   result.fail_count = failCount;
+  // Count this attempt before doing any work. A crash that kills the process
+  // (out of memory, the Lambda's hard timeout) skips every failure path
+  // below, so without this the poll would retry the same entry forever. Batch
+  // progress or a clean soft stop gives the attempt back.
+  await updateRun(deps.db, run.id, { fail_count: failCount + 1 });
+  let attemptCounted = true;
   const uploadedDigests = new Set(run.afd_uploaded_digests);
 
   const custodianEmail = source.custodianEmail ?? '';
@@ -1027,7 +1075,11 @@ export async function processMboxSource(
         }
       }
       result.status = 'in_progress';
-      await updateRun(deps.db, run.id, { status: 'in_progress' });
+      await updateRun(deps.db, run.id, {
+        status: 'in_progress',
+        // A soft stop is a clean end of this attempt, not a failure.
+        ...(status === 'soft_stop' && attemptCounted ? { fail_count: failCount } : {}),
+      });
       pipelineLog(SCOPE, status, {
         run_id: run.id,
         message_offset: result.message_offset,
@@ -1388,6 +1440,14 @@ export async function processMboxSource(
           // and block later attachments that still need upload.
           if (uploadedDigests.has(digest)) continue;
 
+          // Logged before parsing: if an attachment ever kills the Lambda, the
+          // last line names its type and size (never its filename).
+          pipelineLog(SCOPE, 'attachment_triage', {
+            run_id: run.id,
+            kind: isPdf ? 'pdf' : 'office',
+            ext: fname.toLowerCase().match(/\.([a-z0-9]{1,5})$/)?.[1] ?? null,
+            bytes: decoded.length,
+          });
           const outcome = await triageAttachmentForSmartFiles({
             mime,
             fileName: fname,
@@ -1483,8 +1543,9 @@ export async function processMboxSource(
 
       // Successful batch progress clears soft-retry budget so intermittent
       // Smart Files/LLM blips across a large mbox do not accumulate to abandon.
-      if (failCount > 0) {
+      if (failCount > 0 || attemptCounted) {
         failCount = 0;
+        attemptCounted = false;
         result.fail_count = 0;
         await updateRun(deps.db, run.id, { fail_count: 0 });
       }
@@ -1595,6 +1656,7 @@ export async function processMboxSource(
     result.status = 'completed';
     await updateRun(deps.db, run.id, {
       status: 'completed',
+      fail_count: failCount,
       message_offset: offset,
       messages_seen: result.messages_seen,
       messages_skipped: result.messages_skipped,

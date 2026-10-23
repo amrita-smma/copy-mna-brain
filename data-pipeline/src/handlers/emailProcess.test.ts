@@ -1,4 +1,6 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { PDFDocument } from 'pdf-lib';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 const anthropicMocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -207,6 +209,8 @@ describe('knobs', () => {
 describe('triageAttachmentForSmartFiles', () => {
   const officeMime =
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  /** A zip directory with nothing oversized, for fake Office bytes. */
+  const readZipSizes = async () => new Map<string, number>();
 
   function mockClient(input: { doc_type: string; confidence: string }) {
     return {
@@ -229,6 +233,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(extractText).toHaveBeenCalledOnce();
     expect(outcome).toEqual({
@@ -248,6 +253,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: mockClient({ doc_type: 'teaser', confidence: 'medium' }),
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(outcome).toEqual({ kind: 'upload', fileTypeOverride: undefined });
   });
@@ -263,6 +269,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: mockClient({ doc_type: 'other', confidence: 'high' }),
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(outcome).toEqual({ kind: 'skip' });
   });
@@ -279,6 +286,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: mockClient({ doc_type: 'im', confidence: 'high' }),
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(extractText).toHaveBeenCalledOnce();
     expect(outcome).toEqual({ kind: 'upload', fileTypeOverride: 'prospectus' });
@@ -298,28 +306,30 @@ describe('triageAttachmentForSmartFiles', () => {
     expect(extractText).not.toHaveBeenCalled();
   });
 
-  it('skips (does not rewind) when PDF validation fails deterministically', async () => {
-    const extractText = vi.fn().mockRejectedValue(new Error('encrypted PDF'));
-    const create = vi.fn();
-    const outcome = await triageAttachmentForSmartFiles({
-      mime: 'application/pdf',
-      fileName: 'encrypted.pdf',
-      bytes: Buffer.from('fake-pdf'),
-      client: { messages: { create } } as never,
-      model: 'claude-haiku-5-5',
-      extractText,
-    });
-    expect(extractText).toHaveBeenCalledWith(
-      Buffer.from('fake-pdf'),
-      'application/pdf',
-      'encrypted.pdf',
-    );
-    expect(outcome).toEqual({ kind: 'skip' });
-    expect(create).not.toHaveBeenCalled();
-  });
+  it.each(['encrypted', 'invalid', 'too_many_pages'] as const)(
+    'skips (does not rewind) a %s PDF without calling Anthropic',
+    async (reason) => {
+      const inspectPdfBytes = vi.fn().mockResolvedValue({ ok: false, reason });
+      const extractText = vi.fn();
+      const create = vi.fn();
+      const outcome = await triageAttachmentForSmartFiles({
+        mime: 'application/pdf',
+        fileName: 'doc.pdf',
+        bytes: Buffer.from('fake-pdf'),
+        client: { messages: { create } } as never,
+        model: 'claude-haiku-5-5',
+        extractText,
+        inspectPdfBytes,
+      });
+      expect(inspectPdfBytes).toHaveBeenCalledWith(Buffer.from('fake-pdf'));
+      expect(outcome).toEqual({ kind: 'skip' });
+      expect(create).not.toHaveBeenCalled();
+      // The page text is never extracted: Anthropic reads the PDF itself.
+      expect(extractText).not.toHaveBeenCalled();
+    },
+  );
 
   it('retries PDF when local validation succeeds but Anthropic fails', async () => {
-    const extractText = vi.fn().mockResolvedValue('');
     const create = vi.fn().mockRejectedValue(new Error('anthropic down'));
     const outcome = await triageAttachmentForSmartFiles({
       mime: 'application/pdf',
@@ -327,10 +337,74 @@ describe('triageAttachmentForSmartFiles', () => {
       bytes: Buffer.from('fake-pdf'),
       client: { messages: { create } } as never,
       model: 'claude-haiku-5-5',
-      extractText,
+      inspectPdfBytes: async () => ({ ok: true, pages: 3 }),
     });
     expect(outcome.kind).toBe('retry');
     expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('skips (does not rewind) a PDF Anthropic rejects as a bad request', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('Could not process PDF'), { status: 400 }));
+    const outcome = await triageAttachmentForSmartFiles({
+      mime: 'application/pdf',
+      fileName: 'odd.pdf',
+      bytes: Buffer.from('fake-pdf'),
+      client: { messages: { create } } as never,
+      model: 'claude-haiku-5-5',
+      inspectPdfBytes: async () => ({ ok: true, pages: 3 }),
+    });
+    expect(outcome).toEqual({ kind: 'skip' });
+  });
+
+  it('skips an Office file whose XML would inflate past the cap, before extracting', async () => {
+    const extractText = vi.fn();
+    const outcome = await triageAttachmentForSmartFiles({
+      mime: officeMime,
+      fileName: 'bomb.docx',
+      bytes: Buffer.from('fake-docx'),
+      client: mockClient({ doc_type: 'im', confidence: 'high' }),
+      model: 'claude-haiku-5-5',
+      extractText,
+      readZipSizes: async () => new Map([['word/document.xml', 500 * 1024 * 1024]]),
+    });
+    expect(outcome).toEqual({ kind: 'skip' });
+    expect(extractText).not.toHaveBeenCalled();
+  });
+
+  it('skips (does not rewind) an Office file that is not a readable zip', async () => {
+    const extractText = vi.fn();
+    const outcome = await triageAttachmentForSmartFiles({
+      mime: officeMime,
+      fileName: 'broken.docx',
+      bytes: Buffer.from('not-a-zip'),
+      client: mockClient({ doc_type: 'im', confidence: 'high' }),
+      model: 'claude-haiku-5-5',
+      extractText,
+    });
+    expect(outcome).toEqual({ kind: 'skip' });
+    expect(extractText).not.toHaveBeenCalled();
+  });
+
+  it('reads a workbook through the bounded streaming prefix, not the full extractor', async () => {
+    const extractText = vi.fn();
+    const readXlsxPrefix = vi
+      .fn()
+      .mockResolvedValue('Project Nova LBO model\tRevenue\tEBITDA\n'.repeat(5));
+    const outcome = await triageAttachmentForSmartFiles({
+      mime: 'application/octet-stream',
+      fileName: 'Project_Nova_LBO.xlsx',
+      bytes: Buffer.from('fake-xlsx'),
+      client: mockClient({ doc_type: 'financial_model', confidence: 'high' }),
+      model: 'claude-haiku-5-5',
+      extractText,
+      readZipSizes,
+      readXlsxPrefix,
+    });
+    expect(readXlsxPrefix).toHaveBeenCalledWith(Buffer.from('fake-xlsx'), OFFICE_TRIAGE_MAX_CHARS);
+    expect(extractText).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ kind: 'upload', fileTypeOverride: undefined });
   });
 
   it('skips oversized Office before extract', async () => {
@@ -359,6 +433,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: { messages: { create } } as never,
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(outcome).toEqual({ kind: 'skip' });
     expect(create).not.toHaveBeenCalled();
@@ -376,6 +451,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client: { messages: { create } } as never,
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(outcome).toEqual({ kind: 'skip' });
     expect(create).not.toHaveBeenCalled();
@@ -397,6 +473,7 @@ describe('triageAttachmentForSmartFiles', () => {
       client,
       model: 'claude-haiku-5-5',
       extractText,
+      readZipSizes,
     });
     expect(outcome.kind).toBe('retry');
   });
@@ -746,6 +823,8 @@ function makeMbox(
 }
 
 function createProcessDb(opts: {
+  /** fail_count of the run being resumed. */
+  runFailCount?: number;
   existingEmails?: string[];
   /** Rows a re-extract already wrote (matched by its `created_at >=` filter). */
   reextractedEmails?: string[];
@@ -774,7 +853,7 @@ function createProcessDb(opts: {
           {
             id: 'run-1',
             message_offset: 0,
-            fail_count: 0,
+            fail_count: opts.runFailCount ?? 0,
             afd_uploaded_digests: [],
           },
         ];
@@ -1098,9 +1177,18 @@ describe('Re-extract export', () => {
     );
   }
 
+  /** A real 1-page PDF, padded past the attachment minimum size. */
+  let validPdf: Buffer;
+  beforeAll(async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    doc.setSubject('Project Falcon teaser '.repeat(1_500));
+    validPdf = Buffer.from(await doc.save());
+  });
+
   /** One deal email carrying a PDF large enough to reach triage. */
   function makePdfMbox(id: string) {
-    const pdf = Buffer.alloc(30_000, 'a').toString('base64').replace(/(.{76})/g, '$1\n');
+    const pdf = validPdf.toString('base64').replace(/(.{76})/g, '$1\n');
     const content = [
       `From envelope-${id} Mon Jan  1 00:00:00 2024`,
       'From: banker@external.com',
@@ -1250,5 +1338,112 @@ describe('Re-extract export', () => {
       ),
     ).toHaveLength(0);
     expect(uploadUrlCalls()).toHaveLength(0);
+  });
+});
+
+describe('crash-loop guard', () => {
+  /** fail_count written by each `updateRun`, in order (null = left unchanged). */
+  function failCountWrites(db: ReturnType<typeof createProcessDb>): Array<number | null> {
+    return db.execute.mock.calls
+      .map(([q]) => new PgDialect().sqlToQuery(q as never))
+      .filter((q) => q.sql.includes('UPDATE analytics.email_process_runs SET'))
+      .map((q) => q.params[7] as number | null);
+  }
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset();
+    crmMocks.upsertEphemeralCrmBatch.mockReset().mockResolvedValue({ emails_inserted: 1 });
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('counts the attempt before any extraction, so a process crash still spends budget', async () => {
+    const db = createProcessDb({ runFailCount: 2 });
+    let writesBeforeLlm: Array<number | null> = [];
+    anthropicMocks.create.mockImplementation(async () => {
+      writesBeforeLlm = failCountWrites(db);
+      throw new Error('stand-in for a crash: nothing after this point runs');
+    });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-guard-1',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-guard-1' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(writesBeforeLlm[0]).toBe(3);
+  });
+
+  it('gives the attempt back once a batch makes progress', async () => {
+    anthropicMocks.create.mockResolvedValue({
+      content: [{ type: 'tool_use', input: { topics: [], people: [], related_companies: [] } }],
+      stop_reason: 'end_turn',
+    });
+    const db = createProcessDb({ runFailCount: 2 });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-guard-2',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-guard-2' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.fail_count).toBe(0);
+    const writes = failCountWrites(db);
+    expect(writes[0]).toBe(3);
+    expect(writes).toContain(0);
+    expect(writes.at(-1)).toBe(0);
+  });
+
+  it('a soft stop before any progress restores the previous count', async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 60_000));
+    const db = createProcessDb({ runFailCount: 2 });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-guard-3',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-guard-3a' }, { id: 'msg-guard-3b' }]),
+      },
+      { softStopMs: 30_000 },
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('in_progress');
+    expect(anthropicMocks.create).not.toHaveBeenCalled();
+    const writes = failCountWrites(db);
+    expect(writes[0]).toBe(3);
+    expect(writes.at(-1)).toBe(2);
+  });
+
+  it('a graceful failure is counted once, not twice', async () => {
+    anthropicMocks.create.mockRejectedValue(new Error('anthropic down'));
+    const db = createProcessDb({ runFailCount: 2 });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-guard-4',
+        custodianEmail: 'alice@starcapital.co.id',
+        openStream: makeMbox([{ id: 'msg-guard-4' }]),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.fail_count).toBe(3);
+    expect(failCountWrites(db).filter((n) => n !== null).every((n) => n === 3)).toBe(true);
   });
 });

@@ -86,18 +86,26 @@ resource "aws_lambda_permission" "eventbridge" {
   source_arn    = aws_cloudwatch_event_rule.schedule[each.key].arn
 }
 
-# CloudWatch alarms -> SNS
+# CloudWatch alarms -> SNS. Errors include out-of-memory kills and timeouts.
 resource "aws_cloudwatch_metric_alarm" "errors" {
   for_each = var.lambda_configs
 
-  alarm_name          = "${var.prefix}-${each.key}-errors"
-  alarm_description   = "Pipeline Lambda ${each.key} threw an error"
+  alarm_name = "${var.prefix}-${each.key}-errors"
+  alarm_description = trimspace(join(" ", [
+    "${each.key} errored in ${each.value.error_alarm.datapoints_to_alarm} of the last",
+    "${each.value.error_alarm.evaluation_periods} windows of ${each.value.error_alarm.period_seconds / 60} min.",
+    "Errors include out-of-memory kills and timeouts: search",
+    "/aws/lambda/${aws_lambda_function.pipeline[each.key].function_name} for",
+    "'heap out of memory' or 'Task timed out'.",
+    each.value.error_alarm.hint,
+  ]))
   namespace           = "AWS/Lambda"
   metric_name         = "Errors"
   dimensions          = { FunctionName = aws_lambda_function.pipeline[each.key].function_name }
   statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 1
+  period              = each.value.error_alarm.period_seconds
+  evaluation_periods  = each.value.error_alarm.evaluation_periods
+  datapoints_to_alarm = each.value.error_alarm.datapoints_to_alarm
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
   treat_missing_data  = "notBreaching"

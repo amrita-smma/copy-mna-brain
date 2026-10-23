@@ -9,6 +9,8 @@ locals {
       description  = "Walk daily Vault windows; create matter+export, insert vault_exports rows"
       memory_heavy = false
       input        = jsonencode({})
+      # Runs once a day, so a single failure is a missed day.
+      error_alarm = { period_seconds = 3600, evaluation_periods = 1, datapoints_to_alarm = 1 }
     }
     vault-archive-poll = {
       handler              = "vaultArchivePoll.handler"
@@ -17,6 +19,9 @@ locals {
       memory_heavy         = true
       ephemeral_storage_mb = 4096
       input                = jsonencode({})
+      error_alarm = {
+        hint = "The last attachment_triage line before a crash names the attachment's type and size."
+      }
     }
     rss-poll = {
       handler      = "rssPoll.handler"

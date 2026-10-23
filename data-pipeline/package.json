@@ -18,6 +18,7 @@
     "exceljs": "*",
     "jszip": "*",
     "mammoth": "*",
+    "pdf-lib": "*",
     "pdf-parse": "*",
     "rss-parser": "^3.13.0",
     "unzipper": "*"
