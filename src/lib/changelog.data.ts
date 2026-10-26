@@ -116,6 +116,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "dc9a4d8dd15d0491fdf9ec74f5f2e2da6b25ec65",
+    "date": "2026-10-26",
+    "subject": "Charts now appear correctly in exported PDF reports",
+    "category": "improvement"
+  },
+  {
+    "hash": "8ec60129d2048eb5ba67c173cbdad88167684c7d",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
