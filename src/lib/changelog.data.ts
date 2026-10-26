@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
+    "date": "2026-10-27",
+    "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
+    "category": "improvement"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
@@ -283,6 +289,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "9aeae0828f0410d66a5241f9b2e40b191296cbd9",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "5a4fa08cbb06e5b294dd3d66b7fa67207d50afc7",
     "date": "2026-10-26",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
