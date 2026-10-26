@@ -2,7 +2,7 @@ import { type UIMessage } from "@ai-sdk/react";
 import { formatMessageTime, messageCreatedAt } from '@/lib/chat/messageTime';
 import { memo, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle, CalendarClock } from "lucide-react";
+import { ChevronDown, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle, CalendarClock, File as FileIcon, LibraryBig } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   Dialog,
@@ -40,7 +40,8 @@ import { BotChangeApprovalCard } from "./BotChangeApprovalCard";
 import { BotRoutineApprovalCard } from "./BotRoutineApprovalCard";
 import { OptionCard } from "./OptionCard";
 import { OPTION_CARD_MARKER, isOptionCardPayload, type OptionCardPayload } from "@/lib/chat/optionCards";
-import { STALE_SOURCE_MONTHS, isStaleSource, readPublishedDate } from "@/lib/chat/citations";
+import { STALE_SOURCE_MONTHS, inlineCitationsOf, isStaleSource, readPublishedDate } from "@/lib/chat/citations";
+import FileKindIcon from "@/components/Files/FileKindIcon";
 import { BotMessageCard } from "./BotMessageCard";
 import {
   BOT_CHANGE_APPROVAL_MARKER,
@@ -470,7 +471,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
           </span>
           {textContent && (
             <div className="w-full min-w-0 overflow-auto break-words text-sm">
-              <MarkdownRenderer content={textContent} linkSurface="copilot" />
+              <MarkdownRenderer content={textContent} linkSurface="copilot" citationPills />
             </div>
           )}
           {textContent.includes('@') && <MentionPings text={textContent} fromUser />}
@@ -917,6 +918,11 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
     }
   }
 
+  // The sources the answer cites come first — they are the ones it leans on —
+  // then whatever else the search tools returned.
+  const cited = inlineCitationsOf(responseText);
+  const sources = [...cited, ...allCitations.filter((c) => !cited.some((s) => s.url === c.url))];
+
   return {
     toolParts,
     hasTextContent,
@@ -927,7 +933,7 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
     thinkingText,
     responseText,
     warnings,
-    allCitations,
+    allCitations: sources,
     allMeetingNotes,
     // A single query can return fifty rows; chipping all of them would bury
     // the answer. Keep only the companies the assistant actually named.
@@ -1236,36 +1242,34 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           </div>
         )}
 
-        {/* Web Search Citations - Below chat bubble */}
+        {/* Sources - what the answer cites, then what the searches returned */}
         {allCitations.length > 0 && (
-          <div className="mt-2">
-            <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📚 Sources</p>
-            <ChipOverflow>
-              {allCitations.slice(0, 6).map((cite, i) => {
+          <div className="mt-3" data-testid="chat-sources">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <LibraryBig className="h-3.5 w-3.5" aria-hidden />
+              Sources
+            </p>
+            <ChipOverflow className="gap-2">
+              {allCitations.slice(0, 6).map((cite) => {
                 const published = readPublishedDate(cite.published);
                 const stale = published ? isStaleSource(published.date) : false;
                 return (
                 <a
-                  key={i}
+                  key={cite.url}
                   href={cite.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={stale ? `Dated source: published over ${STALE_SOURCE_MONTHS} months ago` : undefined}
+                  title={[
+                    cite.title,
+                    published?.label,
+                    stale ? `dated: published over ${STALE_SOURCE_MONTHS} months ago` : null,
+                  ].filter(Boolean).join(" · ")}
                   className={cn(
-                    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition-colors border border-blue-100 dark:border-blue-800",
+                    "block max-w-[220px] truncate rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-primary transition-colors hover:bg-muted",
                     stale && "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900",
                   )}
                 >
-                  {cite.title.length > 35 ? cite.title.substring(0, 35) + "..." : cite.title}
-                  {published && (
-                    <span className="tabular-nums opacity-80">
-                      · {published.label}
-                      {stale ? " · dated" : ""}
-                    </span>
-                  )}
-                  <svg className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
+                  {cite.title}
                 </a>
                 );
               })}
@@ -1273,19 +1277,24 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           </div>
         )}
 
-        {/* Files - Below chat bubble */}
+        {/* Files - what the answer read from the workspace */}
         {allMeetingNotes.length > 0 && (
-          <div className="mt-2">
-            <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">📄 Files</p>
-            <ChipOverflow>
+          <div className="mt-3" data-testid="chat-files">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <FileIcon className="h-3.5 w-3.5" aria-hidden />
+              Files
+            </p>
+            <ChipOverflow className="gap-2">
               {allMeetingNotes.slice(0, 6).map((note, i) => (
                 <button
                   key={i}
+                  type="button"
                   onClick={() => handleOpenPreview(note)}
-                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 transition-colors border border-amber-100 dark:border-amber-800 cursor-pointer"
+                  title={note.file_name}
+                  className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-muted"
                 >
-                  <FileText className="h-3 w-3 flex-shrink-0" />
-                  {note.file_name?.length > 30 ? note.file_name.substring(0, 30) + "..." : note.file_name}
+                  <FileKindIcon fileName={note.file_name} className="h-3.5 w-3.5" />
+                  <span className="truncate">{note.file_name}</span>
                 </button>
               ))}
             </ChipOverflow>

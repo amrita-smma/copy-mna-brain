@@ -11,6 +11,11 @@ describe('previewLine', () => {
     expect(previewLine({ role: 'assistant', text })).toBe('Verdict Pursue — see Reuters, 12 Mar 2026 and EBITDA. point one');
   });
 
+  it('drops a citation link\'s headline title along with its URL, even one holding a parenthesis', () => {
+    const text = 'Output rose ([Reuters, 12 Mar 2026](https://x.test/a "Nickel (Ni) output jumps")).';
+    expect(previewLine({ role: 'assistant', text })).toBe('Output rose (Reuters, 12 Mar 2026).');
+  });
+
   it('keeps snake_case identifiers intact while dropping *emphasis*', () => {
     expect(previewLine({ role: 'assistant', text: 'Ran *list_routines* on deal_flow' })).toBe(
       'Ran list_routines on deal_flow',

@@ -112,6 +112,25 @@ describe('parseAssistantTurn', () => {
     ]);
   });
 
+  it('lists the answer\'s own citations first in the sources, then the search results it did not cite', () => {
+    const cites = JSON.stringify([
+      { title: 'A', url: 'https://a.example' },
+      { title: 'B', url: 'https://b.example' },
+    ]);
+    const result = parseAssistantTurn(
+      parts(
+        tool('valyu_search', `results <!-- CITATIONS_JSON:${cites} -->`),
+        text('Point ([Reuters, 12 Mar 2026](https://r.example "Nickel jumps")); more ([B Wire, undated](https://b.example)).'),
+      ),
+    );
+
+    expect(result.allCitations).toEqual([
+      { title: 'Nickel jumps', url: 'https://r.example', published: '2026-03-12' },
+      { title: 'b.example', url: 'https://b.example' },
+      { title: 'A', url: 'https://a.example' },
+    ]);
+  });
+
   it('ignores a malformed citations payload instead of throwing', () => {
     const result = parseAssistantTurn(
       parts(tool('web_search', 'oops <!-- CITATIONS_JSON:{not json} -->')),

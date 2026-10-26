@@ -511,11 +511,32 @@ shape.
 - **Next action as a plain question.** The flavor's "Offer the Next Action"
   close (one specific question offering an action the bot can take) stays a
   plain question, not an `offer_options` card.
-- **Inline dated citations.** Each external fact is followed by
-  `([Source, 12 Mar 2026](url))`, or "undated". The transcript draws these
-  links as source pills (`MarkdownRenderer` `citationPills`, parsed by
-  `src/lib/chat/citations.ts`) and flags one older than `STALE_SOURCE_MONTHS`
-  in amber as "dated" — computed from the date, not trusted from the text.
+- **Inline dated citations (MB-695).** Each sentence or bullet built on an
+  external fact ends with `([Source, 12 Mar 2026](url "Headline"))`, or
+  "undated"; several sources for one point share a parenthesis, split by
+  semicolons. With `MarkdownRenderer` `citationPills`, the remark plugin
+  `remarkCitationGroups` (`src/lib/chat/citations.ts`) folds each run of
+  adjacent citation links — and the parentheses that only wrapped them — into
+  one `<cite>`, which `CitationGroup` draws as a chip beside the statement
+  (first source's initial and name, "+N" for the rest). Hovering it with a
+  mouse, or tapping/pressing it, opens a card listing each source's
+  publisher, headline (the link title; the URL's host for older replies that
+  have none) and date, each linking out. Citations separated by prose stay
+  separate chips; they are not moved to the paragraph's end. A source older
+  than `STALE_SOURCE_MONTHS` turns the chip amber and is marked "dated" in the
+  card — computed from the date, not trusted from the text.
+  The renderer tolerates the shapes models drift into: an inline HTML
+  `<a href="https://…">claim</a>` is rewritten to a markdown link before
+  parsing (`htmlAnchorsToMarkdown`; react-markdown would print the tags), a date at the end of a phrase ("profile updated May 2026")
+  still dates the citation, and a claim wrapped into the link
+  (`[Claim (Source, date)](url)`) splits into the claim and a chip. The prompt
+  also forbids all three.
+- **Sources and Files strip.** Under the answer, "Sources" lists the answer's
+  own inline citations first (`inlineCitationsOf`) — Anthropic's `web_search`
+  results never reach the transcript, so these are the only record of what it
+  read — then the Valyu results it did not cite; "Files" lists the files it
+  read, with `FileKindIcon`. Outlined, opaque chips truncated to one line, full
+  headline and date in the tooltip, amber when dated.
   Valyu results also carry `published` into the "Sources" chips, which show
   and flag the date the same way. **The threshold is pending Nur**; 12 months
   is a placeholder (changing it re-pins `prompt.test.ts`).

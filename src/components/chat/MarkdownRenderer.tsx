@@ -14,7 +14,8 @@ import {
 } from '@/lib/posthog-chat';
 import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
 import { htmlAnchorsToMarkdown } from '@/lib/chat/htmlLinks';
-import { STALE_SOURCE_MONTHS, isStaleSource, parseCitationLabel } from '@/lib/chat/citations';
+import { CITATION_GROUP_PROP, readCitationGroup, remarkCitationGroups } from '@/lib/chat/citations';
+import { CitationGroup } from './CitationGroup';
 import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
 import type { Components } from 'react-markdown';
 
@@ -37,18 +38,14 @@ interface MarkdownRendererProps {
    */
   evidenceMarkers?: boolean;
   /**
-   * Draw citation links — `[Source, 12 Mar 2026](url)` — as source pills with
-   * their date, flagging a source older than `STALE_SOURCE_MONTHS`. Opt-in,
-   * for the assistant's answer only; other links render as plain links.
+   * Draw each run of citation links — `([Source, 12 Mar 2026](url "Headline"))`
+   * — as one source chip beside the statement, with a card listing the
+   * sources' headlines and dates, flagging a source older than
+   * `STALE_SOURCE_MONTHS`. Opt-in, for the assistant's answer only; other
+   * links render as plain links.
    */
   citationPills?: boolean;
 }
-
-// Opaque in both themes, like the evidence pills.
-const CITATION_PILL =
-  'mx-0.5 inline-flex max-w-full items-baseline gap-1 rounded-full border border-border bg-muted px-2 py-px align-baseline text-xs font-normal text-foreground no-underline hover:bg-card hover:no-underline';
-const CITATION_PILL_STALE =
-  'border-amber-500 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900';
 
 const DATA_LIMIT_CALLOUT =
   'my-2 flex items-start gap-2 rounded-lg border border-amber-500 bg-muted px-3 py-2 text-foreground dark:border-amber-400';
@@ -69,6 +66,7 @@ const EVIDENCE_PILL: Record<ChatEvidenceLabel, string> = {
  * its processor.
  */
 const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS_WITH_CITATIONS = [remarkGfm, remarkCitationGroups];
 
 function buildComponents(
   isCard: boolean,
@@ -199,31 +197,24 @@ function buildComponents(
           // Horizontal rules
           hr: () => <hr className="my-4 border-border" />,
 
-          // Links - break long URLs so they don't overflow the bubble. A
-          // citation ("Source, date") becomes a source pill when asked for.
-          a: ({ href, children }) => {
-            const citation = citationPills ? parseCitationLabel(linkTextOf(children) ?? '') : null;
-            const stale = citation?.date ? isStaleSource(citation.date) : false;
-            return (
+          // A run of citation links, grouped by `remarkCitationGroups` (only
+          // with `citationPills`), drawn as one source chip.
+          cite: ({ node, children }) => {
+            const citations = citationPills ? readCitationGroup(node?.properties?.[CITATION_GROUP_PROP]) : [];
+            return citations.length > 0 ? (
+              <CitationGroup citations={citations} linkSurface={linkSurface} />
+            ) : (
+              <cite>{children}</cite>
+            );
+          },
+
+          // Links - break long URLs so they don't overflow the bubble.
+          a: ({ href, children }) => (
             <a
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className={
-                citation
-                  ? cn(CITATION_PILL, stale && CITATION_PILL_STALE)
-                  : 'text-primary hover:underline break-all'
-              }
-              title={
-                citation
-                  ? stale
-                    ? `Dated source: published over ${STALE_SOURCE_MONTHS} months ago`
-                    : citation.date
-                      ? `Published ${citation.dateText}`
-                      : 'The source gives no date'
-                  : undefined
-              }
-              data-citation={citation ? (stale ? 'stale' : citation.date ? 'dated' : 'undated') : undefined}
+              className="text-primary hover:underline break-all"
               onClick={() => {
                 if (!linkSurface) return;
                 // Fires on the click rather than on navigation: the link opens
@@ -239,20 +230,9 @@ function buildComponents(
                 );
               }}
             >
-              {citation ? (
-                <>
-                  <span className="truncate font-medium">{citation.source}</span>
-                  <span className={cn('shrink-0 tabular-nums', !stale && 'text-muted-foreground')}>
-                    {citation.dateText}
-                    {stale ? ' · dated' : ''}
-                  </span>
-                </>
-              ) : (
-                children
-              )}
+              {children}
             </a>
-            );
-          },
+          ),
   };
 }
 
@@ -282,7 +262,10 @@ function MarkdownRendererImpl({
 
   return (
     <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      <ReactMarkdown
+        remarkPlugins={citationPills ? REMARK_PLUGINS_WITH_CITATIONS : REMARK_PLUGINS}
+        components={components}
+      >
         {markdown}
       </ReactMarkdown>
     </div>

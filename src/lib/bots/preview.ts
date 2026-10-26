@@ -9,7 +9,7 @@ export function previewLine(message: { role: 'user' | 'assistant'; text: string 
   const plain = message.text
     .replace(/<[^>]+>/g, ' ') // HTML tags (rare in stored text; drop for previews)
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images → alt text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → their text
+    .replace(/\[([^\]]+)\]\([^)\s]*(?:\s+"[^"]*")?\)/g, '$1') // links → their text, title and all
     .replace(/```[\s\S]*?(```|$)/g, ' ') // fenced code
     .replace(/`([^`]*)`/g, '$1')
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '') // headings, quotes, list markers

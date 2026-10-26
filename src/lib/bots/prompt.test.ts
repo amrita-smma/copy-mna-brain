@@ -57,7 +57,9 @@ describe('assembleBotSystemPrompt', () => {
   it('tells every bot to lead with the verdict, stay brief without researching less, cite dated sources inline, and offer choices as cards', () => {
     expect(BOT_REPLY_STYLE).toContain('**Verdict first.**');
     expect(BOT_REPLY_STYLE).toContain('Brevity changes how you write, not how much you check');
-    expect(BOT_REPLY_STYLE).toContain('([Reuters, 12 Mar 2026](https://…))');
+    expect(BOT_REPLY_STYLE).toContain('([Reuters, 12 Mar 2026](https://… "Nickel output jumps on new smelters"))');
+    expect(BOT_REPLY_STYLE).toContain('at the end of the sentence or bullet it supports');
+    expect(BOT_REPLY_STYLE).toContain('never an HTML <a> tag');
     expect(BOT_REPLY_STYLE).toContain(`older than ${STALE_SOURCE_MONTHS} months`);
     expect(BOT_REPLY_STYLE).toContain('call offer_options');
     expect(BOT_REPLY_STYLE).toContain('Offering your own next action');
@@ -74,4 +76,4 @@ describe('assembleBotSystemPrompt', () => {
 });
 
 const GUARDRAILS_HASH = 'd016d2a0590f3924b2c399dd92eff324b6f63ea0b00e3790cf7b13abc5ff6e66';
-const NEW_BOT_HASH = '9e966d7aa9ed537530bf0cfd8ac87f33254fed37c3a19ccc8dbfb4714e38d3e0';
+const NEW_BOT_HASH = '4734ba4ade110c2de728b9f5e2e7f42ca0a265ae2b1d5d33aa8ccb316c05cae6';
