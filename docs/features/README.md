@@ -17,6 +17,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 
 - [Smart Files](smart-files.md) — 7KB
 - [Fund Management page (search, Action Items, delete asset, fund-update upload)](fund-management.md) — 3KB
+- [Midas data mart (`midas` schema, RDS IAM auth for Star Capital)](midas-data-mart.md) — 3KB
 - [CRM (Contact Relationship Management)](crm.md) — 1KB
 - [CRM data pipeline](crm-data-pipeline.md) — 2KB
 - [CRM banker insights (per-person emails, related companies, deal links, scorecard, flagged Bankers view, contact panel and Conversation modal, Brain Bots tools, Ask Brain suggested questions)](crm-banker-insights.md) — 31KB

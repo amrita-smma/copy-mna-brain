@@ -786,3 +786,67 @@ runs, or the route nears its `maxDuration`.
 contacts with any run, so skip the per-contact latest-run lookup. Read the
 contacts and firms with `findByIds`, then insert the queue rows in one
 statement.
+
+---
+
+## Fund-of-funds constituents are not modelled (`fl_assets_constituents`)
+
+**Area:** fund ledger (`fl_*` in `src/lib/db/schema.ts`), the Midas data mart
+(`midas` schema, `docs/features/midas-data-mart.md`).
+
+**What it is:** a fund-of-funds holding, whether an external `fl_funds` row
+(`managed = false`) or an `fl_assets` row tagged
+`instrument_terms.investmentTypeLabel = 'Fund of Funds'`, is recorded only as
+one line: our commitment, flows and NAV in that fund. Nothing records what the
+underlying fund owns, i.e. its investee companies, the amount and ownership
+in each, and their cost, value, MOIC and IRR. Star Capital's Midas wants to
+show Alpha GWC Fund One's investee list, and that data is still in GP quarterly
+reports (Excel/PDF).
+
+**Why we took it:** the ledger was built for our own positions. Look-through
+holdings are the GP's numbers as of the GP's report date, not ledger facts, and
+the Alpha GWC data isn't ready yet. The mart shipped without it to meet the
+Midas integration date.
+
+**Trigger to revisit:** the Alpha GWC investee data is ready to enter, or any
+user asks for look-through exposure (by sector, country, company) across fund
+interests.
+
+**Fix:** add `fl_assets_constituents`. It holds one row per constituent per
+report date, with exactly one parent: `parent_asset_id` → `fl_assets` or
+`parent_fund_id` → `fl_funds` (CHECK).
+
+Columns:
+- an optional `constituent_asset_id` → `fl_assets`, set when we also hold the
+  company directly;
+- the name, country, sector and currency;
+- `as_of_date`;
+- the money fields: `commitment_amount`, `invested_capital`,
+  `realized_value`, `unrealized_value`, `ownership_pct`, `moic`, `irr`;
+- `data_status`, `source_record_id` → `fl_source_records`, and the usual audit
+  columns.
+
+Unique on (`parent_*`, `constituent_name`/`constituent_asset_id`,
+`as_of_date`). Feed it from the fund-update import. Add a
+`midas.fl_assets_constituents` view to the mart and grant it to `midas_reader`. The
+proposed ERD is in the Midas data mart Word document.
+
+---
+
+## Midas data mart hardcodes its workspace IDs
+
+**Area:** `drizzle/migrations/20261026000003_midas_data_mart.sql`.
+
+**What it is:** each `midas.*` view filters on the same three
+workspace UUIDs (production, staging, dev) written into the view SQL. Adding a workspace, or a second
+external consumer with a different scope, means a new migration that
+recreates every view.
+
+**Why we took it:** one consumer, one workspace per environment, and a fixed date. A literal
+filter is the simplest thing that is obviously correct.
+
+**Trigger to revisit:** the in-scope workspace list changes, or a second
+data-mart consumer appears.
+
+**Fix:** a `midas.workspace_scope (workspace_id)` table (or a per-consumer
+scope table) joined by every view, managed from the admin portal.

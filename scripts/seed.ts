@@ -91,6 +91,12 @@ const TEST_WORKSPACE_3_ID = '00000000-0000-0000-0000-000000000003'; // Funds & I
 // left it without a flavor of its own. Deleted on every seed so a local DB
 // from an older seed converges instead of keeping a fourth, unmapped tenant.
 const RETIRED_WORKSPACE_4_ID = '00000000-0000-0000-0000-000000000004';
+// The dev workspace in the Midas data mart's workspace filter
+// (drizzle/migrations/20261026000003_midas_data_mart.sql). It exists so the
+// `midas.*` views have a local workspace to expose; it is not a Copilot
+// flavor. It gets a copy of the Combined workspace's fund ledger (see
+// fundSeedIdFor). Keep the id in sync with that migration.
+const MIDAS_WORKSPACE_ID = '00000000-0000-0000-0000-000000000005';
 
 
 /**
@@ -179,6 +185,19 @@ const SEED_WORKSPACES: Array<{
       FUND_MANAGEMENT_ENABLED: true,
       COMPANY_GRAPH_ENABLED: true,
       INSIGHTS_DASHBOARD_ENABLED: true,
+    },
+  },
+  {
+    id: MIDAS_WORKSPACE_ID,
+    name: 'Used for Midas',
+    slug: 'used-for-midas',
+    copilotAgent: 'investment',
+    features: {
+      DASHBOARD_ENABLED: false,
+      PIPELINE_ENABLED: false,
+      FUND_MANAGEMENT_ENABLED: true,
+      COMPANY_GRAPH_ENABLED: false,
+      INSIGHTS_DASHBOARD_ENABLED: false,
     },
   },
 ];
@@ -4458,7 +4477,7 @@ async function main() {
         .onConflictDoNothing({ target: [userWorkspaces.user_id, userWorkspaces.workspace_id] });
     }
     console.log(
-      `  ✓ ${SEED_WORKSPACES.length} workspaces (one per Copilot flavor) + ${SEED_EXTRA_USERS.length} test users (password: ${SEED_USER_PASSWORD})`,
+      `  ✓ ${SEED_WORKSPACES.length} workspaces (one per Copilot flavor, plus Used for Midas) + ${SEED_EXTRA_USERS.length} test users (password: ${SEED_USER_PASSWORD})`,
     );
     console.log(`    ${SEED_USER_EMAIL} -> Combined (M&A + Investment) (1 workspace)`);
     console.log('    test2@sqe.co.id -> M&A / Acquisitions (1 workspace)');
@@ -5725,6 +5744,10 @@ async function main() {
     await seedRssFeeds(db as unknown as DbClient);
     await seedFundLedger(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedFofPortfolio(db as unknown as DbClient, MNA_WORKSPACE_ID);
+    // The Midas data mart's dev workspace gets the same fund portfolio, so the
+    // midas.* views have rows locally.
+    await seedFundLedger(db as unknown as DbClient, MIDAS_WORKSPACE_ID);
+    await seedFofPortfolio(db as unknown as DbClient, MIDAS_WORKSPACE_ID);
     await seedInsightTemplates(db as unknown as DbClient, MNA_WORKSPACE_ID);
     await seedInsights(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
     await seedBots(db as unknown as DbClient, MNA_WORKSPACE_ID, seedUser.id);
@@ -5740,6 +5763,17 @@ async function main() {
 // The row-level trigger blocks DELETE on fl_ledger_entries, but TRUNCATE is permitted:
 // TRUNCATE fl_ledger_entry_funding_allocations, fl_ledger_entries, fl_business_events, fl_positions, fl_valuations CASCADE;
 // ============================================================================
+
+/**
+ * The id a fund-ledger seed row gets in `workspaceId`. The Combined workspace
+ * keeps the constants below unchanged, so an existing local DB reseeds without
+ * duplicating rows. Every other workspace gets its own copy of each row: the
+ * leading `00000000` is swapped for the last 8 hex digits of the workspace id
+ * (Used for Midas → `00000005-…`).
+ */
+function fundSeedIdFor(workspaceId: string, seedId: string): string {
+  return workspaceId === MNA_WORKSPACE_ID ? seedId : `${workspaceId.slice(-8)}${seedId.slice(8)}`;
+}
 
 export const SEED_FL_FUND_COMMITMENT_ID = '00000000-0000-0000-0000-00000000f101';
 export const SEED_FL_FUND_UNITIZED_ID = '00000000-0000-0000-0000-00000000f102';
@@ -5778,6 +5812,7 @@ export const SEED_FL_VAL_POS_1_ID = '00000000-0000-0000-0000-00000000f806';
 export const SEED_FL_VAL_POS_2_ID = '00000000-0000-0000-0000-00000000f807';
 
 export async function seedFundLedger(db: DbClient, workspaceId: string): Promise<void> {
+  const id = (seedId: string) => fundSeedIdFor(workspaceId, seedId);
   const container = createContainer(db, workspaceId);
 
   await (db as any).transaction(async (tx: any) => {
@@ -5786,7 +5821,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     // 1. Skip guard: check if the first deterministic event exists
     const existingEvent = await container.flLedgerService.getEventById(
       workspaceId,
-      SEED_FL_EVENT_1_ID,
+      id(SEED_FL_EVENT_1_ID),
       txDb,
     );
     if (existingEvent) {
@@ -5799,7 +5834,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
       .insert(flInvestors)
       .values([
         {
-          id: SEED_FL_INVESTOR_1_ID,
+          id: id(SEED_FL_INVESTOR_1_ID),
           workspace_id: workspaceId,
           name: 'Acme Institutional Partners',
           canonical_name: normalizeCanonicalName('Acme Institutional Partners'),
@@ -5808,7 +5843,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           country: 'USA',
         },
         {
-          id: SEED_FL_INVESTOR_2_ID,
+          id: id(SEED_FL_INVESTOR_2_ID),
           workspace_id: workspaceId,
           name: 'Jane Doe Family Office',
           canonical_name: normalizeCanonicalName('Jane Doe Family Office'),
@@ -5823,7 +5858,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
       .insert(flFunds)
       .values([
         {
-          id: SEED_FL_FUND_COMMITMENT_ID,
+          id: id(SEED_FL_FUND_COMMITMENT_ID),
           workspace_id: workspaceId,
           name: 'Apex Ventures I',
           canonical_name: normalizeCanonicalName('Apex Ventures I'),
@@ -5837,7 +5872,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           carry_rate: '0.20000000',
         },
         {
-          id: SEED_FL_FUND_UNITIZED_ID,
+          id: id(SEED_FL_FUND_UNITIZED_ID),
           workspace_id: workspaceId,
           name: 'Horizon Liquid Fund',
           canonical_name: normalizeCanonicalName('Horizon Liquid Fund'),
@@ -5849,7 +5884,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           status: 'investing',
         },
         {
-          id: SEED_FL_FUND_EXTERNAL_ID,
+          id: id(SEED_FL_FUND_EXTERNAL_ID),
           workspace_id: workspaceId,
           name: 'Beacon Global Fund',
           canonical_name: normalizeCanonicalName('Beacon Global Fund'),
@@ -5867,7 +5902,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
       .insert(flAssets)
       .values([
         {
-          id: SEED_FL_ASSET_EQUITY_ID,
+          id: id(SEED_FL_ASSET_EQUITY_ID),
           workspace_id: workspaceId,
           name: 'TechCorp Global Equity',
           canonical_name: normalizeCanonicalName('TechCorp Global Equity'),
@@ -5877,7 +5912,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           sector: 'Technology',
         },
         {
-          id: SEED_FL_ASSET_LOAN_ID,
+          id: id(SEED_FL_ASSET_LOAN_ID),
           workspace_id: workspaceId,
           name: 'FinTech Senior Secured Loan',
           canonical_name: normalizeCanonicalName('FinTech Senior Secured Loan'),
@@ -5893,7 +5928,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
       .insert(flFundingSources)
       .values([
         {
-          id: SEED_FL_FUNDING_SOURCE_1_ID,
+          id: id(SEED_FL_FUNDING_SOURCE_1_ID),
           workspace_id: workspaceId,
           name: 'Apex Capital Pool Primary',
           canonical_name: normalizeCanonicalName('Apex Capital Pool Primary'),
@@ -5901,7 +5936,7 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
           currency: 'USD',
         },
         {
-          id: SEED_FL_FUNDING_SOURCE_2_ID,
+          id: id(SEED_FL_FUNDING_SOURCE_2_ID),
           workspace_id: workspaceId,
           name: 'Apex Credit Facility',
           canonical_name: normalizeCanonicalName('Apex Credit Facility'),
@@ -5927,9 +5962,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_LP1_COMMIT_ID,
-        holder_investor_id: SEED_FL_INVESTOR_1_ID,
-        fund_id: SEED_FL_FUND_COMMITMENT_ID,
+        id: id(SEED_FL_POS_LP1_COMMIT_ID),
+        holder_investor_id: id(SEED_FL_INVESTOR_1_ID),
+        fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5938,9 +5973,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_LP2_COMMIT_ID,
-        holder_investor_id: SEED_FL_INVESTOR_2_ID,
-        fund_id: SEED_FL_FUND_COMMITMENT_ID,
+        id: id(SEED_FL_POS_LP2_COMMIT_ID),
+        holder_investor_id: id(SEED_FL_INVESTOR_2_ID),
+        fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5949,9 +5984,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_LP1_UNIT_ID,
-        holder_investor_id: SEED_FL_INVESTOR_1_ID,
-        fund_id: SEED_FL_FUND_UNITIZED_ID,
+        id: id(SEED_FL_POS_LP1_UNIT_ID),
+        holder_investor_id: id(SEED_FL_INVESTOR_1_ID),
+        fund_id: id(SEED_FL_FUND_UNITIZED_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5960,9 +5995,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_FUND1_EXT_ID,
-        holder_fund_id: SEED_FL_FUND_COMMITMENT_ID,
-        fund_id: SEED_FL_FUND_EXTERNAL_ID,
+        id: id(SEED_FL_POS_FUND1_EXT_ID),
+        holder_fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
+        fund_id: id(SEED_FL_FUND_EXTERNAL_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5971,9 +6006,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_FUND1_EQUITY_ID,
-        holder_fund_id: SEED_FL_FUND_COMMITMENT_ID,
-        asset_id: SEED_FL_ASSET_EQUITY_ID,
+        id: id(SEED_FL_POS_FUND1_EQUITY_ID),
+        holder_fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
+        asset_id: id(SEED_FL_ASSET_EQUITY_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5982,9 +6017,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_POS_FUND1_LOAN_ID,
-        holder_fund_id: SEED_FL_FUND_COMMITMENT_ID,
-        asset_id: SEED_FL_ASSET_LOAN_ID,
+        id: id(SEED_FL_POS_FUND1_LOAN_ID),
+        holder_fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
+        asset_id: id(SEED_FL_ASSET_LOAN_ID),
         opened_at: '2026-01-01',
       },
       txDb,
@@ -5995,18 +6030,18 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_1_ID,
+        business_event_id: id(SEED_FL_EVENT_1_ID),
         event_date: '2026-01-15',
         description: 'Initial LP commitments to Apex Ventures I',
         entries: [
           {
-            position_id: SEED_FL_POS_LP1_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
             entry_type: 'commitment',
             commitment_delta: '10000000.00000000',
             currency: 'USD',
           },
           {
-            position_id: SEED_FL_POS_LP2_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
             entry_type: 'commitment',
             commitment_delta: '5000000.00000000',
             currency: 'USD',
@@ -6020,30 +6055,30 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_2_ID,
+        business_event_id: id(SEED_FL_EVENT_2_ID),
         event_date: '2026-02-01',
         description: 'Capital Call #1 contribution',
         entries: [
           {
-            position_id: SEED_FL_POS_LP1_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
             entry_type: 'paid_in',
             cash_delta: '-5000000.00000000',
             currency: 'USD',
             allocations: [
               {
-                funding_source_id: SEED_FL_FUNDING_SOURCE_1_ID,
+                funding_source_id: id(SEED_FL_FUNDING_SOURCE_1_ID),
                 amount: '5000000.00000000',
               },
             ],
           },
           {
-            position_id: SEED_FL_POS_LP2_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
             entry_type: 'paid_in',
             cash_delta: '-2500000.00000000',
             currency: 'USD',
             allocations: [
               {
-                funding_source_id: SEED_FL_FUNDING_SOURCE_1_ID,
+                funding_source_id: id(SEED_FL_FUNDING_SOURCE_1_ID),
                 amount: '2500000.00000000',
               },
             ],
@@ -6057,13 +6092,13 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_3_ID,
+        business_event_id: id(SEED_FL_EVENT_3_ID),
         event_date: '2026-03-01',
         description:
           'Investment in TechCorp Global Series B',
         entries: [
           {
-            position_id: SEED_FL_POS_FUND1_EQUITY_ID,
+            position_id: id(SEED_FL_POS_FUND1_EQUITY_ID),
             entry_type: 'buy',
             quantity_delta: '40000.00000000',
             cash_delta: '-4000000.00000000',
@@ -6071,11 +6106,11 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
             currency: 'USD',
             allocations: [
               {
-                funding_source_id: SEED_FL_FUNDING_SOURCE_1_ID,
+                funding_source_id: id(SEED_FL_FUNDING_SOURCE_1_ID),
                 amount: '2500000.00000000',
               },
               {
-                funding_source_id: SEED_FL_FUNDING_SOURCE_2_ID,
+                funding_source_id: id(SEED_FL_FUNDING_SOURCE_2_ID),
                 amount: '1500000.00000000',
               },
             ],
@@ -6089,18 +6124,18 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_4_ID,
+        business_event_id: id(SEED_FL_EVENT_4_ID),
         event_date: '2026-06-01',
         description: 'Q2 Dividend Distribution',
         entries: [
           {
-            position_id: SEED_FL_POS_LP1_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
             entry_type: 'distribution',
             cash_delta: '500000.00000000',
             currency: 'USD',
           },
           {
-            position_id: SEED_FL_POS_LP2_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
             entry_type: 'distribution',
             cash_delta: '250000.00000000',
             currency: 'USD',
@@ -6114,21 +6149,21 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_5_ID,
+        business_event_id: id(SEED_FL_EVENT_5_ID),
         event_date: '2026-07-01',
         description:
           'Secondary transfer of $1M commitment from Acme to Jane Doe FO',
         entries: [
           {
-            position_id: SEED_FL_POS_LP1_COMMIT_ID,
-            counterparty_position_id: SEED_FL_POS_LP2_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
+            counterparty_position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
             entry_type: 'commitment_transfer',
             commitment_delta: '-1000000.00000000',
             currency: 'USD',
           },
           {
-            position_id: SEED_FL_POS_LP2_COMMIT_ID,
-            counterparty_position_id: SEED_FL_POS_LP1_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
+            counterparty_position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
             entry_type: 'commitment_transfer',
             commitment_delta: '1000000.00000000',
             currency: 'USD',
@@ -6142,18 +6177,18 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_EVENT_6_ID,
+        business_event_id: id(SEED_FL_EVENT_6_ID),
         event_date: '2026-08-01',
         description: 'Erroneous capital call contribution',
         entries: [
           {
-            position_id: SEED_FL_POS_LP2_COMMIT_ID,
+            position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
             entry_type: 'paid_in',
             cash_delta: '-100000.00000000',
             currency: 'USD',
             allocations: [
               {
-                funding_source_id: SEED_FL_FUNDING_SOURCE_1_ID,
+                funding_source_id: id(SEED_FL_FUNDING_SOURCE_1_ID),
                 amount: '100000.00000000',
               },
             ],
@@ -6166,9 +6201,9 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     // Event 7: Reversal of Event 6
     await container.flLedgerService.reverseEvent(
       workspaceId,
-      SEED_FL_EVENT_6_ID,
+      id(SEED_FL_EVENT_6_ID),
       {
-        business_event_id: SEED_FL_EVENT_7_REVERSAL_ID,
+        business_event_id: id(SEED_FL_EVENT_7_REVERSAL_ID),
         event_date: '2026-08-05',
         description: 'Reversal of erroneous capital call contribution',
       },
@@ -6180,8 +6215,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_ASSET_1_ID,
-        asset_id: SEED_FL_ASSET_EQUITY_ID,
+        id: id(SEED_FL_VAL_ASSET_1_ID),
+        asset_id: id(SEED_FL_ASSET_EQUITY_ID),
         as_of_date: '2026-03-01',
         valuation_method: 'at_cost',
         price_per_unit: '100.00000000',
@@ -6193,8 +6228,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_ASSET_2_ID,
-        asset_id: SEED_FL_ASSET_EQUITY_ID,
+        id: id(SEED_FL_VAL_ASSET_2_ID),
+        asset_id: id(SEED_FL_ASSET_EQUITY_ID),
         as_of_date: '2026-06-30',
         valuation_method: 'fundraise_round',
         price_per_unit: '125.00000000',
@@ -6206,8 +6241,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_ASSET_3_ID,
-        asset_id: SEED_FL_ASSET_LOAN_ID,
+        id: id(SEED_FL_VAL_ASSET_3_ID),
+        asset_id: id(SEED_FL_ASSET_LOAN_ID),
         as_of_date: '2026-06-30',
         valuation_method: 'at_cost',
         market_value: '2000000.00000000',
@@ -6219,8 +6254,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_FUND_1_ID,
-        fund_id: SEED_FL_FUND_COMMITMENT_ID,
+        id: id(SEED_FL_VAL_FUND_1_ID),
+        fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
         as_of_date: '2026-03-31',
         valuation_method: 'appraisal',
         net_value: '7500000.00000000',
@@ -6231,8 +6266,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_FUND_2_ID,
-        fund_id: SEED_FL_FUND_COMMITMENT_ID,
+        id: id(SEED_FL_VAL_FUND_2_ID),
+        fund_id: id(SEED_FL_FUND_COMMITMENT_ID),
         as_of_date: '2026-06-30',
         valuation_method: 'capital_account_statement',
         net_value: '8250000.00000000',
@@ -6244,8 +6279,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_POS_1_ID,
-        position_id: SEED_FL_POS_LP1_COMMIT_ID,
+        id: id(SEED_FL_VAL_POS_1_ID),
+        position_id: id(SEED_FL_POS_LP1_COMMIT_ID),
         as_of_date: '2026-06-30',
         valuation_method: 'capital_account_statement',
         net_value: '5500000.00000000',
@@ -6256,8 +6291,8 @@ export async function seedFundLedger(db: DbClient, workspaceId: string): Promise
     await container.flValuationService.record(
       workspaceId,
       {
-        id: SEED_FL_VAL_POS_2_ID,
-        position_id: SEED_FL_POS_LP2_COMMIT_ID,
+        id: id(SEED_FL_VAL_POS_2_ID),
+        position_id: id(SEED_FL_POS_LP2_COMMIT_ID),
         as_of_date: '2026-06-30',
         valuation_method: 'capital_account_statement',
         net_value: '2750000.00000000',
@@ -6357,6 +6392,8 @@ const minIso = (a: string, b: string) => (a < b ? a : b);
 const fofUsd = (m: number) => Math.round(m * 1_000_000).toFixed(8);
 
 export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promise<void> {
+  const id = (seedId: string) => fundSeedIdFor(workspaceId, seedId);
+  const fofId = (kind: number, n: number) => id(fofSeedId(kind, n));
   const container = createContainer(db, workspaceId);
 
   await (db as any).transaction(async (tx: any) => {
@@ -6364,7 +6401,7 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
 
     const existing = await container.flLedgerService.getEventById(
       workspaceId,
-      SEED_FL_FOF_LP_EVENT_ID,
+      id(SEED_FL_FOF_LP_EVENT_ID),
       txDb,
     );
     if (existing) {
@@ -6391,7 +6428,7 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
     await tx
       .insert(flFunds)
       .values({
-        id: SEED_FL_FOF_FUND_ID,
+        id: id(SEED_FL_FOF_FUND_ID),
         workspace_id: workspaceId,
         name: 'Meridian Fund of Funds',
         canonical_name: normalizeCanonicalName('Meridian Fund of Funds'),
@@ -6411,9 +6448,9 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
     await container.flPositionService.getOrOpenPosition(
       workspaceId,
       {
-        id: SEED_FL_FOF_LP_POS_ID,
-        holder_investor_id: SEED_FL_INVESTOR_1_ID,
-        fund_id: SEED_FL_FOF_FUND_ID,
+        id: id(SEED_FL_FOF_LP_POS_ID),
+        holder_investor_id: id(SEED_FL_INVESTOR_1_ID),
+        fund_id: id(SEED_FL_FOF_FUND_ID),
         opened_at: '2014-01-02',
       },
       txDb,
@@ -6421,12 +6458,12 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: SEED_FL_FOF_LP_EVENT_ID,
+        business_event_id: id(SEED_FL_FOF_LP_EVENT_ID),
         event_date: '2014-01-02',
         description: 'Anchor LP commitment to Meridian Fund of Funds',
         entries: [
           {
-            position_id: SEED_FL_FOF_LP_POS_ID,
+            position_id: id(SEED_FL_FOF_LP_POS_ID),
             entry_type: 'commitment',
             commitment_delta: fofUsd(totalCommitment),
             currency: 'USD',
@@ -6438,12 +6475,12 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
     await container.flLedgerService.postEvent(
       workspaceId,
       {
-        business_event_id: fofSeedId(1, 0xf004),
+        business_event_id: fofId(1, 0xf004),
         event_date: '2014-01-03',
         description: 'Anchor LP paid-in capital',
         entries: [
           {
-            position_id: SEED_FL_FOF_LP_POS_ID,
+            position_id: id(SEED_FL_FOF_LP_POS_ID),
             entry_type: 'paid_in',
             cash_delta: `-${fofUsd(totalInvested)}`,
             currency: 'USD',
@@ -6455,8 +6492,8 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
 
     for (const [i, a] of SEED_FOF_INTERESTS.entries()) {
       const n = i + 1;
-      const assetId = fofSeedId(2, n);
-      const positionId = fofSeedId(3, n);
+      const assetId = fofId(2, n);
+      const positionId = fofId(3, n);
 
       await tx
         .insert(flAssets)
@@ -6483,7 +6520,7 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
         workspaceId,
         {
           id: positionId,
-          holder_fund_id: SEED_FL_FOF_FUND_ID,
+          holder_fund_id: id(SEED_FL_FOF_FUND_ID),
           asset_id: assetId,
           opened_at: a.entryDate,
         },
@@ -6520,7 +6557,7 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
         await container.flLedgerService.postEvent(
           workspaceId,
           {
-            business_event_id: fofSeedId(4, n * 16 + j),
+            business_event_id: fofId(4, n * 16 + j),
             event_date: flow.date,
             description: `${a.name} — ${flow.entry_type === 'paid_in' ? 'capital call' : 'distribution'}`,
             entries: [
@@ -6545,7 +6582,7 @@ export async function seedFofPortfolio(db: DbClient, workspaceId: string): Promi
         await container.flValuationService.record(
           workspaceId,
           {
-            id: fofSeedId(5, n * 16 + j),
+            id: fofId(5, n * 16 + j),
             asset_id: assetId,
             as_of_date: asOf,
             valuation_method: 'capital_account_statement',

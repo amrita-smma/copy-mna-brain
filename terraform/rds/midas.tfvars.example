@@ -1,0 +1,21 @@
+# Midas (Star Capital) data mart access. Copy to midas.tfvars (gitignored),
+# fill in, and pass with -var-file=midas.tfvars. Runbook:
+# docs/runbooks/midas-data-mart/README.md
+
+# IAM principals in Star Capital's AWS account allowed to assume
+# mna-<env>-midas-rds-reader. Prefer a specific role over an account root.
+midas_trusted_principal_arns = [
+  "arn:aws:iam::111122223333:role/midas-agent",
+]
+
+# Shared secret Star Capital sends as sts:ExternalId. Generate with
+# `openssl rand -hex 32` and share it over a secure channel, never in chat.
+midas_external_id = "replace-with-generated-external-id"
+
+# Optional: narrow internet access to RDS to known egress IPs (/32 each).
+# Leaving this unset keeps the module default. If you set it, include every
+# other client that connects (Vercel static IPs, engineers' IPs), not only
+# Star Capital's.
+# rds_public_ingress_cidrs = [
+#   "203.0.113.10/32",
+# ]
