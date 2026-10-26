@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { CalendarClock, Info, ListChecks, MessageSquare, Pencil, Plus, Sparkles, Trash2, Users, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { BetaChip } from '@/components/BetaChip';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -70,6 +71,12 @@ export default function Bots() {
     <div className="min-h-full">
       <PageHeader
         title="Bots"
+        titleAdornment={
+          <BetaChip
+            className="px-2 py-0.5 text-xs"
+            data-testid="bots-page-beta-chip"
+          />
+        }
         subtitle="Copilots with their own instructions, skills and look. Each bot keeps one ongoing chat per person."
         actions={
           <Button className="gap-2" onClick={() => setEditing({ bot: null })} data-testid="bot-new">

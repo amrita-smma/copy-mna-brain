@@ -13,6 +13,7 @@ import { ThoughtCloud } from "@/components/bots/ThoughtCloud";
 import { UnreadDot } from "@/components/bots/UnreadDot";
 import { BotEditDialog } from "@/components/bots/BotEditDialog";
 import { WorkspaceLink } from "@/components/WorkspaceLink";
+import { BetaChip } from "@/components/BetaChip";
 import { pickVisibleBots } from "@/lib/bots/order";
 import { findTabByPath, toLogicalPath } from "@/lib/navigation/consoleTabs";
 import { Plus, SlidersHorizontal } from "lucide-react";
@@ -69,12 +70,15 @@ export function ChatSidebar({
         <div className="flex flex-col gap-4 py-3">
           <section aria-labelledby="sidebar-bots-heading" className="px-2">
             <div className="flex items-center gap-1 py-1 pl-2">
-              <h2
-                id="sidebar-bots-heading"
-                className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70"
-              >
-                Bots
-              </h2>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <h2
+                  id="sidebar-bots-heading"
+                  className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70"
+                >
+                  Bots
+                </h2>
+                <BetaChip data-testid="sidebar-bots-beta-chip" />
+              </div>
               <button
                 type="button"
                 onClick={() => setCreating(true)}
