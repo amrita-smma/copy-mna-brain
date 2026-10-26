@@ -155,9 +155,10 @@ describe('BankerScorecardService.getScorecards', () => {
       reachedL1: 0,
       conversion: null,
       stageBreakdown: [],
+      involvedStageBreakdown: [],
       hasDealLinks: false,
     });
-    // No deals brought: no log read.
+    // No linked deals: no log read.
     expect(mocks.findByCompanyIds).not.toHaveBeenCalled();
   });
 
@@ -249,8 +250,54 @@ describe('BankerScorecardService.getScorecards', () => {
       stageBreakdown: [],
       hasDealLinks: true,
     });
-    // Logs only for deals someone brought, once per company.
+    expect(cards.get('c1')?.involvedStageBreakdown).toEqual([]);
+    expect(cards.get('c2')?.involvedStageBreakdown.filter((b) => b.count > 0)).toEqual([
+      { stageKey: 'L2', label: 'L2', count: 1, currentCount: 1 },
+    ]);
+    // Logs once per linked company, whichever role linked it.
+    expect(mocks.findByCompanyIds).toHaveBeenCalledTimes(1);
     expect(mocks.findByCompanyIds).toHaveBeenCalledWith(['co1']);
+  });
+
+  it('builds the involved breakdown by furthest stage, apart from the brought one', async () => {
+    mocks.listForContacts.mockResolvedValue([
+      link('c1', 'co-brought', 'source', 'unreviewed'),
+      // Reached L2, then dropped there.
+      link('c1', 'co-dropped', 'involved', 'L2', { companyStatus: 'dropped' }),
+      link('c1', 'co-l1', 'involved', 'L1'),
+      link('c1', 'co-pending', 'involved', 'unreviewed'),
+    ]);
+    mocks.findByCompanyIds.mockResolvedValue([
+      log('co-dropped', 'PROMOTED_FROM_L1_TO_L2'),
+      log('co-dropped', 'DROPPED_FROM_L2'),
+    ]);
+
+    const card = (await makeService().getScorecards(['c1'])).get('c1')!;
+
+    expect(mocks.findByCompanyIds).toHaveBeenCalledWith(['co-brought', 'co-dropped', 'co-l1', 'co-pending']);
+    expect(card.involvedStageBreakdown).toEqual([
+      { stageKey: 'unreviewed', label: 'Pending Confirmation', count: 1, currentCount: 1 },
+      { stageKey: 'L0', label: 'L0', count: 0, currentCount: 0 },
+      { stageKey: 'L1', label: 'L1 · Screening', count: 1, currentCount: 1 },
+      // Dropped, so it sits nowhere now.
+      { stageKey: 'L2', label: 'L2', count: 1, currentCount: 0 },
+      { stageKey: 'L3', label: 'L3', count: 0, currentCount: 0 },
+    ]);
+    // The brought side only sees the one deal brought.
+    expect(card.stageBreakdown.filter((b) => b.count > 0)).toEqual([
+      { stageKey: 'unreviewed', label: 'Pending Confirmation', count: 1, currentCount: 1 },
+    ]);
+  });
+
+  it('never counts involved deals toward reached L1 or conversion', async () => {
+    mocks.listForContacts.mockResolvedValue([
+      link('c1', 'co-brought', 'source', 'L0'),
+      link('c1', 'co-involved', 'involved', 'L3'),
+    ]);
+
+    const card = (await makeService().getScorecards(['c1'])).get('c1')!;
+
+    expect(card).toMatchObject({ dealsBrought: 1, dealsInvolved: 1, reachedL1: 0, conversion: 0 });
   });
 
   it('ignores dismissed links', async () => {

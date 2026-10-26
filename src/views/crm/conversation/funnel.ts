@@ -62,18 +62,28 @@ export function parseStageLabel(label: string): { level: string | null; name: st
   return m ? { level: m[1], name: m[2] } : { level: null, name: label.trim() };
 }
 
+/** Which of a banker's deals the funnel shows: brought (`source`) or involved in. */
+export type FunnelMode = "brought" | "involved";
+
 /**
- * Plain-arithmetic bullets for the funnel's summary box: deals brought and how
- * many reached the last stage, the biggest drop-off, and how many live deals
- * sit in the two stages before the last. Stages are referred to by position
- * and label, never by a hardcoded name, because stage names vary by
- * workspace. Returns [] when nothing was brought.
+ * Plain-arithmetic bullets for the funnel's summary box: deals brought (or
+ * involved in, by `mode`) and how many reached the last stage, the biggest
+ * drop-off, and how many live deals sit in the two stages before the last.
+ * Stages are referred to by position and label, never by a hardcoded name,
+ * because stage names vary by workspace. Returns [] when there are no deals.
  */
-export function summariseFunnel(stages: FunnelStage[], firstName: string): string[] {
+export function summariseFunnel(
+  stages: FunnelStage[],
+  firstName: string,
+  mode: FunnelMode = "brought",
+): string[] {
   const total = stages[0]?.funnelCount ?? 0;
   if (total === 0) return [];
 
-  const brought = `${firstName} brought ${plural(total, "deal")}`;
+  const brought =
+    mode === "brought"
+      ? `${firstName} brought ${plural(total, "deal")}`
+      : `${firstName} was involved in ${plural(total, "deal")}`;
   const last = stages[stages.length - 1];
   const bullets = [
     stages.length > 1

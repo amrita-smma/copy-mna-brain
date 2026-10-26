@@ -1,9 +1,16 @@
 "use client";
 
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BankerScorecard } from "@/lib/api/contactInsights";
 import { INSIGHTS_PERIODS, type InsightsPeriod } from "@/lib/crm/insightsPeriod";
 import { CornerDownRight, Loader2 } from "lucide-react";
-import { computeFunnelStages, parseStageLabel, summariseFunnel } from "./funnel";
+import { useState } from "react";
+import {
+  computeFunnelStages,
+  parseStageLabel,
+  summariseFunnel,
+  type FunnelMode,
+} from "./funnel";
 import { NoData, SectionLabel } from "./SectionLabel";
 
 const PERIOD_LABELS: Record<InsightsPeriod, string> = {
@@ -18,6 +25,12 @@ const PERIOD_LABELS: Record<InsightsPeriod, string> = {
 const SUMMARY_BG = "bg-[color-mix(in_oklab,hsl(var(--primary))_8%,hsl(var(--card)))]";
 const STEP_PILL =
   "bg-[color-mix(in_oklab,hsl(var(--primary))_14%,hsl(var(--card)))] text-primary";
+/**
+ * Brought | Involved segments: the selected one takes the step pill's tint,
+ * and the focus ring is thin and flush so it never reads as a second border.
+ */
+const MODE_ITEM =
+  "h-6 px-2 text-xs text-muted-foreground focus-visible:ring-1 focus-visible:ring-offset-0 data-[state=on]:bg-[color-mix(in_oklab,hsl(var(--primary))_14%,hsl(var(--card)))] data-[state=on]:font-semibold data-[state=on]:text-primary";
 
 /** Bars darken stage by stage; the last stage is solid primary. */
 function barStyle(idx: number, count: number): React.CSSProperties {
@@ -46,11 +59,12 @@ export function DealFunnelTab({
   loading?: boolean;
   contactFirstName: string;
 }) {
+  const [mode, setMode] = useState<FunnelMode>("brought");
   const hasLinks = Boolean(scorecard?.hasDealLinks);
-  const stages = scorecard?.stageBreakdown
-    ? computeFunnelStages(scorecard.stageBreakdown)
-    : [];
-  const summary = scorecard ? summariseFunnel(stages, contactFirstName) : [];
+  const breakdown =
+    mode === "brought" ? scorecard?.stageBreakdown : scorecard?.involvedStageBreakdown;
+  const stages = breakdown ? computeFunnelStages(breakdown) : [];
+  const summary = scorecard ? summariseFunnel(stages, contactFirstName, mode) : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -59,6 +73,30 @@ export function DealFunnelTab({
           <SectionLabel ai={false}>Deal funnel</SectionLabel>
           <div className="flex items-center gap-2">
             {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            <ToggleGroup
+              type="single"
+              value={mode}
+              // Radix lets a single group be cleared; keep one mode selected.
+              onValueChange={(v) => {
+                if (v) setMode(v as FunnelMode);
+              }}
+              className="gap-0 rounded-md border border-input bg-card p-0.5"
+              aria-label="Deals shown"
+              data-testid="contact-conversation-funnel-mode"
+            >
+              <ToggleGroupItem
+                value="brought"
+                className={MODE_ITEM}
+              >
+                Brought
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="involved"
+                className={MODE_ITEM}
+              >
+                Involved
+              </ToggleGroupItem>
+            </ToggleGroup>
             <select
               value={period}
               onChange={(e) => onPeriodChange(e.target.value as InsightsPeriod)}
@@ -75,12 +113,20 @@ export function DealFunnelTab({
           </div>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Furthest stage reached by the deals {contactFirstName} brought in this period
+          {mode === "brought"
+            ? `Furthest stage reached by the deals ${contactFirstName} brought in this period`
+            : `Furthest stage reached by the deals ${contactFirstName} was involved in, in this period`}
         </p>
       </div>
 
       {!hasLinks || stages.length === 0 ? (
-        <NoData text="No linked deals in this period" />
+        <NoData
+          text={
+            mode === "brought"
+              ? "No deals brought in this period"
+              : "No deals involved in this period"
+          }
+        />
       ) : (
         <>
           {summary.length > 0 && (

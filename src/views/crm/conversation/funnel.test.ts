@@ -90,6 +90,12 @@ describe("summariseFunnel", () => {
     ]);
   });
 
+  it("says involved in, not brought, in involved mode", () => {
+    expect(summariseFunnel(computeFunnelStages(breakdown), "Sally", "involved")[0]).toBe(
+      "Sally was involved in 4 deals; 2 reached Closing (50% end-to-end).",
+    );
+  });
+
   it("counts live deals in the two stages before the last, by their labels", () => {
     const six = computeFunnelStages([
       { stageKey: "l0", label: "L0 · Company Sourcing", count: 40, currentCount: 30 },

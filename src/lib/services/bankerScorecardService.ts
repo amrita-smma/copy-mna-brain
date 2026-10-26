@@ -4,6 +4,7 @@ import type {
   PipelineStageRepository,
   PipelineStageRow,
 } from '@/lib/repositories';
+import type { DealContactRole } from '@/lib/db/schema';
 import {
   BUILTIN_PIPELINE_STAGE_KEYS,
   FIRST_STAGE_KEY,
@@ -12,13 +13,13 @@ import {
 import { dealStageLabeler } from './dealContactService';
 import { parseStageDestination } from './stalledDealService';
 
-/** Deals a banker brought, by the furthest stage each one reached. */
+/** A banker's deals in one role, by the furthest stage each one reached. */
 export interface BankerStageCount {
   stageKey: string;
   /** How the stage reads in this workspace: "L1 · Screening", "Pending Confirmation". */
   label: string;
   count: number;
-  /** Deals brought sitting in this stage now and not dropped (`companies.pipeline_stage`). */
+  /** Those deals sitting in this stage now and not dropped (`companies.pipeline_stage`). */
   currentCount: number;
 }
 
@@ -43,6 +44,12 @@ export interface BankerScorecard {
    * pre-pipeline or deleted stage appears only when a deal sits on it.
    */
   stageBreakdown: BankerStageCount[];
+  /**
+   * The same breakdown for the deals the banker was involved in (`involved`
+   * links), for the Deal funnel's Involved mode. Never feeds `reachedL1` or
+   * `conversion`, which stay about deals brought.
+   */
+  involvedStageBreakdown: BankerStageCount[];
   /** Whether the banker has any active link (either role) in the period. */
   hasDealLinks: boolean;
 }
@@ -159,15 +166,22 @@ function emptyBankerScorecard(correspondentId: string): BankerScorecard {
     reachedL1: 0,
     conversion: null,
     stageBreakdown: [],
+    involvedStageBreakdown: [],
     hasDealLinks: false,
   };
 }
 
+/** One contact's deals in one role: count by furthest stage, live count by current stage. */
+interface StageTally {
+  byStage: Map<string, number>;
+  current: Map<string, number>;
+}
+
 /**
  * Per-banker deal scorecards (MB-857): deals brought (`source`) and involved
- * in, how far each deal brought got, and how many passed screening. Bulk —
- * a fixed number of queries for any number of bankers: one link read, one
- * log read, one stage-list read. Reads only: callers that want late Smart
+ * in, how far each deal got (per role), and how many brought passed
+ * screening. Bulk — a fixed number of queries for any number of bankers: one
+ * link read, one log read, one stage-list read. Reads only: callers that want late Smart
  * Files links counted reconcile them first.
  */
 export class BankerScorecardService {
@@ -192,11 +206,9 @@ export class BankerScorecardService {
       this.stageRepo.list(),
     ]);
     const active = links.filter((l) => l.status === 'active');
-    const broughtCompanyIds = [
-      ...new Set(active.filter((l) => l.role === 'source').map((l) => l.companyId)),
-    ];
+    const linkedCompanyIds = [...new Set(active.map((l) => l.companyId))];
     const logs: StageLogRow[] =
-      broughtCompanyIds.length > 0 ? await this.companyLogRepo.findByCompanyIds(broughtCompanyIds) : [];
+      linkedCompanyIds.length > 0 ? await this.companyLogRepo.findByCompanyIds(linkedCompanyIds) : [];
 
     const actionsByCompany = new Map<string, Array<string | null>>();
     for (const log of logs) {
@@ -214,7 +226,7 @@ export class BankerScorecardService {
     const labelOf = dealStageLabeler(stageRows);
     const furthestByCompany = new Map<string, string>();
     for (const l of active) {
-      if (l.role !== 'source' || furthestByCompany.has(l.companyId)) continue;
+      if (furthestByCompany.has(l.companyId)) continue;
       furthestByCompany.set(
         l.companyId,
         furthestStage(l.pipelineStage, actionsByCompany.get(l.companyId) ?? [], ranker),
@@ -222,48 +234,43 @@ export class BankerScorecardService {
     }
 
     for (const id of ids) scorecards.set(id, emptyBankerScorecard(id));
-    const breakdowns = new Map<string, Map<string, number>>();
-    const currents = new Map<string, Map<string, number>>();
+    // Per role, per contact: deals by furthest stage, and live deals by where they sit now.
+    const tallies: Record<DealContactRole, Map<string, StageTally>> = {
+      source: new Map(),
+      involved: new Map(),
+    };
     for (const l of active) {
       const card = scorecards.get(l.correspondentId);
       if (!card) continue;
       card.hasDealLinks = true;
-      if (l.role === 'involved') {
-        card.dealsInvolved += 1;
-        continue;
-      }
-      card.dealsBrought += 1;
       const stage = furthestByCompany.get(l.companyId) ?? l.pipelineStage;
-      if (ranker.isPastFirstStage(stage)) card.reachedL1 += 1;
-      let byStage = breakdowns.get(l.correspondentId);
-      if (!byStage) {
-        byStage = new Map();
-        breakdowns.set(l.correspondentId, byStage);
+      if (l.role === 'source') {
+        card.dealsBrought += 1;
+        if (ranker.isPastFirstStage(stage)) card.reachedL1 += 1;
+      } else {
+        card.dealsInvolved += 1;
       }
-      byStage.set(stage, (byStage.get(stage) ?? 0) + 1);
+      let tally = tallies[l.role].get(l.correspondentId);
+      if (!tally) {
+        tally = { byStage: new Map(), current: new Map() };
+        tallies[l.role].set(l.correspondentId, tally);
+      }
+      tally.byStage.set(stage, (tally.byStage.get(stage) ?? 0) + 1);
       if (l.companyStatus !== 'dropped') {
-        let now = currents.get(l.correspondentId);
-        if (!now) {
-          now = new Map();
-          currents.set(l.correspondentId, now);
-        }
-        now.set(l.pipelineStage, (now.get(l.pipelineStage) ?? 0) + 1);
+        tally.current.set(l.pipelineStage, (tally.current.get(l.pipelineStage) ?? 0) + 1);
       }
     }
 
-    for (const card of scorecards.values()) {
-      card.conversion = card.dealsBrought > 0 ? card.reachedL1 / card.dealsBrought : null;
-      const byStage = breakdowns.get(card.correspondentId);
-      if (!byStage) continue;
-      for (const key of liveStageKeys) if (!byStage.has(key)) byStage.set(key, 0);
+    const toBreakdown = (tally: StageTally | undefined): BankerStageCount[] => {
+      if (!tally) return [];
+      for (const key of liveStageKeys) if (!tally.byStage.has(key)) tally.byStage.set(key, 0);
       // A current stage that is no deal's furthest stage gets no row of its own.
-      const now = currents.get(card.correspondentId);
-      card.stageBreakdown = [...byStage.entries()]
+      return [...tally.byStage.entries()]
         .map(([stageKey, count]) => ({
           stageKey,
           label: labelOf(stageKey),
           count,
-          currentCount: now?.get(stageKey) ?? 0,
+          currentCount: tally.current.get(stageKey) ?? 0,
         }))
         .sort(
           (a, b) =>
@@ -271,6 +278,11 @@ export class BankerScorecardService {
               (ranker.rankOf(b.stageKey) ?? Number.NEGATIVE_INFINITY) ||
             a.stageKey.localeCompare(b.stageKey),
         );
+    };
+    for (const card of scorecards.values()) {
+      card.conversion = card.dealsBrought > 0 ? card.reachedL1 / card.dealsBrought : null;
+      card.stageBreakdown = toBreakdown(tallies.source.get(card.correspondentId));
+      card.involvedStageBreakdown = toBreakdown(tallies.involved.get(card.correspondentId));
     }
     return scorecards;
   }

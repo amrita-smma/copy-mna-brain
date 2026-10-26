@@ -202,9 +202,9 @@ Per banker (one person), from **active** `deal_contacts` links only.
 - **Deals brought** = active links with role `source`; **deals involved** =
   role `involved`. Two bankers on the same deal are each credited by their own
   role.
-- **Furthest stage** of a deal brought = the highest-ranked stage it has ever
-  been in: its current `companies.pipeline_stage` plus every stage its
-  `company_logs` show — both ends of a stage move (`PROMOTED_FROM_x_TO_y`,
+- **Furthest stage** of a linked deal (either role) = the highest-ranked
+  stage it has ever been in: its current `companies.pipeline_stage` plus
+  every stage its `company_logs` show — both ends of a stage move (`PROMOTED_FROM_x_TO_y`,
   parsed by `parseStageDestination`; a demotion proves the deal was at `x`),
   `PROMOTED_TO_` / `RESTORED_TO_` / `RESURFACED_TO_`, and `DROPPED_FROM_x`.
   Ranked by `pipeline_stages.position` for the workspace, soft-deleted stages
@@ -221,13 +221,16 @@ Per banker (one person), from **active** `deal_contacts` links only.
   that is no deal's furthest stage gets no row of its own.
 - **`stageBreakdown`** = deals brought by furthest stage, in pipeline order,
   labelled as the workspace names the stage.
+- **`involvedStageBreakdown`** = the same for deals involved in (the funnel's
+  Involved mode), with its own `currentCount`. It never feeds reached L1 or
+  conversion, which stay about deals brought.
 - **`since`** (optional ISO date) keeps only deals whose company was created at
   or after it (`companies.created_at` — when the deal entered Brain); it
   applies to brought and involved alike, and `hasDealLinks` then means "any
   active link in the period".
 
 `getScorecards(ids, { since? })` is bulk — a fixed three reads for any number
-of bankers: `listForContacts`, the logs of the deals brought
+of bankers: `listForContacts`, the logs of every linked deal, either role
 (`CompanyLogRepository.findByCompanyIds`), and the stage list. It only reads:
 `getContactInsights` reads the contact's deals (which reconciles their Smart
 Files links) before the scorecard.
@@ -443,9 +446,12 @@ dialog; header, Ask Brain Bot pills and tabs stay put, the tab body scrolls):
   ("Former employer · 2015–2021", "Board") have no source, so a tile shows the
   email count and last date.
 - **Deal funnel** — furthest stage reached by the deals the contact brought,
-  every live stage listed (zeros included), conversion from the previous
-  stage, and a summary box of plain arithmetic (`summariseFunnel`), not AI:
-  deals brought and how many reached the last stage, the biggest drop-off, and
+  or, with the **Brought | Involved** toggle on Involved, the deals they were
+  involved in (`involvedStageBreakdown`; Brought is the default, and the
+  toggle is per open panel). Every live stage listed (zeros included),
+  conversion from the previous stage, and a summary box of plain arithmetic
+  (`summariseFunnel`), not AI: deals brought (or involved in) and how many
+  reached the last stage, the biggest drop-off, and
   how many live deals sit in the two pipeline stages before the last
   (`currentCount`), named by their workspace labels.
 
@@ -579,7 +585,8 @@ signals with each note.
 - `GET /api/crm/correspondents/[id]/insights?period=all|30d|90d|ytd|12m` —
   `period` only changes the scorecard (deal funnel). Once a contact brought
   anything, `scorecard.stageBreakdown` lists every live pipeline stage, zero
-  when no deal stopped there; `crm_banker_insights` prints only non-zero ones.
+  when no deal stopped there (`involvedStageBreakdown` likewise once they are
+  involved in anything); `crm_banker_insights` prints only non-zero ones.
 
 ### Chat
 
