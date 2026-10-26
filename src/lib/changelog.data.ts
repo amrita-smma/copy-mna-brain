@@ -162,6 +162,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "eba6b298bf16ceb7499ccdf01bd61c855a9e7a21",
+    "date": "2026-10-26",
+    "subject": "Add Midas data mart: midas schema views, IAM-only reader, scoped RDS IAM role, runbook",
+    "category": "feature",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "51cac3e506c574e7399fcce7380d8c390e55ef36",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
