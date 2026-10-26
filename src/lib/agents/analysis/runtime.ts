@@ -106,6 +106,11 @@ export interface InvokeConfig {
    * rides here.
    */
   callbacks?: unknown[];
+  /**
+   * The root run's id. The Langfuse handler files the trace under it, so a
+   * caller that needs to find the trace again (reply feedback) picks it.
+   */
+  runId?: string;
 }
 
 export interface InvokeResult {

@@ -55,6 +55,8 @@ import {
   type BotMessagePayload,
 } from "@/lib/bots/approval";
 import { AttachedInsightTemplateCard } from "./AttachedInsightTemplateCard";
+import { ResponseActions } from "./ResponseActions";
+import type { UIMessageMetadata } from "@/lib/chat/uiMessages";
 import { readInsightTemplatePart } from "@/lib/insights/templateAttachment";
 import { AttachedInsightSelectionCard } from "./AttachedInsightSelectionCard";
 import { readInsightSelectionPart } from "@/lib/insights/selectionAttachment";
@@ -186,6 +188,15 @@ interface ChatMessageBubbleProps {
   /** The active bot's name, for the "Deal Scout is thinking…" bubble. */
   botName?: string;
   avatarState?: AvatarState;
+  /**
+   * Show the Copy / Retry / feedback row under a finished reply (MB-693). Off
+   * for bubbles outside the main transcript (folded bot relays).
+   */
+  showActions?: boolean;
+  /** The question Retry sends again; Retry is hidden without one. */
+  retryText?: string | null;
+  /** This is the latest finished reply — the only one that takes feedback. */
+  isLatestReply?: boolean;
 }
 
 function ThinkingIndicator() {
@@ -987,6 +998,20 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
 
   const hasThinkingContent = thinkingText.trim().length > 0;
   const hasResponseContent = responseText.trim().length > 0;
+  const replyMetadata = props.message.metadata as UIMessageMetadata | undefined;
+  // A table or a card in the reply: offers "Hard to read or broken display".
+  const hasStructuredOutput =
+    /^\s*\|.*\|\s*$/m.test(responseText) ||
+    !!workforceHandoff ||
+    !!bulkDropApproval ||
+    !!bulkPromoteApproval ||
+    !!insightEditApproval ||
+    !!insightCreateApproval ||
+    !!reportPlanApproval ||
+    !!insightRefreshApproval ||
+    botChangeApprovals.length > 0 ||
+    botRoutineApprovals.length > 0 ||
+    optionCards.length > 0;
 
   // Show the thinking bubble while no answer text exists yet, or while tools
   // are running. Reasoning that is streaming in counts as "still thinking":
@@ -1301,6 +1326,17 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           </div>
         )}
         <MessageTime message={props.message} className="self-start" />
+        {props.showActions && isStreamingComplete && !props.isActive && hasResponseContent && (
+          <ResponseActions
+            text={responseText}
+            retryText={props.retryText}
+            showFeedback={props.isLatestReply ?? false}
+            questionId={replyMetadata?.questionId}
+            initialFeedback={replyMetadata?.feedback}
+            usedTools={toolParts.length > 0}
+            structured={hasStructuredOutput}
+          />
+        )}
       </div>
 
       {/* Files Preview Dialog */}

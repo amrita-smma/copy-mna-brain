@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 243 | `src/app/api/**/route.ts` |
-| Services | 99 | `src/lib/services/` |
-| Repositories | 86 | `src/lib/repositories/` |
+| API routes | 244 | `src/app/api/**/route.ts` |
+| Services | 100 | `src/lib/services/` |
+| Repositories | 87 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 191 | `drizzle/migrations/` |
+| Migrations (app) | 192 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -155,6 +155,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/company-analysis/cancel` | POST | `companyAnalysisService` |
 | `/api/company-slides` | GET, POST, PUT, DELETE | `slideService` |
 | `/api/consent` | POST | `consentService` |
+| `/api/copilot/chats/[id]/feedback` | PUT | `copilotResponseFeedbackService` |
 | `/api/copilot/chats/[id]/messages` | GET | `chatHistoryService`, `copilotChatsService` |
 | `/api/copilot/chats/[id]/stop` | POST | `copilotChatsService` |
 | `/api/criterias` | GET, POST | `criteriaService` |
@@ -346,7 +347,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 84 keys. Wire new services in
+`Container` exposes 85 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -382,6 +383,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `contactInsightsService.ts` | `ContactInsightsService` | ✅ |
 | `container.ts` | — | ✅ |
 | `copilotChatsService.ts` | `CopilotChatNotFoundError`, `CopilotChatForbiddenError`, `CopilotChatsService` | ✅ |
+| `copilotResponseFeedbackService.ts` | `InvalidResponseFeedbackError`, `ResponseFeedbackTurnNotFoundError`, `CopilotResponseFeedbackService` | ✅ |
 | `criteriaService.ts` | `CriteriaService` | ✅ |
 | `crmContactEnrichmentService.ts` | `ContactNotFoundError`, `CrmContactEnrichmentService` | ✅ |
 | `crmService.ts` | `DuplicateEmployerError`, `InvalidTeamMemberError`, `CorrespondentNotFoundError`, `EmployerNoteNotFoundError`, `EmployerNotFoundError`, `CRMService` | ✅ |
@@ -483,6 +485,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `contactInteractionRepository.ts` | `ContactInteractionRepository` | ✅ |
 | `copilotChatsRepository.ts` | `CopilotChatsRepository` | ✅ |
 | `copilotMessageRepository.ts` | `CopilotMessageRepository` | ✅ |
+| `copilotResponseFeedbackRepository.ts` | `CopilotResponseFeedbackRepository` | ✅ |
 | `correspondentCurationRepository.ts` | `CorrespondentCurationRepository` | ✅ |
 | `correspondentRepository.ts` | `CorrespondentRepository` | ✅ |
 | `criteriaRepository.ts` | `CriteriaRepository` | ✅ |

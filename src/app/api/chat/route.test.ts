@@ -77,7 +77,10 @@ vi.mock('@/lib/agents/analysis', () => ({
   },
   extractLastTurn: extractLastTurnMock,
   asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
-  EFFORT_TIERS: { low: { turnBudgetMs: 30_000 }, medium: { turnBudgetMs: 60_000 } },
+  EFFORT_TIERS: {
+    low: { turnBudgetMs: 30_000, model: 'claude-haiku-5-5' },
+    medium: { turnBudgetMs: 60_000, model: 'claude-sonnet-5-5' },
+  },
 }));
 vi.mock('@ai-sdk/langchain', () => ({ toBaseMessages: vi.fn(async () => []) }));
 vi.mock('@/lib/flags', () => ({
@@ -849,6 +852,48 @@ describe('POST /api/chat', () => {
       expect(persistQuestionMock.mock.invocationCallOrder[0]).toBeGreaterThan(claimTurnMock.mock.invocationCallOrder[0]);
       const agentRan = streamEventsMock.mock.invocationCallOrder[0] ?? invokeMock.mock.invocationCallOrder[0];
       expect(persistQuestionMock.mock.invocationCallOrder[0]).toBeLessThan(agentRan);
+    });
+
+    it("records the turn's model and tier on the question, and runs the turn under the question's id", async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      getMessagesMock.mockResolvedValue([]);
+      resolve();
+
+      const res = await POST(chatRequest({ show_intermediate_steps: false }));
+
+      expect(persistQuestionMock.mock.calls[0][0].turn).toEqual({
+        model: 'claude-sonnet-5-5',
+        effortTier: 'medium',
+      });
+      // The root runId is the Langfuse trace id that feedback scores.
+      expect(streamEventsMock.mock.calls[0][1].runId).toBe('q-row');
+      // The reply learns its question id, which keys its feedback.
+      expect(await res.text()).toContain('"questionId":"q-row"');
+    });
+
+    it("runs a non-streamed turn under the question's id too", async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      getMessagesMock.mockResolvedValue([]);
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(invokeMock.mock.calls[0][1].runId).toBe('q-row');
+    });
+
+    it('runs the turn under a fresh id and sends no question id when the question was not stored', async () => {
+      persistQuestionMock.mockRejectedValue(new Error('db hiccup'));
+      getMessagesMock.mockResolvedValue([]);
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      resolve();
+
+      const res = await POST(chatRequest({ show_intermediate_steps: false }));
+
+      expect(streamEventsMock.mock.calls[0][1]).not.toHaveProperty('runId');
+      expect(await res.text()).not.toContain('questionId');
+      spy.mockRestore();
     });
 
     it('still answers when the question cannot be stored up front, and stores the whole turn at the end', async () => {

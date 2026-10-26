@@ -4,8 +4,10 @@ import type {
   CopilotChatsRepository,
   CopilotMessageRepository,
   CopilotMessageRow,
+  CopilotResponseFeedbackRepository,
   NewCopilotMessage,
 } from '@/lib/repositories';
+import { toResponseFeedbackValue } from '@/lib/chat/responseFeedback';
 import {
   lastTurnUIMessages,
   toUIMessages,
@@ -40,6 +42,8 @@ const MAX_STORED_ATTACHMENT_CHARS = 1_000_000;
 export interface ChatHistoryDeps {
   messages: CopilotMessageRepository;
   chats: CopilotChatsRepository;
+  /** The user's feedback on replies, laid onto each page (MB-693). */
+  feedback: CopilotResponseFeedbackRepository;
   /** Queue embedding of stored exchanges (assistant rows) for history search. */
   dispatchEmbedding: (messageIds: string[]) => Promise<unknown>;
 }
@@ -77,14 +81,18 @@ export class ChatHistoryService {
    * mid-turn shows it under the live bubble instead of an empty thread (the
    * reply follows in `persistTurn`, which then stores only the reply).
    * `message` is the human message the turn hands the agent; `prior` is the
-   * thread's checkpoint before it, for a thread's one-time import. Returns
-   * the row's id, for `persistTurn` and `discardQuestion`.
+   * thread's checkpoint before it, for a thread's one-time import. `turn`:
+   * the model and effort tier the turn runs on, recorded on the row so
+   * feedback on the reply can say what produced it. Returns the row's id, for
+   * `persistTurn` and `discardQuestion` — and the id a reply's feedback is
+   * keyed on.
    */
   async persistQuestion(input: {
     chat: Pick<CopilotChatRow, 'id' | 'user_id' | 'bot_id' | 'history_imported_at'>;
     message: BaseMessage;
     prior: BaseMessage[];
     authorBotId?: string | null;
+    turn?: { model: string; effortTier: string };
   }): Promise<string | null> {
     const { chat } = input;
     // A thread from before the table: its earlier turns come in first, so the
@@ -92,7 +100,10 @@ export class ChatHistoryService {
     if (!chat.history_imported_at) await this.importIfFirst(chat, () => Promise.resolve(input.prior));
     const ui = toUIMessages([input.message]).filter((m) => m.role === 'user');
     if (ui.length === 0) return null;
-    const [row] = await this.deps.messages.insertMany(this.toRows(chat, ui, input.authorBotId ?? null));
+    const rows = this.toRows(chat, ui, input.authorBotId ?? null).map((r) =>
+      input.turn ? { ...r, model: input.turn.model, effort_tier: input.turn.effortTier } : r,
+    );
+    const [row] = await this.deps.messages.insertMany(rows);
     return row?.id ?? null;
   }
 
@@ -153,9 +164,41 @@ export class ChatHistoryService {
       turns: opts.turns ?? CHAT_HISTORY_PAGE_TURNS,
     });
     return {
-      messages: rows.map((row) => this.toUIMessage(row)),
+      messages: await this.withFeedback(chat, rows),
       nextCursor: hasMore && rows.length > 0 ? rows[0].seq : null,
     };
+  }
+
+  /**
+   * The page's messages, each reply carrying the id of the question that
+   * started its turn and the user's feedback on it. A page never splits a
+   * turn, so a reply's question is the nearest user row before it; replies
+   * ahead of the page's first question have none. One query for the page's
+   * feedback, whatever its size.
+   */
+  private async withFeedback(
+    chat: Pick<CopilotChatRow, 'user_id'>,
+    rows: CopilotMessageRow[],
+  ): Promise<UIMessageOut[]> {
+    const questionIds: (string | null)[] = [];
+    let question: string | null = null;
+    for (const row of rows) {
+      if (row.role === 'user') question = row.id;
+      questionIds.push(row.role === 'assistant' ? question : null);
+    }
+    const asked = [...new Set(questionIds.filter((id): id is string => id !== null))];
+    const votes = await this.deps.feedback.findByMessageIds(chat.user_id, asked);
+    const voteByQuestion = new Map(votes.map((v) => [v.message_id, toResponseFeedbackValue(v)]));
+    return rows.map((row, i) => {
+      const message = this.toUIMessage(row);
+      const questionId = questionIds[i];
+      if (!questionId) return message;
+      const feedback = voteByQuestion.get(questionId);
+      return {
+        ...message,
+        metadata: { ...message.metadata, questionId, ...(feedback ? { feedback } : {}) },
+      };
+    });
   }
 
   /** Copy the checkpoint into rows once per thread. True when this call did it. */

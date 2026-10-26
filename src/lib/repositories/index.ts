@@ -44,6 +44,7 @@ export {
 } from './botRequestRepository';
 export * from './copilotChatsRepository';
 export * from './copilotMessageRepository';
+export * from './copilotResponseFeedbackRepository';
 export * from './apiKeyRepository';
 export * from './apiChatConversationRepository';
 export * from './alphasenseToolCallRepository';

@@ -14,6 +14,9 @@ export interface NewCopilotMessage {
   author_bot_id?: string | null;
   parts: unknown[];
   text: string;
+  /** The model and effort tier a turn ran on; set on its question row only. */
+  model?: string | null;
+  effort_tier?: string | null;
 }
 
 /** A history-search hit: one stored exchange (an assistant row). */

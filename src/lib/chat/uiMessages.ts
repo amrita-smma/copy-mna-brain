@@ -6,6 +6,7 @@
  */
 import type { BaseMessage } from '@langchain/core/messages';
 import { SUMMARIZATION_SOURCE, SUMMARY_MARKER_TEXT } from '@/lib/bots/summary';
+import type { ResponseFeedbackValue } from '@/lib/chat/responseFeedback';
 import {
   INSIGHT_TEMPLATE_PART_TYPE,
   parseInsightTemplateBlock,
@@ -102,6 +103,14 @@ export interface UIMessageMetadata {
   fromRoutine?: FromRoutine;
   /** When the message was written, ISO 8601. Shown as the bubble's timestamp. */
   createdAt?: string;
+  /**
+   * On a reply: the id of the question row (copilot_messages) that started
+   * its turn — what feedback on the reply is keyed on. Sent by the live
+   * stream and by history pages; absent when the question was never stored.
+   */
+  questionId?: string;
+  /** On a reply read from history: the user's feedback on it, if any. */
+  feedback?: ResponseFeedbackValue;
 }
 
 function extractText(content: unknown): string {

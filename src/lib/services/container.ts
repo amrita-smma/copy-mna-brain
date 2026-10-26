@@ -45,6 +45,7 @@ import {
   BotRequestRepository,
   CopilotChatsRepository,
   CopilotMessageRepository,
+  CopilotResponseFeedbackRepository,
   AlphasenseToolCallRepository,
   DashboardActivityRepository,
   DashboardInsightsRepository,
@@ -144,6 +145,7 @@ import { BotRoutineService } from './botRoutineService';
 import { BotTaskLogService } from './botTaskLogService';
 import { BotRequestService } from './botRequestService';
 import { ChatHistoryService } from './chatHistoryService';
+import { CopilotResponseFeedbackService } from './copilotResponseFeedbackService';
 import { CheckpointCompactionService } from './checkpointCompactionService';
 import { AlphasenseToolCallService } from './alphasenseToolCallService';
 import { DashboardActivityService } from './dashboardActivityService';
@@ -218,6 +220,7 @@ export interface Container {
   aiWorkforceService: AiWorkforceService;
   copilotChatsService: CopilotChatsService;
   chatHistoryService: ChatHistoryService;
+  copilotResponseFeedbackService: CopilotResponseFeedbackService;
   checkpointCompactionService: CheckpointCompactionService;
   botService: BotService;
   botMemoryService: BotMemoryService;
@@ -724,11 +727,24 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         bots: botService(),
       }),
   );
+  const copilotMessageRepo = lazy(() => new CopilotMessageRepository(db, workspaceId));
+  const copilotResponseFeedbackRepo = lazy(
+    () => new CopilotResponseFeedbackRepository(db, workspaceId),
+  );
+  const copilotResponseFeedbackService = lazy(
+    () =>
+      new CopilotResponseFeedbackService({
+        feedback: copilotResponseFeedbackRepo(),
+        messages: copilotMessageRepo(),
+        chats: copilotChatsRepo(),
+      }),
+  );
   const chatHistoryService = lazy(
     () =>
       new ChatHistoryService({
-        messages: new CopilotMessageRepository(db, workspaceId),
+        messages: copilotMessageRepo(),
         chats: copilotChatsRepo(),
+        feedback: copilotResponseFeedbackRepo(),
         dispatchEmbedding: async (messageIds) => {
           // Lazy: the handler pulls in the Bedrock SDK.
           const { CHAT_MESSAGE_EMBEDDING_TIMEOUT_SECONDS, runChatMessageEmbedding } = await import(
@@ -1079,6 +1095,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get aiWorkforceService() { return aiWorkforceService(); },
     get copilotChatsService() { return copilotChatsService(); },
     get chatHistoryService() { return chatHistoryService(); },
+    get copilotResponseFeedbackService() { return copilotResponseFeedbackService(); },
     get checkpointCompactionService() { return checkpointCompactionService(); },
     get botService() { return botService(); },
     get botMemoryService() { return botMemoryService(); },

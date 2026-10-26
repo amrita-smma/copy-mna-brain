@@ -11,16 +11,30 @@ const chats = vi.hoisted(() => ({
   clearHistoryImport: vi.fn(),
 }));
 const dispatchEmbedding = vi.hoisted(() => vi.fn());
+const feedback = vi.hoisted(() => ({ findByMessageIds: vi.fn() }));
 
 const chat = { id: 'chat-1', user_id: 'u1', bot_id: 'bot-1', history_imported_at: '2026-10-14T00:00:00Z' };
 
 function service() {
-  return new ChatHistoryService({ messages: messages as never, chats: chats as never, dispatchEmbedding });
+  return new ChatHistoryService({
+    messages: messages as never,
+    chats: chats as never,
+    feedback: feedback as never,
+    dispatchEmbedding,
+  });
 }
 
 describe('ChatHistoryService', () => {
   beforeEach(() => {
-    for (const fn of [...Object.values(messages), ...Object.values(chats), dispatchEmbedding]) fn.mockReset();
+    for (const fn of [
+      ...Object.values(messages),
+      ...Object.values(chats),
+      ...Object.values(feedback),
+      dispatchEmbedding,
+    ]) {
+      fn.mockReset();
+    }
+    feedback.findByMessageIds.mockResolvedValue([]);
     chats.claimHistoryImport.mockResolvedValue(false);
     chats.getById.mockResolvedValue({ history_imported_at: '2026-10-14T00:00:00Z' });
     chats.clearHistoryImport.mockResolvedValue(undefined);
@@ -176,6 +190,25 @@ describe('ChatHistoryService', () => {
       ]);
       expect(messages.insertMany.mock.calls[1][0]).toEqual([expect.objectContaining({ role: 'user', text: 'new?' })]);
     });
+
+    it('stamps the model and effort tier the turn runs on onto the question row', async () => {
+      await service().persistQuestion({
+        chat,
+        message: new HumanMessage('Find targets'),
+        prior: [],
+        turn: { model: 'claude-sonnet-5-5', effortTier: 'medium' },
+      });
+
+      expect(messages.insertMany.mock.calls[0][0]).toEqual([
+        expect.objectContaining({ role: 'user', model: 'claude-sonnet-5-5', effort_tier: 'medium' }),
+      ]);
+    });
+
+    it('leaves the turn facts off when the caller has none (a background bot turn)', async () => {
+      await service().persistQuestion({ chat, message: new HumanMessage('Find targets'), prior: [] });
+
+      expect(messages.insertMany.mock.calls[0][0][0]).not.toHaveProperty('model');
+    });
   });
 
   describe('ChatHistoryService.discardQuestion', () => {
@@ -224,7 +257,12 @@ describe('ChatHistoryService', () => {
             parts: [{ type: 'text', text: 'q' }],
             metadata: { fromBot: { id: 'b', name: 'B' }, createdAt: '2026-10-14T09:05:00.000Z' },
           },
-          { id: 'r6', role: 'assistant', parts: [{ type: 'text', text: 'a' }], metadata: { createdAt: '2026-10-14T09:06:00.000Z' } },
+          {
+            id: 'r6',
+            role: 'assistant',
+            parts: [{ type: 'text', text: 'a' }],
+            metadata: { createdAt: '2026-10-14T09:06:00.000Z', questionId: 'r5' },
+          },
           {
             id: 'r7',
             role: 'user',
@@ -233,6 +271,36 @@ describe('ChatHistoryService', () => {
           },
         ],
         nextCursor: 5,
+      });
+    });
+
+    it("keys each reply on its turn's question and lays the user's feedback on it, in one query", async () => {
+      messages.listTurnsPage.mockResolvedValue({
+        rows: [
+          row(1, 'assistant', [{ type: 'text', text: 'greeting before any question' }]),
+          row(2, 'user', [{ type: 'text', text: 'q1' }]),
+          row(3, 'assistant', [{ type: 'text', text: 'a1' }]),
+          row(4, 'user', [{ type: 'text', text: 'q2' }]),
+          row(5, 'assistant', [{ type: 'text', text: 'a2' }]),
+        ],
+        hasMore: false,
+      });
+      feedback.findByMessageIds.mockResolvedValue([
+        { message_id: 'r4', rating: -1, reasons: ['shallow', 'retired_reason'], comment: 'too thin' },
+      ]);
+
+      const page = await service().page(chat, {}, vi.fn());
+
+      expect(feedback.findByMessageIds).toHaveBeenCalledTimes(1);
+      expect(feedback.findByMessageIds).toHaveBeenCalledWith('u1', ['r2', 'r4']);
+      const meta = page.messages.map((m) => m.metadata);
+      expect(meta[0]).not.toHaveProperty('questionId');
+      expect(meta[1]).not.toHaveProperty('questionId');
+      expect(meta[2]).toMatchObject({ questionId: 'r2' });
+      expect(meta[2]).not.toHaveProperty('feedback');
+      expect(meta[4]).toMatchObject({
+        questionId: 'r4',
+        feedback: { rating: -1, reasons: ['shallow'], comment: 'too thin' },
       });
     });
 

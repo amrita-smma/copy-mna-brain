@@ -27,6 +27,7 @@ import { ChatMessageBubble, LoadingBubble } from '@/components/chat/ChatMessageB
 import { BotRelayGroup } from '@/components/chat/BotRelayGroup';
 import { dayLabel, dayStarts, messageCreatedAt } from '@/lib/chat/messageTime';
 import { groupRelayMessages } from '@/lib/chat/relayGroups';
+import { retryQuestionTexts } from '@/lib/chat/responseFeedback';
 import { ChatSuggestionsCarousel } from '@/components/chat/ChatSuggestions';
 import { InsightTemplatePopup } from '@/components/chat/InsightTemplatePopup';
 import { BotMentionPopup } from '@/components/chat/BotMentionPopup';
@@ -836,6 +837,9 @@ function ChatContent({
   // Other bots' messages (replies back, hand-offs) fold into one collapsed
   // row per run, since the bot relays what matters from them itself.
   const items = useMemo(() => groupRelayMessages(messages), [messages]);
+  // Retry on a reply sends the question that started its turn again.
+  const retryTexts = useMemo(() => retryQuestionTexts(messages), [messages]);
+  const lastIndex = messages.length - 1;
   // A date between two messages written on different days.
   const days = useMemo(
     () => dayStarts(items, (item) => (item.kind === 'relay' ? item.messages : [item.message]).map(messageCreatedAt)),
@@ -888,6 +892,9 @@ function ChatContent({
                     botAvatar={activeBot?.avatar}
                     botName={activeBot?.name}
                     avatarState={item.index === messages.length - 1 ? liveAvatarState : 'idle'}
+                    showActions
+                    retryText={retryTexts.get(item.index) ?? null}
+                    isLatestReply={item.index === lastIndex && status === 'ready'}
                   />
                 )}
               </Fragment>

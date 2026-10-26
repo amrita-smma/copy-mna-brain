@@ -9,6 +9,7 @@ import {
   jsonb,
   text,
   integer,
+  smallint,
   bigint,
   bigserial,
   timestamp,
@@ -3826,6 +3827,11 @@ export const copilotMessages = pgTable(
     text: text().default("").notNull(),
     embedding: vector({ dimensions: 1024 }),
     search: tsvector().generatedAlwaysAs(sql`to_tsvector('simple', coalesce(text, ''))`),
+    // The model and effort tier the turn ran on, stamped on its question row
+    // (role 'user') when the turn starts. NULL on assistant rows, on turns
+    // stored before MB-693, and on background bot turns.
+    model: text(),
+    effort_tier: text(),
     created_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
@@ -3839,6 +3845,61 @@ export const copilotMessages = pgTable(
       ),
     };
   },
+);
+
+// A user's feedback on one Copilot reply (MB-693): thumbs up/down, the reasons
+// picked on a thumbs-down, and an optional comment. Keyed on the turn's
+// question row (`message_id`, a role 'user' copilot_messages row) — the id the
+// live stream and a reloaded history share — one row per user per turn,
+// updated in place. bot_id/model/effort_tier are copied from that row at write
+// time; trace_id is the turn's Langfuse trace. Read/written via
+// CopilotResponseFeedbackRepository.
+export const copilotResponseFeedback = pgTable(
+  "copilot_response_feedback",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    chat_id: uuid()
+      .notNull()
+      .references(() => copilotChats.id, { onDelete: "cascade" }),
+    message_id: uuid()
+      .notNull()
+      .references(() => copilotMessages.id, { onDelete: "cascade" }),
+    bot_id: uuid().references(() => bots.id, { onDelete: "set null" }),
+    trace_id: text(),
+    model: text(),
+    effort_tier: text(),
+    // +1 thumbs up, -1 thumbs down; NULL when only a comment was written.
+    rating: smallint(),
+    reasons: text().array().default([]).notNull(),
+    comment: text(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqCopilotResponseFeedbackUserMessage: uniqueIndex(
+      "uq_copilot_response_feedback_user_message",
+    ).on(table.user_id, table.message_id),
+    idxCopilotResponseFeedbackChatId: index("idx_copilot_response_feedback_chat_id").on(
+      table.chat_id,
+    ),
+    idxCopilotResponseFeedbackWorkspaceCreated: index(
+      "idx_copilot_response_feedback_workspace_created",
+    ).on(table.workspace_id, table.created_at.desc()),
+    copilotResponseFeedbackRatingCheck: check(
+      "copilot_response_feedback_rating_check",
+      sql`rating IN (-1, 1)`,
+    ),
+  }),
 );
 
 // API keys for external authorized applications (machine-to-machine access to

@@ -526,7 +526,14 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     const question = messages[0];
     if (question) {
       try {
-        questionRowId = await chatHistoryService.persistQuestion({ chat, message: question, prior: priorMessages });
+        questionRowId = await chatHistoryService.persistQuestion({
+          chat,
+          message: question,
+          prior: priorMessages,
+          // What produced the reply, for feedback on it (MB-693). The same
+          // model the agent's trace metadata names.
+          turn: { model: EFFORT_TIERS[effort].model, effortTier: effort },
+        });
       } catch (err) {
         console.error('[chat] failed to store the question in history:', err);
       }
@@ -782,6 +789,10 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
             // the browser disconnecting from the SSE response.
             signal: turnSignal,
             callbacks,
+            // The root run's id is the Langfuse trace id: running the turn
+            // under its question row's id lets feedback on the reply score
+            // this trace without storing a second id (see `turnTraceId`).
+            ...(questionRowId ? { runId: questionRowId } : {}),
           },
         );
       } catch (streamErr) {
@@ -822,7 +833,15 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
           runWithLangfuseUser(userId, async () => {
             // The reply's timestamp, the same field history pages carry, so
             // the bubble shows it while streaming and after a reload alike.
-            writer.write({ type: 'message-metadata', messageMetadata: { createdAt: new Date().toISOString() } });
+            // `questionId` keys the reply's feedback (MB-693) — the same id a
+            // history page sends once the turn is stored.
+            writer.write({
+              type: 'message-metadata',
+              messageMetadata: {
+                createdAt: new Date().toISOString(),
+                ...(questionRowId ? { questionId: questionRowId } : {}),
+              },
+            });
             writer.merge(
               withBudgetWrapUp(toThinkingMessageStream(eventStream, writer), {
                 isBudgetAbort,
@@ -898,6 +917,8 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
             },
             signal: turnSignal,
             callbacks,
+            // As on the streamed path: the trace id is the question's id.
+            ...(questionRowId ? { runId: questionRowId } : {}),
           },
         );
 
