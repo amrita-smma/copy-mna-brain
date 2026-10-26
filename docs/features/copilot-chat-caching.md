@@ -1,5 +1,12 @@
 # In-app Copilot chat caching
 
+> **Status: not wired into the current chat route.** `POST /api/chat` runs
+> every turn on a permanent bot thread (`docs/features/copilot-bots.md`) and
+> no longer records `first_user_message`; `/api/chat/cache-check` is not in
+> the tree. This page describes the earlier per-chat design and is kept for
+> the data model it introduced. For *prompt* caching (Anthropic cache
+> breakpoints), see the "Prompt caching" note in `copilot-bots.md`.
+
 The in-app Copilot (`/api/chat` + `src/components/chat/ChatProvider.tsx`)
 short-circuits repeated questions. On the **first turn of a new chat** the
 client first asks whether the same question was already answered, and on a hit

@@ -91,6 +91,54 @@ export function getLangfuseCallbacks() {
   return [langfuseHandler];
 }
 
+/**
+ * How long one chat turn took to reach each setup stage and its first tokens
+ * (`src/lib/chat/turnTimer.ts`), attached to the turn's trace.
+ */
+export interface TurnTiming {
+  /** The agent run's root `runId`, which the LangChain handler uses as the trace id. */
+  traceId: string;
+  /** Cumulative ms at each setup stage, as `TurnTimer.stages()` reports them. */
+  stages: Record<string, number>;
+  /** Ms from the request to the model's first streamed chunk, when one arrived. */
+  firstTokenMs: number | null;
+  /** Ms from the request to the first visible text, when any arrived. */
+  firstTextMs: number | null;
+}
+
+/** Score names a Langfuse dashboard can chart TTFT by. */
+export const TTFT_SCORE_NAMES = {
+  firstToken: "time_to_first_token_ms",
+  firstText: "time_to_first_text_ms",
+} as const;
+
+/**
+ * File a turn's timeline on its trace: the stage timings as trace metadata
+ * (`turn_timeline`) and the two time-to-first-* values as numeric scores, so
+ * they can be charted and filtered in Langfuse rather than grepped from logs.
+ *
+ * The trace already exists by the time this runs — the handler created it on
+ * the agent's root run, with `traceId` as its id — and Langfuse merges a
+ * second `trace` event with the same id into it, so this only adds metadata.
+ * Fire-and-forget like every other Langfuse write: queued here, sent by the
+ * turn's `flushLangfuse`. A no-op when tracing is off.
+ */
+export function recordTurnTiming(timing: TurnTiming): void {
+  if (!langfuseHandler) return;
+  try {
+    const client = langfuseHandler.langfuse;
+    client.trace({ id: timing.traceId, metadata: { turn_timeline: timing.stages } });
+    if (timing.firstTokenMs !== null) {
+      client.score({ traceId: timing.traceId, name: TTFT_SCORE_NAMES.firstToken, value: timing.firstTokenMs });
+    }
+    if (timing.firstTextMs !== null) {
+      client.score({ traceId: timing.traceId, name: TTFT_SCORE_NAMES.firstText, value: timing.firstTextMs });
+    }
+  } catch (err) {
+    console.warn("[langfuse] failed to record the turn timing", err);
+  }
+}
+
 /** Drain the Langfuse queue — call after streamed chat turns so events aren't dropped. */
 export async function flushLangfuse(): Promise<void> {
   if (!langfuseHandler) return;

@@ -9,9 +9,25 @@ const mocks = vi.hoisted(() => ({
   chatAnthropicOpts: [] as Array<Record<string, unknown>>,
 }));
 
+/**
+ * `createAgent` receives the prompt as a SystemMessage whose first block is the
+ * fixed text (with the prompt-cache breakpoint); these tests assert on that
+ * text, so the mock records it as the plain string.
+ */
+function promptText(systemPrompt: unknown): unknown {
+  if (typeof systemPrompt === 'string') return systemPrompt;
+  const content = (systemPrompt as { content?: unknown })?.content;
+  if (Array.isArray(content)) {
+    return content.map((b: { text?: string }) => b.text ?? '').join('');
+  }
+  return systemPrompt;
+}
+
 vi.mock('langchain', () => ({
-  createAgent: mocks.createAgent,
+  createAgent: (config: Record<string, unknown>) =>
+    mocks.createAgent({ ...config, systemPrompt: promptText(config.systemPrompt) }),
   humanInTheLoopMiddleware: mocks.humanInTheLoopMiddleware,
+  dynamicSystemPromptMiddleware: vi.fn(() => ({ __dynamicSystemPrompt: true })),
 }));
 
 vi.mock('@langchain/anthropic', () => ({
@@ -187,7 +203,10 @@ describe('getSectorAgentGraph', () => {
         const spec = getSectorAgentSpec(key, role);
         expect(config.systemPrompt).toBe(spec.systemPrompt);
         expect(config.tools.map((t) => t.name)).toEqual(spec.tools.map((t) => t.name));
-        expect(config.middleware).toEqual(middleware);
+        // The runtime appends its per-turn system-context middleware last.
+        const roleMiddleware = config.middleware?.slice(0, -1);
+        expect(roleMiddleware?.length ? roleMiddleware : undefined).toEqual(middleware);
+        expect(config.middleware?.[config.middleware.length - 1]).toEqual({ __dynamicSystemPrompt: true });
         const opts = mocks.chatAnthropicOpts[mocks.chatAnthropicOpts.length - 1];
         expect(opts.contextManagement).toEqual(contextManagement);
         expect(opts.model).toBe(model);

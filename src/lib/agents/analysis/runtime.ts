@@ -8,14 +8,15 @@
  * that pass neither.
  */
 import { ChatAnthropic } from "@langchain/anthropic";
-import { createAgent, type AgentMiddleware } from "langchain";
-import { AIMessage, BaseMessage } from "@langchain/core/messages";
+import { createAgent, dynamicSystemPromptMiddleware, type AgentMiddleware } from "langchain";
+import { AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
 import { rewriteStaleFileBlocks } from "./rewriteFileReferences";
 import { buildOrphanedToolRepairMessages } from "./repairOrphanedToolCalls";
 import { stripCorruptServerToolCalls } from "./repairCorruptServerToolCalls";
+import { cacheUsageFromModelEnd, formatCacheUsage } from "./cacheUsage";
 import { withLangfuseCallbacks } from "@/lib/langfuse";
 import { logger } from "../logger";
 // The `mna` flavor module directly, not the `./flavors` barrel: the runtime
@@ -31,6 +32,54 @@ import { EFFORT_TIERS, type EffortChoice } from "./effort";
 const FILES_API_BETA = "files-api-2025-04-14" as const;
 /** `createAgent`'s model node — the one node every agent graph has, whatever its middleware. */
 export const MODEL_NODE = "model_request";
+
+/**
+ * The `configurable` key the per-turn system context travels under.
+ *
+ * The fixed system prompt is compiled into the agent once and carries the
+ * prompt-cache breakpoint; whatever changes from turn to turn (workspace
+ * context, recalled memories, the open insight's outline, …) is appended at
+ * model-call time by `perTurnContextMiddleware` from this key. Keeping it out
+ * of the compiled prompt is what lets one compiled agent serve every turn of
+ * a bot, and keeping it in a *separate* system block after the cached one is
+ * what lets the prefix hit the cache even though this block differs per turn.
+ */
+export const PER_TURN_CONTEXT_KEY = "additionalSystemContext" as const;
+
+/** The per-turn context as it is appended to the system prompt. */
+export function additionalContextBlock(context: string): string {
+  return `\n\n---\n\n## Additional Context\n\n${context}`;
+}
+
+/**
+ * The compiled system prompt: the fixed text in one block marked as a cache
+ * breakpoint, so tools + prompt are read from cache on every call after the
+ * first; an optional second, uncached block for context fixed at build time.
+ */
+export function buildSystemMessage(systemPrompt: string, additionalSystemContext?: string): SystemMessage {
+  return new SystemMessage({
+    content: [
+      { type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } },
+      ...(additionalSystemContext
+        ? [{ type: "text", text: additionalContextBlock(additionalSystemContext) }]
+        : []),
+    ],
+  });
+}
+
+/**
+ * Appends the turn's `PER_TURN_CONTEXT_KEY` context to the system prompt as
+ * its own block at model-call time. Returning the empty string leaves the
+ * prompt untouched (`SystemMessage.concat` merges an empty string away).
+ */
+const perTurnContextMiddleware = dynamicSystemPromptMiddleware((_state, runtime) => {
+  const context = (runtime as { configurable?: Record<string, unknown> }).configurable?.[PER_TURN_CONTEXT_KEY];
+  if (typeof context !== "string" || context.length === 0) return "";
+  return new SystemMessage({ content: [{ type: "text", text: additionalContextBlock(context) }] });
+});
+
+/** How many compiled per-turn agents one graph keeps (bots × withheld-tool variants). */
+const AGENT_CACHE_SIZE = 32;
 
 /**
  * Middleware handed to `createAgent`: HITL for workforce graphs, history
@@ -108,9 +157,17 @@ export interface InvokeConfig {
   callbacks?: unknown[];
   /**
    * The root run's id. The Langfuse handler files the trace under it, so a
-   * caller that needs to find the trace again (reply feedback) picks it.
+   * caller that needs to find the trace again (reply feedback) or add to it
+   * after the run (the chat turn's timeline) picks it.
    */
   runId?: string;
+}
+
+/** What `AgentGraph.getThreadSnapshot` reads in one checkpoint round trip. */
+export interface ThreadSnapshot {
+  messages: BaseMessage[];
+  /** The thread is paused on a HITL interrupt; its open tool_calls are waiting, not orphaned. */
+  hasInterrupt: boolean;
 }
 
 export interface InvokeResult {
@@ -200,19 +257,18 @@ export function createLocalAgent(
       : {}),
   });
 
-  // LangChain applies cache_control to the last content block of the last message,
-  // caching tools + system + the whole conversation prefix. Cache reads are ~0.1x
-  // input price; in a tool loop the prefix is resent every iteration.
-  // Note: constructor cache_control is ignored by @langchain/anthropic at runtime;
-  // binding via withConfig passes cache_control to call options where
-  // applyCacheControlToPayload applies it to formatted messages.
+  // Two cache breakpoints. `withConfig` puts one on the last content block of
+  // the last message (constructor cache_control is ignored by
+  // @langchain/anthropic; the call option reaches applyCacheControlToPayload),
+  // which caches the conversation so far for the next iteration of a tool
+  // loop. `buildSystemMessage` puts the other on the fixed system prompt,
+  // which caches tools + prompt across turns even when the per-turn context
+  // block after it (and the history) differ. Without the second one a single
+  // changed byte of per-turn context re-read the whole prefix uncached on
+  // every turn's first call. Cache reads are ~0.1x input price.
   const boundModel = llm.withConfig({
     cache_control: { type: 'ephemeral' },
   });
-
-  const fullSystemPrompt = additionalSystemContext
-    ? `${systemPrompt}\n\n---\n\n## Additional Context\n\n${additionalSystemContext}`
-    : systemPrompt;
 
   // createAgent's `middleware` and `tools` typings are strict generics.
   // The server tools interface lacks an explicit index signature, so toolList
@@ -221,11 +277,9 @@ export function createLocalAgent(
   return createAgent({
     model: boundModel,
     tools: toolList as any,
-    systemPrompt: fullSystemPrompt,
+    systemPrompt: buildSystemMessage(systemPrompt, additionalSystemContext),
     checkpointer: config.checkpointer,
-    ...(middleware.length > 0
-      ? { middleware: middleware as unknown as never }
-      : {}),
+    middleware: [...middleware, perTurnContextMiddleware] as unknown as never,
   });
 }
 
@@ -290,6 +344,17 @@ export class AgentGraph {
   private toolList: ToolList;
   private systemPrompt: string;
   private middleware: AgentMiddlewareList;
+  /**
+   * Compiled per-turn variants (a bot's prompt + tools, a turn with tools
+   * withheld), keyed by what goes into the compile. A Copilot bot turn always
+   * carries an override, so without this every turn re-created the model and
+   * re-compiled the graph over ~40 tools. Per-turn context is not part of the
+   * key: it rides on `configurable` (`PER_TURN_CONTEXT_KEY`).
+   */
+  private readonly agentCache = new Map<
+    string,
+    { agent: ReturnType<typeof createAgent>; middleware: AgentMiddlewareList }
+  >();
 
   constructor(
     config: AgentConfig,
@@ -311,31 +376,50 @@ export class AgentGraph {
   }
 
   private getAgent(
-    additionalSystemContext?: string,
     withheldTools: readonly string[] = [],
     override?: AgentTurnOverride,
   ): ReturnType<typeof createAgent> {
-    if (override) {
-      return createLocalAgent(
-        override.contextEditing === undefined
-          ? this.config
-          : { ...this.config, contextEditing: override.contextEditing },
-        additionalSystemContext,
-        withoutTools(override.toolList, withheldTools),
-        override.systemPrompt,
-        override.middleware ?? this.middleware,
-      );
-    }
-    if (!additionalSystemContext && withheldTools.length === 0) {
+    if (!override && withheldTools.length === 0) {
       return this.defaultAgent;
     }
-    return createLocalAgent(
-      this.config,
-      additionalSystemContext,
-      withoutTools(this.toolList, withheldTools),
-      this.systemPrompt,
-      this.middleware,
-    );
+    const config =
+      override?.contextEditing === undefined
+        ? this.config
+        : { ...this.config, contextEditing: override.contextEditing };
+    const toolList = withoutTools(override?.toolList ?? this.toolList, withheldTools);
+    const systemPrompt = override?.systemPrompt ?? this.systemPrompt;
+    const middleware = override?.middleware ?? this.middleware;
+
+    const key = JSON.stringify([
+      config.contextEditing ?? false,
+      systemPrompt,
+      toolList.map((t) => (t as { name?: string }).name ?? ""),
+    ]);
+    const cached = this.agentCache.get(key);
+    // The middleware list is compared by identity: a bot's is built once per
+    // process (`botThreadMiddleware`), a test's may differ per call.
+    if (cached && cached.middleware === middleware) return cached.agent;
+
+    const agent = createLocalAgent(config, undefined, toolList, systemPrompt, middleware);
+    if (this.agentCache.size >= AGENT_CACHE_SIZE) {
+      const oldest = this.agentCache.keys().next().value;
+      if (oldest !== undefined) this.agentCache.delete(oldest);
+    }
+    this.agentCache.set(key, { agent, middleware });
+    return agent;
+  }
+
+  /** The run config with this turn's system context attached for `perTurnContextMiddleware`. */
+  private withTurnContext<T extends { configurable?: Record<string, unknown> } | undefined>(
+    config: T,
+    additionalSystemContext: string | undefined,
+  ): NonNullable<T> {
+    const base = (config ?? {}) as NonNullable<T>;
+    if (!additionalSystemContext) return base;
+    return {
+      ...base,
+      configurable: { ...(base.configurable ?? {}), [PER_TURN_CONTEXT_KEY]: additionalSystemContext },
+    };
   }
 
   /** The graph's own tool list (a bot turn builds its override on top of it). */
@@ -378,18 +462,14 @@ export class AgentGraph {
     logger.debug("🚀 AGENT INVOCATION STARTED");
 
     try {
-      const agent = this.getAgent(
-      inputs.additionalSystemContext,
-      inputs.withheldTools,
-      inputs.override,
-    );
+      const agent = this.getAgent(inputs.withheldTools, inputs.override);
       logger.debug(`📨 Sending ${inputs.messages.length} message(s) to agent`);
       if (inputs.additionalSystemContext) {
         logger.debug("📎 Additional system context provided");
       }
-      
+
       const mergedConfig = withLangfuseCallbacks({
-        ...config,
+        ...this.withTurnContext(config, inputs.additionalSystemContext),
         metadata: { ...((config as any)?.metadata ?? {}), ...this.traceMetadata() },
       });
       const result = await agent.invoke({ messages: inputs.messages }, mergedConfig);
@@ -493,13 +573,9 @@ export class AgentGraph {
     inputs: InvokeOptions,
     config?: any,
   ): Promise<AsyncGenerator<unknown, void, unknown>> {
-    const agent = this.getAgent(
-      inputs.additionalSystemContext,
-      inputs.withheldTools,
-      inputs.override,
-    );
+    const agent = this.getAgent(inputs.withheldTools, inputs.override);
     const mergedConfig = withLangfuseCallbacks({
-      ...config,
+      ...this.withTurnContext(config, inputs.additionalSystemContext),
       metadata: { ...(config?.metadata ?? {}), ...this.traceMetadata() },
     });
     const stream = await agent.streamEvents({ messages: inputs.messages }, mergedConfig);
@@ -507,11 +583,12 @@ export class AgentGraph {
   }
 
   /**
-   * Tap the LangChain event stream to detect 'pause_turn' stop reasons during streaming.
+   * Tap the LangChain event stream to detect 'pause_turn' stop reasons during streaming
+   * and to log each model call's prompt-cache usage (`cacheUsage.ts`).
    * To avoid recursive O(messages) walks on every event during hot streaming (particularly
    * on LangGraph state events like 'on_chain_end' and every chunk of 'on_chat_model_stream'),
    * we gate strictly on 'on_chat_model_end', which is the event that marks the completion
-   * of a chat model turn and carries its output stop_reason.
+   * of a chat model turn and carries its output stop_reason and usage.
    */
   private async *wrapEventStream(
     stream: unknown,
@@ -526,14 +603,16 @@ export class AgentGraph {
       return;
     }
     let warned = false;
+    let modelCalls = 0;
     for await (const event of stream as AsyncIterable<unknown>) {
-      if (
-        !warned &&
-        (event as { event?: string })?.event === "on_chat_model_end" &&
-        isPauseTurn(event)
-      ) {
-        warned = true;
-        logger.warn(PAUSE_TURN_WARNING);
+      if ((event as { event?: string })?.event === "on_chat_model_end") {
+        modelCalls += 1;
+        const usage = cacheUsageFromModelEnd(event);
+        if (usage) logger.info(`[agent] prompt cache ${formatCacheUsage(modelCalls, usage)}`);
+        if (!warned && isPauseTurn(event)) {
+          warned = true;
+          logger.warn(PAUSE_TURN_WARNING);
+        }
       }
       yield event;
     }
@@ -589,11 +668,12 @@ export class AgentGraph {
    * rejects the next turn. Skips threads paused on a HITL interrupt — those
    * open tool_calls are waiting for approval, not cancelled.
    */
-  async repairOrphanedToolCalls(threadId: string): Promise<number> {
-    const { messages, pendingWrites } = await this.getTrace(threadId);
-    const hasInterrupt = pendingWrites.some(
-      (write) => Array.isArray(write) && write[1] === "__interrupt__",
-    );
+  async repairOrphanedToolCalls(
+    threadId: string,
+    /** The thread's snapshot when the caller already read it, to skip a second checkpoint read. */
+    known?: ThreadSnapshot,
+  ): Promise<number> {
+    const { messages, hasInterrupt } = known ?? (await this.getThreadSnapshot(threadId));
     if (hasInterrupt) return 0;
 
     const repairs = buildOrphanedToolRepairMessages(messages);
@@ -629,12 +709,25 @@ export class AgentGraph {
   }
 
   async getMessages(threadId: string): Promise<BaseMessage[]> {
+    return (await this.getThreadSnapshot(threadId)).messages;
+  }
+
+  /**
+   * One checkpoint read for everything a turn needs to know about its thread
+   * before running: the persisted messages, and whether the thread is paused
+   * on a HITL interrupt (a pending task carrying one). The chat route reads
+   * this once and hands it to the repairs, which used to each read again —
+   * a permanent bot thread's checkpoint is large, and it was deserialized
+   * three times per turn.
+   */
+  async getThreadSnapshot(threadId: string): Promise<ThreadSnapshot> {
     // getState is marked @internal in LangChain v1 typings (return type
     // `never`) but it's the documented LangGraph API and works at runtime.
     const agent = this.defaultAgent as unknown as {
       getState: (config: { configurable: { thread_id: string } }) => Promise<
         | {
             values?: { messages?: BaseMessage[] };
+            tasks?: ReadonlyArray<{ interrupts?: ReadonlyArray<unknown> }>;
           }
         | undefined
       >;
@@ -642,7 +735,10 @@ export class AgentGraph {
     const state = await agent.getState({
       configurable: { thread_id: threadId },
     });
-    return state?.values?.messages ?? [];
+    return {
+      messages: state?.values?.messages ?? [],
+      hasInterrupt: (state?.tasks ?? []).some((task) => (task.interrupts?.length ?? 0) > 0),
+    };
   }
 
   /**

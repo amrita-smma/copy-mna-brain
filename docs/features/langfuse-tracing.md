@@ -70,11 +70,29 @@ Every trace is tagged with:
 | `environment` | `VERCEL_ENV` ?? `NODE_ENV` | Keeps preview noise out of production dashboards |
 | `release` | `VERCEL_GIT_COMMIT_SHA` | Pins a regression to a deploy, not a date range |
 | `effort_tier`, `effort_model`, `output_effort` | `AnalysisAgent.traceMetadata()` | Answers "which tier ran this turn?" from the trace |
+| `turn_timeline` (metadata), `time_to_first_token_ms` / `time_to_first_text_ms` (scores) | `recordTurnTiming` from the chat route's `TurnTimer` | Where a chat turn's time went before the model answered — charted as scores, broken down in the metadata |
 | `userId` | `runWithLangfuseUser` (see below) | Groups a trace under the person or key that caused it |
 
 `langfuseEnvironment()` normalises the environment name and degrades to
 `"default"` on anything Langfuse would reject — an invalid value 400s the whole
 ingestion batch, so a junk name must never be forwarded.
+
+### A chat turn's timeline
+
+`POST /api/chat` passes the agent run's root `runId` in the run config: the
+question row's id once the question is stored (the id feedback on the reply
+scores the trace by, MB-693), otherwise a fresh one. The LangChain handler uses
+the root run id as the trace id, so the route knows the trace id before the
+run starts and can add to the trace
+afterwards. Once the first visible text has streamed (or the turn ends without
+any), `recordTurnTiming` upserts the trace with `metadata.turn_timeline` — the
+`TurnTimer` stages, cumulative ms from the request: `thread_open`, `context`,
+`router`, `memory_recall`, `turn_claimed`, `history_read`, `repairs`,
+`model_started`, `first_token`, `first_text`, … — and posts two numeric scores,
+`time_to_first_token_ms` and `time_to_first_text_ms`, which the Scores view
+can chart per tier, user or release. Langfuse merges a second `trace` event
+with the same id, so this adds to the trace the handler created rather than
+replacing it. The same timeline is also logged (`[chat] turn … timeline`).
 
 ## How a call site gets traced
 

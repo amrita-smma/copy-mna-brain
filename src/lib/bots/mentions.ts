@@ -26,6 +26,19 @@ function startsMention(text: string, at: number): boolean {
 }
 
 /**
+ * Whether a text has any `@` that could begin a bot mention: one that starts a
+ * word (`@Scout`), not the one in `a@b.com`. A cheap pre-check so the chat
+ * route only loads the bot list and runs `findBotMentions` on messages that
+ * can name a bot — most messages with an `@` in them are email addresses.
+ */
+export function mayMentionBot(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (startsMention(text, i) && WORD_CHAR.test(text.charAt(i + 1))) return true;
+  }
+  return false;
+}
+
+/**
  * The bots a text @mentions, in order of first mention, each once, without
  * `excludeId` (the sender), capped at `limit` (default `MAX_MENTION_PINGS`;
  * pass `Infinity` for a user's message). Names match
@@ -115,7 +128,14 @@ export function filterMentionCandidates<T extends MentionableBot>(bots: readonly
  * can change without touching the (pinned) system prompt.
  */
 export function mentionableBotsContext(bots: readonly MentionableBot[], selfId: string): string {
-  const others = bots.filter((b) => b.id !== selfId).map((b) => b.name);
+  // Sorted by name, not by the order the list came in: this note is part of
+  // the per-turn system prompt, and `listVisible` orders unpinned bots by
+  // last activity, which changes whenever the user talks to another bot. A
+  // byte-for-byte identical note keeps the prompt cache intact.
+  const others = bots
+    .filter((b) => b.id !== selfId)
+    .map((b) => b.name)
+    .sort((a, b) => a.localeCompare(b));
   if (others.length === 0) return '';
   return [
     '<other_bots>',

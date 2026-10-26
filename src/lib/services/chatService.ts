@@ -10,7 +10,13 @@ export class ChatService {
     try {
       const contextParts: string[] = [];
 
-      const theses = await this.thesisRepo.findActiveList(3);
+      // Independent reads, issued together: this runs on every chat turn's
+      // critical path, so two sequential round trips would be paid twice.
+      const [theses, criteria] = await Promise.all([
+        this.thesisRepo.findActiveList(3),
+        this.criteriaRepo.findAll(),
+      ]);
+
       if (theses.length > 0) {
         contextParts.push('## Current Investment Thesis\n');
         theses.forEach((thesis, i) => {
@@ -20,7 +26,6 @@ export class ChatService {
         });
       }
 
-      const criteria = await this.criteriaRepo.findAll();
       if (criteria.length > 0) {
         contextParts.push('## Screening Criteria\n');
         contextParts.push('The following criteria are used to evaluate companies:\n');

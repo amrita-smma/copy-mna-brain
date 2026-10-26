@@ -27,6 +27,7 @@ vi.mock('langchain', () => ({
     mocks.createAgent(...args);
     return { stream: mocks.stream };
   },
+  dynamicSystemPromptMiddleware: vi.fn(() => ({ __dynamicSystemPrompt: true })),
 }));
 
 vi.mock('@/lib/fuzzySearch', () => ({

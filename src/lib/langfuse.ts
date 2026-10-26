@@ -25,7 +25,10 @@ export {
   getLangfuseCallbacks,
   isLangfuseEnabled,
   langfuseEnvironment,
+  recordTurnTiming,
   resetLangfuseHandlerForTests,
+  TTFT_SCORE_NAMES,
+  type TurnTiming,
 } from "./langfuseClient";
 
 /**

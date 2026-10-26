@@ -7,6 +7,7 @@ import {
   mentionInsertAt,
   mentionQueryAt,
   mentionableBotsContext,
+  mayMentionBot,
 } from './mentions';
 
 const bots = [
@@ -104,15 +105,35 @@ describe('isCompletedMention', () => {
 });
 
 describe('mentionableBotsContext', () => {
-  it('names the other bots and how to mention them', () => {
+  it('names the other bots, sorted by name, and how to mention them', () => {
     const note = mentionableBotsContext(bots.slice(0, 3), 'deal');
-    expect(note).toContain('Deal Scout, Atlas');
-    expect(note).not.toContain('bots: Deal,');
-    expect(note).toContain('@Deal Scout');
+    expect(note).toContain('bots: Atlas, Deal Scout.');
+    expect(note).not.toContain('Deal,');
+    expect(note).toContain('@Atlas');
     expect(note).toContain('first call lookup_bot');
+  });
+
+  it('is the same note whatever order the bots arrive in, so the cached prompt prefix holds', () => {
+    const a = mentionableBotsContext([bots[1], bots[2], bots[3]], 'nova');
+    const b = mentionableBotsContext([bots[3], bots[2], bots[1]], 'nova');
+    expect(a).toBe(b);
   });
 
   it('is empty when the bot is the only one', () => {
     expect(mentionableBotsContext([{ id: 'a', name: 'A' }], 'a')).toBe('');
+  });
+});
+
+describe('mayMentionBot', () => {
+  it('is true for an @ that starts a word', () => {
+    expect(mayMentionBot('ask @Scout about it')).toBe(true);
+    expect(mayMentionBot('@Atlas')).toBe(true);
+    expect(mayMentionBot('(@nova)')).toBe(true);
+  });
+
+  it('is false for email addresses and a bare @', () => {
+    expect(mayMentionBot('mail a@b.com and nico.alimin@example.co')).toBe(false);
+    expect(mayMentionBot('what does @ mean')).toBe(false);
+    expect(mayMentionBot('no mention here')).toBe(false);
   });
 });

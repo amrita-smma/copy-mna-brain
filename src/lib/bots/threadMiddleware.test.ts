@@ -65,10 +65,20 @@ describe('botThreadMiddleware', () => {
     expect(config.trigger).toEqual({ tokens: BOT_SUMMARY_TRIGGER_TOKENS });
     expect(config.keep).toEqual({ messages: BOT_SUMMARY_KEEP_MESSAGES });
   });
+
+  it('bounds the history every call re-reads to 60k tokens', () => {
+    expect(BOT_SUMMARY_TRIGGER_TOKENS).toBe(60_000);
+  });
+
+  it('sets the summarizer thinking explicitly, since Sonnet 5.5 rejects the library default', () => {
+    const config = (botThreadMiddleware()[0] as unknown as { __summarization: { model: { opts: Record<string, unknown> } } })
+      .__summarization;
+    expect(config.model.opts.thinking).toEqual({ type: 'between_tools' });
+  });
 });
 
 describe('buildBotTurnOverride', () => {
-  it("layers the bot over the graph's prompt and tools, with context editing on", () => {
+  it("layers the bot over the graph's prompt and tools, with context editing off to keep the prompt cache", () => {
     const graph = {
       getSystemPrompt: () => 'FLAVOR',
       getToolList: () => [{ name: 'query_companies' }] as never,
@@ -88,6 +98,6 @@ describe('buildBotTurnOverride', () => {
     expect(tools.slice(0, 3)).toEqual(['query_companies', 'search_chat_history', 'offer_options']);
     expect(tools).toEqual(expect.arrayContaining(['send_email', 'lookup_bot', 'update_bot']));
     expect(override.middleware).toBe(middleware);
-    expect(override.contextEditing).toBe(true);
+    expect(override.contextEditing).toBe(false);
   });
 });

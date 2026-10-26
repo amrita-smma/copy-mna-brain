@@ -15,6 +15,7 @@ vi.mock('langchain', () => ({
       yield { messages: [{ content: (global as any)._mockLlmContent || '' }] };
     }),
   })),
+  dynamicSystemPromptMiddleware: vi.fn(() => ({ __dynamicSystemPrompt: true })),
 }));
 
 // Mock Anthropic SDK directly to avoid actual API calls

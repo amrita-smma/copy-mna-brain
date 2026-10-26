@@ -502,13 +502,24 @@ Breakdown of the waste:
 **Why we took it:** the flavors grew by accretion, each adding guidance without
 anyone measuring the assembled total.
 
-**What is already correct and should not be "fixed":** prompt caching. The model
-binds `cache_control` via `withConfig` (`runtime.ts:166-174`, with an accurate
-comment on why the constructor form is ignored by `@langchain/anthropic`), chat
-deliberately skips context-editing to protect the cached prefix, and
-`lazyToolList.ts` documents the real cycle it works around. The fixed prefix is
-therefore cached at ~0.1x after the first turn — the remaining cost is the
-turn-one cache write plus 0.1x on every tool-loop iteration.
+**What is already correct and should not be "fixed":** prompt caching. The
+fixed system prompt is its own content block with a `cache_control` breakpoint
+(`buildSystemMessage` in `runtime.ts`), the per-turn context is appended as a
+separate block at model-call time (`perTurnContextMiddleware`), the model also
+binds `cache_control` on the last message via `withConfig` for the tool loop,
+chat runs with context editing off (`buildBotTurnOverride`), and
+`lazyToolList.ts` documents the real cycle it works around. The fixed prefix
+(tools + prompt) is therefore cached at ~0.1x after the first call — the
+remaining cost is the turn-one cache write plus 0.1x on every later call.
+`AgentGraph.wrapEventStream` logs `cache_read` / `cache_write` per model call;
+a run of calls with `cache_read=0` means something in the fixed prefix is
+changing and this guarantee has regressed.
+
+(Before the per-turn block was split out, the recalled memories and the
+other-bots note were concatenated into the single system string, and the only
+breakpoint sat on the last message — so every turn's first call re-read the
+whole prefix uncached. Keep anything that varies per turn out of the fixed
+block.)
 
 **Trigger to revisit:** when adding the next flavor or the next ~5 tools.
 

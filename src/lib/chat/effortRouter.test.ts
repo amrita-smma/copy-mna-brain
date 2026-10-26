@@ -18,7 +18,10 @@ import {
   shouldRoute,
   OPEN_INSIGHT_EFFORT_FLOOR,
   resolveTurnEffort,
+  fallbackEffort,
   ROUTER_FALLBACK,
+  ROUTER_TIMEOUT_MS,
+  SHORT_TURN_CHARS,
 } from './effortRouter';
 
 beforeEach(() => {
@@ -97,15 +100,18 @@ describe('routeEffort', () => {
     await expect(routeEffort({ message: 'what is the EBITDA' }, 'k')).resolves.toBe('low');
   });
 
-  it('runs the routing call itself on a small fast model at low effort', async () => {
+  it('runs the routing call itself on Haiku with thinking off, at low effort, under a short timeout', async () => {
     invoke.mockResolvedValue({ content: 'low' });
     await routeEffort({ message: 'hi' }, 'k');
     expect(ctor).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'claude-sonnet-5-5',
+        model: 'claude-haiku-5-5',
+        thinking: { type: 'disabled' },
         outputConfig: { effort: 'low' },
       }),
     );
+    expect(invoke.mock.calls[0][1]).toMatchObject({ timeout: ROUTER_TIMEOUT_MS });
+    expect(ROUTER_TIMEOUT_MS).toBeLessThanOrEqual(1500);
   });
 
   it('returns null without calling the model on an empty turn', async () => {
@@ -119,7 +125,24 @@ describe('routeEffort', () => {
   });
 });
 
+describe('fallbackEffort', () => {
+  it('runs a short, attachment-free turn at low when the router gave no answer', () => {
+    expect(fallbackEffort({ message: 'thanks, and the EBITDA?' })).toBe('low');
+    expect(fallbackEffort({ message: 'x'.repeat(SHORT_TURN_CHARS) })).toBe('low');
+  });
+
+  it('keeps the medium fallback for a long turn or one with attachments', () => {
+    expect(fallbackEffort({ message: 'x'.repeat(SHORT_TURN_CHARS + 1) })).toBe(ROUTER_FALLBACK);
+    expect(fallbackEffort({ message: 'review this', hasAttachments: true })).toBe(ROUTER_FALLBACK);
+  });
+});
+
 describe('resolveTurnEffort', () => {
+  it('uses the caller\'s fallback when nothing is routed, and ROUTER_FALLBACK without one', () => {
+    expect(resolveTurnEffort({ requested: null, stored: null, routed: null, fallback: 'low' })).toBe('low');
+    expect(resolveTurnEffort({ requested: null, stored: null, routed: 'high', fallback: 'low' })).toBe('high');
+  });
+
   it('pins the thread to explicit requested effort', () => {
     expect(resolveTurnEffort({ requested: 'high', stored: 'low', routed: 'deep' })).toBe('high');
     expect(resolveTurnEffort({ requested: 'low', stored: 'high', routed: 'high' })).toBe('low');

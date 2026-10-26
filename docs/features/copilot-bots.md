@@ -153,11 +153,29 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
      Per-turn context comes last.
    - **Tools**: the flavor's tools, `search_chat_history` and `offer_options`,
      then every skill's tools not already there (`mergeBotTools`).
-   - **Middleware**: `summarizationMiddleware` (past 120k tokens, keeps the last
-     20 messages) and context editing.
+   - **Middleware**: `summarizationMiddleware` (past 60k tokens, keeps the last
+     20 messages). Context editing is **off** for chat: clearing tool results
+     rewrites the history and invalidates the cached prompt prefix.
+   The compiled agent for a bot's prompt + tools is memoised on the flavor
+   graph (`AgentGraph.getAgent`), so a turn does not rebuild it.
 4. The effort tier is chosen **per turn**; nothing is stored on the thread.
-   The per-turn context also names the other bots it can **@mention**
-   (`mentionableBotsContext`).
+   The router (`routeEffort`) is a Haiku call with thinking off, capped at
+   `ROUTER_TIMEOUT_MS` (1.5 s), started as soon as the turn's text is known
+   so it overlaps the thread open and the context reads. A turn it cannot
+   place runs at `low` when short and attachment-free, `medium` otherwise
+   (`fallbackEffort`). The per-turn context also names the other bots it can
+   **@mention** (`mentionableBotsContext`, sorted by name so the note is
+   byte-identical between turns).
+
+   **Prompt caching.** The fixed system prompt is one content block carrying
+   a `cache_control` breakpoint; everything that changes per turn (workspace
+   context, recalled memories, the open insight's outline, this note) is
+   appended as a *separate* block at model-call time
+   (`perTurnContextMiddleware`, from `configurable.additionalSystemContext`).
+   Tools + fixed prompt are therefore read from cache on every call after
+   the first, whatever the per-turn block says. `AgentGraph.wrapEventStream`
+   logs `cache_read` / `cache_write` per model call; the route logs a
+   per-stage timeline of the setup path (`TurnTimer`).
 5. The question is stored in `copilot_messages` as soon as the turn lock is
    held (`ChatHistoryService.persistQuestion`), so a tab reloaded mid-turn
    shows it under the live bubble rather than an empty thread. After the
@@ -166,8 +184,11 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
    discards its question row instead), an embedding job is queued,
    the reply's @mentions are handed on (`BotService.dispatchMentions`; the
    user's own @mentions went out when the message arrived), the turn
-   is queued for the task log, mem0 memory is updated, and the turn lock is
-   released. All of it waits for the turn to finish, not for the browser.
+   is queued for the task log and mem0 memory is updated. The turn lock is
+   released right after the reply is stored — before the hand-off, the task
+   log and the memory write-back, none of which touch the thread — so a quick
+   follow-up message is not refused with a 409 while an LLM extraction runs.
+   All of it waits for the turn to finish, not for the browser.
 
 ### A turn outlives the browser
 

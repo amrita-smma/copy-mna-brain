@@ -193,7 +193,7 @@ user-supplied influence, and the Memory tab as the place it stays reviewable.
   follow-up ("ok do that") searches with the previous user turn in front of it
   (`recallQueryFor`, `src/lib/memory/recallQuery.ts`), since a few words embed
   to nearly nothing. Recall is on the turn's critical path, so it is bounded by
-  `RECALL_TIMEOUT_MS` (6s) as well as wrapped in a `catch` — a provider that
+  `RECALL_TIMEOUT_MS` (1.5s) as well as wrapped in a `catch` — a provider that
   *hangs* rather than fails would otherwise hold the turn open; a timeout is
   treated exactly like a failure. The mem0 client is built before the clock
   starts: on a cold start that is the module import, which has nothing to do

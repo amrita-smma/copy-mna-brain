@@ -16,9 +16,26 @@ const mocks = vi.hoisted(() => ({
   ],
 }));
 
+
+/**
+ * `createAgent` now receives the prompt as a SystemMessage whose first block is
+ * the fixed text (with the prompt-cache breakpoint); these tests assert on that
+ * text, so the mock records it as the plain string it used to be.
+ */
+function promptText(systemPrompt: unknown): unknown {
+  if (typeof systemPrompt === 'string') return systemPrompt;
+  const content = (systemPrompt as { content?: unknown })?.content;
+  if (Array.isArray(content)) {
+    return content.map((b: { text?: string }) => b.text ?? '').join('');
+  }
+  return systemPrompt;
+}
+
 vi.mock('langchain', () => ({
-  createAgent: mocks.createAgent,
+  createAgent: (config: Record<string, unknown>) =>
+    mocks.createAgent({ ...config, systemPrompt: promptText(config.systemPrompt) }),
   humanInTheLoopMiddleware: mocks.humanInTheLoopMiddleware,
+  dynamicSystemPromptMiddleware: vi.fn(() => ({ __dynamicSystemPrompt: true })),
 }));
 
 vi.mock('@langchain/anthropic', () => ({

@@ -1,5 +1,6 @@
 import { ChatAnthropic } from '@langchain/anthropic';
 import { withLangfuseCallbacks } from '@/lib/langfuse';
+import { DISABLED_THINKING } from '@/lib/ai/thinking';
 import { asEffortChoice, maxEffort, type EffortChoice } from './effortTiers';
 import { messageText } from './turnBudget';
 
@@ -7,18 +8,19 @@ import { messageText } from './turnBudget';
  * Auto-tier routing for the Copilot.
  *
  * The chat UI's "Auto" option used to be decorative — it resolved to the same
- * call as "Medium". This picks a real tier with a single frontier-model call.
+ * call as "Medium". This picks a real tier with one small, fast model call.
  *
  * Cost/latency shape, and why it is affordable:
- *   - It runs ONCE PER THREAD, not once per turn. The chosen tier is persisted
- *     on `copilot_chats.effort_tier` and reused; only a turn that carries a new
- *     attachment re-routes (see `shouldRoute`).
- *   - The caller starts it before the agent graph is built and awaits it later,
- *     so it overlaps work the chat route already does and adds ~no wall-clock.
- *   - It never de-escalates: the caller clamps the result with `maxEffort`
- *     against the tier already stored on the thread. A tier change invalidates
- *     the thread's cached prefix, so bounding changes matters more than picking
- *     the perfect tier.
+ *   - It runs on EVERY Auto turn of a permanent bot thread: a stored,
+ *     only-escalating tier would leave every later turn on the most expensive
+ *     one (`shouldRoute` still supports a stored tier for callers that keep
+ *     one). That is why the call has to be cheap: Haiku with thinking off,
+ *     a one-word answer, and a hard 1.5 s cap.
+ *   - The caller starts it as soon as the turn's text is known and awaits it
+ *     just before the graph is built, so it overlaps the thread open, the
+ *     context reads and the memory recall instead of adding to them.
+ *   - It never de-escalates a thread that does store a tier: the caller
+ *     clamps the result with `maxEffort` against the stored one.
  */
 
 /**
@@ -26,27 +28,45 @@ import { messageText } from './turnBudget';
  * labelled outcomes is both cheaper and quicker than a frontier model, and the
  * decision quality is bounded by the signal (one message), not by the router.
  */
-const ROUTER_MODEL = 'claude-sonnet-5-5';
+const ROUTER_MODEL = 'claude-haiku-5-5';
 
 /**
- * Adaptive thinking stays on and `effort` is dropped to `low` instead of being
- * switched off — cheaper and better behaved than opting out of reasoning
- * entirely, and it keeps the reply a clean one-word answer.
+ * No up-front reasoning: the answer is one word from a fixed set, and every
+ * thinking token here is paid for before the user's turn can start. Haiku
+ * accepts `disabled` at effort `high` or below (see `@/lib/ai/thinking`).
  */
 const ROUTER_EFFORT = 'low' as const;
 
-/** Room for a short adaptive-thinking pass plus a one-word answer. */
-const ROUTER_MAX_TOKENS = 2048;
-
-/** A hung router must never hold up the user's turn. */
-export const ROUTER_TIMEOUT_MS = 4000;
+/** One tier word; the ceiling only has to cover a model that writes a sentence. */
+const ROUTER_MAX_TOKENS = 32;
 
 /**
- * Fail to `medium`, not `low`. When routing fails we do not know the shape of
- * the task, and under-powering a deep analysis costs more (a bad answer, then a
- * retry) than over-powering a lookup.
+ * A hung router must never hold up the user's turn. The call is on the
+ * critical path, so this is also the most the router may ever cost a turn.
+ */
+export const ROUTER_TIMEOUT_MS = 1500;
+
+/**
+ * Fail to `medium`, not `low`, for a turn that looks like real work. When
+ * routing fails we do not know the shape of the task, and under-powering a
+ * deep analysis costs more (a bad answer, then a retry) than over-powering a
+ * lookup — but see `fallbackEffort`: a short turn with nothing attached is
+ * almost always a lookup, and `medium` would make it wait on `high` effort.
  */
 export const ROUTER_FALLBACK: EffortChoice = 'medium';
+
+/** A turn at most this long, with nothing attached, falls back to `low`. */
+export const SHORT_TURN_CHARS = 240;
+
+/**
+ * The tier a turn runs at when the router gives no answer (timeout, error,
+ * unparseable reply): `low` for a short, attachment-free turn — a greeting, a
+ * follow-up, one lookup — and `ROUTER_FALLBACK` otherwise.
+ */
+export function fallbackEffort(input: { message: string; hasAttachments?: boolean }): EffortChoice {
+  if (input.hasAttachments) return ROUTER_FALLBACK;
+  return input.message.trim().length <= SHORT_TURN_CHARS ? 'low' : ROUTER_FALLBACK;
+}
 
 export const EFFORT_ROUTER_SYSTEM_PROMPT =
   'You route turns for an M&A / investment research copilot to a compute tier. ' +
@@ -135,28 +155,30 @@ export const OPEN_INSIGHT_EFFORT_FLOOR: EffortChoice = 'medium';
 /**
  * Resolves the effort tier for a turn:
  * - An explicit user choice (`requested`) takes precedence.
- * - Otherwise takes the routed tier (or fallback) clamped against stored tier
- *   so a thread may escalate, never de-escalate, and then raised to `floor`
- *   when one applies. The floor binds Auto only — a tier the user picked by
- *   hand is never overridden.
+ * - Otherwise takes the routed tier (or `fallback`, default `ROUTER_FALLBACK`)
+ *   clamped against stored tier so a thread may escalate, never de-escalate,
+ *   and then raised to `floor` when one applies. The floor binds Auto only — a
+ *   tier the user picked by hand is never overridden.
  */
 export function resolveTurnEffort(input: {
   requested?: EffortChoice | null;
   stored?: EffortChoice | null;
   routed?: EffortChoice | null;
   floor?: EffortChoice | null;
+  /** The tier for a turn the router could not place; see `fallbackEffort`. */
+  fallback?: EffortChoice | null;
 }): EffortChoice {
   if (input.requested) {
     return input.requested;
   }
-  const candidate = input.routed ?? input.stored ?? ROUTER_FALLBACK;
+  const candidate = input.routed ?? input.stored ?? input.fallback ?? ROUTER_FALLBACK;
   const effort = input.stored ? maxEffort(input.stored, candidate) : candidate;
   return input.floor ? maxEffort(effort, input.floor) : effort;
 }
 
 /**
- * One-shot frontier-model call returning a tier (or null when it fails, so the
- * caller can apply `ROUTER_FALLBACK`). Never throws.
+ * One-shot small-model call returning a tier (or null when it fails, so the
+ * caller can apply `fallbackEffort`). Never throws.
  */
 export async function routeEffort(
   input: RouteEffortInput,
@@ -172,7 +194,7 @@ export async function routeEffort(
       maxTokens: ROUTER_MAX_TOKENS,
       // Newer models reject `temperature`; leave it unset.
       temperature: undefined,
-      thinking: { type: 'adaptive' },
+      thinking: DISABLED_THINKING,
       outputConfig: { effort: ROUTER_EFFORT },
     });
 

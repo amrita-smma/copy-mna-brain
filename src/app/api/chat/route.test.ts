@@ -22,6 +22,7 @@ const {
   dispatchMentionsMock,
   recordTaskMock,
   routeEffortMock,
+  recordTurnTimingMock,
   shouldRouteMock,
   buildBotTurnOverrideMock,
 } = vi.hoisted(() => ({
@@ -31,6 +32,7 @@ const {
   dispatchMentionsMock: vi.fn(),
   recordTaskMock: vi.fn(),
   routeEffortMock: vi.fn(),
+  recordTurnTimingMock: vi.fn(),
   shouldRouteMock: vi.fn(),
   buildBotTurnOverrideMock: vi.fn(),
   authMock: vi.fn(),
@@ -93,6 +95,7 @@ vi.mock('@/lib/bots/threadMiddleware', () => ({ buildBotTurnOverride: buildBotTu
 vi.mock('@/lib/langfuse', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   flushLangfuse: vi.fn(),
+  recordTurnTiming: recordTurnTimingMock,
 }));
 // The real tier resolution (escalate-only, the open-insight floor); only the
 // routing call is stubbed.
@@ -101,7 +104,10 @@ vi.mock('@/lib/chat/effortRouter', async (importOriginal) => ({
   routeEffort: routeEffortMock,
   shouldRoute: shouldRouteMock,
 }));
-vi.mock('@/lib/chat/thinkingStream', () => ({
+// Partial: the real `hasTextContent` stays, since the route's first-token tap
+// reads it; only the stream conversion is stubbed.
+vi.mock('@/lib/chat/thinkingStream', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   isGraphRecursionError: () => false,
   RECURSION_LIMIT_ERROR_MESSAGE: 'recursion',
   toThinkingMessageStream: vi.fn(),
@@ -136,6 +142,7 @@ vi.mock('@/lib/bots/presence', async (importOriginal) => ({
 import { POST } from './route';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { buildBudgetNotice, withBudgetWrapUp } from '@/lib/chat/turnBudget';
+import { toThinkingMessageStream } from '@/lib/chat/thinkingStream';
 import {
   CHAT_ATTACHMENTS_KWARG,
   WHOLE_DOCUMENT_TOOL_NAMES,
@@ -161,6 +168,8 @@ function chatRequest(body: Record<string, unknown>) {
     }),
   });
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('POST /api/chat', () => {
   const claimTurnMock = vi.fn();
@@ -190,6 +199,10 @@ describe('POST /api/chat', () => {
     invoke: invokeMock,
     streamEvents: streamEventsMock,
     getMessages: getMessagesMock,
+    // The route's one pre-turn read of the thread; the `after()` hook reads
+    // again through `getMessages`, so both go through the same mock and a
+    // test sequences them with `mockResolvedValueOnce` as before.
+    getThreadSnapshot: vi.fn(async (id: string) => ({ messages: await getMessagesMock(id), hasInterrupt: false })),
     rewriteFileReferences: vi.fn(),
     repairCorruptServerToolCalls: vi.fn(),
     repairOrphanedToolCalls: vi.fn(),
@@ -205,6 +218,7 @@ describe('POST /api/chat', () => {
       chat: { id: CHAT_ID, title: 'Copilot', effort_tier: null, agent_key: 'general', bot_id: defaultBot.id },
     });
     routeEffortMock.mockReset();
+    recordTurnTimingMock.mockReset();
     claimTurnMock.mockReset().mockResolvedValue(true);
     streamEventsMock.mockReset().mockResolvedValue({});
     releaseTurnMock.mockReset().mockResolvedValue(undefined);
@@ -301,6 +315,8 @@ describe('POST /api/chat', () => {
       {
         chat: expect.objectContaining({ id: CHAT_ID }),
         pageContext: expect.objectContaining({ insightId: INSIGHT_ID }),
+        // Unrouted (the router mock answers nothing) on an open insight: the
+        // short-turn fallback is `low`, raised to the insight floor.
         effort: 'medium',
         flavour: 'investment',
         sof: true,
@@ -862,9 +878,10 @@ describe('POST /api/chat', () => {
 
       const res = await POST(chatRequest({ show_intermediate_steps: false }));
 
+      // A short, attachment-free turn with no router answer falls back to `low`.
       expect(persistQuestionMock.mock.calls[0][0].turn).toEqual({
-        model: 'claude-sonnet-5-5',
-        effortTier: 'medium',
+        model: 'claude-haiku-5-5',
+        effortTier: 'low',
       });
       // The root runId is the Langfuse trace id that feedback scores.
       expect(streamEventsMock.mock.calls[0][1].runId).toBe('q-row');
@@ -891,7 +908,10 @@ describe('POST /api/chat', () => {
 
       const res = await POST(chatRequest({ show_intermediate_steps: false }));
 
-      expect(streamEventsMock.mock.calls[0][1]).not.toHaveProperty('runId');
+      // Still a known id (the turn timeline is filed under it), just not a question's.
+      const runId = streamEventsMock.mock.calls[0][1].runId as string;
+      expect(runId).toMatch(UUID);
+      expect(runId).not.toBe('q-row');
       expect(await res.text()).not.toContain('questionId');
       spy.mockRestore();
     });
@@ -1036,6 +1056,80 @@ describe('POST /api/chat', () => {
     });
   });
 
+  describe('the turn timeline on the Langfuse trace', () => {
+    it("files the setup stages on the turn's trace, which runs under the question's id", async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      resolve();
+
+      await POST(chatRequest({}));
+
+      const runId = invokeMock.mock.calls[0][1].runId as string;
+      expect(runId).toBe('q-row');
+      expect(recordTurnTimingMock).toHaveBeenCalledTimes(1);
+      const [timing] = recordTurnTimingMock.mock.calls[0];
+      expect(timing.traceId).toBe(runId);
+      expect(Object.keys(timing.stages)).toEqual(
+        expect.arrayContaining(['thread_open', 'context', 'router', 'graph_resolved', 'turn_claimed', 'history_read', 'repairs']),
+      );
+      // The debug path streams nothing, so there is no first token to report.
+      expect(timing.firstTokenMs).toBeNull();
+      expect(timing.firstTextMs).toBeNull();
+    });
+
+    it('records a streamed turn once, with its first-token timings, before the Langfuse drain', async () => {
+      resolve();
+      streamEventsMock.mockResolvedValue(
+        (async function* () {
+          yield { event: 'on_chat_model_start' };
+          yield { event: 'on_chat_model_stream', data: { chunk: { content: [{ type: 'thinking', thinking: 'hm' }] } } };
+          yield { event: 'on_chat_model_stream', data: { chunk: { content: 'Hello' } } };
+        })(),
+      );
+      // Drain the (tapped) agent events the way the real converter does, then
+      // emit one text chunk; the wrap-up passes the stream through.
+      vi.mocked(toThinkingMessageStream).mockImplementationOnce(
+        (events) =>
+          new ReadableStream({
+            async start(controller) {
+              for await (const _ of events as AsyncIterable<unknown>) {
+                void _;
+              }
+              controller.enqueue({ type: 'text-start', id: 't' });
+              controller.enqueue({ type: 'text-delta', id: 't', delta: 'Hello' });
+              controller.enqueue({ type: 'text-end', id: 't' });
+              controller.close();
+            },
+          }) as never,
+      );
+      vi.mocked(withBudgetWrapUp).mockImplementationOnce((stream) => stream as never);
+      const res = await POST(
+        new NextRequest('http://localhost/api/chat', {
+          method: 'POST',
+          body: JSON.stringify({
+            messages: [{ role: 'user', parts: [{ type: 'text', text: 'How is this developer doing?' }] }],
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      // No question row on this path, so the turn runs under a fresh trace id.
+      expect(streamEventsMock.mock.calls[0][1].runId).toMatch(UUID);
+      // Drain the body so the tap sees the model events, then run the hooks.
+      await res.body!.pipeTo(new WritableStream());
+      for (const [fn] of vi.mocked(after).mock.calls) {
+        await (fn as () => unknown)();
+      }
+
+      expect(recordTurnTimingMock).toHaveBeenCalledTimes(1);
+      const [timing] = recordTurnTimingMock.mock.calls[0];
+      expect(timing.traceId).toBe(streamEventsMock.mock.calls[0][1].runId);
+      expect(timing.stages).toMatchObject({ model_started: expect.any(Number), first_token: expect.any(Number), first_text: expect.any(Number) });
+      expect(timing.firstTokenMs).toEqual(expect.any(Number));
+      expect(timing.firstTextMs).toEqual(expect.any(Number));
+      expect(timing.firstTextMs).toBeGreaterThanOrEqual(timing.firstTokenMs);
+    });
+  });
+
   describe('bot threads (RFC 02)', () => {
     const BOT_ID = 'bbbbbbbb-2222-4333-8444-555555555555';
     const BOT_CHAT_ID = 'cccccccc-2222-4333-8444-555555555555';
@@ -1080,10 +1174,19 @@ describe('POST /api/chat', () => {
 
     it('picks the effort tier per turn and never stores it on the thread', async () => {
       // The thread row says 'high'; a permanent thread must not stay pinned there.
+      // Unrouted, short and with nothing attached, the turn runs at `low`.
       botThread({ effort_tier: 'high' });
       resolve();
 
       await POST(chatRequest({ bot_id: BOT_ID }));
+
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
+    });
+
+    it('falls back to medium for a long unrouted turn or one with attachments', async () => {
+      resolve();
+
+      await POST(chatRequest({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'x'.repeat(300) }] }] }));
 
       expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
     });
@@ -1119,7 +1222,11 @@ describe('POST /api/chat', () => {
       await POST(chatRequest({ bot_id: BOT_ID }));
 
       expect(getMessagesMock).toHaveBeenCalledWith(BOT_CHAT_ID);
-      expect(graph.repairOrphanedToolCalls).toHaveBeenCalledWith(BOT_CHAT_ID);
+      // The repair reuses the one read rather than reading the checkpoint again.
+      expect(graph.repairOrphanedToolCalls).toHaveBeenCalledWith(BOT_CHAT_ID, {
+        messages: [new HumanMessage('earlier')],
+        hasInterrupt: false,
+      });
     });
 
     it('404s when the bot is not visible to the user', async () => {

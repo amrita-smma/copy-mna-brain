@@ -100,8 +100,13 @@ const MAX_LIST_LIMIT = 200;
  * it resolves — so catching errors is not enough: a Bedrock or mem0 call that
  * hangs rather than fails would hold the user's turn open indefinitely. A
  * timeout is treated exactly like a failure: no memories, turn proceeds.
+ *
+ * 1.5 s, not the 6 s it once was: a healthy recall (one embedding plus one
+ * indexed query) finishes well under a second, and anything slower is worth
+ * less to the user than the wait. The turn is on the hook for every one of
+ * these milliseconds before the model is even called.
  */
-export const RECALL_TIMEOUT_MS = 6_000;
+export const RECALL_TIMEOUT_MS = 1_500;
 
 /**
  * Statements per `add` call. mem0 compares a batch against at most 10 existing
