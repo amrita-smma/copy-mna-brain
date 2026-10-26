@@ -220,11 +220,7 @@ export function MatchedCompaniesCell({
         | undefined;
       const label =
         company?.target?.trim() || company?.project_name?.trim() || "Company";
-      toast.success(
-        json.data?.created
-          ? `Created ${label} and linked it to this file`
-          : `${label} already exists — linked it to this file instead`,
-      );
+      toast.success(`Created ${label} and linked it to this file`);
       setOpen(false);
       setQuery("");
       onChanged();

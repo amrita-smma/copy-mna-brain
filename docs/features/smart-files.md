@@ -64,10 +64,11 @@ that works for *any* file type:
   DTO carries), stamped with the file's `file_type` as `doc_type`, and created
   at the `unreviewed` stage — one click can't satisfy the workspace pipeline required-field set,
   and triage is where a company sourced from a non-target document belongs.
-- An existing company already carrying that name is linked to the file instead
-  of a near-duplicate being created. Creation runs under the same per-name
-  advisory lock as auto-ingest, and dispatches analysis + screening jobs like a
-  HITL approval does.
+- It **always creates a new company**, even when one with the same or a
+  similar name exists — many distinct companies share near-identical names, and
+  a reviewer who wants an existing one picks it from the search list instead.
+  (Only unattended auto-ingest dedupes by name.) Creation dispatches analysis +
+  screening jobs like a HITL approval does.
 
 ## Email-ingest notifications
 

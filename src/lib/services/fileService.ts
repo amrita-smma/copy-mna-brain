@@ -3960,14 +3960,15 @@ function isEntityDecisionRemapped(
    * exactly where a company sourced from a non-target document belongs.
    *
    * `name` (what the user typed in the chip's search box) wins over the
-   * extracted candidate. When an existing company already carries that name
-   * the file is linked to it instead of a near-duplicate being created;
-   * `created: false` tells the caller to say so.
+   * extracted candidate. This always creates a new row, even when a company
+   * with the same or a similar name exists: many distinct companies share
+   * near-identical names, and a reviewer who wanted an existing one would have
+   * picked it from the search list instead of clicking "Create new company".
    */
   async createCompanyFromFile(
     fileId: string,
     opts: { name?: string; enteredBy?: string | null } = {},
-  ): Promise<{ file: Tables<'files'>; company: Tables<'companies'>; created: boolean }> {
+  ): Promise<{ file: Tables<'files'>; company: Tables<'companies'> }> {
     const file = await this.fileRepo.findById(fileId);
     const parsedNotes = this.parseStructuredNotes(file.structured_notes);
 
@@ -3983,57 +3984,24 @@ function isEntityDecisionRemapped(
     // company row.
     const entry = this.pickEntryForName(file, parsedNotes, identityName, Boolean(requestedName));
 
-    // Substring/suffix-stripped match only. The Levenshtein fallback that
-    // guards unattended auto-create is deliberately NOT applied here: the user
-    // explicitly asked for this name, so only a near-certain duplicate should
-    // divert them to an existing row.
-    const preexisting = await this.companyService.findByNameFuzzy(identityName);
-    if (preexisting) {
-      return {
-        file: await this.addMatchedCompany(fileId, preexisting.id),
-        company: await this.companyService.findById(preexisting.id),
-        created: false,
-      };
-    }
-
-    const result = await this.withCompanyNameLock(identityName, async (companyService) => {
-      // Re-check inside the lock so two reviewers clicking at once can't both
-      // insert the same target.
-      const raced = await companyService.findByNameFuzzy(identityName);
-      if (raced) return { companyId: raced.id, created: false };
-
-      const seeded = this.buildCompanyCreateInput(
-        entry,
-        file.file_type ?? 'other',
-        'inbound',
-      );
-      // `buildCompanyCreateInput` only fills target/project_name from the
-      // entry; a name that came from the user, a chip, or a financial
-      // statement has no entry behind it and must be set explicitly.
-      const hasIdentity = Boolean(seeded.target?.trim() || seeded.project_name?.trim());
-      const company = await companyService.createFromDTO(
-        {
-          pipeline_stage: 'unreviewed',
-          status: 'active',
-          entered_by: opts.enteredBy ?? null,
-          matched_track_ids: this.extractSuggestedTrackIds(parsedNotes),
-          ...seeded,
-          ...(hasIdentity ? {} : { target: identityName }),
-        },
-        `created_from_file:${fileId}`,
-        { deferPendingArrival: true },
-      );
-      return { companyId: company.id, created: true };
-    });
-
-    const companyId = result.companyId;
-    if (!result.created) {
-      return {
-        file: await this.addMatchedCompany(fileId, companyId),
-        company: await this.companyService.findById(companyId),
-        created: false,
-      };
-    }
+    const seeded = this.buildCompanyCreateInput(entry, file.file_type ?? 'other', 'inbound');
+    // `buildCompanyCreateInput` only fills target/project_name from the
+    // entry; a name that came from the user, a chip, or a financial
+    // statement has no entry behind it and must be set explicitly.
+    const hasIdentity = Boolean(seeded.target?.trim() || seeded.project_name?.trim());
+    const created = await this.companyService.createFromDTO(
+      {
+        pipeline_stage: 'unreviewed',
+        status: 'active',
+        entered_by: opts.enteredBy ?? null,
+        matched_track_ids: this.extractSuggestedTrackIds(parsedNotes),
+        ...seeded,
+        ...(hasIdentity ? {} : { target: identityName }),
+      },
+      `created_from_file:${fileId}`,
+      { deferPendingArrival: true },
+    );
+    const companyId = created.id;
 
     // `buildCompanyCreateInput` can only carry FY2021–FY2025 through the
     // legacy flat DTO columns, so write the full extracted ledger separately
@@ -4069,9 +4037,8 @@ function isEntityDecisionRemapped(
       await this.assignAutoSponsors([companyId]);
     }
 
-    // Re-read outside the (now committed) lock transaction so screening sees
-    // matched_track_ids, then kick off the same background work a HITL
-    // approval would.
+    // Re-read so screening sees matched_track_ids, then kick off the same
+    // background work a HITL approval would.
     const company = await this.companyService.findById(companyId);
     await this.companyAnalysisService
       .dispatch({ companyId, source: file.file_type ?? 'other' })
@@ -4080,7 +4047,7 @@ function isEntityDecisionRemapped(
       void this.dispatchScreeningJobs(companyId);
     }
 
-    return { file: updatedFile, company, created: true };
+    return { file: updatedFile, company };
   }
 
   /**

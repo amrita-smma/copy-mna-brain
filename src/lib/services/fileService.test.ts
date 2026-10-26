@@ -317,9 +317,8 @@ describe('FileService.createCompanyFromFile', () => {
       makeCompany({ id: 'company-new', target: 'Helios Energy' }),
     );
 
-    const result = await service.createCompanyFromFile('file-mom');
+    await service.createCompanyFromFile('file-mom');
 
-    expect(result.created).toBe(true);
     const [dto, reason] = vi.mocked(companyService.createFromDTO).mock.calls[0];
     expect(dto).toMatchObject({
       pipeline_stage: 'unreviewed',
@@ -456,9 +455,8 @@ describe('FileService.createCompanyFromFile', () => {
       makeCompany({ id: 'company-new', target: 'Borneo Mining' }) as never,
     );
 
-    const result = await service.createCompanyFromFile('file-fs');
+    await service.createCompanyFromFile('file-fs');
 
-    expect(result.created).toBe(true);
     expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
       target: 'Borneo Mining',
       doc_type: 'financial_statement',
@@ -494,23 +492,27 @@ describe('FileService.createCompanyFromFile', () => {
     ).toBeUndefined();
   });
 
-  it('links an existing company instead of creating a near-duplicate', async () => {
+  it('creates a new company even when a similarly named one already exists', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({ id: 'file-1', file_type: 'mom', matched_companies: [] }),
     );
     vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
       makeCompany({ id: 'company-existing', target: 'Acme Corp' }) as never,
     );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'Acme Corp' }) as never,
+    );
     vi.mocked(companyService.findById).mockResolvedValue(
-      makeCompany({ id: 'company-existing', target: 'Acme Corp' }),
+      makeCompany({ id: 'company-new', target: 'Acme Corp' }),
     );
 
     const result = await service.createCompanyFromFile('file-1', { name: 'Acme Corp' });
 
-    expect(result.created).toBe(false);
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
+    expect(companyService.createFromDTO).toHaveBeenCalledTimes(1);
+    expect(result.company.id).toBe('company-new');
     expect(vi.mocked(fileRepo.update).mock.calls[0][1].matched_companies).toEqual([
-      expect.objectContaining({ id: 'company-existing', type: 'company' }),
+      expect.objectContaining({ id: 'company-new', type: 'company' }),
     ]);
   });
 
