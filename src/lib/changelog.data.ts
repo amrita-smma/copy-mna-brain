@@ -248,6 +248,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "024c0eb9bc271fec3c0f61281d3eb18199be45bf",
+    "date": "2026-10-26",
+    "subject": "Citation chips appear beside each statement, and Sources are now shown in a cleaner strip with working links",
+    "category": "fix"
+  },
+  {
+    "hash": "bd224c164680c2fbb18e517e98be94e4a61d8987",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
