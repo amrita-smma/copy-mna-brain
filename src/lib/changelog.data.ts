@@ -146,6 +146,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "015ddb1e141e328917413f55e0db78694e610ae7",
+    "date": "2026-10-26",
+    "subject": "CRM overviews: raise token budget and use low effort",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "e59ccab4c44dee7b1f5c87f1034beedb4ef78f16",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
