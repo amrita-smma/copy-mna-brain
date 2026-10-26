@@ -2,9 +2,81 @@ import { buildInsightSrcDoc } from './srcdoc';
 
 export const INSIGHT_PRINT_DONE_MESSAGE = 'insight:print-done';
 
+/** How long the print document waits after `load` and web fonts before printing,
+ *  so charts drawn in a `load` handler (and any d3 transition) have finished. */
+export const INSIGHT_PRINT_SETTLE_MS = 1200;
+
+/**
+ * Head markup for the print document, injected ahead of the author's scripts.
+ *
+ * Charts were printing empty because the print frame is a hidden,
+ * opaque-origin (out-of-process) frame, and Chrome stops delivering
+ * `requestAnimationFrame` to a cross-origin frame it considers not visible —
+ * Chart.js and d3 both animate through it, so the canvas was printed at its
+ * first, blank animation frame. This prelude:
+ *
+ * - backs every `requestAnimationFrame` callback with a timer, so it runs
+ *   whether or not the browser delivers frames;
+ * - turns Chart.js animation off the moment the UMD bundle assigns
+ *   `window.Chart`, so a chart is fully drawn on its first render;
+ * - zeroes CSS animations and transitions, so content that fades or grows in is
+ *   printed in its final state;
+ * - keeps background colours in print (CSS-drawn bars and legend swatches are
+ *   backgrounds, which browsers drop by default) and stops a canvas sized for
+ *   the frame from overflowing the narrower printed page.
+ */
+const PRINT_PRELUDE = `<style>
+*,*::before,*::after{animation-delay:0s!important;animation-duration:0s!important;transition-delay:0s!important;transition-duration:0s!important;}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+@media print{canvas,img,svg{max-width:100%!important;}canvas{height:auto!important;}}
+</style><script>(function(){
+  var nativeRaf = window.requestAnimationFrame;
+  var nativeCancel = window.cancelAnimationFrame;
+  var nextId = 0;
+  var pending = {};
+  window.requestAnimationFrame = function(cb) {
+    var id = ++nextId;
+    var entry = { timer: 0, raf: 0 };
+    function run() {
+      if (!pending[id]) return;
+      delete pending[id];
+      clearTimeout(entry.timer);
+      if (entry.raf && nativeCancel) nativeCancel.call(window, entry.raf);
+      cb(performance.now());
+    }
+    pending[id] = entry;
+    entry.timer = setTimeout(run, 16);
+    if (nativeRaf) entry.raf = nativeRaf.call(window, run);
+    return id;
+  };
+  window.cancelAnimationFrame = function(id) {
+    var entry = pending[id];
+    if (!entry) return;
+    delete pending[id];
+    clearTimeout(entry.timer);
+    if (entry.raf && nativeCancel) nativeCancel.call(window, entry.raf);
+  };
+  try {
+    Object.defineProperty(window, 'Chart', {
+      configurable: true,
+      get: function() { return undefined; },
+      set: function(value) {
+        try {
+          if (value && value.defaults) value.defaults.animation = false;
+        } catch (_) {}
+        Object.defineProperty(window, 'Chart', {
+          configurable: true, writable: true, enumerable: true, value: value,
+        });
+      },
+    });
+  } catch (_) {}
+})();</script>`;
+
 /**
  * Inline script that triggers printing inside the sandboxed document and notifies
- * the parent window when printing is complete.
+ * the parent window when printing is complete. It waits for `load`, then for web
+ * fonts, then {@link INSIGHT_PRINT_SETTLE_MS}, so charts are drawn before the
+ * page is snapshotted.
  *
  * The trigger must live INSIDE the document rather than being invoked from the
  * parent (e.g. `frame.contentWindow.print()`), because the frame runs with an
@@ -28,12 +100,28 @@ const PRINT_TRIGGER_SCRIPT = `<script>(function(){
         window.print();
       } catch (_) {}
       notifyDone();
-    }, 500);
+    }, ${INSIGHT_PRINT_SETTLE_MS});
+  }
+  function afterFonts() {
+    var started = false;
+    function go() {
+      if (started) return;
+      started = true;
+      doPrint();
+    }
+    try {
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(go, go);
+        setTimeout(go, 3000);
+        return;
+      }
+    } catch (_) {}
+    go();
   }
   if (document.readyState === 'complete') {
-    doPrint();
+    afterFonts();
   } else {
-    window.addEventListener('load', doPrint);
+    window.addEventListener('load', afterFonts);
   }
 })();</script>`;
 
@@ -49,7 +137,7 @@ const PRINT_TRIGGER_SCRIPT = `<script>(function(){
  * the parent via postMessage on completion avoids cross-origin script security errors.
  */
 export function buildInsightPrintDoc(html: string): string {
-  const baseDoc = buildInsightSrcDoc(html, { theme: 'light' });
+  const baseDoc = buildInsightSrcDoc(html, { theme: 'light', headExtra: PRINT_PRELUDE });
   const closing = baseDoc.lastIndexOf('</body>');
   if (closing === -1) {
     return baseDoc + PRINT_TRIGGER_SCRIPT;

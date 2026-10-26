@@ -1,29 +1,53 @@
 import { describe, expect, it } from 'vitest';
-import { INSIGHT_CSP, buildInsightSrcDoc } from './srcdoc';
+import { INSIGHT_CSP } from './srcdoc';
 import {
   INSIGHT_PRINT_DONE_MESSAGE,
+  INSIGHT_PRINT_SETTLE_MS,
   buildInsightPrintDoc,
   isInsightPrintDoneMessage,
 } from './printDoc';
 
 describe('buildInsightPrintDoc', () => {
-  it('equals the light-theme srcdoc plus the print trigger before </body> (never the dark theme)', () => {
+  it('is the light-theme srcdoc with the print prelude in its head and the print trigger before </body> (never the dark theme)', () => {
     const html = '<section><h2>Metrics</h2><p>Content</p></section>';
     const printDoc = buildInsightPrintDoc(html);
-    const lightDoc = buildInsightSrcDoc(html, { theme: 'light' });
 
     expect(printDoc).toContain(INSIGHT_CSP);
     expect(printDoc).toContain(':root{color-scheme:light;}');
     expect(printDoc).not.toContain(':root{color-scheme:dark;}');
 
-    const bodyClose = lightDoc.lastIndexOf('</body>');
-    const beforeBody = lightDoc.slice(0, bodyClose);
-    const afterBody = lightDoc.slice(bodyClose);
-    expect(printDoc.startsWith(beforeBody)).toBe(true);
-    expect(printDoc.endsWith(afterBody)).toBe(true);
-    const inserted = printDoc.slice(beforeBody.length, printDoc.length - afterBody.length);
-    expect(inserted).toContain('window.print()');
-    expect(inserted).toContain(INSIGHT_PRINT_DONE_MESSAGE);
+    const bodyClose = printDoc.lastIndexOf('</body>');
+    const trigger = printDoc.lastIndexOf('window.print()');
+    expect(trigger).toBeGreaterThan(printDoc.indexOf(html));
+    expect(trigger).toBeLessThan(bodyClose);
+    expect(printDoc.lastIndexOf(INSIGHT_PRINT_DONE_MESSAGE)).toBeGreaterThan(printDoc.indexOf(html));
+  });
+
+  it('runs the print prelude after the CSP and before any author script', () => {
+    const html =
+      '<!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script></head><body><canvas></canvas></body></html>';
+    const printDoc = buildInsightPrintDoc(html);
+    const prelude = printDoc.indexOf('window.requestAnimationFrame =');
+
+    expect(prelude).toBeGreaterThan(printDoc.indexOf(INSIGHT_CSP));
+    expect(prelude).toBeLessThan(printDoc.indexOf('chart.umd.min.js'));
+  });
+
+  it('keeps charts drawable in a hidden frame: timer-backed rAF, Chart.js animation off, CSS animation zeroed', () => {
+    const printDoc = buildInsightPrintDoc('<canvas></canvas>');
+
+    expect(printDoc).toContain('setTimeout(run, 16)');
+    expect(printDoc).toContain('value.defaults.animation = false');
+    expect(printDoc).toContain('animation-duration:0s!important');
+    expect(printDoc).toContain('print-color-adjust:exact');
+    expect(printDoc).toContain('canvas{height:auto!important;}');
+  });
+
+  it('waits for fonts and the settle delay before printing', () => {
+    const printDoc = buildInsightPrintDoc('<p>x</p>');
+
+    expect(printDoc).toContain('document.fonts.ready');
+    expect(printDoc).toContain(`}, ${INSIGHT_PRINT_SETTLE_MS});`);
   });
 
   it('works for a fragment with no <html>/<body>', () => {

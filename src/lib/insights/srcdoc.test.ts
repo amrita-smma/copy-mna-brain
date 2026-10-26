@@ -67,6 +67,14 @@ describe('buildInsightSrcDoc', () => {
     expect(out.indexOf(CSP)).toBeLessThan(out.indexOf(marker));
   });
 
+  it('places headExtra after the policy and ahead of the author content', () => {
+    const html = '<!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/x.js"></script></head><body>hi</body></html>';
+    const out = buildInsightSrcDoc(html, { headExtra: '<script>host()</script>' });
+    const extra = out.indexOf('<script>host()</script>');
+    expect(extra).toBeGreaterThan(out.indexOf(CSP));
+    expect(extra).toBeLessThan(out.indexOf('cdn.jsdelivr.net/x.js'));
+  });
+
   it.each([
     ['a <head> inside a leading comment', '<!-- <head> --><script>steal()</script><html><head></head><body>x</body></html>'],
     ['a <head> inside a script string', '<script>var s = "<head>"; steal()</script><html><head></head><body>x</body></html>'],

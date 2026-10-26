@@ -363,6 +363,8 @@ export function InsightView({
 
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', INSIGHT_SANDBOX);
+    frame.setAttribute('aria-hidden', 'true');
+    frame.tabIndex = -1;
     frame.referrerPolicy = 'no-referrer';
     frame.title = `Print ${detail.name}`;
     // Primer first, same as InsightFrame: the first document an opaque-origin
@@ -370,9 +372,15 @@ export function InsightView({
     // parsing. The print document loads once the primer reports a real width.
     frame.srcdoc = buildInsightPrimerSrcDoc('light');
     const printDoc = buildInsightPrintDoc(detail.html);
+    // Inside the viewport but invisible: Chrome stops delivering animation
+    // frames to a cross-origin frame scrolled off-screen, which left charts
+    // printed at their first, empty frame.
     frame.style.position = 'fixed';
-    frame.style.left = '-10000px';
+    frame.style.left = '0';
     frame.style.top = '0';
+    frame.style.opacity = '0';
+    frame.style.pointerEvents = 'none';
+    frame.style.zIndex = '-1';
     frame.style.width = '900px';
     frame.style.height = '1200px';
     frame.style.border = '0';

@@ -164,6 +164,9 @@ export type InsightTheme = 'light' | 'dark';
 export interface BuildSrcDocOptions {
   /** Colour scheme hint for documents that honour `prefers-color-scheme`. */
   theme?: InsightTheme;
+  /** Host markup placed right after the prelude, ahead of every byte the author
+   *  wrote — so its scripts run before any author script. Never author content. */
+  headExtra?: string;
 }
 
 export interface InsightPickRect {
@@ -1076,10 +1079,10 @@ const DOCUMENT_SHAPE_RE = /<!doctype\b|<html\b|<head\b|<body\b/i;
  */
 export function buildInsightSrcDoc(
   html: string,
-  { theme = 'light' }: BuildSrcDocOptions = {},
+  { theme = 'light', headExtra = '' }: BuildSrcDocOptions = {},
 ): string {
   const doc = html ?? '';
-  const opening = `<!DOCTYPE html><html><head>${headPrelude(theme)}`;
+  const opening = `<!DOCTYPE html><html><head>${headPrelude(theme)}${headExtra}`;
 
   if (DOCUMENT_SHAPE_RE.test(doc)) {
     return withHostScripts(opening + doc);
