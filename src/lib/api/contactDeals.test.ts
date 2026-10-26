@@ -4,12 +4,8 @@ const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
 
 vi.mock('@/lib/api/client', () => ({ apiRequest: apiRequestMock }));
 
-import {
-  addContactDeal,
-  confirmContactDealSuggestion,
-  dismissContactDealSuggestion,
-  removeContactDeal,
-} from './contactDeals';
+import * as contactDeals from './contactDeals';
+import { addContactDeal, removeContactDeal } from './contactDeals';
 
 beforeEach(() => {
   apiRequestMock.mockReset().mockResolvedValue({});
@@ -34,15 +30,8 @@ describe('removeContactDeal', () => {
   });
 });
 
-describe('confirmContactDealSuggestion / dismissContactDealSuggestion', () => {
-  it('POSTs to confirm and dismiss', async () => {
-    await confirmContactDealSuggestion('c1', 'co1');
-    await dismissContactDealSuggestion('c1', 'co1');
-    expect(apiRequestMock).toHaveBeenNthCalledWith(1, '/api/crm/correspondents/c1/deals/co1/confirm', {
-      method: 'POST',
-    });
-    expect(apiRequestMock).toHaveBeenNthCalledWith(2, '/api/crm/correspondents/c1/deals/co1/dismiss', {
-      method: 'POST',
-    });
+describe('contactDeals client', () => {
+  it('offers only manual add and remove — email mentions link automatically', () => {
+    expect(Object.keys(contactDeals).sort()).toEqual(['addContactDeal', 'removeContactDeal']);
   });
 });

@@ -1,12 +1,11 @@
 import { apiRequest } from '@/lib/api/client';
 import type {
   ContactDealLink,
-  ContactDealSuggestion,
   DealContactLinkState,
   DealContactRole,
 } from '@/lib/services/dealContactService';
 
-export type { ContactDealLink, ContactDealSuggestion, DealContactRole };
+export type { ContactDealLink, DealContactRole };
 
 function dealsPath(correspondentId: string, companyId?: string): string {
   const base = `/api/crm/correspondents/${encodeURIComponent(correspondentId)}/deals`;
@@ -32,25 +31,5 @@ export function removeContactDeal(
 ): Promise<DealContactLinkState> {
   return apiRequest<DealContactLinkState>(dealsPath(correspondentId, companyId), {
     method: 'DELETE',
-  });
-}
-
-/** Confirm a suggested deal: the contact becomes `involved`. */
-export function confirmContactDealSuggestion(
-  correspondentId: string,
-  companyId: string,
-): Promise<DealContactLinkState> {
-  return apiRequest<DealContactLinkState>(`${dealsPath(correspondentId, companyId)}/confirm`, {
-    method: 'POST',
-  });
-}
-
-/** Dismiss a suggested deal for good. */
-export function dismissContactDealSuggestion(
-  correspondentId: string,
-  companyId: string,
-): Promise<DealContactLinkState> {
-  return apiRequest<DealContactLinkState>(`${dealsPath(correspondentId, companyId)}/dismiss`, {
-    method: 'POST',
   });
 }

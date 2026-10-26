@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 244 | `src/app/api/**/route.ts` |
+| API routes | 242 | `src/app/api/**/route.ts` |
 | Services | 100 | `src/lib/services/` |
 | Repositories | 87 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 192 | `drizzle/migrations/` |
+| Migrations (app) | 193 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -108,7 +108,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/auth/api-keys` | GET, POST | `apiKeyService` |
 | `/api/auth/api-keys/[id]` | GET, PATCH, DELETE | `apiKeyService` |
 | `/api/auth/crm-contacts/backfill-profiles` | POST | `crmContactEnrichmentService` |
-| `/api/auth/crm-overviews/refresh` | POST | `contactConversationService` |
+| `/api/auth/crm-overviews/refresh` | POST | `contactConversationService`, `dealContactService` |
 | `/api/auth/forget-password` | POST | `authService` |
 | `/api/auth/google-signin` | POST | `authService` |
 | `/api/auth/reset-password` | POST | `authService` |
@@ -169,8 +169,6 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/correspondents/[id]/conversation/overview` | POST | `contactConversationService` |
 | `/api/crm/correspondents/[id]/deals` | POST | `dealContactService` |
 | `/api/crm/correspondents/[id]/deals/[companyId]` | DELETE | `dealContactService` |
-| `/api/crm/correspondents/[id]/deals/[companyId]/confirm` | POST | `dealContactService` |
-| `/api/crm/correspondents/[id]/deals/[companyId]/dismiss` | POST | `dealContactService` |
 | `/api/crm/correspondents/[id]/enrich` | GET, POST | `crmContactEnrichmentService` |
 | `/api/crm/correspondents/[id]/insights` | GET | `contactInsightsService` |
 | `/api/crm/employers/[id]` | GET, PATCH, DELETE | `crmService` |
@@ -392,7 +390,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `dashboardActivityService.ts` | `DashboardActivityService` | ✅ |
 | `dashboardInsightsService.ts` | `DashboardInsightsService` | ✅ |
 | `dataNavigatorService.ts` | `RssItemNotFoundError`, `DataNavigatorService` | ✅ |
-| `dealContactService.ts` | `DealCompanyNotFoundError`, `DealContactLinkNotFoundError`, `InvalidDealContactRoleError`, `DealContactService` | ✅ |
+| `dealContactService.ts` | `DealCompanyNotFoundError`, `DealContactLinkNotFoundError`, `InvalidDealContactRoleError`, `InvalidEmailMentionSinceError`, `DealContactService` | ✅ |
 | `dealDocumentService.ts` | `DealDocumentService` | ✅ |
 | `dealLinkService.ts` | `DealLinkService` | ✅ |
 | `dealNoteService.ts` | `EmptyNoteError`, `NoteNotFoundError`, `DealNoteService` | ✅ |

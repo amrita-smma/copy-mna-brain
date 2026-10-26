@@ -11,9 +11,12 @@ export const maxDuration = 300;
 /**
  * POST /api/auth/crm-overviews/refresh  { workspaceIds: string[], since: ISO }
  *
- * Called by the CRM ingest pipeline when a run wrote email notes: regenerates
- * the relationship overview (and its per-deal lines) of each contact touched
- * since `since`, per workspace, up to the service's per-run cap. Gated by the
+ * Called by the CRM ingest pipeline when a run wrote email notes. Per
+ * workspace it first links contacts to the deals their emails mention
+ * (evidence written since `since`, every contact; best-effort — `emailLinked`
+ * is null when it failed), then regenerates the relationship overview (and
+ * its per-deal lines) of each contact touched since `since`, up to the
+ * service's per-run cap. Gated by the
  * shared-secret `proxy.ts` middleware (`X-Api-Secret` vs `ADMIN_SECRET`) — no
  * session check by design.
  */
@@ -37,9 +40,10 @@ export async function POST(req: NextRequest) {
     const db = createDb();
     const data = [];
     for (const workspaceId of workspaceIds) {
-      const { contactConversationService } = createContainer(db, workspaceId);
+      const { contactConversationService, dealContactService } = createContainer(db, workspaceId);
+      const emailLinked = await dealContactService.linkEmailMentionsSince(since);
       const result = await contactConversationService.refreshTouchedOverviews(since);
-      data.push({ workspaceId, ...result });
+      data.push({ workspaceId, ...result, emailLinked });
     }
     return NextResponse.json({ data });
   } catch (err) {

@@ -102,17 +102,6 @@ function insights(overrides: Record<string, unknown> = {}) {
         linkedAt: '2026-10-02T00:00:00.000Z',
       },
     ],
-    dealSuggestions: [
-      {
-        companyId: 'co-3',
-        companyName: 'Gamma',
-        stage: 'L0',
-        stageLabel: 'L0 · Intake',
-        isDropped: false,
-        evidenceCount: 2,
-        lastSeenAt: null,
-      },
-    ],
     scorecard: {
       correspondentId: 'c-jimmy',
       dealsBrought: 1,
@@ -173,8 +162,7 @@ describe('crmBankerInsights contact mode', () => {
     expect(result).toContain('Furthest stage reached by the deals brought: L1 · Screening ×1\n');
     expect(result).toContain('- Acme — brought — current stage L1 · Screening');
     expect(result).toContain('- Beta — involved — current stage L0 · Intake (dropped)');
-    expect(result).toContain('Unconfirmed suggestions (NOT counted above');
-    expect(result).toContain('Gamma');
+    expect(result).not.toMatch(/suggestion/i);
     expect(result).toContain('- Widget Co — 3 email(s), last 2026-10-11');
   });
 
@@ -234,7 +222,6 @@ describe('crmBankerInsights contact mode', () => {
         },
         relatedCompanies: [],
         deals: [],
-        dealSuggestions: [],
         scorecard: {
           correspondentId: 'c-jimmy',
           dealsBrought: 0,

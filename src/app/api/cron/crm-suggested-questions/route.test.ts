@@ -15,7 +15,7 @@ import { GET } from './route';
 const URL = 'http://localhost/api/cron/crm-suggested-questions';
 
 function daily(over: Record<string, unknown> = {}) {
-  return { forDate: '2026-10-18', members: 1, generated: 1, reconciled: 0, reconcileFailed: false, ...over };
+  return { forDate: '2026-10-18', members: 1, generated: 1, reconciled: 0, emailLinked: 0, reconcileFailed: false, ...over };
 }
 
 beforeEach(() => {
@@ -44,8 +44,8 @@ describe('GET /api/cron/crm-suggested-questions', () => {
   it("runs every live workspace with its own container and totals the rows and links", async () => {
     mocks.listWorkspaces.mockResolvedValue([{ id: 'ws-1' }, { id: 'ws-2' }]);
     mocks.runDaily
-      .mockResolvedValueOnce(daily({ members: 3, generated: 2, reconciled: 2 }))
-      .mockResolvedValueOnce(daily({ reconciled: 1 }));
+      .mockResolvedValueOnce(daily({ members: 3, generated: 2, reconciled: 2, emailLinked: 4 }))
+      .mockResolvedValueOnce(daily({ reconciled: 1, emailLinked: 1 }));
 
     const res = await GET(new NextRequest(URL));
 
@@ -55,6 +55,7 @@ describe('GET /api/cron/crm-suggested-questions', () => {
       workspaces: 2,
       generated: 3,
       reconciled: 3,
+      emailLinked: 5,
     });
     expect(mocks.createContainer).toHaveBeenCalledWith({}, 'ws-1');
     expect(mocks.createContainer).toHaveBeenCalledWith({}, 'ws-2');
@@ -74,6 +75,7 @@ describe('GET /api/cron/crm-suggested-questions', () => {
       workspaces: 2,
       generated: 1,
       reconciled: 0,
+      emailLinked: 0,
       failedWorkspaces: ['ws-1'],
     });
   });
@@ -92,6 +94,7 @@ describe('GET /api/cron/crm-suggested-questions', () => {
       workspaces: 2,
       generated: 2,
       reconciled: 1,
+      emailLinked: 0,
       reconcileFailedWorkspaces: ['ws-1'],
     });
   });

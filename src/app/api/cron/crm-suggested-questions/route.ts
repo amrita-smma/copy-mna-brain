@@ -13,7 +13,8 @@ export const maxDuration = 60;
  *   Asia/Jakarta day's questions are ready before anyone opens the CRM.
  * - Runs across EVERY live workspace, like `task-reminders`: Vercel Cron
  *   carries no session. Each workspace is `CrmSuggestedQuestionService.runDaily`
- *   (the workspace's Smart Files deal-link reconcile, then generation): a fixed
+ *   (the workspace's Smart Files and email-mention deal-link passes, then
+ *   generation): a fixed
  *   handful of queries (no per-user fan-out) and no LLM call, so the sweep
  *   runs inline; a missed or failed workspace is covered by on-demand
  *   generation when a member opens the CRM.
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     let generated = 0;
     let reconciled = 0;
+    let emailLinked = 0;
     let forDate: string | null = null;
     const reconcileFailedWorkspaces: string[] = [];
     const { workspaces, failedWorkspaces } = await sweepWorkspaces(
@@ -37,6 +39,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         const result = await crmSuggestedQuestionService.runDaily();
         generated += result.generated;
         reconciled += result.reconciled;
+        emailLinked += result.emailLinked;
         forDate = result.forDate;
         if (result.reconcileFailed) reconcileFailedWorkspaces.push(workspaceId);
       },
@@ -48,6 +51,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       workspaces,
       generated,
       reconciled,
+      emailLinked,
       ...(failedWorkspaces.length ? { failedWorkspaces } : {}),
       ...(reconcileFailedWorkspaces.length ? { reconcileFailedWorkspaces } : {}),
     });

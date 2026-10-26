@@ -6,11 +6,7 @@ import type {
 import { decodeHtmlEntities } from '@/lib/crm/displayText';
 import { ContactNotFoundError } from './crmContactEnrichmentService';
 import type { BankerScorecard, BankerScorecardService } from './bankerScorecardService';
-import type {
-  ContactDealLink,
-  ContactDealSuggestion,
-  DealContactService,
-} from './dealContactService';
+import type { ContactDealLink, DealContactService } from './dealContactService';
 
 /** One team member's interactions with one contact. */
 export interface ContactTeamInteraction {
@@ -64,8 +60,6 @@ export interface ContactInsights {
   relatedCompanies: ContactRelatedCompany[];
   /** Brain deals this person brought (`source`) or was involved in (active links). */
   deals: ContactDealLink[];
-  /** Deals the person's emails point at, waiting for Confirm / Dismiss. */
-  dealSuggestions: ContactDealSuggestion[];
   /** Deals brought / involved, furthest stage reached, conversion (all time). */
   scorecard: BankerScorecard;
 }
@@ -199,7 +193,6 @@ export class ContactInsightsService {
         lastSeenAt: r.lastSeenAt,
       })),
       deals: contactDeals.deals,
-      dealSuggestions: contactDeals.suggestions,
       scorecard,
     };
   }

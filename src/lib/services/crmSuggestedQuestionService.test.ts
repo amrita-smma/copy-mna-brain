@@ -81,6 +81,7 @@ function link(over: Partial<DealContactRow>): DealContactRow {
 }
 
 const reconcileSmartFileLinks = vi.fn();
+const linkEmailMentions = vi.fn();
 
 function makeService(workspaceId = 'w1') {
   return new CrmSuggestedQuestionService(
@@ -88,7 +89,7 @@ function makeService(workspaceId = 'w1') {
     new MockInteractionRepo() as never,
     new MockDealContactRepo() as never,
     new MockUserWorkspaceRepo() as never,
-    { reconcileSmartFileLinks },
+    { reconcileSmartFileLinks, linkEmailMentions },
     workspaceId,
     () => NOW,
   );
@@ -98,7 +99,8 @@ const texts = (set: SuggestedQuestionSet) =>
   [...set.personalized, ...set.generic].map((q) => q.text).join(' | ');
 
 beforeEach(() => {
-  reconcileSmartFileLinks.mockReset();
+  reconcileSmartFileLinks.mockReset().mockResolvedValue([]);
+  linkEmailMentions.mockReset().mockResolvedValue([]);
   for (const fn of Object.values(mocks)) fn.mockReset();
   mocks.findLatestForUser.mockResolvedValue(undefined);
   mocks.upsertMany.mockResolvedValue(undefined);
@@ -440,8 +442,54 @@ describe('CrmSuggestedQuestionService.runDaily', () => {
       members: 1,
       generated: 0,
       reconciled: 2,
+      emailLinked: 0,
       reconcileFailed: false,
     });
+  });
+
+  it("links the whole workspace's email mentions before generating, and counts them", async () => {
+    linkEmailMentions.mockResolvedValue([
+      { companyId: 'co-1', correspondentId: 'c1' },
+      { companyId: 'co-2', correspondentId: 'c1' },
+      { companyId: 'co-2', correspondentId: 'c2' },
+    ]);
+    mocks.findByWorkspaceId.mockResolvedValue([{ user_id: 'u1', is_email_synced: true }]);
+
+    const result = await makeService().runDaily();
+
+    // Workspace-wide: no contact or since narrowing (the repository caps it).
+    expect(linkEmailMentions).toHaveBeenCalledWith();
+    expect(linkEmailMentions.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.findByWorkspaceId.mock.invocationCallOrder[0]!,
+    );
+    expect(result).toMatchObject({ emailLinked: 3, reconcileFailed: false });
+  });
+
+  it('still links email mentions and generates when the Smart Files reconcile fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    reconcileSmartFileLinks.mockRejectedValue(new Error('boom'));
+    linkEmailMentions.mockResolvedValue([{ companyId: 'co-1', correspondentId: 'c1' }]);
+
+    const result = await makeService().runDaily();
+
+    expect(linkEmailMentions).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ reconciled: 0, emailLinked: 1, reconcileFailed: true });
+    errSpy.mockRestore();
+  });
+
+  it('still generates when email-mention linking fails, and reports the failure', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    linkEmailMentions.mockRejectedValue(new Error('boom'));
+
+    const result = await makeService().runDaily();
+
+    expect(mocks.findByWorkspaceId).toHaveBeenCalledWith('w1');
+    expect(result).toMatchObject({ emailLinked: 0, reconcileFailed: true });
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('email-mention linking failed'),
+      expect.any(Error),
+    );
+    errSpy.mockRestore();
   });
 
   it('still generates when the reconcile fails, and reports the failure', async () => {

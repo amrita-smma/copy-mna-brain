@@ -21,11 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type {
-  ContactDealLink,
-  ContactDealSuggestion,
-  DealContactRole,
-} from "@/lib/api/contactDeals";
+import type { ContactDealLink, DealContactRole } from "@/lib/api/contactDeals";
 import type { ContactRelatedCompany } from "@/lib/api/contactInsights";
 import type { OverviewDealNote } from "@/lib/api/contactConversation";
 import { getCompaniesLite } from "@/lib/api/pipeline";
@@ -34,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { initialsOf, plural, SYNC_NOTICE } from "../utils";
 import { NoData, SectionLabel } from "./SectionLabel";
 import { format } from "date-fns";
-import { Check, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function StageBadge({ label }: { label: string }) {
@@ -211,7 +207,6 @@ function DealPicker({
 export function RelatedDealsTab({
   deals,
   dealNotes,
-  dealSuggestions,
   relatedCompanies,
   firstName,
   synced,
@@ -220,13 +215,10 @@ export function RelatedDealsTab({
   onLinkRoleChange,
   onLinkDeal,
   onRemoveDeal,
-  onConfirmSuggestion,
-  onDismissSuggestion,
 }: {
   deals: ContactDealLink[];
   /** Per-deal lines from the relationship overview. */
   dealNotes: OverviewDealNote[];
-  dealSuggestions: ContactDealSuggestion[];
   relatedCompanies: ContactRelatedCompany[];
   firstName: string;
   synced: boolean;
@@ -235,8 +227,6 @@ export function RelatedDealsTab({
   onLinkRoleChange: (role: DealContactRole) => void;
   onLinkDeal: (companyId: string) => void;
   onRemoveDeal: (companyId: string) => void;
-  onConfirmSuggestion: (companyId: string) => void;
-  onDismissSuggestion: (companyId: string) => void;
 }) {
   const noteByCompany = new Map(dealNotes.map((d) => [d.companyId, d.note]));
   return (
@@ -264,7 +254,7 @@ export function RelatedDealsTab({
           </ul>
         )}
 
-        {/* The only place a deal link is made: it feeds the Deal funnel tab. */}
+        {/* Manual link: overrides an automatic or removed one; feeds the Deal funnel tab. */}
         <div className="flex items-center justify-end gap-1.5">
             <Select
               value={linkRole}
@@ -285,51 +275,6 @@ export function RelatedDealsTab({
             <DealPicker disabled={busy} onPick={onLinkDeal} />
         </div>
 
-        {dealSuggestions.length > 0 && (
-          <div className="mt-1 flex flex-col gap-1.5" data-testid="contact-insights-suggestions">
-            <div className="flex items-center justify-between gap-2">
-              <SectionLabel>Suggested from emails</SectionLabel>
-              <span className="text-xs text-muted-foreground">Confirm to link</span>
-            </div>
-            <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-              {dealSuggestions.map((s) => (
-                <li
-                  key={s.companyId}
-                  className="flex items-center gap-3 px-3 py-2.5"
-                  data-testid="contact-insights-suggestion-row"
-                >
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate text-[13px] font-semibold text-foreground">
-                      {s.companyName || "Unnamed"}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {plural(s.evidenceCount, "email")} · {s.stageLabel}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1 px-2 text-xs"
-                    disabled={busy}
-                    onClick={() => onConfirmSuggestion(s.companyId)}
-                  >
-                    <Check className="h-3 w-3" />
-                    Confirm
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-muted-foreground"
-                    disabled={busy}
-                    onClick={() => onDismissSuggestion(s.companyId)}
-                  >
-                    Dismiss
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </section>
 
       <section className="flex flex-col gap-2" data-testid="contact-insights-related">

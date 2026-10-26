@@ -4276,9 +4276,11 @@ async function seedContactInteractions(
   // Jimmy brought three deals (one already past L0, from an email
   // attachment; one added by hand; one that went L0 → L1 → L2, was moved
   // back to L1 and dropped there — its furthest stage, L2, is only in its
-  // logs); Penny is involved in a fourth (a confirmed suggestion). Blue
-  // Harbor stays unlinked so Jimmy's related-company evidence above shows as
-  // a suggestion. Penny's rows go with her (cascade); Jimmy's are reset in
+  // logs); Penny is involved in a fourth (a `confirmed_suggestion` row, an
+  // origin nothing writes any more). Blue Harbor (L1) is not seeded as a
+  // link: Jimmy's related-company evidence above links him to it as
+  // `involved` (`auto_email`) the first time his contact is read, or on the
+  // daily cron. Penny's rows go with her (cascade); Jimmy's are reset in
   // place.
   const deal = ctx.dealCompanyIds;
   const dealLinks: Array<{

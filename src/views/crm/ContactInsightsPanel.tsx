@@ -8,8 +8,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   addContactDeal,
-  confirmContactDealSuggestion,
-  dismissContactDealSuggestion,
   removeContactDeal,
   type DealContactRole,
 } from "@/lib/api/contactDeals";
@@ -384,7 +382,6 @@ export function ContactInsightsPanel({
             <RelatedDealsTab
               deals={insights?.deals ?? []}
               dealNotes={conversation?.overview.dealNotes ?? []}
-              dealSuggestions={insights?.dealSuggestions ?? []}
               relatedCompanies={insights?.relatedCompanies ?? []}
               firstName={firstName}
               synced={Boolean(insights?.interactions?.hasSyncedData)}
@@ -396,18 +393,6 @@ export function ContactInsightsPanel({
               }
               onRemoveDeal={(companyId) =>
                 void mutate(() => removeContactDeal(contact.id, companyId), "Link removed")
-              }
-              onConfirmSuggestion={(companyId) =>
-                void mutate(
-                  () => confirmContactDealSuggestion(contact.id, companyId),
-                  "Deal confirmed",
-                )
-              }
-              onDismissSuggestion={(companyId) =>
-                void mutate(
-                  () => dismissContactDealSuggestion(contact.id, companyId),
-                  "Suggestion dismissed",
-                )
               }
             />
           ) : (

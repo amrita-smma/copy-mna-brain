@@ -44,7 +44,6 @@ const INSIGHTS = {
   deals: [
     { companyId: 'co-1', companyName: 'Acme', role: 'source', origin: 'manual', stage: 'L1', stageLabel: 'L1 · Screening', isDropped: false, linkedAt: '2026-10-01' },
   ],
-  dealSuggestions: [],
   scorecard: { correspondentId: 'corr-1', dealsBrought: 1, dealsInvolved: 0, reachedL1: 1, conversion: 1, stageBreakdown: [], hasDealLinks: true },
 };
 

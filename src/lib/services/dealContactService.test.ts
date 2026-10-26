@@ -3,7 +3,9 @@ import {
   DealCompanyNotFoundError,
   DealContactLinkNotFoundError,
   DealContactService,
+  EMAIL_MENTION_LINK_LIMIT,
   InvalidDealContactRoleError,
+  InvalidEmailMentionSinceError,
   SMART_FILE_LINK_RECONCILE_LIMIT,
 } from './dealContactService';
 import { ContactNotFoundError } from './crmContactEnrichmentService';
@@ -11,11 +13,10 @@ import { INTERNAL_MAIL_DOMAINS } from '@/lib/crm/mailDomains';
 
 const mocks = vi.hoisted(() => ({
   listForContacts: vi.fn(),
-  listSuggestions: vi.fn(),
-  findLink: vi.fn(),
   upsertLink: vi.fn(),
   setStatus: vi.fn(),
   insertFileSourceLinks: vi.fn(),
+  insertEmailMentionLinks: vi.fn(),
   findContact: vi.fn(),
   findCompany: vi.fn(),
   listStages: vi.fn(),
@@ -23,11 +24,10 @@ const mocks = vi.hoisted(() => ({
 
 class MockDealContactRepo {
   listForContacts = mocks.listForContacts;
-  listSuggestions = mocks.listSuggestions;
-  findLink = mocks.findLink;
   upsertLink = mocks.upsertLink;
   setStatus = mocks.setStatus;
   insertFileSourceLinks = mocks.insertFileSourceLinks;
+  insertEmailMentionLinks = mocks.insertEmailMentionLinks;
 }
 class MockCorrespondentRepo {
   findById = mocks.findContact;
@@ -98,8 +98,8 @@ beforeEach(() => {
   mocks.findContact.mockResolvedValue({ id: CONTACT, email: 'jimmy@bank.example' });
   mocks.findCompany.mockResolvedValue({ id: COMPANY });
   mocks.listForContacts.mockResolvedValue([]);
-  mocks.listSuggestions.mockResolvedValue([]);
   mocks.insertFileSourceLinks.mockResolvedValue([]);
+  mocks.insertEmailMentionLinks.mockResolvedValue([]);
   mocks.listStages.mockResolvedValue([
     { key: 'L0', code: 'L0', name: 'Screening', description: '', position: 0, deleted_at: null },
     { key: 'L1', code: 'L1', name: 'Initial Review', description: '', position: 1, deleted_at: null },
@@ -134,6 +134,44 @@ describe('DealContactService.listContactDeals', () => {
     expect(mocks.insertFileSourceLinks.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.listForContacts.mock.invocationCallOrder[0],
     );
+  });
+
+  it('writes the contact\'s email-mention links before reading', async () => {
+    await makeService().listContactDeals(CONTACT);
+
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledWith('w1', {
+      correspondentIds: [CONTACT],
+      excludedDomains: [...INTERNAL_MAIL_DOMAINS],
+      limit: EMAIL_MENTION_LINK_LIMIT,
+    });
+    expect(mocks.insertEmailMentionLinks.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.listForContacts.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('still links email mentions and answers when the Smart Files reconcile fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.insertFileSourceLinks.mockRejectedValueOnce(new Error('boom'));
+
+    await makeService().listContactDeals(CONTACT);
+
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
+  it('logs an email-mention linking failure and still answers', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.insertEmailMentionLinks.mockRejectedValueOnce(new Error('boom'));
+    mocks.listForContacts.mockResolvedValueOnce([linkRow({ origin: 'auto_email' })]);
+
+    const result = await makeService().listContactDeals(CONTACT);
+
+    expect(result).toEqual({ deals: [expect.objectContaining({ origin: 'auto_email' })] });
+    expect(errSpy).toHaveBeenCalledWith(
+      '[dealContactService] email-mention link failed:',
+      expect.any(Error),
+    );
+    errSpy.mockRestore();
   });
 
   it('still answers when the reconcile fails', async () => {
@@ -203,57 +241,26 @@ describe('DealContactService.listContactDeals', () => {
     expect(deals[0]).toMatchObject({ geography: null, segment: null, openedAt: null });
   });
 
-  it('decodes HTML entities in deal and suggestion names, and sorts on the decoded name', async () => {
+  it('decodes HTML entities in deal names, and sorts on the decoded name', async () => {
     mocks.listForContacts.mockResolvedValueOnce([
       // Raw, '&#90;ulu' would sort first; decoded, 'Zulu' sorts last.
       linkRow({ companyId: 'z', companyName: '&#90;ulu', role: 'source' }),
       linkRow({ companyId: 'b', companyName: 'Beta', role: 'source' }),
       linkRow({ companyId: 's', companyName: 'Smith &amp;amp; Co', role: 'source' }),
     ]);
-    mocks.listSuggestions.mockResolvedValueOnce([
-      {
-        correspondentId: CONTACT,
-        companyId: 'p',
-        companyName: 'PT Maju &amp; Jaya',
-        pipelineStage: 'L1',
-        companyStatus: 'active',
-        evidenceCount: 1,
-        lastSeenAt: null,
-      },
-    ]);
 
-    const { deals, suggestions } = await makeService().listContactDeals(CONTACT);
+    const { deals } = await makeService().listContactDeals(CONTACT);
 
     expect(deals.map((d) => d.companyName)).toEqual(['Beta', 'Smith & Co', 'Zulu']);
-    expect(suggestions[0]!.companyName).toBe('PT Maju & Jaya');
   });
 
-  it('maps suggestions with their evidence', async () => {
-    mocks.listSuggestions.mockResolvedValueOnce([
-      {
-        correspondentId: CONTACT,
-        companyId: 'e',
-        companyName: 'Echo',
-        pipelineStage: 'L1',
-        companyStatus: 'active',
-        evidenceCount: 2,
-        lastSeenAt: '2026-10-10T00:00:00.000Z',
-      },
-    ]);
+  it('returns deals only — there are no suggestions to confirm', async () => {
+    const result = await makeService().listContactDeals(CONTACT);
 
-    const { suggestions } = await makeService().listContactDeals(CONTACT);
-
-    expect(suggestions).toEqual([
-      {
-        companyId: 'e',
-        companyName: 'Echo',
-        stage: 'L1',
-        stageLabel: 'L1 · Initial Review',
-        isDropped: false,
-        evidenceCount: 2,
-        lastSeenAt: '2026-10-10T00:00:00.000Z',
-      },
-    ]);
+    expect(Object.keys(result)).toEqual(['deals']);
+    const service = makeService() as unknown as Record<string, unknown>;
+    expect(service.confirmSuggestion).toBeUndefined();
+    expect(service.dismissSuggestion).toBeUndefined();
   });
 });
 
@@ -311,71 +318,6 @@ describe('DealContactService.removeLink', () => {
     await expect(makeService().removeLink(CONTACT, COMPANY)).rejects.toBeInstanceOf(
       DealContactLinkNotFoundError,
     );
-  });
-});
-
-describe('DealContactService.confirmSuggestion', () => {
-  it('writes an active involved link with origin confirmed_suggestion', async () => {
-    mocks.findLink.mockResolvedValueOnce(undefined);
-    mocks.upsertLink.mockResolvedValueOnce(record({ origin: 'confirmed_suggestion' }));
-
-    await makeService().confirmSuggestion(CONTACT, COMPANY, 'u1');
-
-    expect(mocks.upsertLink).toHaveBeenCalledWith(
-      expect.objectContaining({
-        role: 'involved',
-        origin: 'confirmed_suggestion',
-        status: 'active',
-        createdBy: 'u1',
-      }),
-    );
-  });
-
-  it('leaves an already active link as it is (never downgrades a source)', async () => {
-    mocks.findLink.mockResolvedValueOnce(record({ role: 'source', origin: 'email_attachment' }));
-
-    const state = await makeService().confirmSuggestion(CONTACT, COMPANY, 'u1');
-
-    expect(state.role).toBe('source');
-    expect(mocks.upsertLink).not.toHaveBeenCalled();
-  });
-
-  it('reactivates a dismissed pair (a manual action wins)', async () => {
-    mocks.findLink.mockResolvedValueOnce(record({ status: 'dismissed' }));
-    mocks.upsertLink.mockResolvedValueOnce(record({ origin: 'confirmed_suggestion' }));
-
-    const state = await makeService().confirmSuggestion(CONTACT, COMPANY, null);
-
-    expect(mocks.upsertLink).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
-    expect(state.status).toBe('active');
-  });
-});
-
-describe('DealContactService.dismissSuggestion', () => {
-  it('writes a dismissed manual row when the pair has none', async () => {
-    mocks.setStatus.mockResolvedValueOnce(undefined);
-    mocks.upsertLink.mockResolvedValueOnce(record({ status: 'dismissed' }));
-
-    const state = await makeService().dismissSuggestion(CONTACT, COMPANY);
-
-    expect(mocks.upsertLink).toHaveBeenCalledWith({
-      workspaceId: 'w1',
-      companyId: COMPANY,
-      correspondentId: CONTACT,
-      role: 'involved',
-      origin: 'manual',
-      status: 'dismissed',
-    });
-    expect(state.status).toBe('dismissed');
-  });
-
-  it('dismisses an existing row without rewriting its role', async () => {
-    mocks.setStatus.mockResolvedValueOnce(record({ role: 'source', status: 'dismissed' }));
-
-    const state = await makeService().dismissSuggestion(CONTACT, COMPANY);
-
-    expect(mocks.upsertLink).not.toHaveBeenCalled();
-    expect(state.role).toBe('source');
   });
 });
 
@@ -444,5 +386,78 @@ describe('DealContactService.reconcileSmartFileLinks', () => {
       expect.objectContaining({ correspondentIds: [CONTACT] }),
     );
     expect(deals.map((d) => d.role)).toEqual(['source']);
+  });
+});
+
+describe('DealContactService.linkEmailMentions', () => {
+  it('links the whole workspace when no scope is given, excluding our own domains', async () => {
+    mocks.insertEmailMentionLinks.mockResolvedValueOnce([
+      { companyId: COMPANY, correspondentId: CONTACT },
+    ]);
+
+    const links = await makeService().linkEmailMentions();
+
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledWith('w1', {
+      excludedDomains: [...INTERNAL_MAIL_DOMAINS],
+      limit: EMAIL_MENTION_LINK_LIMIT,
+    });
+    expect(links).toEqual([{ companyId: COMPANY, correspondentId: CONTACT }]);
+    // Auto never upserts: existing rows (a dismissed one included) are left alone.
+    expect(mocks.upsertLink).not.toHaveBeenCalled();
+    expect(mocks.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('narrows to distinct contact ids, and skips the DB for an empty list', async () => {
+    await makeService().linkEmailMentions({ correspondentIds: ['c1', 'c1', 'c2'] });
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledWith(
+      'w1',
+      expect.objectContaining({ correspondentIds: ['c1', 'c2'] }),
+    );
+
+    mocks.insertEmailMentionLinks.mockClear();
+    await expect(makeService().linkEmailMentions({ correspondentIds: [] })).resolves.toEqual([]);
+    expect(mocks.insertEmailMentionLinks).not.toHaveBeenCalled();
+  });
+
+  it('passes since as an ISO timestamp, for every contact', async () => {
+    await makeService().linkEmailMentions({ since: '2026-10-25T07:00:00+07:00' });
+
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledWith('w1', {
+      since: '2026-10-25T00:00:00.000Z',
+      excludedDomains: [...INTERNAL_MAIL_DOMAINS],
+      limit: EMAIL_MENTION_LINK_LIMIT,
+    });
+  });
+
+  it('rejects an unparseable since without querying', async () => {
+    await expect(makeService().linkEmailMentions({ since: 'yesterday-ish' })).rejects.toBeInstanceOf(
+      InvalidEmailMentionSinceError,
+    );
+    expect(mocks.insertEmailMentionLinks).not.toHaveBeenCalled();
+  });
+});
+
+describe('DealContactService.linkEmailMentionsSince', () => {
+  it('returns the number of links written since the given time', async () => {
+    mocks.insertEmailMentionLinks.mockResolvedValueOnce([
+      { companyId: 'a', correspondentId: 'c1' },
+      { companyId: 'b', correspondentId: 'c2' },
+    ]);
+
+    await expect(makeService().linkEmailMentionsSince('2026-10-25T00:00:00Z')).resolves.toBe(2);
+    expect(mocks.insertEmailMentionLinks).toHaveBeenCalledWith(
+      'w1',
+      expect.objectContaining({ since: '2026-10-25T00:00:00.000Z' }),
+    );
+    expect(mocks.insertEmailMentionLinks.mock.calls[0][1]).not.toHaveProperty('correspondentIds');
+  });
+
+  it('logs a failure and returns null instead of throwing', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.insertEmailMentionLinks.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(makeService().linkEmailMentionsSince('2026-10-25T00:00:00Z')).resolves.toBeNull();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

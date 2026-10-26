@@ -67,7 +67,12 @@ export interface WorkspaceGenerationResult {
 export interface DailyRunResult extends WorkspaceGenerationResult {
   /** Smart Files deal links the reconcile wrote. */
   reconciled: number;
-  /** The reconcile failed (logged); the questions were still generated. */
+  /** Deal links from email mentions written. */
+  emailLinked: number;
+  /**
+   * The Smart Files reconcile or the email-mention linking failed (logged);
+   * the questions were still generated.
+   */
   reconcileFailed: boolean;
 }
 
@@ -325,23 +330,30 @@ export class CrmSuggestedQuestionService {
     private readonly interactionRepo: ContactInteractionRepository,
     private readonly dealContactRepo: DealContactRepository,
     private readonly userWorkspaceRepo: UserWorkspaceRepository,
-    private readonly dealContactService: Pick<DealContactService, 'reconcileSmartFileLinks'>,
+    private readonly dealContactService: Pick<
+      DealContactService,
+      'reconcileSmartFileLinks' | 'linkEmailMentions'
+    >,
     private readonly workspaceId: string,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   /**
-   * The daily cron's run for this workspace. First it reconciles the
-   * workspace's late Smart Files deal links (`reconcileSmartFileLinks()`, one
-   * set-based statement): files processed before their sender became a CRM
-   * contact. This is the only workspace-wide reconcile — the banker list never
-   * writes, and one-contact reads (the contact panel, the chat tool's contact
-   * mode) only reconcile that contact. It is best-effort: a failure is logged
-   * and the day's questions are still generated, after it so they see the new
-   * links.
+   * The daily cron's run for this workspace. First it writes the workspace's
+   * missing automatic deal links, each one set-based statement capped per
+   * call: late Smart Files links (`reconcileSmartFileLinks()`, files
+   * processed before their sender became a CRM contact) and email-mention
+   * links (`linkEmailMentions()`, which catches pairs the post-ingest and
+   * contact-read passes missed — a company leaving `discovered`, a related
+   * company resolved later). These are the only workspace-wide passes with
+   * no `since` — the banker list never writes, and one-contact reads (the
+   * contact panel, the chat tool's contact mode) only link that contact. Each
+   * is best-effort and independent: a failure is logged and the day's
+   * questions are still generated, after them so they see the new links.
    */
   async runDaily(): Promise<DailyRunResult> {
     let reconciled = 0;
+    let emailLinked = 0;
     let reconcileFailed = false;
     try {
       reconciled = (await this.dealContactService.reconcileSmartFileLinks()).length;
@@ -352,8 +364,17 @@ export class CrmSuggestedQuestionService {
         err,
       );
     }
+    try {
+      emailLinked = (await this.dealContactService.linkEmailMentions()).length;
+    } catch (err) {
+      reconcileFailed = true;
+      console.error(
+        `[crmSuggestedQuestionService] workspace ${this.workspaceId} email-mention linking failed:`,
+        err,
+      );
+    }
     const result = await this.generateForWorkspace();
-    return { ...result, reconciled, reconcileFailed };
+    return { ...result, reconciled, emailLinked, reconcileFailed };
   }
 
   /**

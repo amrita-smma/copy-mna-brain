@@ -97,7 +97,7 @@ function renderInteractions(insights: ContactInsights): string[] {
 }
 
 function renderDeals(insights: ContactInsights): string[] {
-  const { scorecard, deals, dealSuggestions } = insights;
+  const { scorecard, deals } = insights;
   const lines = ["### Brain deals"];
   if (!scorecard.hasDealLinks && deals.length === 0) {
     lines.push(
@@ -123,13 +123,6 @@ function renderDeals(insights: ContactInsights): string[] {
         `- ${d.companyName} — ${role} — current stage ${d.stageLabel}${d.isDropped ? " (dropped)" : ""}`,
       );
     }
-  }
-  if (dealSuggestions.length > 0) {
-    lines.push(
-      `- Unconfirmed suggestions (NOT counted above, awaiting Confirm/Dismiss): ${dealSuggestions
-        .map((d) => d.companyName)
-        .join(", ")}`,
-    );
   }
   return lines;
 }
@@ -400,7 +393,6 @@ Rules for the answer:
 - Quote the tool's numbers. Where it says "no data (email sync may be off)",
   "none recorded" or "no deal links recorded", say you don't know — never
   turn that into 0 and never estimate.
-- "Unconfirmed suggestions" are not deals the banker brought.
 
 Returns:
     Markdown.`,

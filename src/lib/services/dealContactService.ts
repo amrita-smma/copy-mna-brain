@@ -3,7 +3,9 @@ import type {
   CorrespondentRepository,
   DealContactRecord,
   DealContactRepository,
+  EmailMentionLinkScope,
   FileSourceLinkScope,
+  InsertedEmailMentionLink,
   InsertedFileSourceLink,
   PipelineStageRepository,
   PipelineStageRow,
@@ -43,21 +45,8 @@ export interface ContactDealLink {
   openedAt: string | null;
 }
 
-/** A deal the contact's emails point at, waiting for Confirm / Dismiss. */
-export interface ContactDealSuggestion {
-  companyId: string;
-  companyName: string;
-  stage: string;
-  stageLabel: string;
-  isDropped: boolean;
-  /** Distinct evidence emails the contact took part in. */
-  evidenceCount: number;
-  lastSeenAt: string | null;
-}
-
 export interface ContactDeals {
   deals: ContactDealLink[];
-  suggestions: ContactDealSuggestion[];
 }
 
 /** The stored state of one link after a write. */
@@ -90,12 +79,22 @@ export class InvalidDealContactRoleError extends Error {
   }
 }
 
+export class InvalidEmailMentionSinceError extends Error {
+  constructor(value: unknown) {
+    super(`Invalid email-mention link since: ${String(value)}`);
+    this.name = 'InvalidEmailMentionSinceError';
+  }
+}
+
 function isDealContactRole(value: unknown): value is DealContactRole {
   return typeof value === 'string' && (DEAL_CONTACT_ROLES as readonly string[]).includes(value);
 }
 
 /** Upper bound on links one reconcile pass writes. */
 export const SMART_FILE_LINK_RECONCILE_LIMIT = 500;
+
+/** Upper bound on links one email-mention pass writes. */
+export const EMAIL_MENTION_LINK_LIMIT = 500;
 
 /** Names of the pre-pipeline buckets, which have no `pipeline_stages` row. */
 const PRE_PIPELINE_STAGE_LABELS: Record<string, string> = {
@@ -142,15 +141,16 @@ function toState(row: DealContactRecord): DealContactLinkState {
  * Deal ↔ banker links (MB-856): which Brain deals a CRM contact (one person)
  * brought (`source`) or was involved in (`involved`).
  *
- * - Automatic: an email attachment that auto-created a deal in Smart Files
+ * - Automatic from Smart Files: an email attachment that auto-created a deal
  *   links its external sender as `source`; one that only matched an existing
  *   deal links them as `involved` ({@link linkFromSmartFile},
- *   {@link reconcileSmartFileLinks}). Automatic writes never touch an
- *   existing row.
- * - Suggested: related-company email evidence, computed on read, needing
- *   Confirm / Dismiss.
- * - Manual add / remove always wins; a removed or dismissed link stays
- *   dismissed (the row is kept), so nothing automatic re-adds it.
+ *   {@link reconcileSmartFileLinks}).
+ * - Automatic from email mentions: related-company email evidence links the
+ *   email's external participants as `involved` to every company not in the
+ *   `discovered` stage ({@link linkEmailMentions}).
+ * - Automatic writes never touch an existing row. Manual add / remove always
+ *   wins; a removed link stays dismissed (the row is kept), so nothing
+ *   automatic re-adds it.
  */
 export class DealContactService {
   constructor(
@@ -162,10 +162,11 @@ export class DealContactService {
   ) {}
 
   /**
-   * The contact's active deal links and open suggestions. Resolves the
-   * contact's pending Smart Files links first (a file processed before the
-   * contact existed), best-effort. Throws {@link ContactNotFoundError} when
-   * the contact is not visible in this workspace.
+   * The contact's active deal links. Writes the contact's pending automatic
+   * links first — Smart Files links (a file processed before the contact
+   * existed) and email-mention links — each best-effort. Throws
+   * {@link ContactNotFoundError} when the contact is not visible in this
+   * workspace.
    */
   async listContactDeals(correspondentId: string): Promise<ContactDeals> {
     await this.requireContact(correspondentId);
@@ -182,10 +183,14 @@ export class DealContactService {
     } catch (err) {
       console.error('[dealContactService] smart-file link reconcile failed:', err);
     }
+    try {
+      await this.linkEmailMentions({ correspondentIds: [correspondentId] });
+    } catch (err) {
+      console.error('[dealContactService] email-mention link failed:', err);
+    }
 
-    const [links, suggestions, labelOf] = await Promise.all([
+    const [links, labelOf] = await Promise.all([
       this.dealContactRepo.listForContacts(this.workspaceId, [correspondentId]),
-      this.dealContactRepo.listSuggestions(this.workspaceId, [correspondentId]),
       this.stageLabeler(),
     ]);
 
@@ -210,18 +215,7 @@ export class DealContactService {
           a.companyName.localeCompare(b.companyName),
       );
 
-    return {
-      deals,
-      suggestions: suggestions.map((s) => ({
-        companyId: s.companyId,
-        companyName: decodeHtmlEntities(s.companyName),
-        stage: s.pipelineStage,
-        stageLabel: labelOf(s.pipelineStage),
-        isDropped: s.companyStatus === 'dropped',
-        evidenceCount: s.evidenceCount,
-        lastSeenAt: s.lastSeenAt,
-      })),
-    };
+    return { deals };
   }
 
   /**
@@ -263,58 +257,6 @@ export class DealContactService {
   }
 
   /**
-   * Accept a suggestion as an active `involved` link. A pair that is already
-   * actively linked is left as it is (never downgrades a `source`); a
-   * dismissed pair is reactivated, since this is a manual action.
-   */
-  async confirmSuggestion(
-    correspondentId: string,
-    companyId: string,
-    userId: string | null,
-  ): Promise<DealContactLinkState> {
-    await Promise.all([this.requireContact(correspondentId), this.requireCompany(companyId)]);
-    const existing = await this.dealContactRepo.findLink(this.workspaceId, companyId, correspondentId);
-    if (existing?.status === 'active') return toState(existing);
-    const row = await this.dealContactRepo.upsertLink({
-      workspaceId: this.workspaceId,
-      companyId,
-      correspondentId,
-      role: 'involved',
-      origin: 'confirmed_suggestion',
-      status: 'active',
-      createdBy: userId,
-    });
-    return toState(row);
-  }
-
-  /**
-   * Hide a suggestion for good: writes a `dismissed` row for the pair (origin
-   * `manual` — a human decided), or dismisses the existing row.
-   */
-  async dismissSuggestion(
-    correspondentId: string,
-    companyId: string,
-  ): Promise<DealContactLinkState> {
-    await Promise.all([this.requireContact(correspondentId), this.requireCompany(companyId)]);
-    const existing = await this.dealContactRepo.setStatus(
-      this.workspaceId,
-      companyId,
-      correspondentId,
-      'dismissed',
-    );
-    if (existing) return toState(existing);
-    const row = await this.dealContactRepo.upsertLink({
-      workspaceId: this.workspaceId,
-      companyId,
-      correspondentId,
-      role: 'involved',
-      origin: 'manual',
-      status: 'dismissed',
-    });
-    return toState(row);
-  }
-
-  /**
    * Automatic source link for one Smart Files file, once its companies are
    * created / matched: the file's external email sender becomes `source` of
    * each company the file auto-created and `involved` in each existing
@@ -340,6 +282,47 @@ export class DealContactService {
     const ids = opts.correspondentIds ? [...new Set(opts.correspondentIds)] : undefined;
     if (ids && ids.length === 0) return [];
     return this.insertFileSourceLinks(ids ? { correspondentIds: ids } : {});
+  }
+
+  /**
+   * Deal links from email mentions: every external participant of an email
+   * that related-company evidence ties to a company of the workspace not in
+   * the `discovered` stage becomes `involved` (origin `auto_email`), unless
+   * the pair already has a row of any status. One set-based statement, at
+   * most {@link EMAIL_MENTION_LINK_LIMIT} links; narrowed to
+   * `correspondentIds` and/or to evidence written since `since` when given.
+   * Participants that are app users or at our own domains never get a link.
+   */
+  async linkEmailMentions(
+    opts: { correspondentIds?: string[]; since?: string } = {},
+  ): Promise<InsertedEmailMentionLink[]> {
+    const ids = opts.correspondentIds ? [...new Set(opts.correspondentIds)] : undefined;
+    if (ids && ids.length === 0) return [];
+    const scope: EmailMentionLinkScope = {
+      excludedDomains: [...INTERNAL_MAIL_DOMAINS],
+      limit: EMAIL_MENTION_LINK_LIMIT,
+    };
+    if (ids) scope.correspondentIds = ids;
+    if (opts.since !== undefined) {
+      const sinceMs = Date.parse(opts.since);
+      if (Number.isNaN(sinceMs)) throw new InvalidEmailMentionSinceError(opts.since);
+      scope.since = new Date(sinceMs).toISOString();
+    }
+    return this.dealContactRepo.insertEmailMentionLinks(this.workspaceId, scope);
+  }
+
+  /**
+   * {@link linkEmailMentions} for mail ingested since `since`, best-effort:
+   * the number of links written, or null when it failed (logged). The
+   * post-ingest call uses it so a failure never blocks the overview refresh.
+   */
+  async linkEmailMentionsSince(since: string): Promise<number | null> {
+    try {
+      return (await this.linkEmailMentions({ since })).length;
+    } catch (err) {
+      console.error('[dealContactService] email-mention link since', since, 'failed:', err);
+      return null;
+    }
   }
 
   /** Smart Files source links in `scope`, never from our own domains, at most one pass's worth. */

@@ -139,7 +139,6 @@ describe('runContactRelationshipOverview', () => {
           linkedAt: '2026-08-01',
         },
       ],
-      suggestions: [],
     });
   });
 
@@ -196,7 +195,7 @@ describe('runContactRelationshipOverview', () => {
   });
 
   it('asks for low effort with room for thinking plus a line per linked deal', async () => {
-    mocks.listContactDeals.mockResolvedValueOnce({ deals: [], suggestions: [] });
+    mocks.listContactDeals.mockResolvedValueOnce({ deals: [] });
     mocks.invokeStructuredOutput.mockResolvedValueOnce({
       overview: 'John Doe discussed debt financing. Best next move: follow up next week.',
       dealNotes: [],
@@ -257,7 +256,7 @@ describe('runContactRelationshipOverview', () => {
   });
 
   it('accepts no deal lines for a contact with no linked deals, and asks for none', async () => {
-    mocks.listContactDeals.mockResolvedValue({ deals: [], suggestions: [] });
+    mocks.listContactDeals.mockResolvedValue({ deals: [] });
     mocks.invokeStructuredOutput.mockResolvedValueOnce({
       overview: 'John covers lending. Best next move: send the teaser.',
       dealNotes: [],

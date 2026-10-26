@@ -46,7 +46,9 @@ describe('DealContactRepository', () => {
   describe('empty id lists', () => {
     it('returns [] without hitting the DB', async () => {
       await expect(repo.listForContacts('w1', [])).resolves.toEqual([]);
-      await expect(repo.listSuggestions('w1', [])).resolves.toEqual([]);
+      await expect(
+        repo.insertEmailMentionLinks('w1', { correspondentIds: [], excludedDomains: [], limit: 10 }),
+      ).resolves.toEqual([]);
       await expect(
         repo.insertFileSourceLinks('w1', { fileIds: [], excludedSenderDomains: [], limit: 10 }),
       ).resolves.toEqual([]);
@@ -119,18 +121,6 @@ describe('DealContactRepository', () => {
     });
   });
 
-  describe('findLink', () => {
-    it('looks the pair up within the workspace', async () => {
-      db = makeDb([{ id: 'l1' }]);
-      repo = new DealContactRepository(db as never);
-
-      await expect(repo.findLink('w1', 'co1', 'c1')).resolves.toEqual({ id: 'l1' });
-      const where = toQuery(db.where.mock.calls[0][0]);
-      expect(where.params).toEqual(['w1', 'co1', 'c1']);
-      expect(where.sql).toContain('"deal_contacts"."workspace_id" = $1');
-    });
-  });
-
   describe('upsertLink', () => {
     it('inserts and on the unique pair overwrites role, origin and status', async () => {
       db = makeDb([{ id: 'l1' }]);
@@ -189,19 +179,65 @@ describe('DealContactRepository', () => {
     });
   });
 
-  describe('listSuggestions', () => {
-    it('is one workspace-scoped query that skips pairs with any deal_contacts row', async () => {
-      await repo.listSuggestions('w1', ['c1', 'c2']);
+  describe('insertEmailMentionLinks', () => {
+    it('writes involved auto_email links set-based, skipping discovered companies and existing rows', async () => {
+      db.execute.mockResolvedValueOnce({
+        rows: [
+          { company_id: 'co1', correspondent_id: 'c1' },
+          { company_id: 'co2', correspondent_id: 'c2' },
+        ],
+      });
 
+      const rows = await repo.insertEmailMentionLinks('w1', {
+        excludedDomains: ['Ours.example'],
+        limit: 50,
+      });
+
+      expect(rows).toEqual([
+        { companyId: 'co1', correspondentId: 'c1' },
+        { companyId: 'co2', correspondentId: 'c2' },
+      ]);
       expect(db.execute).toHaveBeenCalledTimes(1);
       const { sql, params } = toQuery(db.execute.mock.calls[0][0]);
+      expect(sql).toContain('INSERT INTO "public"."deal_contacts"');
+      expect(sql).toContain("'involved', 'auto_email', 'active'");
+      expect(sql).not.toContain("'source'");
+      expect(sql).toMatch(/c\.pipeline_stage <> \$\d+/);
+      expect(params).toContain('discovered');
       expect(sql).toContain('"analytics"."employer_related_company_evidence"');
       expect(sql).toContain('ep.user_id IS NULL');
-      expect(sql).toContain('ep.correspondent_id IN ($2, $3)');
-      expect(sql).toContain('c.workspace_id = $1');
-      expect(sql).toContain('erc.workspace_id = $4');
+      expect(sql).toContain('erc.dismissed_at IS NULL');
+      expect(sql).toContain('erc.company_id IS NOT NULL');
+      expect(sql).toContain('"public"."workspace_correspondents" wc');
+      expect(sql).toContain('cu.email = em.custodian_email');
+      expect(sql).toContain('lower(u.email) = lower(ep.address)');
       expect(sql).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM "public"\."deal_contacts" dc/);
-      expect(params.every((p) => p === 'w1' || p === 'c1' || p === 'c2')).toBe(true);
+      expect(sql).toContain('SELECT DISTINCT erc.company_id, ep.correspondent_id');
+      expect(sql).toContain('ORDER BY erc.company_id, ep.correspondent_id');
+      expect(sql).toContain('ON CONFLICT (workspace_id, company_id, correspondent_id) DO NOTHING');
+      // Workspace-wide: no contact or since filter.
+      expect(sql).not.toContain('ep.correspondent_id IN (');
+      expect(sql).not.toContain('ev.created_at >=');
+      // Domains compare lower-cased against the participant address.
+      expect(sql).toContain("lower(substring(ep.address from '@([^@]*)$')) NOT IN (");
+      expect(params).toContain('ours.example');
+      expect(params).toContain('w1');
+      expect(params).toContain(50);
+    });
+
+    it('narrows to the contacts and to evidence written since', async () => {
+      await repo.insertEmailMentionLinks('w1', {
+        correspondentIds: ['c1', 'c2'],
+        since: '2026-10-25T00:00:00.000Z',
+        excludedDomains: [],
+        limit: 10,
+      });
+
+      const { sql, params } = toQuery(db.execute.mock.calls[0][0]);
+      expect(sql).toMatch(/ep\.correspondent_id IN \(\$\d+, \$\d+\)/);
+      expect(sql).toMatch(/ev\.created_at >= \$\d+::timestamptz/);
+      expect(sql).not.toContain('NOT IN (');
+      expect(params).toEqual(expect.arrayContaining(['c1', 'c2', '2026-10-25T00:00:00.000Z']));
     });
   });
 

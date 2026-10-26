@@ -2342,12 +2342,18 @@ export const employerRelatedCompanies = pgTable(
 
 // Deal ↔ banker links (MB-856, 20261021000001_deal_contacts): which CRM
 // contact (one person) brought a deal (`source`) or was involved in it
-// (`involved`). Removing or dismissing sets status = 'dismissed' rather than
-// deleting, so the automatic paths (Smart Files email attachments, evidence
-// suggestions) never re-add it. See docs/features/crm-banker-insights.md.
+// (`involved`). Removing sets status = 'dismissed' rather than deleting, so
+// the automatic paths (Smart Files email attachments, email mentions —
+// origin `auto_email`, 20261026000005) never re-add it.
+// `confirmed_suggestion` stays valid for existing rows; nothing writes it.
+// See docs/features/crm-banker-insights.md.
 export const DEAL_CONTACT_ROLES = ["source", "involved"] as const;
 export type DealContactRole = (typeof DEAL_CONTACT_ROLES)[number];
-export type DealContactOrigin = "email_attachment" | "manual" | "confirmed_suggestion";
+export type DealContactOrigin =
+  | "email_attachment"
+  | "manual"
+  | "confirmed_suggestion"
+  | "auto_email";
 export type DealContactStatus = "active" | "dismissed";
 
 export const dealContacts = pgTable(
@@ -2391,7 +2397,7 @@ export const dealContacts = pgTable(
     dealContactsRoleChk: check("deal_contacts_role_chk", sql`role IN ('source', 'involved')`),
     dealContactsOriginChk: check(
       "deal_contacts_origin_chk",
-      sql`origin IN ('email_attachment', 'manual', 'confirmed_suggestion')`,
+      sql`origin IN ('email_attachment', 'manual', 'confirmed_suggestion', 'auto_email')`,
     ),
     dealContactsStatusChk: check(
       "deal_contacts_status_chk",

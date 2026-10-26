@@ -214,7 +214,7 @@ describe('ContactInsightsService.getContactInsights', () => {
     mocks.listEmailTotals.mockResolvedValue([]);
     mocks.listRelatedCompaniesForContacts.mockResolvedValue([]);
     mocks.workspaceHasSyncedData.mockResolvedValue(true);
-    mocks.listDealsOfVisibleContact.mockResolvedValue({ deals: [], suggestions: [] });
+    mocks.listDealsOfVisibleContact.mockResolvedValue({ deals: [] });
     mocks.getScorecards.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, card(id)])));
   });
 
@@ -265,7 +265,7 @@ describe('ContactInsightsService.getContactInsights', () => {
     expect(insights.relatedCompanies[0]!.companyName).toBe('PT Maju & Jaya');
   });
 
-  it('adds the contact\'s deal links and suggestions from DealContactService', async () => {
+  it('adds the contact\'s deal links from DealContactService', async () => {
     mocks.findById.mockResolvedValue({ id: 'c1' });
     const deal = {
       companyId: 'co1',
@@ -277,16 +277,7 @@ describe('ContactInsightsService.getContactInsights', () => {
       isDropped: false,
       linkedAt: '2026-10-01T00:00:00.000Z',
     };
-    const suggestion = {
-      companyId: 'co2',
-      companyName: 'Blue Harbor',
-      stage: 'L1',
-      stageLabel: 'L1',
-      isDropped: false,
-      evidenceCount: 1,
-      lastSeenAt: null,
-    };
-    mocks.listDealsOfVisibleContact.mockResolvedValue({ deals: [deal], suggestions: [suggestion] });
+    mocks.listDealsOfVisibleContact.mockResolvedValue({ deals: [deal] });
 
     const insights = await makeService().getContactInsights('c1');
 
@@ -294,7 +285,7 @@ describe('ContactInsightsService.getContactInsights', () => {
     expect(mocks.listDealsOfVisibleContact).toHaveBeenCalledWith('c1');
     expect(mocks.findById).toHaveBeenCalledTimes(1);
     expect(insights.deals).toEqual([deal]);
-    expect(insights.dealSuggestions).toEqual([suggestion]);
+    expect(insights).not.toHaveProperty('dealSuggestions');
   });
 
   it('adds the scorecard for the period after the deal read has reconciled the links', async () => {
@@ -302,7 +293,7 @@ describe('ContactInsightsService.getContactInsights', () => {
     const order: string[] = [];
     mocks.listDealsOfVisibleContact.mockImplementation(async () => {
       order.push('deals');
-      return { deals: [], suggestions: [] };
+      return { deals: [] };
     });
     mocks.getScorecards.mockImplementation(async () => {
       order.push('scorecard');

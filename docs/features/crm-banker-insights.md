@@ -26,7 +26,7 @@ written. `&nbsp;` becomes a plain space. It is applied in:
 
 - `BankerListService`: name, title, firm.
 - `ContactInsightsService`: contact, team member names, related companies.
-- `DealContactService`: deal and suggestion names, before sorting.
+- `DealContactService`: deal names, before sorting.
 - `CrmSuggestedQuestionService`: template inputs before clipping, and stored
   question text.
 - `get_crm_contact`: name, firm, industry, filled fields.
@@ -96,19 +96,20 @@ and the latest evidence email's date.
 Which Brain deals a banker (one person) brought or was involved in. Stored in
 `public.deal_contacts`, one row per (`workspace_id`, `company_id`,
 `correspondent_id`): `role` `source` (brought the deal) or `involved`;
-`origin` `email_attachment` / `manual` / `confirmed_suggestion`; `status`
-`active` or `dismissed`; `evidence_message_id` for attachment links. The app
-never deletes a row: remove and dismiss set `dismissed`, and that row is what
-keeps every automatic path from adding the pair again. Links only join
+`origin` `email_attachment` / `auto_email` / `manual` (and
+`confirmed_suggestion` on older rows; nothing writes it); `status` `active` or
+`dismissed`; `evidence_message_id` for attachment links. The app never deletes
+a row: Remove sets `dismissed`, and that row is what keeps every automatic
+path from adding the pair again — removing a link is permanent unless someone
+links the deal by hand. Links only join
 companies of the same workspace; the contact must be visible in it
 (`workspace_correspondents`).
 
 Code: `DealContactRepository` → `DealContactService` (container key
 `dealContactService`). Routes under `/api/crm/correspondents/[id]/deals`:
 `POST {companyId, role}` (manual add), `DELETE …/[companyId]` (remove =
-dismiss), `POST …/[companyId]/confirm`, `POST …/[companyId]/dismiss`. Client
-wrappers: `src/lib/api/contactDeals.ts`. The links and suggestions are read
-through `getContactInsights` (`deals`, `dealSuggestions`).
+dismiss). Client wrappers: `src/lib/api/contactDeals.ts`. The links are read
+through `getContactInsights` (`deals`).
 
 **Automatic links from Smart Files.** The pipeline sends the email's
 `messageId` in `email_context`; `processUpload` stores the sender address and
@@ -147,16 +148,50 @@ addresses (`idx_files_workspace_source_sender`), at most
   overviews, which run `listContactDeals` and so reconcile each refreshed
   contact; it does not run the workspace-wide variant.
 
-**Suggestions** are computed on read, never stored: related-company evidence
-whose email the contact took part in as an external participant (any role),
-attributed to the workspace, resolved to a company of the workspace, for pairs
-with no `deal_contacts` row at all. Confirm writes an active `involved` link
-(`confirmed_suggestion`) — or leaves an already active link alone, so a
-`source` is never downgraded. Dismiss writes or sets a `dismissed` row
-(origin `manual` when there was none).
+**Automatic links from email mentions.** A contact is linked as `involved`,
+origin `auto_email`, to every company that related-company evidence
+(`analytics.employer_related_company_evidence`) ties to an email the contact
+took part in as an external participant (any role), when:
+
+- the related company is not dismissed and resolves to a company of the
+  workspace whose `pipeline_stage` is not `discovered` (`DISCOVERED_STAGE`).
+  Market screening, Pending Confirmation, L0 and later, and dropped companies
+  all link. A `discovered` company is never a deal here; it still shows under
+  "Related companies";
+- the email is attributed to the workspace (custodian bridge);
+- the contact is visible in the workspace, is not an app user and its address
+  on that email is not at an `INTERNAL_MAIL_DOMAINS` domain;
+- the pair has no `deal_contacts` row of any status.
+
+One evidence email is enough. It never writes `source`, so "brought", "reached
+L1" and conversion are unaffected; it grows "involved" and Related deals. It is
+`DealContactRepository.insertEmailMentionLinks`: one `INSERT … SELECT DISTINCT
+… ON CONFLICT DO NOTHING`, idempotent, never touching an existing row, at most
+`EMAIL_MENTION_LINK_LIMIT` links per call. Every caller goes through
+`DealContactService.linkEmailMentions({ correspondentIds?, since? })`:
+
+- **Post-ingest**: `POST /api/auth/crm-overviews/refresh` runs it per
+  workspace for evidence written since `since` (`ev.created_at`), every
+  contact, before `refreshTouchedOverviews` — so a contact who gains a link
+  has a stale overview and can be regenerated in the same call. Best-effort
+  (`linkEmailMentionsSince`): a failure is logged, reported as
+  `emailLinked: null`, and the refresh still runs; otherwise `emailLinked` is
+  the count.
+- **Per contact, on read**: `listDealsOfVisibleContact` runs it for its
+  contact before reading, in its own try/catch next to the Smart Files
+  reconcile.
+- **Workspace-wide, daily**: `CrmSuggestedQuestionService.runDaily` runs it
+  with no scope next to `reconcileSmartFileLinks()` (see **Ask Brain**). This
+  catches pairs the other two miss: a company leaving `discovered`, a related
+  company resolved to a company later, a contact becoming visible later.
+- **Once, at deploy**: migration
+  `20261026000005_deal_contacts_auto_email_origin.sql` adds `auto_email` to
+  `deal_contacts_origin_chk` and backfills every eligible pair in all
+  workspaces with a frozen copy of the same rule.
 
 **Manual wins.** Add (`manual`, either role) overwrites any existing row,
-including a dismissed one. Remove dismisses.
+including a dismissed one or an automatic one's role. Remove dismisses, for
+good: no automatic path re-adds the pair.
 
 ## Scorecard
 
@@ -268,8 +303,7 @@ recomputed for the model.
     `ContactInsightsService.getContactInsights`: per-team-member emails each
     way and last email, last contact; deals with
     current stage, the scorecard's furthest-stage breakdown, reached L1 and
-    conversion; related companies. Suggestions are listed as unconfirmed, never
-    as deals.
+    conversion; related companies.
   - `mode: "ranking"`, `metric` ∈ `deals_brought | reached_l1 | recent_activity
     | team_members | emails`, `limit` (default 10, capped at 25),
     `active_within_days` (passed as the list's `custom` last-contact bound):
@@ -339,8 +373,11 @@ another user's or another workspace's.
     own container and its own try/catch.
   - Per workspace it calls `CrmSuggestedQuestionService.runDaily`, which first
     runs the workspace-wide `reconcileSmartFileLinks()` (see **Late
-    contacts**), so the questions see the new links, then
-    `generateForWorkspace`. The response counts the links as `reconciled`.
+    contacts**) and `linkEmailMentions()` (see **Automatic links from email
+    mentions**), each in its own try/catch, so the questions see the new
+    links, then `generateForWorkspace`. The response counts the links as
+    `reconciled` and `emailLinked`; a workspace where either failed is listed
+    in `reconcileFailedWorkspaces`.
   - `generateForWorkspace` uses five queries however many members there are:
     members, activity for all members, the workspace link check, links for all
     contacts involved, and one bulk upsert. It writes rows only for members
@@ -401,8 +438,8 @@ dialog; header, Ask Brain Bot pills and tabs stay put, the tab body scrolls):
   ("Passed at …" when dropped), and the overview's line on the contact's part
   in that deal (`overview.dealNotes`), or "Brought by …" / "… involved" when
   there is none. The Link deal / remove controls under the list are the only
-  place a deal link is made; email-matched suggestions to Confirm / Dismiss;
-  related companies as tiles. The prototype's related-company relations
+  manual way to make or remove a link (email mentions link themselves; see
+  **Deal links**); related companies as tiles. The prototype's related-company relations
   ("Former employer · 2015–2021", "Board") have no source, so a tile shows the
   email count and last date.
 - **Deal funnel** — furthest stage reached by the deals the contact brought,
@@ -565,8 +602,9 @@ from a team user outside the workspace that never counts. Deal links: Jimmy is `
 email attachment), Cinder Foods (L0, manual) and Juniper AgriTech (manual;
 logged L0 → L1 → L2 → L1, dropped at L1 — furthest stage L2, so his scorecard
 is 3 brought, 2 reached L1); Penny is `involved` in Halcyon
-Media (confirmed suggestion); Blue Harbor Logistics stays a suggestion for
-Jimmy from his related-company evidence.
+Media (`confirmed_suggestion` row). Blue Harbor Logistics (L1) is not seeded as
+a link: Jimmy's related-company evidence links him to it as `involved`
+(`auto_email`) the first time his contact is read, or on the daily cron.
 
 MB-681 conversation data on the same fixture (no LLM needed):
 
