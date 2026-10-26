@@ -29,6 +29,8 @@ import { EFFORT_TIERS, type EffortChoice } from "./effort";
  * may reference user-attached documents by their uploaded file id.
  */
 const FILES_API_BETA = "files-api-2025-04-14" as const;
+/** `createAgent`'s model node — the one node every agent graph has, whatever its middleware. */
+export const MODEL_NODE = "model_request";
 
 /**
  * Middleware handed to `createAgent`: HITL for workforce graphs, history
@@ -553,16 +555,7 @@ export class AgentGraph {
     const messages = knownMessages ?? (await this.getMessages(threadId));
     const replacements = rewriteStaleFileBlocks(messages, freshFileIds);
     if (replacements.length === 0) return;
-    const agent = this.defaultAgent as unknown as {
-      updateState: (
-        config: { configurable: { thread_id: string } },
-        values: { messages: BaseMessage[] },
-      ) => Promise<unknown>;
-    };
-    await agent.updateState(
-      { configurable: { thread_id: threadId } },
-      { messages: replacements },
-    );
+    await this.overwriteMessages(threadId, replacements);
   }
 
   /**
@@ -581,16 +574,7 @@ export class AgentGraph {
     const messages = knownMessages ?? (await this.getMessages(threadId));
     const replacements = stripCorruptServerToolCalls(messages);
     if (replacements.length === 0) return 0;
-    const agent = this.defaultAgent as unknown as {
-      updateState: (
-        config: { configurable: { thread_id: string } },
-        values: { messages: BaseMessage[] },
-      ) => Promise<unknown>;
-    };
-    await agent.updateState(
-      { configurable: { thread_id: threadId } },
-      { messages: replacements },
-    );
+    await this.overwriteMessages(threadId, replacements);
     return replacements.length;
   }
 
@@ -610,17 +594,33 @@ export class AgentGraph {
     const repairs = buildOrphanedToolRepairMessages(messages);
     if (repairs.length === 0) return 0;
 
+    await this.overwriteMessages(threadId, repairs);
+    return repairs.length;
+  }
+
+  /**
+   * Write repaired messages into an existing thread's checkpoint (same ids, so
+   * the messages reducer overwrites in place). `asNode` is pinned to the model
+   * node because LangGraph otherwise attributes the update to the node that
+   * last wrote the thread — and a thread last run with different middleware
+   * (a bot turn's `SummarizationMiddleware.before_model`) names a node the
+   * default graph lacks: `InvalidUpdateError: Node "…" does not exist`.
+   */
+  private async overwriteMessages(threadId: string, messages: BaseMessage[]): Promise<void> {
+    // updateState is marked @internal in LangChain v1 typings (return type
+    // `never`) but it's the documented LangGraph API and works at runtime.
     const agent = this.defaultAgent as unknown as {
       updateState: (
         config: { configurable: { thread_id: string } },
         values: { messages: BaseMessage[] },
+        asNode?: string,
       ) => Promise<unknown>;
     };
     await agent.updateState(
       { configurable: { thread_id: threadId } },
-      { messages: repairs },
+      { messages },
+      MODEL_NODE,
     );
-    return repairs.length;
   }
 
   async getMessages(threadId: string): Promise<BaseMessage[]> {
