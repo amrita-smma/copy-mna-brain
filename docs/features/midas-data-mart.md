@@ -46,13 +46,15 @@ The connection guide and ERD for Star Capital (`.docx`) is in the same folder.
   - The views are `security_barrier`, so a reader can't use a custom function
     to see rows the workspace filter removes.
   - If the migration role lacks CREATEROLE, the migration logs a NOTICE and
-    skips creating the user. Then run the `midas_reader_bootstrap_sql` output of
-    `terraform/rds` as the master user.
-- **IAM role `mna-<env>-midas-rds-reader`** (`terraform/rds/midas_iam_role.tf`)
-  is assumable by the principals in `midas_trusted_principal_arns` (Star
-  Capital's account), optionally with an `sts:ExternalId`. Its only permission
-  is `rds-db:connect` on `dbuser:<resource-id>/midas_reader`.
-- To connect, assume the role, run `aws rds generate-db-auth-token … --username
+    skips creating the user. Then run the `bootstrap_sql` output of
+    `terraform/midas_reader` as the master user.
+- **IAM user `midas.reader`** exists in each account (created by hand; its
+  access key is what Star Capital holds). The Terraform module
+  `terraform/midas_reader` gives it one inline policy, `rds-db:connect` on
+  `dbuser:<resource-id>/midas_reader`. The user must have no other policies
+  or groups; Terraform does not enforce that, so the runbook checks it before
+  hand-over.
+- To connect with that key, run `aws rds generate-db-auth-token … --username
   midas_reader` and use the token as the password with `sslmode=verify-full`
   and the RDS global CA bundle. The token is valid for 15 minutes, and only
   for opening the connection. AWS guide:
