@@ -18,6 +18,17 @@ import type { OverviewDealNote } from '@/lib/repositories';
 // one call per touched contact.
 export const CONTACT_RELATIONSHIP_OVERVIEW_MODEL = 'claude-haiku-5-5';
 
+// Adaptive thinking draws on the same max_tokens as the tool call, so the
+// budget has to cover both: at 1500 a contact with a long note history spent
+// it thinking and returned empty or cut-off JSON. Low effort keeps the thinking
+// short; the output itself is a few sentences plus one line per deal.
+const OVERVIEW_BASE_MAX_TOKENS = 4000;
+const OVERVIEW_MAX_TOKENS_PER_DEAL = 120;
+
+function overviewMaxTokens(dealCount: number): number {
+  return OVERVIEW_BASE_MAX_TOKENS + OVERVIEW_MAX_TOKENS_PER_DEAL * dealCount;
+}
+
 export const overviewOutputSchema = z.object({
   overview: z
     .string()
@@ -256,8 +267,8 @@ export async function runContactRelationshipOverview(
       systemPrompt: SYSTEM_PROMPT,
       prompt,
       model: CONTACT_RELATIONSHIP_OVERVIEW_MODEL,
-      effort: 'medium',
-      maxTokens: 1500 + 120 * promptDeals.length,
+      effort: 'low',
+      maxTokens: overviewMaxTokens(promptDeals.length),
       toolName: 'generate_contact_relationship_overview',
       llmOverride: deps.llmOverride,
     });

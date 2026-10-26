@@ -195,6 +195,20 @@ describe('runContactRelationshipOverview', () => {
     expect(mocks.saveOverviewReady).not.toHaveBeenCalled();
   });
 
+  it('asks for low effort with room for thinking plus a line per linked deal', async () => {
+    mocks.listContactDeals.mockResolvedValueOnce({ deals: [], suggestions: [] });
+    mocks.invokeStructuredOutput.mockResolvedValueOnce({
+      overview: 'John Doe discussed debt financing. Best next move: follow up next week.',
+      dealNotes: [],
+    });
+
+    await runContactRelationshipOverview(payload, deps);
+
+    const { effort, maxTokens } = mocks.invokeStructuredOutput.mock.calls[0][0];
+    expect(effort).toBe('low');
+    expect(maxTokens).toBe(4000);
+  });
+
   it('tags notes with the deals they are evidence for and maps deal lines back to companies', async () => {
     mocks.listDealEvidenceEmails.mockResolvedValue([
       { companyId: 'co-2', emailId: 'e1' },
@@ -217,7 +231,7 @@ describe('runContactRelationshipOverview', () => {
     expect(prompt).toContain('- D1: Project Apollo (brought, current stage: L2 · Diligence)');
     expect(prompt).toContain('- D2: Nusantara Lending (involved, current stage: L1 · Preliminary Review, dropped)');
     expect(prompt).toContain('[inbound] [D2] (team: Alice Smith)');
-    expect(maxTokens).toBe(1500 + 2 * 120);
+    expect(maxTokens).toBe(4000 + 2 * 120);
     expect(result.dealNotes).toEqual([
       { companyId: 'co-2', note: 'Declined over regulatory exposure.' },
     ]);
