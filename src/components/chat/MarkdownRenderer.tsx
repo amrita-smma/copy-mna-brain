@@ -13,6 +13,7 @@ import {
   type ChatSurface,
 } from '@/lib/posthog-chat';
 import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
+import { htmlAnchorsToMarkdown } from '@/lib/chat/htmlLinks';
 import { STALE_SOURCE_MONTHS, isStaleSource, parseCitationLabel } from '@/lib/chat/citations';
 import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
 import type { Components } from 'react-markdown';
@@ -274,10 +275,15 @@ function MarkdownRendererImpl({
     [isCard, linkSurface, evidenceMarkers, citationPills],
   );
 
+  // Raw HTML is disabled in react-markdown, so a model-written
+  // `<a href="…">…</a>` would print as literal text. Rewrite those anchors
+  // into markdown links so the `a` component above draws them.
+  const markdown = useMemo(() => htmlAnchorsToMarkdown(content), [content]);
+
   return (
     <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
-        {content}
+        {markdown}
       </ReactMarkdown>
     </div>
   );
