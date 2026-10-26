@@ -28,6 +28,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "ff34f22305901bc77cd8270c4641003001416538",
+    "date": "2026-10-26",
+    "subject": "Smart Files now always creates a new company when you choose \"Create new company\"",
+    "category": "feature"
+  },
+  {
+    "hash": "a7d581873a8a72073626cc0944ad495499f5df8b",
+    "date": "2026-10-26",
+    "subject": "Assistant replies now show links for raw HTML anchor tags",
+    "category": "improvement"
+  },
+  {
+    "hash": "aee976785e51578eb4f5f231e738d0dbf5813515",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
