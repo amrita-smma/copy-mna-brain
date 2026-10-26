@@ -16,23 +16,42 @@ onlyBuiltDependencies:
 # pnpm 11+ reads these from workspace.yaml (not package.json#pnpm).
 overrides:
   '@esbuild-kit/core-utils>esbuild': ^0.25.0
-  adm-zip: '>=0.6.0'
-  'brace-expansion@1': 1.1.18
-  'brace-expansion@2': 2.1.4
-  'brace-expansion@5': 5.0.9
-  dompurify: ^3.4.12
+  adm-zip: '>=0.6.1'
+  '@ai-sdk/provider-utils@4': ^4.0.33
+  '@ai-sdk/provider-utils@5': ^5.0.1
+  '@grpc/grpc-js': ^1.14.5
+  # Stay on the 0.8 line mammoth expects; 0.9 is a breaking major.
+  '@xmldom/xmldom@0.8': 0.8.15
+  axios: ^1.20.0
+  'brace-expansion@1': 1.1.21
+  'brace-expansion@2': 2.1.7
+  'brace-expansion@5': 5.0.12
+  devalue: ^5.9.3
+  dompurify: ^3.4.17
   exceljs>uuid: ^11.1.1
+  'fflate@0.4': 0.4.9
+  'fflate@0.8': ^0.8.3
+  follow-redirects: ^1.16.1
   # got@9 (via aframe → react-force-graph) has no patched 9.x; pin to patched 11.x
   'got@9': 11.8.6
+  # Advisory lists no fix, but its range ends at 4.2.0; 4.3.0 is out of it.
+  http-cache-semantics: ^4.3.0
   # Official image-size is archived (latest 2.0.2, no patch). Transitive via
   # pptxgenjs 4.0.1. image-size-next@2.1.1 is a drop-in fork for CVE-2025-71329/71330.
   image-size: npm:image-size-next@2.1.1
-  js-yaml: ^4.3.0
+  js-yaml: ^4.3.2
   # Dependabot cannot bump nanoid: latest installable without override is 3.3.16;
   # earliest fixed 3.x is 3.3.18. Pin both major lines.
   'nanoid@3': 3.3.18
   'nanoid@5': 5.1.16
+  # No 6.x carries the GHSA-rj75-hqrm-r3gf fix; tailwind 3 and @tailwindcss/typography
+  # still ask for 6.x. 7.0.0's only break is insertion-during-iteration safety.
+  postcss-selector-parser: ^7.1.7
   protobufjs: ^7.6.5
-  undici: ^7.29.0
+  proxy-addr: ^2.0.8
+  qs: ^6.16.0
+  source-map-js: ^1.2.2
+  undici: ^7.29.1
+  vite: ^8.1.6
 patchedDependencies:
   '@langchain/anthropic@1.3.26': patches/@langchain__anthropic@1.3.26.patch
