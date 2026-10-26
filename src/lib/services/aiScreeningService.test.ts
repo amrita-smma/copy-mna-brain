@@ -165,6 +165,46 @@ describe('AIScreeningService.enqueue', () => {
     expect(result.queued).toEqual(['c1', 'c2']);
   });
 
+  it('narrows a Scan now track selection to each company’s selected tracks', async () => {
+    t.criteriaRepo.findAll.mockResolvedValue([
+      ...CRITERIA,
+      { id: 'k3', prompt: 'p3', investment_thesis_id: 't2' },
+    ]);
+    t.companyRepo.findByIds.mockResolvedValue([
+      company('c1', { matched_track_ids: ['t1', 't2'] }),
+      company('c2', { matched_track_ids: ['t1', 't2'] }),
+    ]);
+
+    await t.service.enqueue(['c1', 'c2'], {
+      mode: 'pending_scan',
+      force: true,
+      triggeredByUserId: 'user-1',
+      // c2 is absent: it is screened against every matched track.
+      trackIdsByCompany: new Map([['c1', ['t2']]]),
+    });
+
+    // Only the selected track's rows are reset — an unselected track's rows
+    // would otherwise sit at pending, since the task never screens them.
+    expect(t.screeningService.prepare).toHaveBeenCalledWith(
+      [
+        { companyId: 'c1', trackId: 't2', criteriaIds: ['k3'] },
+        { companyId: 'c2', trackId: 't1', criteriaIds: ['k1', 'k2'] },
+        { companyId: 'c2', trackId: 't2', criteriaIds: ['k3'] },
+      ],
+      'user-1',
+    );
+    const [c1Task, c2Task] = mocks.enqueueAgentRun.mock.calls.map((call) => call[1]);
+    expect(c1Task.triggerMeta).toEqual({
+      company_id: 'c1',
+      mode: 'pending_scan',
+      force: true,
+      track_ids: ['t2'],
+    });
+    expect(c1Task.input.instruction).toContain('track_ids ["t2"]');
+    expect(c2Task.triggerMeta).toEqual({ company_id: 'c2', mode: 'pending_scan', force: true });
+    expect(c2Task.input.instruction).not.toContain('track_ids');
+  });
+
   it('does not queue a tracks-only run for a company with nothing to screen', async () => {
     t.companyRepo.findByIds.mockResolvedValue([company('c1', { matched_track_ids: ['t2'] })]);
 
@@ -258,6 +298,24 @@ describe('AIScreeningService.screenMatchedTracks', () => {
     );
     // Forced: no "what is already done" read.
     expect(t.screeningRepo.findByCompanyIds).not.toHaveBeenCalled();
+  });
+
+  it('screens only the selected tracks when given trackIds', async () => {
+    t.criteriaRepo.findAll.mockResolvedValue([
+      ...CRITERIA,
+      { id: 'k3', prompt: 'p3', investment_thesis_id: 't2' },
+    ]);
+
+    const result = await t.service.screenMatchedTracks(
+      company('c1', { matched_track_ids: ['t1', 't2'] }) as never,
+      { force: true, trackIds: ['t2'] },
+    );
+
+    expect(result.groups).toEqual([{ trackId: 't2', criteriaIds: ['k3'] }]);
+    expect(result.screened).toBe(1);
+    expect(t.screeningService.prepare).toHaveBeenCalledWith([
+      { companyId: 'c1', trackId: 't2', criteriaIds: ['k3'] },
+    ]);
   });
 
   it('leaves already-completed criteria alone unless forced', async () => {

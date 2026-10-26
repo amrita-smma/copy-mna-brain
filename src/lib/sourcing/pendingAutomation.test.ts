@@ -10,6 +10,7 @@ import {
   InvalidPendingAutomationError,
   normalizePendingAutomation,
   parsePendingAutomationInput,
+  selectedTrackIdsFor,
 } from './pendingAutomation';
 
 describe('normalizePendingAutomation', () => {
@@ -99,6 +100,18 @@ const PREVIEW = {
     { trackIds: [], hasCard: false },
   ],
 };
+
+describe('selectedTrackIdsFor', () => {
+  it('returns the selected tracks the company is matched to, each kept separately', () => {
+    expect(
+      selectedTrackIdsFor(['t1', 't2', 't3'], { trackIds: ['t3', 't1'], includeUnmatched: false }),
+    ).toEqual(['t1', 't3']);
+  });
+
+  it('returns [] for an unmatched company', () => {
+    expect(selectedTrackIdsFor([], { trackIds: ['t1'], includeUnmatched: true })).toEqual([]);
+  });
+});
 
 describe('isInScanSelection', () => {
   it('includes a company matched to any selected track', () => {

@@ -14,6 +14,7 @@ import { createDb } from "@/lib/server/db";
  *   none are matched, screen, then auto promote / auto drop per the
  *   workspace's toggles (`PendingAutoScanService.processCompany`). A company
  *   with no Company Card gets one generated first, before it is screened.
+ *   `track_ids` (Scan now's track selection) limits it to those tracks.
  * - `tracks` — screen the matched tracks only; never moves the deal.
  */
 export const runAiScreening = tool(
@@ -22,10 +23,12 @@ export const runAiScreening = tool(
       company_id,
       mode,
       force,
+      track_ids,
     }: {
       company_id: string;
       mode: "pending_scan" | "tracks";
       force: boolean;
+      track_ids?: string[] | null;
     },
     runtime?: { configurable?: Record<string, unknown> },
   ) => {
@@ -52,6 +55,7 @@ export const runAiScreening = tool(
         const result = await pendingAutoScanService.processCompany(id, {
           force,
           triggeredByUserId,
+          trackIds: track_ids ?? null,
         });
         return [
           `Pending Confirmation scan for company ${id}: outcome **${result.outcome}**` +
@@ -83,6 +87,7 @@ Args:
     company_id: The company's UUID. Required.
     mode: "pending_scan" for a Pending Confirmation company — first generates its Company Card if it has none, then matches it to tracks if it has none, screens it, then promotes it to L0 on a pass (when the workspace has auto promote on) or drops it on a fail (when it has auto drop on). "tracks" screens the company's matched tracks only and never moves the deal.
     force: true re-screens criteria that already have a result; false screens only the ones without one.
+    track_ids: pending_scan only — screen only these tracks (Scan now's track selection), each separately; the company passes when any of them passes. Pass exactly the list the task gives; omit it when the task gives none.
 
 Returns:
     The outcome, overall verdict and number of criteria screened, or an error string.`,
@@ -92,6 +97,11 @@ Returns:
         .enum(["pending_scan", "tracks"])
         .describe('"pending_scan" for the Pending Confirmation auto-scan, "tracks" otherwise'),
       force: z.boolean().describe("Re-screen criteria that already have a result"),
+      track_ids: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe("pending_scan only: screen only these tracks (Scan now's selection)"),
     }),
   },
 );

@@ -51,11 +51,32 @@ describe("run_ai_screening (workforce tool)", () => {
     );
 
     expect(createContainer).toHaveBeenCalledWith({ db: true }, "ws-1");
-    expect(processCompany).toHaveBeenCalledWith("c1", { force: true, triggeredByUserId: "user-7" });
+    expect(processCompany).toHaveBeenCalledWith("c1", {
+      force: true,
+      triggeredByUserId: "user-7",
+      trackIds: null,
+    });
     expect(result).toContain("outcome **promoted**");
     expect(result).toContain("verdict **pass**");
     expect(result).toContain("- Promoted to L0");
     expect(screenCompanyTracks).not.toHaveBeenCalled();
+  });
+
+  it("passes Scan now's selected tracks through to the Pending Confirmation scan", async () => {
+    processCompany.mockResolvedValue({ companyId: "c1", outcome: "scanned", steps: [] });
+
+    await runAiScreening.invoke({
+      company_id: "c1",
+      mode: "pending_scan",
+      force: true,
+      track_ids: ["t1", "t2"],
+    });
+
+    expect(processCompany).toHaveBeenCalledWith("c1", {
+      force: true,
+      triggeredByUserId: null,
+      trackIds: ["t1", "t2"],
+    });
   });
 
   it("screens matched tracks only in tracks mode and lists each track's verdict", async () => {

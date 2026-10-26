@@ -1001,17 +1001,34 @@ describe('CompanyRepository.findForAgentStats — stage exclusion', () => {
 
 describe('CompanyRepository.findActiveTrackMatchesByStage', () => {
   it('returns active companies at the stage with their matched tracks, defaulting null to []', async () => {
+    const fields = {
+      segment: 'Healthcare',
+      geography: 'Indonesia',
+      target: 'Acme',
+      project_name: null,
+      thesis_content: null,
+    };
     const where = vi.fn().mockResolvedValue([
-      { id: 'c1', matched_track_ids: ['t1'] },
-      { id: 'c2', matched_track_ids: null },
+      { id: 'c1', matched_track_ids: ['t1'], ...fields },
+      { id: 'c2', matched_track_ids: null, ...fields },
     ]);
     const from = vi.fn().mockReturnValue({ where });
     const select = vi.fn().mockReturnValue({ from });
     const repo = new CompanyRepository({ select } as never, 'workspace-1');
 
     await expect(repo.findActiveTrackMatchesByStage('unreviewed')).resolves.toEqual([
-      { id: 'c1', matched_track_ids: ['t1'] },
-      { id: 'c2', matched_track_ids: [] },
+      { id: 'c1', matched_track_ids: ['t1'], ...fields },
+      { id: 'c2', matched_track_ids: [], ...fields },
+    ]);
+    // The keyword fallback needs the descriptive fields, so they are selected too.
+    expect(Object.keys(select.mock.calls[0][0])).toEqual([
+      'id',
+      'matched_track_ids',
+      'segment',
+      'geography',
+      'target',
+      'project_name',
+      'thesis_content',
     ]);
 
     const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);

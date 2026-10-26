@@ -25,9 +25,12 @@ Settings live on `workspaces.pending_auto_scan` / `pending_auto_promote` /
 **Scan now confirmation.** The button opens a confirmation dialog that fetches
 `GET /api/pending-automation/scan` (`PendingAutoScanService.previewScanNow`):
 `{ tracks, companies }` — one entry per active pending company not already
-queued, with the existing tracks it is matched to (`[]` when none, or when it is
-matched only to deleted tracks) and whether it has a completed Company Card,
-plus the titles of those tracks. The dialog lists each track with its company
+queued, with the tracks it is matched to and whether it has a completed Company
+Card, plus the titles of those tracks. A company's tracks are resolved exactly
+as the Pipeline's Track filter resolves them (`resolveTrackIds`): its saved
+`matched_track_ids` that still exist, else the keyword suggestion — so the
+dialog lists a company under the same tracks the Pipeline does. A company with
+neither is "not matched to a track yet" and is matched during the scan. The dialog lists each track with its company
 count and a "Not matched to a track yet" row, all selected by default. The total
 counts each selected company once, however many selected tracks it is in
 (`countScanSelection`), and the estimate is `estimateScanMinutes` in
@@ -36,10 +39,19 @@ counts each selected company once, however many selected tracks it is in
 
 Start scan posts the selection as `{ trackIds, includeUnmatched }`; the service
 queues only the pending companies matched to a selected track (plus the
-unmatched ones when included). The selection picks *companies*: a selected
-company is still screened against every track it is matched to, so the overall
-verdict behind auto promote / auto drop is unchanged. A POST with no body scans
-every pending company.
+unmatched ones when included). The selection also picks the *tracks*: a matched
+company is screened against only the selected tracks it is matched to
+(`selectedTrackIdsFor`), each track separately under its own pass rule, and the
+verdict behind auto promote / auto drop is over those tracks alone — **pass**
+when any of them passes, **fail** when all of them fail. The per-company track
+list travels as `trackIdsByCompany` on `AIScreeningService.enqueue`, which
+resets only those tracks' rows to pending, and as the `track_ids` argument in
+the task's instruction (so a retry screens the same tracks) and `trigger_meta`.
+A company selected by its keyword suggestion has those tracks saved as its
+`matched_track_ids` before it is screened, so its Matched Tracks agree with
+what it was screened on. An unmatched company is matched inside the task and
+screened against every track it is matched to. A POST with no body scans every
+pending company against every matched track.
 
 ## AI screening runs on the AI Workforce
 
@@ -82,7 +94,9 @@ tab reads.
      still waiting in the queue for that company is cancelled as superseded; one
      already executing is left alone. Best-effort: a failed card is noted in the
      task's steps and screening goes ahead. Then match tracks inline when nothing is
-     matched; screen; compute the verdict over the current matched tracks'
+     matched (with Scan now's `track_ids`, save the keyword-matched tracks
+     instead); screen the matched tracks — or only `track_ids` — each one
+     separately; compute the verdict over the screened tracks'
      current criteria (`companyScreeningVerdict`); re-read the toggles and
      re-check the company is still pending; then `promote(…, 'unreviewed',
      'L0', …)` on a pass when Auto promote is on, or `dropDeal(…,

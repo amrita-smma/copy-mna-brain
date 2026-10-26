@@ -50,6 +50,12 @@ export interface EnqueueScreeningOptions {
   /** Re-screen criteria that already have a result. */
   force: boolean;
   triggeredByUserId?: string | null;
+  /**
+   * Scan now with a track selection: per company, the selected tracks it is
+   * matched to. The company is screened against those tracks only. A company
+   * absent from the map is screened against every track it is matched to.
+   */
+  trackIdsByCompany?: ReadonlyMap<string, readonly string[]>;
 }
 
 export interface EnqueueScreeningResult {
@@ -61,6 +67,15 @@ export interface EnqueueScreeningResult {
   nothingToScreen: string[];
   /** Per queued company: the screening groups prepared up front (forced runs only). */
   prepared: Map<string, { trackCount: number; screeningCount: number }>;
+}
+
+/** Keep only the groups of `trackIds`; every group when `trackIds` is absent. */
+function narrowToTracks(
+  groups: TrackScreeningGroup[],
+  trackIds: readonly string[] | null | undefined,
+): TrackScreeningGroup[] {
+  if (!trackIds) return groups;
+  return groups.filter((g) => trackIds.includes(g.trackId));
 }
 
 export interface ScreenTracksResult {
@@ -179,7 +194,13 @@ export class AIScreeningService {
         this.criteriaRepo.findAll(),
       ]);
       const groupsByCompany = new Map(
-        companies.map((c) => [c.id, buildTrackScreeningGroups(c, tracks, criteria)]),
+        companies.map((c) => [
+          c.id,
+          narrowToTracks(
+            buildTrackScreeningGroups(c, tracks, criteria),
+            opts.trackIdsByCompany?.get(c.id),
+          ),
+        ]),
       );
       if (opts.mode === 'tracks') {
         result.nothingToScreen = companies
@@ -262,18 +283,22 @@ export class AIScreeningService {
   /**
    * Screen a company against its matched tracks' criteria: every criterion at
    * once, each writing its own `screenings` row. Without `force`, criteria
-   * that already have a completed result are left alone. Runs inside the
-   * `ai_screening` task (the `run_ai_screening` tool).
+   * that already have a completed result are left alone. With `trackIds`
+   * (Scan now's track selection), only those of its matched tracks are
+   * screened. Runs inside the `ai_screening` task (the `run_ai_screening` tool).
    */
   async screenMatchedTracks(
     company: Company,
-    opts: { force: boolean },
+    opts: { force: boolean; trackIds?: readonly string[] | null },
   ): Promise<ScreenTracksResult> {
     const [tracks, criteria] = await Promise.all([
       this.thesisRepo.findAll(),
       this.criteriaRepo.findAll(),
     ]);
-    const groups = buildTrackScreeningGroups(company, tracks, criteria);
+    const groups = narrowToTracks(
+      buildTrackScreeningGroups(company, tracks, criteria),
+      opts.trackIds,
+    );
     const rules = buildTrackPassRules(tracks, criteria);
     if (groups.length === 0) return { groups, screened: 0, tracks, rules };
 
@@ -441,24 +466,33 @@ export class AIScreeningService {
 
   private taskFor(company: Company, opts: EnqueueScreeningOptions) {
     const name = displayName(company);
+    const trackIds = opts.mode === 'pending_scan' ? opts.trackIdsByCompany?.get(company.id) : undefined;
     const scope =
       opts.mode === 'pending_scan'
         ? 'It first generates the Company Card if the company has none, matches the company to tracks if ' +
-          "it has none, screens it against each matched track's criteria, and promotes it to L0 on " +
-          'a pass (when the workspace has auto promote on) or drops it on a fail (when it has auto ' +
-          'drop on).'
+          `it has none, screens it against ${trackIds ? 'each selected' : 'each matched'} track's ` +
+          'criteria — each track separately — and promotes it to L0 when any track passes (when the ' +
+          'workspace has auto promote on) or drops it when every track fails (when it has auto drop on).'
         : "It screens the company against each matched track's criteria. It does not move the deal.";
+    // The track ids ride in the instruction (not only trigger_meta) so a
+    // retried task, which re-runs the same prompt, screens the same tracks.
+    const trackArg = trackIds ? `, track_ids ${JSON.stringify(trackIds)}` : '';
     const instruction =
       `Run AI screening for "${name}" (company_id: ${company.id}). ` +
       `Call the run_ai_screening tool exactly once with company_id "${company.id}", ` +
-      `mode "${opts.mode}" and force ${opts.force}. ${scope} ` +
+      `mode "${opts.mode}"${trackArg} and force ${opts.force}. ${scope} ` +
       'After it returns, report the verdict per track and what happened to the company in one or ' +
       'two sentences. Do not re-screen, edit, promote or drop the company yourself — if the ' +
       'tool left it pending (for example because auto promote or auto drop is off), it stays pending.';
     return {
       agentName: AI_SCREENING_AGENT_NAME,
       triggerSource: 'api' as const,
-      triggerMeta: { company_id: company.id, mode: opts.mode, force: opts.force },
+      triggerMeta: {
+        company_id: company.id,
+        mode: opts.mode,
+        force: opts.force,
+        ...(trackIds ? { track_ids: [...trackIds] } : {}),
+      },
       input: {
         title: `AI Screening: ${name}`,
         instruction,

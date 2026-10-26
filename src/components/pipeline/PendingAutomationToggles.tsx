@@ -280,7 +280,7 @@ export default function PendingAutomationToggles({
               ) : preview.companies.length === 0 ? (
                 "Every company in Pending Confirmation is already queued for AI screening."
               ) : (
-                "Choose the tracks to scan. Each company is AI-screened against every track it is matched to."
+                "Choose the tracks to scan. Each company is AI-screened against each selected track it is matched to, and passes when any of them passes."
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

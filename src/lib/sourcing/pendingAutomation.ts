@@ -69,9 +69,10 @@ export interface ScanNowTrack {
 
 /**
  * What Scan now could queue right now: one entry per active Pending
- * Confirmation company not already queued, with the existing tracks it is
- * matched to (`[]` when none — it is matched during the scan) and whether it
- * has a Company Card. The dialog derives its per-track counts and the total
+ * Confirmation company not already queued, with the tracks it is matched to —
+ * as the Pipeline's Track filter resolves them (`resolveTrackIds`: its saved
+ * matches, else the keyword suggestion; `[]` when neither — it is matched
+ * during the scan) — and whether it has a Company Card. The dialog derives its per-track counts and the total
  * for the selected tracks from these.
  */
 export interface ScanNowPreview {
@@ -81,7 +82,9 @@ export interface ScanNowPreview {
 
 /**
  * Which pending companies a Scan now queues: those matched to any of
- * `trackIds`, plus those matched to no track when `includeUnmatched`.
+ * `trackIds`, plus those matched to no track when `includeUnmatched`. A
+ * matched company is screened against the selected tracks it is matched to
+ * only ({@link selectedTrackIdsFor}).
  */
 export interface ScanNowSelection {
   trackIds: string[];
@@ -95,6 +98,17 @@ export function isInScanSelection(
 ): boolean {
   if (companyTrackIds.length === 0) return selection.includeUnmatched;
   return companyTrackIds.some((id) => selection.trackIds.includes(id));
+}
+
+/**
+ * The selected tracks a company matched to `companyTrackIds` is screened
+ * against — each one separately. `[]` for an unmatched company.
+ */
+export function selectedTrackIdsFor(
+  companyTrackIds: readonly string[],
+  selection: ScanNowSelection,
+): string[] {
+  return companyTrackIds.filter((id) => selection.trackIds.includes(id));
 }
 
 /** Each track with the number of pending companies matched to it, plus the unmatched count. */

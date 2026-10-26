@@ -316,6 +316,20 @@ function buildFilterWhere(filters: CompanyFilters, workspaceId: string): SQL | u
  * it is theirs — a company can be matched by more than one of them.
  */
 /** A past deal for Deal Sponsor matching — `segment`/`geography` already normalised. */
+/**
+ * An active company at a stage with what track matching reads: its persisted
+ * `matched_track_ids` and the fields the keyword fallback matches against.
+ */
+export interface ActiveTrackMatch {
+  id: string;
+  matched_track_ids: string[];
+  segment: string | null;
+  geography: string | null;
+  target: string | null;
+  project_name: string | null;
+  thesis_content: string | null;
+}
+
 export interface OwnedDealMatchRow {
   id: string;
   deal_sponsor: string | null;
@@ -1294,12 +1308,21 @@ export class CompanyRepository {
     return rows.map((r) => r.id);
   }
 
-  /** Active companies at `stage` in this workspace, each with its matched track ids. */
-  async findActiveTrackMatchesByStage(
-    stage: string,
-  ): Promise<Array<{ id: string; matched_track_ids: string[] }>> {
+  /**
+   * Active companies at `stage` in this workspace, each with its matched track
+   * ids and the descriptive fields `resolveTrackIds` keyword-matches against.
+   */
+  async findActiveTrackMatchesByStage(stage: string): Promise<ActiveTrackMatch[]> {
     const rows = await this.db
-      .select({ id: companies.id, matched_track_ids: companies.matched_track_ids })
+      .select({
+        id: companies.id,
+        matched_track_ids: companies.matched_track_ids,
+        segment: companies.segment,
+        geography: companies.geography,
+        target: companies.target,
+        project_name: companies.project_name,
+        thesis_content: companies.thesis_content,
+      })
       .from(companies)
       .where(
         and(
@@ -1308,7 +1331,7 @@ export class CompanyRepository {
           eq(companies.workspace_id, this.workspaceId),
         ),
       );
-    return rows.map((r) => ({ id: r.id, matched_track_ids: r.matched_track_ids ?? [] }));
+    return rows.map((r) => ({ ...r, matched_track_ids: r.matched_track_ids ?? [] }));
   }
 
   async findDroppedIds(ids: string[]): Promise<string[]> {

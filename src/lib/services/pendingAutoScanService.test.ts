@@ -34,6 +34,7 @@ function build() {
     findById: vi.fn(),
     findActiveIdsByStage: vi.fn(),
     findActiveTrackMatchesByStage: vi.fn(),
+    update: vi.fn().mockResolvedValue([]),
   };
   const thesisRepo = {
     findAll: vi.fn().mockResolvedValue([
@@ -191,6 +192,45 @@ describe('PendingAutoScanService.scanNow with a track selection', () => {
       mode: 'pending_scan',
       force: true,
       triggeredByUserId: 'user-1',
+      // Unmatched c and d are matched during the scan, so carry no track list.
+      trackIdsByCompany: new Map([['a', ['t1']]]),
+    });
+  });
+
+  it('screens a company matched to several tracks against only the selected ones', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: ['t1', 't2', 't3'] },
+      { id: 'b', matched_track_ids: ['t2'] },
+    ]);
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['a', 'b'], alreadyQueued: [] });
+
+    await t.service.scanNow('user-1', { trackIds: ['t1', 't2'], includeUnmatched: false });
+
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['a', 'b'], {
+      mode: 'pending_scan',
+      force: true,
+      triggeredByUserId: 'user-1',
+      trackIdsByCompany: new Map([
+        ['a', ['t1', 't2']],
+        ['b', ['t2']],
+      ]),
+    });
+  });
+
+  it('picks a company with no saved match by its keyword-matched tracks, as the Pipeline filter does', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: [], segment: 'Healthcare services', target: 'Acme' },
+      { id: 'b', matched_track_ids: [], segment: 'Mining' },
+    ]);
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['a'], alreadyQueued: [] });
+
+    await t.service.scanNow('user-1', { trackIds: ['t1'], includeUnmatched: false });
+
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['a'], {
+      mode: 'pending_scan',
+      force: true,
+      triggeredByUserId: 'user-1',
+      trackIdsByCompany: new Map([['a', ['t1']]]),
     });
   });
 
@@ -241,6 +281,17 @@ describe('PendingAutoScanService.previewScanNow', () => {
     expect(t.companyAnalysisService.findCompanyIdsWithCard).toHaveBeenCalledWith(['a', 'b', 'c']);
   });
 
+  it('lists a company with no saved match under its keyword-matched tracks', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: [], segment: 'Healthcare clinics' },
+    ]);
+
+    await expect(t.service.previewScanNow()).resolves.toEqual({
+      tracks: [{ id: 't1', title: 'Healthcare' }],
+      companies: [{ trackIds: ['t1'], hasCard: false }],
+    });
+  });
+
   it('skips the card lookup when every pending company is already queued', async () => {
     t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
       { id: 'a', matched_track_ids: [] },
@@ -276,6 +327,67 @@ describe('PendingAutoScanService.processCompany', () => {
 
     expect(t.trackMatchingService.runSync).toHaveBeenCalledWith({ companyId: COMPANY_ID });
     expect(t.companyRepo.findById).toHaveBeenCalledWith(COMPANY_ID);
+  });
+
+  it('screens only the selected tracks, without re-matching, when given trackIds', async () => {
+    t.companyRepo.findByIdOrNull.mockResolvedValue(pendingCompany({ matched_track_ids: ['t1', 't3'] }));
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    await t.service.processCompany(COMPANY_ID, { force: true, trackIds: ['t1'] });
+
+    expect(t.trackMatchingService.runSync).not.toHaveBeenCalled();
+    expect(t.companyRepo.update).not.toHaveBeenCalled();
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ id: COMPANY_ID }),
+      { force: true, trackIds: ['t1'] },
+    );
+  });
+
+  it('saves the keyword-matched tracks of a company Scan now picked by them before screening', async () => {
+    t.companyRepo.findByIdOrNull.mockResolvedValue(
+      pendingCompany({ matched_track_ids: [], segment: 'Healthcare clinics' }),
+    );
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([]);
+
+    const result = await t.service.processCompany(COMPANY_ID, { force: true, trackIds: ['t1'] });
+
+    expect(t.trackMatchingService.runSync).not.toHaveBeenCalled();
+    expect(t.companyRepo.update).toHaveBeenCalledWith(COMPANY_ID, { matched_track_ids: ['t1'] });
+    expect(t.aiScreeningService.screenMatchedTracks).toHaveBeenCalledWith(
+      expect.objectContaining({ matched_track_ids: ['t1'] }),
+      { force: true, trackIds: ['t1'] },
+    );
+    expect(result.steps).toContain("Saved 1 keyword-matched track(s) as the company's match");
+  });
+
+  it('promotes when any one of several screened tracks passes', async () => {
+    t.aiScreeningService.screenMatchedTracks.mockResolvedValue({
+      groups: [
+        { trackId: 't1', criteriaIds: ['k1', 'k2', 'k3'] },
+        { trackId: 't2', criteriaIds: ['k4', 'k5', 'k6'] },
+      ],
+      screened: 6,
+      tracks: [
+        { id: 't1', title: 'Healthcare' },
+        { id: 't2', title: 'Energy' },
+      ],
+    });
+    t.screeningRepo.findByCompanyIds.mockResolvedValue([
+      screening('k1', 'fail'),
+      screening('k2', 'fail'),
+      screening('k3', 'fail'),
+      { ...screening('k4', 'pass'), track_id: 't2' },
+      { ...screening('k5', 'pass'), track_id: 't2' },
+      { ...screening('k6', 'pass'), track_id: 't2' },
+    ]);
+
+    const result = await t.service.processCompany(COMPANY_ID, {
+      force: true,
+      trackIds: ['t1', 't2'],
+    });
+
+    expect(result).toMatchObject({ outcome: 'promoted', verdict: 'pass' });
+    expect(t.companyService.dropDeal).not.toHaveBeenCalled();
   });
 
   it('leaves the company pending when no matched track has criteria', async () => {
