@@ -62,6 +62,32 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c5c717d788402a7731dc3ba0ee58cc23aa9252f7",
+    "date": "2026-10-26",
+    "subject": "Scan now screens companies only against the tracks you select",
+    "category": "improvement"
+  },
+  {
+    "hash": "1132e8c83d4d8f499140ae800857ec2c751accff",
+    "date": "2026-10-26",
+    "subject": "Bot hand-offs now keep full messages, report failed starts, and recover interrupted searches",
+    "category": "improvement"
+  },
+  {
+    "hash": "52562fea7eaf784e730d364ffaeb514ff3894d1b",
+    "date": "2026-10-26",
+    "subject": "Auto-fill firm industry and focus from addresses and backfill existing CRM profiles",
+    "category": "improvement"
+  },
+  {
+    "hash": "159674dedb79151c5ef176bc4653ee541b688e60",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
