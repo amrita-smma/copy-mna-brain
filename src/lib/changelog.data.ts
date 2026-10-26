@@ -14,6 +14,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "vague"
   },
   {
+    "hash": "25d3a13b289bdf4364f0bb57d316017ab2afcab9",
+    "date": "2026-10-26",
+    "subject": "Deal scans now support multi-select tracks, with company counts shown for each track",
+    "category": "improvement"
+  },
+  {
+    "hash": "efb8c4640bf1a4c99b8ba291dd2f854915b4ef06",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
