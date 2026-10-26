@@ -194,6 +194,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "e5b4fc330fede1d91540ec0d5469b3c9411dc61a",
+    "date": "2026-10-26",
+    "subject": "Fixed center pane showing a previous task when switching between tasks quickly",
+    "category": "fix"
+  },
+  {
+    "hash": "7c29d8fad790adb20c36d218bd31cb25edd09ffa",
+    "date": "2026-10-26",
+    "subject": "Move the Midas IAM role into its own terraform/midas_reader module",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9911ccaffeb226f46f5cbeb994632f3f65a14833",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
