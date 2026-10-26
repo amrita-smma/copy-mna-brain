@@ -36,9 +36,9 @@ export function scanPendingNow(
 }
 
 /**
- * What Scan now could queue right now: each company not already queued with
- * its matched tracks and whether it has a Company Card. Feeds the
- * confirmation dialog's track selector and estimate.
+ * Every Pending Confirmation company with its saved tracks, whether it has a
+ * Company Card and whether it is already queued. Feeds the confirmation
+ * dialog's track selector and estimate.
  */
 export function getScanNowPreview(): Promise<ScanNowPreview> {
   return apiRequest<ScanNowPreview>('/api/pending-automation/scan');

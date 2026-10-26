@@ -68,16 +68,16 @@ export interface ScanNowTrack {
 }
 
 /**
- * What Scan now could queue right now: one entry per active Pending
- * Confirmation company not already queued, with the tracks it is matched to —
- * as the Pipeline's Track filter resolves them (`resolveTrackIds`: its saved
- * matches, else the keyword suggestion; `[]` when neither — it is matched
- * during the scan) — and whether it has a Company Card. The dialog derives its per-track counts and the total
- * for the selected tracks from these.
+ * Scan now's confirmation dialog: one entry per active Pending Confirmation
+ * company, with the saved tracks it is matched to (`[]` when none — it is
+ * matched during the scan; a company matched to several tracks is in each),
+ * whether it has a Company Card, and whether a screening task for it is
+ * already queued or running (`queued` — a scan skips it). The dialog derives
+ * its per-track counts and the total for the selected tracks from these.
  */
 export interface ScanNowPreview {
   tracks: ScanNowTrack[];
-  companies: Array<{ trackIds: string[]; hasCard: boolean }>;
+  companies: Array<{ trackIds: string[]; hasCard: boolean; queued: boolean }>;
 }
 
 /**
@@ -111,7 +111,10 @@ export function selectedTrackIdsFor(
   return companyTrackIds.filter((id) => selection.trackIds.includes(id));
 }
 
-/** Each track with the number of pending companies matched to it, plus the unmatched count. */
+/**
+ * Each track with the number of pending companies matched to it — queued ones
+ * included, so it matches the Pipeline — plus the unmatched count.
+ */
 export function countScanCompaniesByTrack(preview: ScanNowPreview): {
   tracks: Array<ScanNowTrack & { companies: number }>;
   unmatched: number;
@@ -130,16 +133,19 @@ export function countScanCompaniesByTrack(preview: ScanNowPreview): {
 
 /**
  * What a Scan now over `selection` queues: each company counted once, however
- * many selected tracks it is matched to.
+ * many selected tracks it is matched to. `alreadyQueued` are the selected
+ * companies it skips because their screening is already queued or running.
  */
 export function countScanSelection(
   preview: ScanNowPreview,
   selection: ScanNowSelection,
-): ScanCount {
+): ScanCount & { alreadyQueued: number } {
   const selected = preview.companies.filter((c) => isInScanSelection(c.trackIds, selection));
+  const toScan = selected.filter((c) => !c.queued);
   return {
-    companies: selected.length,
-    missingCards: selected.filter((c) => !c.hasCard).length,
+    companies: toScan.length,
+    missingCards: toScan.filter((c) => !c.hasCard).length,
+    alreadyQueued: selected.length - toScan.length,
   };
 }
 

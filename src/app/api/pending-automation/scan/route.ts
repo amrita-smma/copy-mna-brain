@@ -15,10 +15,10 @@ import {
  * the auto-scan toggle says. Auto promote / auto drop still apply afterwards
  * when they are on. Companies already queued or scanning are skipped.
  *
- * GET  → `{ data: { tracks, companies } }` — what a Scan now could queue right
- *        now: each company's matched tracks and whether it has a Company
- *        Card, for the confirmation dialog's track selector, per-track
- *        counts and time estimate.
+ * GET  → `{ data: { tracks, companies } }` — every pending company with its
+ *        saved tracks, whether it has a Company Card and whether it is
+ *        already queued, for the confirmation dialog's track selector,
+ *        per-track counts and time estimate.
  * POST → 202 `{ data: { queued, alreadyQueued } }`. An optional body
  *        `{ trackIds, includeUnmatched }` limits the scan to companies matched
  *        to those tracks (plus unmatched ones); no body scans every company.

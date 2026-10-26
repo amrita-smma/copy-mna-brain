@@ -30,7 +30,7 @@ import { NoActiveWorkspaceError } from '@/lib/workspace';
 
 const PREVIEW = {
   tracks: [{ id: 't1', title: 'Healthcare' }],
-  companies: [{ trackIds: ['t1'], hasCard: false }],
+  companies: [{ trackIds: ['t1'], hasCard: false, queued: false }],
 };
 
 const post = (body?: string) =>

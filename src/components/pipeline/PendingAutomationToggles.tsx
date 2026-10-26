@@ -278,7 +278,7 @@ export default function PendingAutomationToggles({
               ) : preview === "error" ? (
                 `This AI-screens the ${plural(pendingCount)} waiting in Pending Confirmation. The time estimate is unavailable.`
               ) : preview.companies.length === 0 ? (
-                "Every company in Pending Confirmation is already queued for AI screening."
+                "No companies are waiting in Pending Confirmation."
               ) : (
                 "Choose the tracks to scan. Each company is AI-screened against each selected track it is matched to, and passes when any of them passes."
               )}
@@ -356,6 +356,8 @@ export default function PendingAutomationToggles({
                   </strong>
                   {selected.missingCards > 0 &&
                     `, ${selected.missingCards} generating a Company Card first`}
+                  {selected.alreadyQueued > 0 &&
+                    ` (${selected.alreadyQueued} already queued or scanning — skipped)`}
                   {" "}— a company in several selected tracks is counted once.
                 </p>
                 <p>

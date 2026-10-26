@@ -94,10 +94,10 @@ const PREVIEW = {
     { id: 't2', title: 'Logistics' },
   ],
   companies: [
-    { trackIds: ['t1'], hasCard: true },
-    { trackIds: ['t1', 't2'], hasCard: false },
-    { trackIds: ['t2'], hasCard: true },
-    { trackIds: [], hasCard: false },
+    { trackIds: ['t1'], hasCard: true, queued: false },
+    { trackIds: ['t1', 't2'], hasCard: false, queued: false },
+    { trackIds: ['t2'], hasCard: true, queued: false },
+    { trackIds: [], hasCard: false, queued: false },
   ],
 };
 
@@ -126,6 +126,14 @@ describe('isInScanSelection', () => {
 });
 
 describe('countScanCompaniesByTrack', () => {
+  it('counts queued companies too, so each track lists every company matched to it', () => {
+    const preview = {
+      ...PREVIEW,
+      companies: PREVIEW.companies.map((c) => ({ ...c, queued: true })),
+    };
+    expect(countScanCompaniesByTrack(preview).tracks.map((t) => t.companies)).toEqual([2, 2]);
+  });
+
   it('counts a company under every track it is matched to, and the unmatched separately', () => {
     expect(countScanCompaniesByTrack(PREVIEW)).toEqual({
       tracks: [
@@ -141,19 +149,30 @@ describe('countScanSelection', () => {
   it('counts a company in several selected tracks once', () => {
     expect(
       countScanSelection(PREVIEW, { trackIds: ['t1', 't2'], includeUnmatched: false }),
-    ).toEqual({ companies: 3, missingCards: 1 });
+    ).toEqual({ companies: 3, missingCards: 1, alreadyQueued: 0 });
   });
 
   it('adds the unmatched companies when selected', () => {
     expect(
       countScanSelection(PREVIEW, { trackIds: ['t1'], includeUnmatched: true }),
-    ).toEqual({ companies: 3, missingCards: 2 });
+    ).toEqual({ companies: 3, missingCards: 2, alreadyQueued: 0 });
+  });
+
+  it('leaves out companies already queued, counting them separately', () => {
+    const preview = {
+      ...PREVIEW,
+      companies: PREVIEW.companies.map((c, i) => ({ ...c, queued: i === 1 })),
+    };
+    expect(
+      countScanSelection(preview, { trackIds: ['t1', 't2'], includeUnmatched: false }),
+    ).toEqual({ companies: 2, missingCards: 0, alreadyQueued: 1 });
   });
 
   it('is zero for an empty selection', () => {
     expect(countScanSelection(PREVIEW, { trackIds: [], includeUnmatched: false })).toEqual({
       companies: 0,
       missingCards: 0,
+      alreadyQueued: 0,
     });
   });
 });

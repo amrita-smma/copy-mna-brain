@@ -12,7 +12,7 @@ import {
   type ScanNowPreview,
   type ScanNowSelection,
 } from '@/lib/sourcing/pendingAutomation';
-import { persistedTrackIds, resolveTrackIds } from '@/lib/tracks/matchTracks';
+import { persistedTrackIds } from '@/lib/tracks/matchTracks';
 import {
   companyScreeningVerdict,
   type ScreeningVerdict,
@@ -130,7 +130,7 @@ export class PendingAutoScanService {
       const ids = await this.companyRepo.findActiveIdsByStage(UNREVIEWED_STAGE);
       return this.enqueueScan(ids, triggeredByUserId);
     }
-    const { pending } = await this.pendingWithResolvedTracks();
+    const { pending } = await this.pendingWithSavedTracks();
     const inSelection = pending.filter((c) => isInScanSelection(c.trackIds, selection));
     if (inSelection.length === 0) return { queued: 0, alreadyQueued: 0 };
     // Unmatched companies are left out of the map: they are matched during
@@ -162,40 +162,41 @@ export class PendingAutoScanService {
   }
 
   /**
-   * What Scan now could queue right now, for its confirmation dialog: the
-   * active Pending Confirmation companies not already queued or scanning,
-   * each with the tracks it is matched to and whether it has a Company Card
-   * (one without generates it before it is screened, so it takes longer), and
-   * the tracks those companies are matched to, for the track selector.
+   * Scan now's confirmation dialog: every active Pending Confirmation
+   * company, each with the saved tracks it is matched to, whether it has a
+   * Company Card (one without generates it before it is screened, so it takes
+   * longer) and whether a screening task for it is already queued or running
+   * (a scan skips it); plus the tracks those companies are matched to, for
+   * the track selector. Three reads, whatever the number of companies.
    */
   async previewScanNow(): Promise<ScanNowPreview> {
-    const { pending, tracks } = await this.pendingWithResolvedTracks();
+    const { pending, tracks } = await this.pendingWithSavedTracks();
     if (pending.length === 0) return { tracks: [], companies: [] };
-    const inFlight = await this.aiScreeningService.findInFlightCompanyIds(
-      pending.map((c) => c.id),
-    );
-    const toScan = pending.filter((c) => !inFlight.has(c.id));
-    if (toScan.length === 0) return { tracks: [], companies: [] };
-    const withCard = await this.companyAnalysisService.findCompanyIdsWithCard(
-      toScan.map((c) => c.id),
-    );
-    const usedTrackIds = new Set(toScan.flatMap((c) => c.trackIds));
+    const ids = pending.map((c) => c.id);
+    const [inFlight, withCard] = await Promise.all([
+      this.aiScreeningService.findInFlightCompanyIds(ids),
+      this.companyAnalysisService.findCompanyIdsWithCard(ids),
+    ]);
+    const usedTrackIds = new Set(pending.flatMap((c) => c.trackIds));
     return {
       tracks: tracks
         .filter((t) => usedTrackIds.has(t.id))
         .map((t) => ({ id: t.id, title: t.title?.trim() || 'Untitled track' })),
-      companies: toScan.map((c) => ({ trackIds: c.trackIds, hasCard: withCard.has(c.id) })),
+      companies: pending.map((c) => ({
+        trackIds: c.trackIds,
+        hasCard: withCard.has(c.id),
+        queued: inFlight.has(c.id),
+      })),
     };
   }
 
   /**
-   * Active Pending Confirmation companies with the tracks they are matched
-   * to, resolved exactly as the Pipeline's Track filter does
-   * (`resolveTrackIds`): the saved matches that still exist, else the keyword
-   * suggestion. A company with neither counts as unmatched. Also returns the
-   * workspace's tracks.
+   * Active Pending Confirmation companies with the tracks saved on them
+   * (`matched_track_ids`) that still exist — a company matched to several
+   * tracks is in each of them. A company with none counts as unmatched; it is
+   * matched during its scan. Also returns the workspace's tracks.
    */
-  private async pendingWithResolvedTracks(): Promise<{
+  private async pendingWithSavedTracks(): Promise<{
     pending: Array<{ id: string; trackIds: string[] }>;
     tracks: Tables<'investment_thesis'>[];
   }> {
@@ -206,7 +207,7 @@ export class PendingAutoScanService {
     return {
       pending: pending.map((c) => ({
         id: c.id,
-        trackIds: [...new Set(resolveTrackIds(c, tracks))],
+        trackIds: [...new Set(persistedTrackIds(c, tracks))],
       })),
       tracks,
     };
@@ -245,11 +246,10 @@ export class PendingAutoScanService {
     await this.ensureCompanyCard(companyId, steps);
 
     // 1. Match — only when nothing is matched yet (a Smart Files row arrives
-    //    with the extraction agent's suggested tracks already persisted).
+    //    with the extraction agent's suggested tracks already persisted). A
+    //    Scan now track selection only ever names tracks already saved on it.
     const trackIds = opts.trackIds?.length ? opts.trackIds : null;
-    if (trackIds) {
-      company = await this.saveResolvedTracksIfUnmatched(company, steps, trackIds);
-    } else if (!company.matched_track_ids?.length) {
+    if (!trackIds && !company.matched_track_ids?.length) {
       const matched = await this.trackMatchingService.runSync({ companyId });
       steps.push(`Matched ${matched.matchedTrackIds.length} track(s) via ${matched.via}`);
       company = await this.companyRepo.findById(companyId);
@@ -342,28 +342,6 @@ export class PendingAutoScanService {
     );
     steps.push('Dropped');
     return done({ outcome: 'dropped', verdict, screened });
-  }
-
-  /**
-   * A company Scan now picked by its keyword-suggested tracks (it has no saved
-   * match) gets those tracks saved as its match, so the tracks it is screened
-   * and promoted on are the ones its Matched Tracks show — as the Pipeline's
-   * Track filter already listed it. Leaves a company with a saved match alone.
-   */
-  private async saveResolvedTracksIfUnmatched(
-    company: Company,
-    steps: string[],
-    selectedTrackIds: readonly string[],
-  ): Promise<Company> {
-    const tracks = await this.thesisRepo.findAll();
-    if (persistedTrackIds(company, tracks).length > 0) return company;
-    if (selectedTrackIds.length === 0) return company;
-    // Persist only the tracks Scan now selected — what we screen — not every
-    // keyword suggestion the company could appear under in the Pipeline filter.
-    const matched_track_ids = [...selectedTrackIds];
-    await this.companyRepo.update(company.id, { matched_track_ids });
-    steps.push(`Saved ${matched_track_ids.length} keyword-matched track(s) as the company's match`);
-    return { ...company, matched_track_ids };
   }
 
   /**
