@@ -12,6 +12,12 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "73832cb52780d1130d1829fc6dcc9a0dbf656797",
+    "date": "2026-10-27",
+    "subject": "Added a Brought | Involved toggle to the CRM deal funnel",
+    "category": "improvement"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
@@ -297,6 +303,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "5a4fa08cbb06e5b294dd3d66b7fa67207d50afc7",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "62dba4cdfa290a823562c76b530e9a13f565156b",
     "date": "2026-10-26",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
