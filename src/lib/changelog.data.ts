@@ -102,6 +102,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "42e235aec58473ce16f4210bd1ac1361c89b9b0f",
+    "date": "2026-10-26",
+    "subject": "Workspaces are now sorted alphabetically in the picker and switcher",
+    "category": "improvement"
+  },
+  {
+    "hash": "d4b79d095e4e9c0e9da7988103b0e18a71149bea",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
