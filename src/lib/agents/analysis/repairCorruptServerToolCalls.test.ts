@@ -138,4 +138,67 @@ describe('stripCorruptServerToolCalls', () => {
     expect(replacement.additional_kwargs).toMatchObject({ foo: 'bar' });
     expect(replacement.content).toEqual([{ type: 'text', text: 'ok' }]);
   });
+
+  it('strips a result whose server_tool_use is missing', () => {
+    // The 400 "unexpected tool_use_id found in web_search_tool_result blocks".
+    const messages = [
+      new AIMessage({
+        id: 'a1',
+        content: [{ type: 'text', text: 'Searching.' }, searchResult('srv_gone'), { type: 'text', text: 'Found it.' }],
+      }),
+    ];
+    const [replacement] = stripCorruptServerToolCalls(messages);
+    expect(replacement.id).toBe('a1');
+    expect(replacement.content).toEqual([
+      { type: 'text', text: 'Searching.' },
+      { type: 'text', text: 'Found it.' },
+    ]);
+  });
+
+  it('strips a result that comes before its server_tool_use', () => {
+    const direct = { type: 'server_tool_use', id: 'srv_search', name: 'web_search', input: { query: 'q' } };
+    const [replacement] = stripCorruptServerToolCalls([
+      new AIMessage({ id: 'a1', content: [searchResult(), direct, { type: 'text', text: 'ok' }] }),
+    ]);
+    expect(replacement.content).toEqual([{ type: 'text', text: 'ok' }]);
+  });
+
+  it('keeps a call and result split across consecutive assistant messages', () => {
+    // A turn split around pause_turn: the API merges consecutive assistant
+    // turns, so the pair is valid and must not be stripped.
+    const direct = { type: 'server_tool_use', id: 'srv_search', name: 'web_search', input: { query: 'q' } };
+    const messages = [
+      new HumanMessage({ id: 'h1', content: 'search' }),
+      new AIMessage({ id: 'a1', content: [direct] }),
+      new AIMessage({ id: 'a2', content: [searchResult(), { type: 'text', text: 'done' }] }),
+    ];
+    expect(stripCorruptServerToolCalls(messages)).toEqual([]);
+  });
+
+  it('does not pair a call and result across a human turn', () => {
+    const direct = { type: 'server_tool_use', id: 'srv_search', name: 'web_search', input: { query: 'q' } };
+    const messages = [
+      new AIMessage({ id: 'a1', content: [{ type: 'text', text: 'Let me check.' }, direct] }),
+      new HumanMessage({ id: 'h1', content: 'continue' }),
+      new AIMessage({ id: 'a2', content: [searchResult(), { type: 'text', text: 'done' }] }),
+    ];
+    const replacements = stripCorruptServerToolCalls(messages);
+    expect(replacements.map((m) => [m.id, m.content])).toEqual([
+      ['a1', [{ type: 'text', text: 'Let me check.' }]],
+      ['a2', [{ type: 'text', text: 'done' }]],
+    ]);
+  });
+
+  it('keeps an mcp_tool_result paired with its mcp_tool_use', () => {
+    const messages = [
+      new AIMessage({
+        id: 'a1',
+        content: [
+          { type: 'mcp_tool_use', id: 'mcp_1', name: 'x', server_name: 's', input: {} },
+          { type: 'mcp_tool_result', tool_use_id: 'mcp_1', content: [] },
+        ],
+      }),
+    ];
+    expect(stripCorruptServerToolCalls(messages)).toEqual([]);
+  });
 });
