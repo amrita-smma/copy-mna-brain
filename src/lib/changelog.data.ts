@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
+    "date": "2026-10-26",
+    "subject": "Resolve open Dependabot alerts",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
@@ -149,6 +157,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "7ff8c609035effc0c1f4b83546ae92d3baf18673",
+    "date": "2026-10-23",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "3eb557b40f198ad52f12ee0e91219fb020698188",
     "date": "2026-10-23",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
