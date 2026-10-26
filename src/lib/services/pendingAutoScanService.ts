@@ -1,6 +1,16 @@
-import type { CompanyRepository, ScreeningRepository, Tables } from '@/lib/repositories';
+import type {
+  CompanyRepository,
+  InvestmentThesisRepository,
+  ScreeningRepository,
+  Tables,
+} from '@/lib/repositories';
 import { UNREVIEWED_STAGE } from '@/lib/constants';
 import { FIRST_STAGE_KEY } from '@/lib/pipeline/stages';
+import {
+  isInScanSelection,
+  type ScanNowPreview,
+  type ScanNowSelection,
+} from '@/lib/sourcing/pendingAutomation';
 import {
   companyScreeningVerdict,
   type ScreeningVerdict,
@@ -62,6 +72,7 @@ export class PendingAutoScanService {
     private readonly trackMatchingService: TrackMatchingService,
     private readonly companyAnalysisService: CompanyAnalysisService,
     private readonly companyRelationshipService: CompanyRelationshipService,
+    private readonly thesisRepo: InvestmentThesisRepository,
   ) {}
 
   /**
@@ -102,13 +113,23 @@ export class PendingAutoScanService {
 
   /**
    * The Scan now button: queue a screening task for every active Pending
-   * Confirmation company, re-screening all of its criteria, whatever the
-   * auto-scan toggle says. Companies already queued or scanning are skipped.
+   * Confirmation company — or, with a `selection`, only those matched to the
+   * selected tracks (and the unmatched ones when it includes them) —
+   * re-screening all of its criteria, whatever the auto-scan toggle says.
+   * Companies already queued or scanning are skipped.
    */
   async scanNow(
     triggeredByUserId: string | null,
+    selection: ScanNowSelection | null = null,
   ): Promise<{ queued: number; alreadyQueued: number }> {
-    const ids = await this.companyRepo.findActiveIdsByStage(UNREVIEWED_STAGE);
+    let ids: string[];
+    if (selection) {
+      const { pending } = await this.pendingWithExistingTracks();
+      ids = pending.filter((c) => isInScanSelection(c.trackIds, selection)).map((c) => c.id);
+      if (ids.length === 0) return { queued: 0, alreadyQueued: 0 };
+    } else {
+      ids = await this.companyRepo.findActiveIdsByStage(UNREVIEWED_STAGE);
+    }
     const { queued, alreadyQueued } = await this.aiScreeningService.enqueue(ids, {
       mode: 'pending_scan',
       force: true,
@@ -118,21 +139,52 @@ export class PendingAutoScanService {
   }
 
   /**
-   * What Scan now would queue right now, for its confirmation dialog: the
-   * active Pending Confirmation companies not already queued or scanning, and
-   * how many of those have no Company Card yet (each of those generates one
-   * before it is screened, so it takes longer).
+   * What Scan now could queue right now, for its confirmation dialog: the
+   * active Pending Confirmation companies not already queued or scanning,
+   * each with the tracks it is matched to and whether it has a Company Card
+   * (one without generates it before it is screened, so it takes longer), and
+   * the tracks those companies are matched to, for the track selector.
    */
-  async previewScanNow(): Promise<{ companies: number; missingCards: number }> {
-    const ids = await this.companyRepo.findActiveIdsByStage(UNREVIEWED_STAGE);
-    if (ids.length === 0) return { companies: 0, missingCards: 0 };
-    const inFlight = await this.aiScreeningService.findInFlightCompanyIds(ids);
-    const toScan = ids.filter((id) => !inFlight.has(id));
-    if (toScan.length === 0) return { companies: 0, missingCards: 0 };
-    const withCard = await this.companyAnalysisService.findCompanyIdsWithCard(toScan);
+  async previewScanNow(): Promise<ScanNowPreview> {
+    const { pending, tracks } = await this.pendingWithExistingTracks();
+    if (pending.length === 0) return { tracks: [], companies: [] };
+    const inFlight = await this.aiScreeningService.findInFlightCompanyIds(
+      pending.map((c) => c.id),
+    );
+    const toScan = pending.filter((c) => !inFlight.has(c.id));
+    if (toScan.length === 0) return { tracks: [], companies: [] };
+    const withCard = await this.companyAnalysisService.findCompanyIdsWithCard(
+      toScan.map((c) => c.id),
+    );
+    const usedTrackIds = new Set(toScan.flatMap((c) => c.trackIds));
     return {
-      companies: toScan.length,
-      missingCards: toScan.filter((id) => !withCard.has(id)).length,
+      tracks: tracks
+        .filter((t) => usedTrackIds.has(t.id))
+        .map((t) => ({ id: t.id, title: t.title?.trim() || 'Untitled track' })),
+      companies: toScan.map((c) => ({ trackIds: c.trackIds, hasCard: withCard.has(c.id) })),
+    };
+  }
+
+  /**
+   * Active Pending Confirmation companies with their matched track ids,
+   * narrowed to tracks that still exist — a company matched only to deleted
+   * tracks counts as unmatched. Also returns the workspace's tracks.
+   */
+  private async pendingWithExistingTracks(): Promise<{
+    pending: Array<{ id: string; trackIds: string[] }>;
+    tracks: Tables<'investment_thesis'>[];
+  }> {
+    const [pending, tracks] = await Promise.all([
+      this.companyRepo.findActiveTrackMatchesByStage(UNREVIEWED_STAGE),
+      this.thesisRepo.findAll(),
+    ]);
+    const known = new Set(tracks.map((t) => t.id));
+    return {
+      pending: pending.map((c) => ({
+        id: c.id,
+        trackIds: [...new Set(c.matched_track_ids)].filter((id) => known.has(id)),
+      })),
+      tracks,
     };
   }
 

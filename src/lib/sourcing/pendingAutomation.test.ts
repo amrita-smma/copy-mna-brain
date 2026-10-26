@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  countScanCompaniesByTrack,
+  countScanSelection,
   estimateScanMinutes,
+  InvalidScanNowSelectionError,
+  isInScanSelection,
+  parseScanNowSelection,
   formatScanEstimate,
   InvalidPendingAutomationError,
   normalizePendingAutomation,
@@ -79,5 +84,85 @@ describe('formatScanEstimate', () => {
 
   it('handles an empty bucket', () => {
     expect(formatScanEstimate({ companies: 0, missingCards: 0 })).toBe('less than a minute');
+  });
+});
+
+const PREVIEW = {
+  tracks: [
+    { id: 't1', title: 'Healthcare' },
+    { id: 't2', title: 'Logistics' },
+  ],
+  companies: [
+    { trackIds: ['t1'], hasCard: true },
+    { trackIds: ['t1', 't2'], hasCard: false },
+    { trackIds: ['t2'], hasCard: true },
+    { trackIds: [], hasCard: false },
+  ],
+};
+
+describe('isInScanSelection', () => {
+  it('includes a company matched to any selected track', () => {
+    expect(isInScanSelection(['t1', 't2'], { trackIds: ['t2'], includeUnmatched: false })).toBe(true);
+    expect(isInScanSelection(['t1'], { trackIds: ['t2'], includeUnmatched: true })).toBe(false);
+  });
+
+  it('includes an unmatched company only when unmatched is selected', () => {
+    expect(isInScanSelection([], { trackIds: ['t1'], includeUnmatched: false })).toBe(false);
+    expect(isInScanSelection([], { trackIds: [], includeUnmatched: true })).toBe(true);
+  });
+});
+
+describe('countScanCompaniesByTrack', () => {
+  it('counts a company under every track it is matched to, and the unmatched separately', () => {
+    expect(countScanCompaniesByTrack(PREVIEW)).toEqual({
+      tracks: [
+        { id: 't1', title: 'Healthcare', companies: 2 },
+        { id: 't2', title: 'Logistics', companies: 2 },
+      ],
+      unmatched: 1,
+    });
+  });
+});
+
+describe('countScanSelection', () => {
+  it('counts a company in several selected tracks once', () => {
+    expect(
+      countScanSelection(PREVIEW, { trackIds: ['t1', 't2'], includeUnmatched: false }),
+    ).toEqual({ companies: 3, missingCards: 1 });
+  });
+
+  it('adds the unmatched companies when selected', () => {
+    expect(
+      countScanSelection(PREVIEW, { trackIds: ['t1'], includeUnmatched: true }),
+    ).toEqual({ companies: 3, missingCards: 2 });
+  });
+
+  it('is zero for an empty selection', () => {
+    expect(countScanSelection(PREVIEW, { trackIds: [], includeUnmatched: false })).toEqual({
+      companies: 0,
+      missingCards: 0,
+    });
+  });
+});
+
+describe('parseScanNowSelection', () => {
+  it('returns null for no body', () => {
+    expect(parseScanNowSelection(null)).toBeNull();
+    expect(parseScanNowSelection(undefined)).toBeNull();
+  });
+
+  it('accepts track ids and the unmatched flag, de-duplicating ids', () => {
+    expect(parseScanNowSelection({ trackIds: ['t1', 't1', 't2'], includeUnmatched: false })).toEqual({
+      trackIds: ['t1', 't2'],
+      includeUnmatched: false,
+    });
+  });
+
+  it('rejects a malformed selection', () => {
+    expect(() => parseScanNowSelection('t1')).toThrow(InvalidScanNowSelectionError);
+    expect(() => parseScanNowSelection({ trackIds: [1], includeUnmatched: true })).toThrow(
+      InvalidScanNowSelectionError,
+    );
+    expect(() => parseScanNowSelection({ trackIds: ['t1'] })).toThrow(InvalidScanNowSelectionError);
   });
 });

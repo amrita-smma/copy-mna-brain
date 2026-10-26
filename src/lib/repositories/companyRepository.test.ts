@@ -999,6 +999,29 @@ describe('CompanyRepository.findForAgentStats — stage exclusion', () => {
   });
 });
 
+describe('CompanyRepository.findActiveTrackMatchesByStage', () => {
+  it('returns active companies at the stage with their matched tracks, defaulting null to []', async () => {
+    const where = vi.fn().mockResolvedValue([
+      { id: 'c1', matched_track_ids: ['t1'] },
+      { id: 'c2', matched_track_ids: null },
+    ]);
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const repo = new CompanyRepository({ select } as never, 'workspace-1');
+
+    await expect(repo.findActiveTrackMatchesByStage('unreviewed')).resolves.toEqual([
+      { id: 'c1', matched_track_ids: ['t1'] },
+      { id: 'c2', matched_track_ids: [] },
+    ]);
+
+    const { sql: rendered, params } = renderSql(where.mock.calls[0][0] as SQL);
+    expect(rendered).toContain('"pipeline_stage" =');
+    expect(rendered).toContain('"status" =');
+    expect(rendered).toContain('"workspace_id" =');
+    expect(params).toEqual(expect.arrayContaining(['unreviewed', 'active', 'workspace-1']));
+  });
+});
+
 describe('CompanyRepository.findActiveIdsByStage', () => {
   it('returns the ids of active companies at the stage in this workspace', async () => {
     const where = vi.fn().mockResolvedValue([{ id: 'c1' }, { id: 'c2' }]);

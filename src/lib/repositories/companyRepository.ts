@@ -1294,6 +1294,23 @@ export class CompanyRepository {
     return rows.map((r) => r.id);
   }
 
+  /** Active companies at `stage` in this workspace, each with its matched track ids. */
+  async findActiveTrackMatchesByStage(
+    stage: string,
+  ): Promise<Array<{ id: string; matched_track_ids: string[] }>> {
+    const rows = await this.db
+      .select({ id: companies.id, matched_track_ids: companies.matched_track_ids })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.pipeline_stage, stage),
+          eq(companies.status, "active"),
+          eq(companies.workspace_id, this.workspaceId),
+        ),
+      );
+    return rows.map((r) => ({ id: r.id, matched_track_ids: r.matched_track_ids ?? [] }));
+  }
+
   async findDroppedIds(ids: string[]): Promise<string[]> {
     if (ids.length === 0) return [];
     const rows = await this.db

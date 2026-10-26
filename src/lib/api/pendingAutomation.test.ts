@@ -31,4 +31,12 @@ describe('pending automation client', () => {
       method: 'POST',
     });
   });
+
+  it('sends the track selection as the POST body when given', async () => {
+    await scanPendingNow({ trackIds: ['t1'], includeUnmatched: false });
+    expect(apiRequestMock).toHaveBeenCalledWith('/api/pending-automation/scan', {
+      method: 'POST',
+      body: JSON.stringify({ trackIds: ['t1'], includeUnmatched: false }),
+    });
+  });
 });

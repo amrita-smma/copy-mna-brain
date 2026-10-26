@@ -1,5 +1,9 @@
 import { apiRequest } from '@/lib/api/client';
-import type { PendingAutomation, ScanNowPreview } from '@/lib/sourcing/pendingAutomation';
+import type {
+  PendingAutomation,
+  ScanNowPreview,
+  ScanNowSelection,
+} from '@/lib/sourcing/pendingAutomation';
 
 /** The active workspace's Pending Confirmation automation toggles. */
 export function getPendingAutomation(): Promise<PendingAutomation> {
@@ -19,17 +23,22 @@ export function savePendingAutomation(input: PendingAutomation): Promise<Pending
 
 /**
  * Scan now: queue an AI Workforce screening task for every active Pending
- * Confirmation company. `alreadyQueued` counts ones skipped as already in flight.
+ * Confirmation company — or, with a `selection`, only those matched to the
+ * selected tracks. `alreadyQueued` counts ones skipped as already in flight.
  */
-export function scanPendingNow(): Promise<{ queued: number; alreadyQueued: number }> {
+export function scanPendingNow(
+  selection?: ScanNowSelection,
+): Promise<{ queued: number; alreadyQueued: number }> {
   return apiRequest<{ queued: number; alreadyQueued: number }>('/api/pending-automation/scan', {
     method: 'POST',
+    ...(selection ? { body: JSON.stringify(selection) } : {}),
   });
 }
 
 /**
- * What Scan now would queue right now: the companies not already queued and
- * how many of them have no Company Card yet. Feeds the confirmation dialog.
+ * What Scan now could queue right now: each company not already queued with
+ * its matched tracks and whether it has a Company Card. Feeds the
+ * confirmation dialog's track selector and estimate.
  */
 export function getScanNowPreview(): Promise<ScanNowPreview> {
   return apiRequest<ScanNowPreview>('/api/pending-automation/scan');

@@ -33,6 +33,14 @@ function build() {
     findByIdOrNull: vi.fn(),
     findById: vi.fn(),
     findActiveIdsByStage: vi.fn(),
+    findActiveTrackMatchesByStage: vi.fn(),
+  };
+  const thesisRepo = {
+    findAll: vi.fn().mockResolvedValue([
+      { id: 't1', title: 'Healthcare' },
+      { id: 't2', title: '  ' },
+      { id: 't3', title: 'Unused' },
+    ]),
   };
   const screeningRepo = { findByCompanyIds: vi.fn() };
   const workspaceService = { getPendingAutomation: vi.fn() };
@@ -59,6 +67,7 @@ function build() {
     trackMatchingService as never,
     companyAnalysisService as never,
     companyRelationshipService as never,
+    thesisRepo as never,
   );
   return {
     service,
@@ -70,6 +79,7 @@ function build() {
     trackMatchingService,
     companyAnalysisService,
     companyRelationshipService,
+    thesisRepo,
   };
 }
 
@@ -162,31 +172,83 @@ describe('PendingAutoScanService.scanNow', () => {
   });
 });
 
-describe('PendingAutoScanService.previewScanNow', () => {
-  it('returns zeros without further reads when nothing is pending', async () => {
-    t.companyRepo.findActiveIdsByStage.mockResolvedValue([]);
+describe('PendingAutoScanService.scanNow with a track selection', () => {
+  it('queues only the companies matched to a selected track, plus unmatched ones when included', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: ['t1'] },
+      { id: 'b', matched_track_ids: ['t2'] },
+      { id: 'c', matched_track_ids: [] },
+      { id: 'd', matched_track_ids: ['deleted'] },
+    ]);
+    t.aiScreeningService.enqueue.mockResolvedValue({ queued: ['a', 'c', 'd'], alreadyQueued: [] });
 
-    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 0, missingCards: 0 });
+    await expect(
+      t.service.scanNow('user-1', { trackIds: ['t1'], includeUnmatched: true }),
+    ).resolves.toEqual({ queued: 3, alreadyQueued: 0 });
+    expect(t.companyRepo.findActiveTrackMatchesByStage).toHaveBeenCalledWith('unreviewed');
+    expect(t.companyRepo.findActiveIdsByStage).not.toHaveBeenCalled();
+    expect(t.aiScreeningService.enqueue).toHaveBeenCalledWith(['a', 'c', 'd'], {
+      mode: 'pending_scan',
+      force: true,
+      triggeredByUserId: 'user-1',
+    });
+  });
+
+  it('queues nothing when no pending company is in the selection', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: ['t1'] },
+    ]);
+
+    await expect(
+      t.service.scanNow('user-1', { trackIds: ['t2'], includeUnmatched: false }),
+    ).resolves.toEqual({ queued: 0, alreadyQueued: 0 });
+    expect(t.aiScreeningService.enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendingAutoScanService.previewScanNow', () => {
+  it('returns an empty preview without further reads when nothing is pending', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([]);
+
+    await expect(t.service.previewScanNow()).resolves.toEqual({ tracks: [], companies: [] });
     expect(t.aiScreeningService.findInFlightCompanyIds).not.toHaveBeenCalled();
     expect(t.companyAnalysisService.findCompanyIdsWithCard).not.toHaveBeenCalled();
   });
 
-  it('counts the companies Scan now would queue and which of them lack a Company Card', async () => {
-    t.companyRepo.findActiveIdsByStage.mockResolvedValue(['a', 'b', 'c', 'd']);
+  it('lists each company Scan now could queue with its existing tracks and card status', async () => {
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: ['t1'] },
+      { id: 'b', matched_track_ids: ['t1', 't2', 't1'] },
+      { id: 'c', matched_track_ids: ['deleted'] },
+      { id: 'd', matched_track_ids: ['t3'] },
+    ]);
     t.aiScreeningService.findInFlightCompanyIds.mockResolvedValue(new Set(['d']));
     t.companyAnalysisService.findCompanyIdsWithCard.mockResolvedValue(new Set(['a']));
 
-    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 3, missingCards: 2 });
-    expect(t.companyRepo.findActiveIdsByStage).toHaveBeenCalledWith('unreviewed');
+    await expect(t.service.previewScanNow()).resolves.toEqual({
+      tracks: [
+        { id: 't1', title: 'Healthcare' },
+        { id: 't2', title: 'Untitled track' },
+      ],
+      companies: [
+        { trackIds: ['t1'], hasCard: true },
+        { trackIds: ['t1', 't2'], hasCard: false },
+        { trackIds: [], hasCard: false },
+      ],
+    });
+    expect(t.companyRepo.findActiveTrackMatchesByStage).toHaveBeenCalledWith('unreviewed');
     expect(t.aiScreeningService.findInFlightCompanyIds).toHaveBeenCalledWith(['a', 'b', 'c', 'd']);
     expect(t.companyAnalysisService.findCompanyIdsWithCard).toHaveBeenCalledWith(['a', 'b', 'c']);
   });
 
   it('skips the card lookup when every pending company is already queued', async () => {
-    t.companyRepo.findActiveIdsByStage.mockResolvedValue(['a', 'b']);
+    t.companyRepo.findActiveTrackMatchesByStage.mockResolvedValue([
+      { id: 'a', matched_track_ids: [] },
+      { id: 'b', matched_track_ids: ['t1'] },
+    ]);
     t.aiScreeningService.findInFlightCompanyIds.mockResolvedValue(new Set(['a', 'b']));
 
-    await expect(t.service.previewScanNow()).resolves.toEqual({ companies: 0, missingCards: 0 });
+    await expect(t.service.previewScanNow()).resolves.toEqual({ tracks: [], companies: [] });
     expect(t.companyAnalysisService.findCompanyIdsWithCard).not.toHaveBeenCalled();
   });
 });

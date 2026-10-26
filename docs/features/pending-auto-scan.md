@@ -10,7 +10,7 @@ above the table on Pipeline while its Pending Confirmation chip is active:
 | **Auto-scan** | A company entering Pending Confirmation is matched to tracks (investment theses) and AI-screened against each matched track's criteria. Only companies that arrive after it is switched on — the ones already waiting are left alone (use Scan now for those). |
 | **Auto promote** | After a scan: an overall **pass** promotes the company to L0. Off → a pass is left pending. Requires Auto-scan. |
 | **Auto drop** | After a scan: an overall **fail** drops the company. Off → a fail is left pending. Requires Auto-scan. |
-| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto promote / auto drop still apply afterwards when they are on. Asks for confirmation first, showing how many companies will be scanned and the total estimated time (see below). |
+| **Scan now** | Queues a screening task for every active pending company — a fresh match + screen, re-running criteria that already have a result — whatever Auto-scan says. Companies already queued or scanning are skipped. Auto promote / auto drop still apply afterwards when they are on. Asks for confirmation first, with a multi-select of tracks — each showing how many pending companies are matched to it — and the total companies and estimated time for the selection (see below). |
 
 **Inconclusive** (or no matched track with criteria) always leaves the company
 pending for a human. Every scan also makes sure the company has a **Company
@@ -24,11 +24,22 @@ Settings live on `workspaces.pending_auto_scan` / `pending_auto_promote` /
 
 **Scan now confirmation.** The button opens a confirmation dialog that fetches
 `GET /api/pending-automation/scan` (`PendingAutoScanService.previewScanNow`):
-`{ companies, missingCards }` — the active pending companies not already
-queued, and how many of those have no completed Company Card. The dialog shows
-the company count and a total estimate, `estimateScanMinutes` in
+`{ tracks, companies }` — one entry per active pending company not already
+queued, with the existing tracks it is matched to (`[]` when none, or when it is
+matched only to deleted tracks) and whether it has a completed Company Card,
+plus the titles of those tracks. The dialog lists each track with its company
+count and a "Not matched to a track yet" row, all selected by default. The total
+counts each selected company once, however many selected tracks it is in
+(`countScanSelection`), and the estimate is `estimateScanMinutes` in
 `src/lib/sourcing/pendingAutomation.ts`: 54s of AI screening per company plus
 93s per missing Company Card, rounded to the nearest minute ("~15 minutes").
+
+Start scan posts the selection as `{ trackIds, includeUnmatched }`; the service
+queues only the pending companies matched to a selected track (plus the
+unmatched ones when included). The selection picks *companies*: a selected
+company is still screened against every track it is matched to, so the overall
+verdict behind auto promote / auto drop is unchanged. A POST with no body scans
+every pending company.
 
 ## AI screening runs on the AI Workforce
 

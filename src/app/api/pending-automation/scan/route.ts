@@ -1,8 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { createContainer } from '@/lib/services/container';
 import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/workspace';
+import {
+  InvalidScanNowSelectionError,
+  parseScanNowSelection,
+} from '@/lib/sourcing/pendingAutomation';
 
 /**
  * Sourcing → Pending Confirmation "Scan now": queue an AI screening task on
@@ -11,10 +15,13 @@ import { getActiveWorkspaceIdOrThrow, NoActiveWorkspaceError } from '@/lib/works
  * the auto-scan toggle says. Auto promote / auto drop still apply afterwards
  * when they are on. Companies already queued or scanning are skipped.
  *
- * GET  → `{ data: { companies, missingCards } }` — what a Scan now would queue
- *        right now and how many of those have no Company Card yet, for the
- *        confirmation dialog's time estimate.
- * POST → 202 `{ data: { queued, alreadyQueued } }`.
+ * GET  → `{ data: { tracks, companies } }` — what a Scan now could queue right
+ *        now: each company's matched tracks and whether it has a Company
+ *        Card, for the confirmation dialog's track selector, per-track
+ *        counts and time estimate.
+ * POST → 202 `{ data: { queued, alreadyQueued } }`. An optional body
+ *        `{ trackIds, includeUnmatched }` limits the scan to companies matched
+ *        to those tracks (plus unmatched ones); no body scans every company.
  */
 export async function GET() {
   try {
@@ -36,18 +43,31 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const raw = await req.text();
+    let body: unknown = null;
+    if (raw.trim()) {
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+      }
+    }
+    const selection = parseScanNowSelection(body);
     const db = createDb();
     const workspaceId = await getActiveWorkspaceIdOrThrow();
     const { pendingAutoScanService } = createContainer(db, workspaceId);
-    const data = await pendingAutoScanService.scanNow(session.user.id);
+    const data = await pendingAutoScanService.scanNow(session.user.id, selection);
     return NextResponse.json({ data }, { status: 202 });
   } catch (error: unknown) {
+    if (error instanceof InvalidScanNowSelectionError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof NoActiveWorkspaceError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }

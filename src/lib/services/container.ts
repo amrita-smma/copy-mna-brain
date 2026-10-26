@@ -465,6 +465,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         trackMatchingService(),
         companyAnalysisService(),
         companyRelationshipService(),
+        thesisRepo(),
       ),
   );
   const fileService = lazy(() => {
