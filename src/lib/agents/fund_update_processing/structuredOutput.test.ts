@@ -58,7 +58,7 @@ describe('invokeStructuredOutput', () => {
       count: 42,
       tags: ['growth', 'tech'],
     });
-    expect(mockLlm.withStructuredOutput).toHaveBeenCalledWith(TestSchema, { name: 'extract_structured_data' });
+    expect(mockLlm.withStructuredOutput).toHaveBeenCalledWith(TestSchema, { name: 'extract_structured_data', method: 'functionCalling' });
   });
 
   it('retries when response fails schema validation and succeeds on subsequent try', async () => {
@@ -145,5 +145,22 @@ describe('invokeStructuredOutput', () => {
     await invokeStructuredOutput({ schema: TestSchema, prompt: 'x' });
 
     expect(chatAnthropicInstances[0].opts).toMatchObject({ thinking: { type: 'adaptive' } });
+  });
+
+  it('binds the schema as a tool unless a caller asks for jsonSchema', async () => {
+    const structuredLlm = { invoke: vi.fn().mockResolvedValue({ name: 'A', count: 1, tags: [] }) };
+    const llm = { withStructuredOutput: vi.fn().mockReturnValue(structuredLlm) };
+
+    await invokeStructuredOutput({ schema: TestSchema, prompt: 'x', toolName: 't', llmOverride: llm });
+    await invokeStructuredOutput({
+      schema: TestSchema,
+      prompt: 'x',
+      toolName: 't',
+      method: 'jsonSchema',
+      llmOverride: llm,
+    });
+
+    expect(llm.withStructuredOutput.mock.calls[0][1]).toEqual({ name: 't', method: 'functionCalling' });
+    expect(llm.withStructuredOutput.mock.calls[1][1]).toEqual({ name: 't', method: 'jsonSchema' });
   });
 });

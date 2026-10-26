@@ -8,7 +8,7 @@ export type StructuredOutputClient =
   | {
       withStructuredOutput: (
         schema: z.ZodType<unknown> | Record<string, unknown>,
-        config?: { name?: string },
+        config?: { name?: string; method?: StructuredOutputMethod },
       ) => {
         invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
       };
@@ -17,12 +17,21 @@ export type StructuredOutputClient =
   | {
       withStructuredOutput?: (
         schema: z.ZodType<unknown> | Record<string, unknown>,
-        config?: { name?: string },
+        config?: { name?: string; method?: StructuredOutputMethod },
       ) => {
         invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
       };
       invoke: (messages: BaseMessage[] | string, config?: unknown) => Promise<unknown>;
     };
+
+/**
+ * How the schema reaches the model. `functionCalling` binds it as a tool;
+ * with thinking on the tool cannot be forced, so the model sometimes answers
+ * in prose and the attempt fails. `jsonSchema` uses Anthropic's native
+ * structured outputs (`output_config.format`): the reply is constrained to
+ * the schema, so that failure cannot happen.
+ */
+export type StructuredOutputMethod = 'functionCalling' | 'jsonSchema';
 
 export type LLMClientOverride = StructuredOutputClient | ChatAnthropic;
 
@@ -35,6 +44,7 @@ export interface StructuredOutputOptions<T> {
   maxTokens?: number;
   maxRetries?: number;
   toolName?: string;
+  method?: StructuredOutputMethod;
   llmOverride?: LLMClientOverride;
 }
 
@@ -59,6 +69,7 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
     maxTokens = 32000,
     maxRetries = 2,
     toolName = 'extract_structured_data',
+    method = 'functionCalling',
     llmOverride,
   } = options;
 
@@ -90,7 +101,7 @@ export async function invokeStructuredOutput<T>(options: StructuredOutputOptions
   }
 
   const structuredLlm = typeof llm.withStructuredOutput === 'function'
-    ? llm.withStructuredOutput(schema, { name: toolName })
+    ? llm.withStructuredOutput(schema, { name: toolName, method })
     : llm;
 
   let attempt = 0;

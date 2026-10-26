@@ -270,6 +270,9 @@ export async function runContactRelationshipOverview(
       effort: 'low',
       maxTokens: overviewMaxTokens(promptDeals.length),
       toolName: 'generate_contact_relationship_overview',
+      // Native structured outputs: with thinking on, a tool-bound schema is
+      // optional and Haiku skipped it on ~4% of first attempts.
+      method: 'jsonSchema',
       llmOverride: deps.llmOverride,
     });
 

@@ -209,6 +209,18 @@ describe('runContactRelationshipOverview', () => {
     expect(maxTokens).toBe(4000);
   });
 
+  it('asks for native structured outputs so the reply cannot skip the schema', async () => {
+    mocks.listContactDeals.mockResolvedValueOnce({ deals: [], suggestions: [] });
+    mocks.invokeStructuredOutput.mockResolvedValueOnce({
+      overview: 'John Doe discussed debt financing. Best next move: follow up next week.',
+      dealNotes: [],
+    });
+
+    await runContactRelationshipOverview(payload, deps);
+
+    expect(mocks.invokeStructuredOutput.mock.calls[0][0].method).toBe('jsonSchema');
+  });
+
   it('tags notes with the deals they are evidence for and maps deal lines back to companies', async () => {
     mocks.listDealEvidenceEmails.mockResolvedValue([
       { companyId: 'co-2', emailId: 'e1' },
