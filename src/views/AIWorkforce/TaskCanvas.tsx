@@ -252,33 +252,28 @@ export function TaskCanvas({
     };
   }, [taskId, refreshWorkforceNav]);
 
-  // Reset trace state when the selected task changes.
-  useEffect(() => {
-    setTraceSteps([]);
-    setTraceError(null);
-    setActor(null);
-    setActionError(null);
-    setActionPending(null);
-    setComposerText('');
-    setComposerError(null);
-    setComposerToast(null);
-    setServerNotifications([]);
-    traceLoadedRef.current = false;
-  }, [taskId]);
-
   // Fetch the task + trace on mount and poll while the task is non-terminal.
   // We refresh BOTH on each tick so the status pill, action buttons, and
   // ended_at line stay in sync with the row's true state — without this,
   // background transitions (agent finishes, reaper marks failed, another
   // user cancels) never propagate to the local item state and the UI shows
   // stale "Running" + Cancel button after the row is already terminal.
+  //
+  // The parent keys this component by task id, so a different task always gets
+  // a fresh instance. Within one task the poll and the status-change effect can
+  // still overlap; only the latest refresh may write state, so an older
+  // response can't roll the pane back to a stale status/trace.
+  const latestRefreshRef = useRef(0);
   const refresh = useCallback(async () => {
     if (!taskId) return;
+    const requestId = ++latestRefreshRef.current;
+    const isStale = () => latestRefreshRef.current !== requestId;
     try {
       const [taskRes, traceRes] = await Promise.all([
         fetch(`/api/workforce-queue/${taskId}`),
         fetch(`/api/workforce-queue/${taskId}/trace`),
       ]);
+      if (isStale()) return;
       if (taskRes.status === 401 || traceRes.status === 401) {
         setSessionExpired();
         return;
@@ -288,6 +283,7 @@ export function TaskCanvas({
           item?: ApiQueueItem;
           insight_version?: InsightRunVersionLink | null;
         };
+        if (isStale()) return;
         if (data.item) setItem(data.item);
         // A refresh publishes at the very end, so the link first appears on the
         // poll that sees the run finish.
@@ -303,6 +299,7 @@ export function TaskCanvas({
         actor?: TraceActorResponse;
         notifications?: TaskNotification[];
       };
+      if (isStale()) return;
       setTraceSteps(data.steps ?? []);
       setCanDecide(Boolean(data.canDecide));
       if (data.actor) setActor(data.actor);
@@ -310,6 +307,7 @@ export function TaskCanvas({
       setTraceError(null);
       traceLoadedRef.current = true;
     } catch (e) {
+      if (isStale()) return;
       setTraceError(e instanceof Error ? e.message : 'Failed to load trace');
     }
   }, [taskId, setSessionExpired]);

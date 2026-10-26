@@ -989,8 +989,13 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         </div>
       </aside>
 
+      {/* Keyed by the selected record, like CompanyDetailDialog: each task or
+          routine gets a fresh canvas, so the previous one's state and its
+          in-flight fetches/polls can't paint into the next one's pane when
+          the user clicks back and forth. See .claude/rules/dialog-open-state.md. */}
       {selectedRoutine ? (
         <RoutineCanvas
+          key={selectedRoutine.id}
           routine={selectedRoutine}
           onDelete={() => handleDeleteRoutine(selectedRoutine.id)}
           onEnqueued={fetchQueue}
@@ -1006,6 +1011,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
         />
       ) : (
         <TaskCanvas
+          key={selectedTaskId ?? 'none'}
           taskId={selectedTaskId}
           onRetried={(newId) => {
             // Jump to the freshly-enqueued retry row and pull the queue
