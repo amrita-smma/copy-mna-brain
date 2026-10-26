@@ -111,10 +111,14 @@ export class WorkspaceService {
    * archived workspace vanish from the picker and from the JWT's `workspaces`
    * claim, which is in turn what makes `proxy.ts` bounce a member's
    * `/w/<slug>` request to `/workspace` with no DB access of its own.
+   *
+   * Sorted alphabetically by name (both halves merged), since this list is
+   * shown as-is in the picker and the switcher. The repository keeps its
+   * oldest-first order because `resolveDefaultWorkspaceId` depends on it.
    */
   async getAccessibleWorkspacesForUser(userId: string): Promise<MembershipDetail[]> {
     const memberships = await this.userWorkspaceRepo.findMembershipsForUser(userId);
-    if (!(await this.isSuperadmin(userId))) return memberships;
+    if (!(await this.isSuperadmin(userId))) return sortByWorkspaceName(memberships);
 
     const memberWorkspaceIds = new Set(memberships.map((m) => m.workspaceId));
     const allWorkspaces = await this.workspaceRepo.findAll();
@@ -128,7 +132,7 @@ export class WorkspaceService {
         roleName: 'superadmin',
         isEmailSynced: false,
       }));
-    return [...memberships, ...implicitAccess];
+    return sortByWorkspaceName([...memberships, ...implicitAccess]);
   }
 
   /**
@@ -394,4 +398,10 @@ export class WorkspaceService {
   removeMember(userId: string, workspaceId: string): Promise<void> {
     return this.userWorkspaceRepo.delete(userId, workspaceId);
   }
+}
+
+function sortByWorkspaceName(memberships: MembershipDetail[]): MembershipDetail[] {
+  return [...memberships].sort((a, b) =>
+    a.workspaceName.localeCompare(b.workspaceName, undefined, { sensitivity: 'base', numeric: true }),
+  );
 }

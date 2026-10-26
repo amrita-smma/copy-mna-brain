@@ -166,6 +166,41 @@ describe('WorkspaceService.getAccessibleWorkspacesForUser', () => {
       { workspaceId: 'w2', workspaceName: 'W2', workspaceSlug: 'w2', roleId: '', roleName: 'superadmin', isEmailSynced: false },
     ]);
   });
+
+  it('sorts memberships alphabetically by workspace name, ignoring case', async () => {
+    const repos = makeRepoStubs();
+    const memberships = [
+      { workspaceId: 'w1', workspaceName: 'Zeta', workspaceSlug: 'zeta', roleId: 'r1', roleName: 'editor', isEmailSynced: false },
+      { workspaceId: 'w2', workspaceName: 'alpha', workspaceSlug: 'alpha', roleId: 'r1', roleName: 'editor', isEmailSynced: false },
+      { workspaceId: 'w3', workspaceName: 'Beta', workspaceSlug: 'beta', roleId: 'r1', roleName: 'editor', isEmailSynced: false },
+    ];
+    (repos.userWorkspaceRepo.findMembershipsForUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce(memberships);
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: false });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.getAccessibleWorkspacesForUser('u1');
+
+    expect(result.map((m) => m.workspaceName)).toEqual(['alpha', 'Beta', 'Zeta']);
+  });
+
+  it('interleaves implicit superadmin workspaces with real memberships in name order', async () => {
+    const repos = makeRepoStubs();
+    const memberships = [
+      { workspaceId: 'w1', workspaceName: 'Mango', workspaceSlug: 'mango', roleId: 'r1', roleName: 'editor', isEmailSynced: false },
+    ];
+    (repos.userWorkspaceRepo.findMembershipsForUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce(memberships);
+    (repos.userRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'u1', is_superadmin: true });
+    (repos.workspaceRepo.findAll as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: 'w2', name: 'Zucchini', slug: 'zucchini' },
+      { id: 'w1', name: 'Mango', slug: 'mango' },
+      { id: 'w3', name: 'Apple', slug: 'apple' },
+    ]);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    const result = await service.getAccessibleWorkspacesForUser('u1');
+
+    expect(result.map((m) => m.workspaceName)).toEqual(['Apple', 'Mango', 'Zucchini']);
+  });
 });
 
 describe('WorkspaceService.isSuperadmin', () => {
