@@ -88,6 +88,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2955047c7d1bbfa8636ed51f46b8dffe54101e10",
+    "date": "2026-10-26",
+    "subject": "Scan now lists all pending companies under each saved track",
+    "category": "improvement"
+  },
+  {
+    "hash": "714995882c4acf7205ee549de55d242599b4d463",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
