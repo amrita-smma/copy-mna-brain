@@ -48,6 +48,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "86a71b7b0972cf31c77213b9cbee84f04338bdd9",
+    "date": "2026-10-26",
+    "subject": "Bots pages now show a Beta chip in the header and sidebar",
+    "category": "feature"
+  },
+  {
+    "hash": "45094a564a7160488c8f701badeead15f0af6b9d",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "8a0e01d882aa852d9f4f6e02464742664f43a4e0",
     "date": "2026-10-23",
     "subject": "Deal teams can now edit CRM firms, contacts, owners, tags, and notes per workspace, with note changes audited",
