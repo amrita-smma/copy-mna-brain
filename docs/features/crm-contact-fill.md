@@ -77,6 +77,41 @@ queue at priority −1, behind button clicks. Ingest itself never pulls the agen
 in; area and industry focus from signatures come from the pipeline (see
 `crm-data-pipeline.md`).
 
+## Backfilling existing contacts
+
+The hourly sweep only takes new relationships. To fill the profiles of
+existing ones, call the admin route
+`POST /api/auth/crm-contacts/backfill-profiles` with
+`{ workspaceId, limit, minEmailsFromThem? }` and the `X-Api-Secret` header
+(`CrmContactEnrichmentService.backfillProfiles`). It picks contacts that have
+had a two-way exchange with the team at any time, with at least
+`minEmailsFromThem` emails from them, using the same exclusions as the sweep.
+The most recently heard-from come first. Each call queues at most 50 runs at
+the sweep's low priority, and the Workforce works through them one at a time.
+A contact that was already run is never picked twice, so call again to
+continue the backlog.
+
+Contacts only ever seen in To/Cc used to be stored under their address and
+were never eligible. Ingest now names them from a `first.last@` address
+(`nameFromEmailLocalPart`, `CorrespondentRepository.fillAddressLikeNames`).
+Migration `20261026000001_derive_contact_names_from_email` repaired the
+existing ones, so it must run before a backfill.
+
+## Inferred focus
+
+Where a contact has no stated Industry Focus or Area Focus, the contacts table
+shows the one the relationship overview inferred from their emails instead.
+It is drawn dashed, with a sparkle and an "AI-inferred from email" tooltip.
+The job writes these to `contact_relationship_overviews.inferred_industry_focus`
+and `inferred_area_focus`, and `CRMService.getEmployerDetail` reads them in one
+batched query (`inferred_focus`). They are never copied into
+`specialization` or `coverage_region`, so banker matching never searches them,
+and a stated, curated or Get Full Profile value always shows instead.
+`OVERVIEW_OUTPUT_VERSION` in `src/lib/crm/overviewInputHash.ts` marks every
+older overview stale. To regenerate them all, call
+`POST /api/auth/crm-overviews/refresh` with an old `since`; it takes a capped
+batch per call.
+
 ## Testing locally
 
 `pnpm db:seed` adds a handful of real, publicly documented dealmakers at their

@@ -170,6 +170,8 @@ describe('runContactRelationshipOverview', () => {
       }),
       dealNotes: [],
       roleSummary: 'John mostly brings co-investment and debt structuring questions.',
+      inferredIndustryFocus: null,
+      inferredAreaFocus: null,
     });
     expect(mocks.appendLog).toHaveBeenCalledWith('job-123', {
       message: 'Contact relationship overview generated successfully',
@@ -244,7 +246,7 @@ describe('runContactRelationshipOverview', () => {
     expect(mocks.saveOverviewReady).toHaveBeenCalledWith(
       'w1',
       'c1',
-      expect.objectContaining({ inputHash: '1:e1', dealNotes: [] }),
+      expect.objectContaining({ inputHash: 'v2:1:e1', dealNotes: [] }),
     );
   });
 
@@ -265,12 +267,54 @@ describe('runContactRelationshipOverview', () => {
     );
   });
 
-  it('parses a model answer that omits dealNotes and roleSummary', async () => {
+  it('parses a model answer that omits dealNotes, roleSummary and the inferred focus', async () => {
     const { overviewOutputSchema } = await import('./contactRelationshipOverview');
     expect(overviewOutputSchema.parse({ overview: 'x' })).toEqual({
       overview: 'x',
       dealNotes: [],
       roleSummary: null,
+      inferredIndustryFocus: null,
+      inferredAreaFocus: null,
     });
+  });
+
+  it('asks for the inferred focus and saves it as short tags', async () => {
+    mocks.invokeStructuredOutput.mockResolvedValueOnce({
+      overview: 'John covers lending. Best next move: send the teaser.',
+      dealNotes: [],
+      roleSummary: null,
+      inferredIndustryFocus: ' Private credit. ',
+      inferredAreaFocus: 'Indonesia',
+    });
+
+    const result = await runContactRelationshipOverview(payload, deps);
+
+    const { prompt, systemPrompt } = mocks.invokeStructuredOutput.mock.calls[0][0];
+    expect(prompt).toContain('industry focus and area focus');
+    expect(systemPrompt).toContain('not where they are based');
+    expect(result).toMatchObject({ inferredIndustryFocus: 'Private credit', inferredAreaFocus: 'Indonesia' });
+    expect(mocks.saveOverviewReady).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      expect.objectContaining({ inferredIndustryFocus: 'Private credit', inferredAreaFocus: 'Indonesia' }),
+    );
+  });
+
+  it('drops an inferred focus that is a sentence rather than a tag', async () => {
+    mocks.invokeStructuredOutput.mockResolvedValueOnce({
+      overview: 'John covers lending. Best next move: send the teaser.',
+      dealNotes: [],
+      roleSummary: null,
+      inferredIndustryFocus: 'John mostly discusses private credit facilities for mid-market Indonesian borrowers',
+      inferredAreaFocus: '   ',
+    });
+
+    await runContactRelationshipOverview(payload, deps);
+
+    expect(mocks.saveOverviewReady).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      expect.objectContaining({ inferredIndustryFocus: null, inferredAreaFocus: null }),
+    );
   });
 });

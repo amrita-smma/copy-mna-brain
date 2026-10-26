@@ -129,6 +129,7 @@ import { CRMService } from './crmService';
 import { CrmContactEnrichmentService } from './crmContactEnrichmentService';
 import { ContactInsightsService } from './contactInsightsService';
 import { ContactConversationService } from './contactConversationService';
+import { FirmIndustryService } from './firmIndustryService';
 import { DealContactService } from './dealContactService';
 import { BankerScorecardService } from './bankerScorecardService';
 import { DealSponsorAssignmentService } from './dealSponsorAssignmentService';
@@ -207,6 +208,7 @@ export interface Container {
   crmContactEnrichmentService: CrmContactEnrichmentService;
   contactInsightsService: ContactInsightsService;
   contactConversationService: ContactConversationService;
+  firmIndustryService: FirmIndustryService;
   dealContactService: DealContactService;
   bankerScorecardService: BankerScorecardService;
   dealSponsorAssignmentService: DealSponsorAssignmentService;
@@ -499,6 +501,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   });
 
   const employerRepo = lazy(() => new EmployerRepository(db));
+  const contactConversationRepo = lazy(() => new ContactConversationRepository(db));
   const correspondentRepo = lazy(() => new CorrespondentRepository(db));
   const employerNoteRepo = lazy(() => new EmployerNoteRepository(db));
   const topicRepo = lazy(() => new TopicRepository(db));
@@ -524,6 +527,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         workspaceCorrespondentRepo(),
         workspaceId,
         crmContactEnrichmentService(),
+        contactConversationRepo(),
       ),
   );
 
@@ -557,12 +561,15 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const contactConversationService = lazy(
     () =>
       new ContactConversationService(
-        new ContactConversationRepository(db),
+        contactConversationRepo(),
         correspondentRepo(),
         contactInteractionRepo(),
         jobDispatcher(),
         workspaceId,
       ),
+  );
+  const firmIndustryService = lazy(
+    () => new FirmIndustryService(employerRepo(), jobDispatcher(), workspaceId),
   );
   const bankerScorecardService = lazy(
     () =>
@@ -1062,6 +1069,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get crmContactEnrichmentService() { return crmContactEnrichmentService(); },
     get contactInsightsService() { return contactInsightsService(); },
     get contactConversationService() { return contactConversationService(); },
+    get firmIndustryService() { return firmIndustryService(); },
     get dealContactService() { return dealContactService(); },
     get bankerScorecardService() { return bankerScorecardService(); },
     get dealSponsorAssignmentService() { return dealSponsorAssignmentService(); },

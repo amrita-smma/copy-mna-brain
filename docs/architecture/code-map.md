@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 241 | `src/app/api/**/route.ts` |
-| Services | 98 | `src/lib/services/` |
+| API routes | 243 | `src/app/api/**/route.ts` |
+| Services | 99 | `src/lib/services/` |
 | Repositories | 86 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
-| Job handlers | 14 | `src/lib/jobs/handlers/` |
+| Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 46 | `src/app/**/page.tsx` |
-| Migrations (app) | 187 | `drizzle/migrations/` |
+| Migrations (app) | 190 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -107,6 +107,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/auth/[...nextauth]` | — | — |
 | `/api/auth/api-keys` | GET, POST | `apiKeyService` |
 | `/api/auth/api-keys/[id]` | GET, PATCH, DELETE | `apiKeyService` |
+| `/api/auth/crm-contacts/backfill-profiles` | POST | `crmContactEnrichmentService` |
 | `/api/auth/crm-overviews/refresh` | POST | `contactConversationService` |
 | `/api/auth/forget-password` | POST | `authService` |
 | `/api/auth/google-signin` | POST | `authService` |
@@ -194,6 +195,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/cron/close-votes` | GET | `companyVoteService`, `workspaceService` |
 | `/api/cron/compact-checkpoints` | GET | `checkpointCompactionService` |
 | `/api/cron/crm-auto-enrich` | GET | `crmContactEnrichmentService` |
+| `/api/cron/crm-firm-industry` | GET | `firmIndustryService` |
 | `/api/cron/crm-suggested-questions` | GET | `crmSuggestedQuestionService` |
 | `/api/cron/daily-pulse` | GET | `dailyPulseService` |
 | `/api/cron/dispatch` | GET | — |
@@ -344,7 +346,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 83 keys. Wire new services in
+`Container` exposes 84 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -400,6 +402,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `featuredSlide.ts` | `UnsupportedFeaturedSlideError` | ✅ |
 | `feedbackService.ts` | `FeedbackService` | ✅ |
 | `fileService.ts` | `FileCompanyNameRequiredError`, `FileService` | ✅ |
+| `firmIndustryService.ts` | `FirmIndustryService` | ✅ |
 | `flBalanceService.ts` | `FlBalanceService` | ✅ |
 | `flCorporateActionService.ts` | `FlCorporateActionService` | ✅ |
 | `flCurrency.ts` | — | ✅ |
@@ -566,6 +569,6 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 Queue work through `JobDispatcher`; never block a request on slow I/O.
 
-**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`, `chat_message_embedding`, `bot_message`, `bot_routine`, `bot_task_summary`, `bot_reply`, `contact_relationship_overview`
+**`job_type` enum (`src/lib/db/schema.ts`):** `slide_generation`, `market_screening`, `ai_screening`, `company_analysis`, `stuck_cleanup`, `graph_sync`, `track_matching`, `fund_update_extraction`, `deal_document_processing`, `company_vote`, `pending_auto_scan`, `chat_message_embedding`, `bot_message`, `bot_routine`, `bot_task_summary`, `bot_reply`, `contact_relationship_overview`, `firm_industry_classification`
 
-**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `botMessage`, `botTaskSummary`, `chatMessageEmbedding`, `companyAnalysis`, `companyVote`, `contactRelationshipOverview`, `dealDocumentProcessing`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`
+**Handlers (`src/lib/jobs/handlers/`):** `aiScreening`, `botMessage`, `botTaskSummary`, `chatMessageEmbedding`, `companyAnalysis`, `companyVote`, `contactRelationshipOverview`, `dealDocumentProcessing`, `firmIndustryClassification`, `fundUpdateExtraction`, `graphSync`, `marketScreening`, `sendEmail`, `slideGeneration`, `trackMatching`

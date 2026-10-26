@@ -37,6 +37,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/cron/crm-firm-industry",
+      "schedule": "45 * * * *"
+    },
+    {
       "path": "/api/cron/close-votes",
       "schedule": "*/5 * * * *"
     },

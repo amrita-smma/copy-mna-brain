@@ -3,6 +3,7 @@ import type { EnrichedPerson } from '../mboxParser';
 
 const repo = vi.hoisted(() => ({
   listOverrides: vi.fn(),
+  fillAddressLikeNames: vi.fn(),
   findByNormalizedNames: vi.fn(),
   employerUpsertBatch: vi.fn(),
   correspondentUpsertBatch: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('@/lib/repositories', () => {
   class CorrespondentRepository {
     findByEmails = asyncEmpty();
     upsertBatch = repo.correspondentUpsertBatch;
+    fillAddressLikeNames = repo.fillAddressLikeNames;
   }
   class WorkspaceCorrespondentRepository { addMemberships = asyncEmpty(); }
   class EmployerTeamRepository { addMany = repo.addTeam; }
@@ -244,6 +246,7 @@ describe('upsertEphemeralCrmBatch new-employer naming', () => {
 
   beforeEach(() => {
     repo.listOverrides.mockReset().mockResolvedValue([]);
+    repo.fillAddressLikeNames.mockReset().mockResolvedValue([]);
     repo.findByNormalizedNames.mockReset();
     repo.employerUpsertBatch.mockReset().mockResolvedValue([]);
     repo.correspondentUpsertBatch.mockReset().mockResolvedValue([]);
@@ -333,6 +336,43 @@ describe('upsertEphemeralCrmBatch new-employer naming', () => {
     await upsertEphemeralCrmBatch([message], { db: db as never });
     expect(repo.employerUpsertBatch).toHaveBeenCalledWith([
       expect.objectContaining({ name: 'Goldman Sachs (Asia)' }),
+    ]);
+  });
+
+  it('names a To/Cc-only contact from its first.last address, and only that contact', async () => {
+    repo.findByNormalizedNames.mockResolvedValue([
+      { id: 'emp-gs', normalized_name: 'goldman-sachs', name: 'Goldman Sachs' },
+    ]);
+    repo.correspondentUpsertBatch.mockResolvedValue([
+      { id: 'c-jane', email: 'jane@gs.com' },
+      { id: 'c-matt', email: 'matthieu.simoncini@gs.com' },
+      { id: 'c-desk', email: 'deal.team@gs.com' },
+    ]);
+    await upsertEphemeralCrmBatch(
+      [{ ...message, cc_addresses: ['matthieu.simoncini@gs.com', 'deal.team@gs.com'] }],
+      { db: db as never },
+    );
+    expect(repo.fillAddressLikeNames).toHaveBeenCalledWith([
+      { id: 'c-matt', name: 'Matthieu Simoncini' },
+    ]);
+  });
+
+  it("gives a new employer its domain's curated override industry", async () => {
+    repo.findByNormalizedNames.mockResolvedValue([]);
+    repo.listOverrides.mockResolvedValue([
+      { domain: 'gs.com', employer_name: null, industry: ' Investment Banking ', excluded: false },
+    ]);
+    await upsertEphemeralCrmBatch([message], { db: db as never });
+    expect(repo.employerUpsertBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'Goldman Sachs', industry: 'Investment Banking' }),
+    ]);
+  });
+
+  it('leaves a new employer industry empty when its domain has no override', async () => {
+    repo.findByNormalizedNames.mockResolvedValue([]);
+    await upsertEphemeralCrmBatch([message], { db: db as never });
+    expect(repo.employerUpsertBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'Goldman Sachs', industry: null }),
     ]);
   });
 

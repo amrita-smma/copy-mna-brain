@@ -30,7 +30,7 @@ Rules when adding or moving an admin route:
 - Add its path (and a `:path*` entry for any dynamic segments) to the `matcher` array in `src/proxy.ts` so the `X-Api-Secret` gate applies.
 - Do NOT add a per-handler session check (`auth()`); authentication happens in the middleware. The handler should go straight to `createDb()` / `createContainer(db)`.
 - Callers must send `X-Api-Secret: <ADMIN_SECRET>`. Server-side internal calls via `src/lib/api/client.ts` (`apiRequest`) attach this header automatically.
-- Existing admin routes: `/api/auth/signup`, `/api/auth/api-keys`, `/api/auth/api-keys/:id`.
+- Existing admin routes: `/api/auth/signup`, `/api/auth/api-keys`, `/api/auth/api-keys/:id`, `/api/auth/crm-overviews/refresh`, `/api/auth/crm-contacts/backfill-profiles`.
 
 ## Test Files (`**/*.test.ts`)
 

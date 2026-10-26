@@ -329,6 +329,38 @@ describe('ContactConversationRepository', () => {
       );
     });
 
+    it('saveOverviewReady saves the inferred focus, null when not given', async () => {
+      await repo.saveOverviewReady('w1', 'c1', {
+        text: 'Overview prose.',
+        inputHash: 'v2:3:email-1',
+        dealNotes: [],
+        roleSummary: null,
+        inferredIndustryFocus: 'Private credit',
+      });
+      expect(db.updateQuery.set).toHaveBeenCalledWith(
+        expect.objectContaining({ inferred_industry_focus: 'Private credit', inferred_area_focus: null }),
+      );
+    });
+
+    it('findInferredFocus reads many contacts in one query, skipping contacts with none', async () => {
+      const chain = makeQueryChain([{ correspondentId: 'c1', industryFocus: 'TMT', areaFocus: null }]);
+      db.select.mockReturnValueOnce(chain);
+
+      await expect(repo.findInferredFocus('w1', ['c1', 'c2'])).resolves.toEqual([
+        { correspondentId: 'c1', industryFocus: 'TMT', areaFocus: null },
+      ]);
+
+      expect(db.select).toHaveBeenCalledTimes(1);
+      const { sql: text, params } = whereSql(chain);
+      expect(text).toContain('"inferred_industry_focus" is not null');
+      expect(params).toEqual(['w1', 'c1', 'c2']);
+    });
+
+    it('findInferredFocus returns [] without hitting the DB for no ids', async () => {
+      await expect(repo.findInferredFocus('w1', [])).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
     it('markOverviewFailed sets status to failed', async () => {
       await repo.markOverviewFailed('w1', 'c1');
       expect(db.update).toHaveBeenCalled();

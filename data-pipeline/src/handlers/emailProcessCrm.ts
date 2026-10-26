@@ -32,7 +32,11 @@ import {
   INTERNAL_MAIL_DOMAINS,
   PERSONAL_MAIL_DOMAINS,
 } from '../lib/mailDomains';
-import { pickBetterContactName } from '@/lib/crm/contactName';
+import {
+  isAddressLikeName,
+  nameFromEmailLocalPart,
+  pickBetterContactName,
+} from '@/lib/crm/contactName';
 import type {
   EnrichedPerson,
   LlmExtraction,
@@ -313,10 +317,12 @@ export async function upsertEphemeralCrmBatch(
 
   const overrides = await overrideRepo.listAll();
   const domainName = new Map<string, string>();
+  const domainIndustry = new Map<string, string>();
   const excludedDomains = new Set<string>();
   for (const r of overrides) {
     const d = r.domain.toLowerCase();
     if (r.employer_name) domainName.set(d, r.employer_name);
+    if (r.industry?.trim()) domainIndustry.set(d, r.industry.trim());
     if (r.excluded) excludedDomains.add(d);
   }
   const persisted = await employerDomainRepoWarm.loadMap();
@@ -418,11 +424,17 @@ export async function upsertEphemeralCrmBatch(
         label.charAt(0).toUpperCase() + label.slice(1)
       );
     };
-    // First name wins when two new domains' names normalise the same.
+    // First name wins when two new domains' names normalise the same. A new
+    // firm takes the curated `employer_overrides.industry` of the first of its
+    // domains that has one; the rest are labelled by the hourly classifier.
     const nameByNorm = new Map<string, string>();
+    const industryByNorm = new Map<string, string>();
     for (const d of uniqueNew) {
       const name = nameFor(d);
-      if (!nameByNorm.has(normalize(name))) nameByNorm.set(normalize(name), name);
+      const norm = normalize(name);
+      if (!nameByNorm.has(norm)) nameByNorm.set(norm, name);
+      const industry = domainIndustry.get(d);
+      if (industry && !industryByNorm.has(norm)) industryByNorm.set(norm, industry);
     }
     // A chosen name that already belongs to an employer links to that row
     // as-is: only genuinely new employers are inserted, so an existing
@@ -438,7 +450,7 @@ export async function upsertEphemeralCrmBatch(
         .map(([normalized_name, name]) => ({
           name,
           normalized_name,
-          industry: null,
+          industry: industryByNorm.get(normalized_name) ?? null,
           status: 'inbound',
           curation_status: 'published',
         })),
@@ -558,6 +570,15 @@ export async function upsertEphemeralCrmBatch(
     for (const c of correspondentRows) {
       if (c.email) emailToCorrId.set(c.email.toLowerCase(), c.id);
     }
+    // A contact only ever seen in To/Cc has no display name, so it is stored
+    // under its address. Spell one out of a `first.last@` address; the
+    // repository fills it only while the stored name is still the address.
+    const derivedNames = [...corrByEmail].flatMap(([key, row]) => {
+      const id = emailToCorrId.get(key);
+      const name = isAddressLikeName(row.name, key) ? nameFromEmailLocalPart(key) : null;
+      return id && name ? [{ id, name }] : [];
+    });
+    await correspondentRepo.fillAddressLikeNames(derivedNames);
 
     const partRows: Array<{
       email_id: string;

@@ -761,3 +761,28 @@ reconcile tick, 240 s lifetime) with `ChatProvider` as its one client. See
   (`CompanyVotingTab`, `CompanyDetail` / `CompanyDetailDialog` in the same PR
   per the parity rule, `WorkforceTasks`, `DocumentInsightsPanel`,
   `InsightEditApprovalCard`), and update `docs/features/live-updates-sse.md`.
+
+---
+
+## CRM profile backfill queues one run at a time
+
+**Area:** `CrmContactEnrichmentService.backfillProfiles`,
+`POST /api/auth/crm-contacts/backfill-profiles`.
+
+**What it is:** the backfill loops over its candidates and calls `enrich()` for
+each one. Each call does a latest-run lookup, a contact read, a firm read and an
+enqueue, so a call costs about four queries per contact. The cap is kept at
+50 per call (`BACKFILL_MAX_PER_CALL`) to bound that, and the hourly sweep does
+the same at 5.
+
+**Why we took it:** `enrich()` builds the prompt and handles the idempotency
+race, and reusing it keeps one enqueue path. The backfill is a one-off admin
+call, not a request path.
+
+**Trigger to revisit:** when one backfill call needs to queue more than ~50
+runs, or the route nears its `maxDuration`.
+
+**Intended fix:** add a batched enqueue. The candidate query already excludes
+contacts with any run, so skip the per-contact latest-run lookup. Read the
+contacts and firms with `findByIds`, then insert the queue rows in one
+statement.

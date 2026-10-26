@@ -20,7 +20,8 @@ import type { DbClient } from "./types";
 import { escapeLikePattern } from "./insightRepository";
 import type { EmployerListSort, SortDirection } from "@/lib/crm/employerListSort";
 
-export type Employer = typeof employers.$inferSelect;
+// Read from the effective views, which leave out the classifier's bookkeeping.
+export type Employer = Omit<typeof employers.$inferSelect, "industry_classified_at">;
 export type EmployerInsert = typeof employers.$inferInsert;
 export type EmployerUpdate = Partial<EmployerInsert>;
 
@@ -142,6 +143,14 @@ const workspaceEmployerColumns = {
   created_at: employerWorkspaceEffective.created_at,
   updated_at: employerWorkspaceEffective.updated_at,
 };
+
+/** One firm as the industry classifier sees it. */
+export interface FirmIndustryEvidence {
+  id: string;
+  name: string;
+  domains: string[];
+  contacts: Array<{ title: string | null; specialization: string | null; bio: string | null }>;
+}
 
 export class EmployerRepository {
   constructor(private db: DbClient) {}
@@ -528,6 +537,158 @@ export class EmployerRepository {
         ),
       )
       .orderBy(asc(employerWorkspaceEffective.created_at));
+  }
+
+  /**
+   * Claim up to `limit` firms for the industry classifier, newest first: firms
+   * with a contact visible in this workspace, no machine industry, no industry
+   * this workspace typed in, and no classifier attempt since `retryBefore`.
+   * Claiming stamps `industry_classified_at`, so a concurrent sweep skips them
+   * (`SKIP LOCKED`) and a firm the model could not place waits until
+   * `retryBefore` passes it again. Returns the claimed ids.
+   */
+  async claimForIndustryClassification(
+    workspaceId: string,
+    retryBefore: string,
+    limit: number,
+  ): Promise<string[]> {
+    if (!workspaceId || limit <= 0) return [];
+    const { rows } = await this.db.execute<{ id: string }>(sql`
+      UPDATE ${employers} AS claimed
+      SET industry_classified_at = now()
+      WHERE claimed.id IN (
+        SELECT e.id
+        FROM ${employers} e
+        WHERE e.industry IS NULL
+          AND (e.industry_classified_at IS NULL OR e.industry_classified_at < ${retryBefore})
+          AND NOT EXISTS (
+            SELECT 1 FROM ${employerCuration} c
+            WHERE c.employer_id = e.id
+              AND c.workspace_id = ${workspaceId}
+              AND c.industry IS NOT NULL
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM ${correspondents} co
+            JOIN ${workspaceCorrespondents} wc
+              ON wc.correspondent_id = co.id AND wc.workspace_id = ${workspaceId}
+            WHERE co.employer_id = e.id
+          )
+        ORDER BY e.created_at DESC
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING claimed.id
+    `);
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Undo `claimForIndustryClassification` for firms whose labelling call
+   * failed, so the next sweep retries them instead of waiting out the window.
+   */
+  async releaseIndustryClaims(employerIds: string[]): Promise<void> {
+    if (employerIds.length === 0) return;
+    await this.db
+      .update(employers)
+      .set({ industry_classified_at: null })
+      .where(and(inArray(employers.id, employerIds), sql`${employers.industry} IS NULL`));
+  }
+
+  /**
+   * What the industry classifier sees of each firm, in three batched reads:
+   * its machine name, its mail domains, and up to `contactsPerFirm` of the
+   * contacts visible in this workspace — title / stated focus / bio as the
+   * workspace sees them, so a Get Full Profile bio (an overlay) counts.
+   * Contacts with a bio come first. Never email notes, which are private to
+   * the people on the email.
+   */
+  async findIndustryEvidence(
+    workspaceId: string,
+    employerIds: string[],
+    contactsPerFirm = 6,
+  ): Promise<FirmIndustryEvidence[]> {
+    const ids = [...new Set(employerIds)];
+    if (!workspaceId || ids.length === 0) return [];
+    const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
+    const [firms, domainRows, contactRows] = await Promise.all([
+      this.db
+        .select({ id: employers.id, name: employers.name })
+        .from(employers)
+        .where(inArray(employers.id, ids))
+        .orderBy(asc(employers.id)),
+      this.db
+        .select({ employerId: employerDomains.employer_id, domain: employerDomains.domain })
+        .from(employerDomains)
+        .where(inArray(employerDomains.employer_id, ids))
+        .orderBy(asc(employerDomains.employer_id), asc(employerDomains.domain)),
+      this.db.execute<{
+        employer_id: string;
+        title: string | null;
+        specialization: string | null;
+        bio: string | null;
+      }>(sql`
+        SELECT employer_id, title, specialization, bio
+        FROM (
+          SELECT
+            co.employer_id,
+            co.title,
+            co.specialization,
+            left(co.bio, 400) AS bio,
+            row_number() OVER (
+              PARTITION BY co.employer_id
+              ORDER BY (co.bio IS NULL), (co.title IS NULL), co.created_at
+            ) AS rn
+          FROM ${correspondentWorkspaceEffective} co
+          WHERE co.workspace_id = ${workspaceId}
+            AND co.employer_id IN (${idList})
+            AND (co.title IS NOT NULL OR co.specialization IS NOT NULL OR co.bio IS NOT NULL)
+        ) ranked
+        WHERE rn <= ${contactsPerFirm}
+        ORDER BY employer_id, rn
+      `),
+    ]);
+
+    const domainsById = new Map<string, string[]>();
+    for (const r of domainRows) {
+      const list = domainsById.get(r.employerId) ?? [];
+      list.push(r.domain);
+      domainsById.set(r.employerId, list);
+    }
+    const contactsById = new Map<string, FirmIndustryEvidence['contacts']>();
+    for (const r of contactRows.rows) {
+      const list = contactsById.get(r.employer_id) ?? [];
+      list.push({ title: r.title, specialization: r.specialization, bio: r.bio });
+      contactsById.set(r.employer_id, list);
+    }
+    return firms.map((f) => ({
+      id: f.id,
+      name: f.name,
+      domains: domainsById.get(f.id) ?? [],
+      contacts: contactsById.get(f.id) ?? [],
+    }));
+  }
+
+  /**
+   * Write classifier labels in one statement. Only fills a NULL machine
+   * industry, so a value set meanwhile (a pipeline override, a seed) is kept;
+   * the per-workspace curation overlay is never touched and still wins on
+   * read. Returns the ids actually written.
+   */
+  async fillIndustries(rows: Array<{ id: string; industry: string }>): Promise<string[]> {
+    if (rows.length === 0) return [];
+    const values = sql.join(
+      rows.map((r) => sql`(${r.id}::uuid, ${r.industry})`),
+      sql`, `,
+    );
+    const { rows: written } = await this.db.execute<{ id: string }>(sql`
+      UPDATE ${employers} AS e
+      SET industry = v.industry
+      FROM (VALUES ${values}) AS v(id, industry)
+      WHERE e.id = v.id AND e.industry IS NULL
+      RETURNING e.id
+    `);
+    return written.map((r) => r.id);
   }
 
   /**

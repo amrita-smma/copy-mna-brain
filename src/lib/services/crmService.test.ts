@@ -254,6 +254,46 @@ describe('CRMService.getEmployerDetail', () => {
     expect(detail.notes).toHaveLength(1);
     expect(detail.topics).toHaveLength(1);
     expect(detail.team).toHaveLength(1);
+    expect(detail.inferred_focus).toEqual({});
+  });
+
+  it("maps each contact's AI-inferred focus from one batched read", async () => {
+    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
+    correspondentRepo.findByEmployerId.mockResolvedValue([
+      { id: 'c0', name: 'Sara', is_primary: true },
+      { id: 'c1', name: 'James', is_primary: false },
+    ]);
+    noteRepo.findByEmployerId.mockResolvedValue([]);
+    topicRepo.listForEmployer.mockResolvedValue([]);
+    teamRepo.listForEmployer.mockResolvedValue([]);
+    emailRepo.countByEmployer.mockResolvedValue(0);
+    emailRepo.findByEmployerId.mockResolvedValue([]);
+    relatedCompanyRepo.listForEmployer.mockResolvedValue([]);
+    const findInferredFocus = vi
+      .fn()
+      .mockResolvedValue([{ correspondentId: 'c1', industryFocus: 'TMT', areaFocus: 'Indonesia' }]);
+    const service = new CRMService(
+      employerRepo as never,
+      correspondentRepo as never,
+      noteRepo as never,
+      topicRepo as never,
+      emailRepo as never,
+      teamRepo as never,
+      employerCurationRepo as never,
+      correspondentCurationRepo as never,
+      relatedCompanyRepo as never,
+      companyRepo as never,
+      workspaceCorrespondentRepo as never,
+      WORKSPACE_ID,
+      contactEnrichment,
+      { findInferredFocus },
+    );
+
+    const detail = await service.getEmployerDetail('e1');
+
+    expect(findInferredFocus).toHaveBeenCalledTimes(1);
+    expect(findInferredFocus).toHaveBeenCalledWith(WORKSPACE_ID, ['c0', 'c1']);
+    expect(detail.inferred_focus).toEqual({ c1: { industry_focus: 'TMT', area_focus: 'Indonesia' } });
   });
 
   it('collapses auto + manual rows for the same company into one (manual wins, evidence merged)', async () => {

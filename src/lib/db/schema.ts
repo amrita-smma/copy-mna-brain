@@ -85,6 +85,7 @@ export const jobType = pgEnum("job_type", [
   "bot_task_summary",
   "bot_reply",
   "contact_relationship_overview",
+  "firm_industry_classification",
 ]);
 export const l1Result = pgEnum("l1_result", ["pass", "fail", "inconclusive"]);
 export const screeningState = pgEnum("screening_state", [
@@ -1794,6 +1795,9 @@ export const employers = pgTable(
     updated_at: timestamp({ withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    // When the industry classifier last picked this firm up (set on claim,
+    // whatever it answered). See 20261026000000_firm_industry_classification.sql.
+    industry_classified_at: timestamp({ withTimezone: true, mode: "string" }),
   },
   (table) => ({
     employersNormalizedNameKey: unique("employers_normalized_name_key").on(
@@ -1964,6 +1968,10 @@ export const contactRelationshipOverviews = pgTable(
       .default([])
       .notNull(),
     role_summary: text(),
+    // AI-inferred fallbacks for an empty Industry / Area Focus; never copied
+    // into correspondents.specialization / coverage_region.
+    inferred_industry_focus: text(),
+    inferred_area_focus: text(),
     input_hash: text(),
     job_id: uuid(),
     generated_at: timestamp({ withTimezone: true, mode: "string" }),

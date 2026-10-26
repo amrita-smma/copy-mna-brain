@@ -51,6 +51,8 @@ export const AUTO_ENRICH_PRIORITY = -1;
 export const AUTO_ENRICH_WINDOW_DAYS = 7;
 /** Runs one workspace's sweep may queue per hour — the queue runs one at a time. */
 export const AUTO_ENRICH_PER_SWEEP = 5;
+/** Most runs one backfill call may queue; call again for the next batch. */
+export const BACKFILL_MAX_PER_CALL = 50;
 
 /**
  * Whether web research has a name to search for: more than the address, and
@@ -239,6 +241,37 @@ export class CrmContactEnrichmentService {
       if (created) queued += 1;
     }
     return queued;
+  }
+
+  /**
+   * One-off backfill of web profiles for existing relationships: queues a
+   * Get Full Profile run for up to `limit` (capped at
+   * {@link BACKFILL_MAX_PER_CALL}) contacts with a two-way exchange and no
+   * bio, most recently heard from first. Runs queue at
+   * {@link AUTO_ENRICH_PRIORITY}, below user clicks, and the Workforce works
+   * through them one at a time. Idempotent like the sweep: a contact with any
+   * earlier run is never picked again, so repeated calls continue the backlog.
+   */
+  async backfillProfiles(
+    limit: number,
+    minEmailsFromThem = 1,
+  ): Promise<{ candidates: number; queued: number }> {
+    const cap = Math.max(0, Math.min(Math.floor(limit), BACKFILL_MAX_PER_CALL));
+    const candidates = await this.correspondentRepo.findTwoWayWithoutProfile(
+      this.workspaceId,
+      CRM_CONTACT_AGENT_NAME,
+      cap,
+      minEmailsFromThem,
+    );
+    let queued = 0;
+    for (const c of candidates) {
+      const { created } = await this.enrich(c.id, {
+        priority: AUTO_ENRICH_PRIORITY,
+        triggerSource: 'api',
+      });
+      if (created) queued += 1;
+    }
+    return { candidates: candidates.length, queued };
   }
 
   /**

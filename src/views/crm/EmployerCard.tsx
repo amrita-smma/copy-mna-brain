@@ -611,6 +611,7 @@ function ExpandedTabs({
         <ContactsTab
           employerId={employerId}
           correspondents={detail.correspondents}
+          inferredFocus={detail.inferred_focus ?? {}}
           matchedContactIds={matchedContactIds}
           searchTerm={searchTerm}
           onAddContact={onAddContact}
@@ -656,6 +657,7 @@ function ExpandedTabs({
 function ContactsTab({
   employerId,
   correspondents,
+  inferredFocus,
   matchedContactIds,
   searchTerm,
   onAddContact,
@@ -664,6 +666,8 @@ function ContactsTab({
 }: {
   employerId: string;
   correspondents: Correspondent[];
+  /** AI-inferred focus by contact id; the fallback for an empty focus cell. */
+  inferredFocus: NonNullable<EmployerDetail["inferred_focus"]>;
   /** Server-matched contact ids; non-empty narrows the list to them. */
   matchedContactIds: string[];
   searchTerm?: string;
@@ -880,10 +884,16 @@ function ContactsTab({
                     )}
                   </div>
                   <div className="min-w-0 px-2.5 py-1.5">
-                    <FocusTag value={c.coverage_region} />
+                    <FocusTag
+                      value={c.coverage_region}
+                      inferred={inferredFocus[c.id]?.area_focus}
+                    />
                   </div>
                   <div className="min-w-0 px-2.5 py-1.5">
-                    <FocusTag value={c.specialization} />
+                    <FocusTag
+                      value={c.specialization}
+                      inferred={inferredFocus[c.id]?.industry_focus}
+                    />
                   </div>
                   <div className="min-w-0 px-2.5 py-1.5">
                     <ContactProfileCell
@@ -1014,7 +1024,24 @@ const CONTACT_GRID =
   "grid grid-cols-[minmax(0,2.2fr)_minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,3fr)_15rem]";
 
 /** Area / industry focus as one outlined tag, or "—". */
-function FocusTag({ value }: { value: string | null }) {
+/**
+ * A contact's stated focus, else the focus the relationship overview inferred
+ * from their emails — dashed and marked with a sparkle so it never reads as a
+ * stated fact — else a dash.
+ */
+function FocusTag({ value, inferred }: { value: string | null; inferred?: string | null }) {
+  if (!value && inferred) {
+    return (
+      <span
+        className="inline-flex h-5 max-w-full items-center gap-1 rounded border border-dashed bg-muted px-1.5 text-xs text-muted-foreground"
+        title="AI-inferred from email – it can make mistakes"
+        data-testid="crm-contact-inferred-focus"
+      >
+        <Sparkles className="h-3 w-3 shrink-0 text-blue-600 dark:text-blue-400" aria-label="AI-inferred" />
+        <TruncatedText text={inferred} />
+      </span>
+    );
+  }
   if (!value) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="inline-flex h-5 max-w-full items-center rounded border bg-muted px-1.5 text-xs text-muted-foreground">

@@ -45,6 +45,20 @@ export const overviewOutputSchema = z.object({
     .describe(
       "One sentence on the contact's role in investment across all their emails, starting with their first name; null when no note shows it.",
     ),
+  inferredIndustryFocus: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'The sector or product the contact most often works on across these notes, as a short tag of 1–4 words (e.g. "Private credit", "Real estate", "Healthcare"); null when the notes do not show a pattern.',
+    ),
+  inferredAreaFocus: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'The geography of the companies and deals the contact works on across these notes, as a short tag (e.g. "Indonesia", "Southeast Asia"); null when the notes do not show one. Not where they are based.',
+    ),
 });
 
 export type OverviewOutput = z.infer<typeof overviewOutputSchema>;
@@ -72,7 +86,18 @@ const SYSTEM_PROMPT =
   'Also write one sentence on the contact\'s role in investment: the pattern across their emails, not one email — what they ' +
   'most often raise with us, the kind of capital or advice they bring, and who they pull in. Start with their first name and ' +
   'refer to them by name or "they", never by a guessed gender. Name no specific deal, target, price or term. ' +
-  'Return null for it when neither the role signals nor the notes show their role.';
+  'Return null for it when neither the role signals nor the notes show their role. ' +
+  'Finally, infer two short tags from the pattern across the notes: the sector or product the contact most often works ' +
+  'on with us (their industry focus), and the geography of the companies and deals they work on (their area focus) — ' +
+  'not where they are based. Return null for either when the notes do not show a clear pattern; one email is not a pattern.';
+
+// The CRM shows a focus as one short tag; a longer answer is a sentence, not a tag.
+const MAX_INFERRED_FOCUS_CHARS = 60;
+
+function inferredFocusTag(raw: string | null | undefined): string | null {
+  const v = raw?.trim().replace(/\.$/, '');
+  return v && v.length <= MAX_INFERRED_FOCUS_CHARS ? v : null;
+}
 
 /** A linked deal as the prompt shows it; `ref` is what the model answers with. */
 export interface OverviewPromptDeal {
@@ -108,6 +133,7 @@ export function buildOverviewPrompt(data: {
     '',
     'Write a concise 2–4 sentence executive relationship overview based strictly on the above. Do not quote. It must end with "Best next move: …".',
     `Then one sentence on ${data.contactName}'s role in investment across these emails (the pattern, not one email), or null.`,
+    `Then ${data.contactName}'s industry focus and area focus as short tags inferred from the pattern across these notes, each or null.`,
   ];
   if (data.hasDeals) {
     lines.push(
@@ -120,7 +146,13 @@ export function buildOverviewPrompt(data: {
 export async function runContactRelationshipOverview(
   payload: ContactRelationshipOverviewPayload,
   deps: ContactRelationshipOverviewDeps,
-): Promise<{ overview: string; dealNotes: OverviewDealNote[]; roleSummary: string | null }> {
+): Promise<{
+  overview: string;
+  dealNotes: OverviewDealNote[];
+  roleSummary: string | null;
+  inferredIndustryFocus: string | null;
+  inferredAreaFocus: string | null;
+}> {
   const { correspondentId, workspaceId, jobId } = payload;
   if (!correspondentId) throw new Error('contactRelationshipOverview: `correspondentId` is required');
   if (!workspaceId) throw new Error('contactRelationshipOverview: `workspaceId` is required');
@@ -232,6 +264,8 @@ export async function runContactRelationshipOverview(
 
     const overview = result.overview.trim();
     const roleSummary = result.roleSummary?.trim() || null;
+    const inferredIndustryFocus = inferredFocusTag(result.inferredIndustryFocus);
+    const inferredAreaFocus = inferredFocusTag(result.inferredAreaFocus);
     const companyByRef = new Map(promptDeals.map((d) => [d.ref, d.companyId]));
     const dealNotes: OverviewDealNote[] = [];
     for (const dn of result.dealNotes) {
@@ -253,6 +287,8 @@ export async function runContactRelationshipOverview(
       inputHash: currentHash,
       dealNotes,
       roleSummary,
+      inferredIndustryFocus,
+      inferredAreaFocus,
     });
 
     if (jobId) {
@@ -266,7 +302,7 @@ export async function runContactRelationshipOverview(
       }
     }
 
-    return { overview, dealNotes, roleSummary };
+    return { overview, dealNotes, roleSummary, inferredIndustryFocus, inferredAreaFocus };
   } catch (err) {
     try {
       await contactConversationRepo.markOverviewFailed(workspaceId, correspondentId);

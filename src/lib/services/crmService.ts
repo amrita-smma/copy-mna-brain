@@ -1,5 +1,6 @@
 import type {
   CompanyRepository,
+  ContactConversationRepository,
   Correspondent,
   CorrespondentCurationEdit,
   CorrespondentInsert,
@@ -125,6 +126,13 @@ export interface EmployerDetail {
   email_count: number;
   last_contact_at: string | null;
   related_companies: RelatedCompanyWithEvidence[];
+  /**
+   * Industry / Area Focus the relationship overview inferred from each
+   * contact's emails, by contact id. A fallback the contacts table shows,
+   * badged, only where the contact's own `specialization` / `coverage_region`
+   * is empty. Contacts with no inference are absent.
+   */
+  inferred_focus: Record<string, { industry_focus: string | null; area_focus: string | null }>;
 }
 
 export interface CRMInsights {
@@ -291,6 +299,8 @@ export class CRMService {
     // Fills a new primary contact's profile; absent where the caller never
     // changes the primary (and in tests that don't exercise it).
     private contactEnrichment?: Pick<CrmContactEnrichmentService, "enrichNewPrimary">,
+    // Reads the AI-inferred focus fallbacks; absent in tests that don't need them.
+    private contactConversationRepo?: Pick<ContactConversationRepository, "findInferredFocus">,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -346,10 +356,25 @@ export class CRMService {
     const primary_pic =
       correspondents.find((c) => c.is_primary) ?? correspondents[0] ?? null;
 
+    const inferred = this.contactConversationRepo
+      ? await this.contactConversationRepo.findInferredFocus(
+          this.workspaceId,
+          correspondents.map((c) => c.id),
+        )
+      : [];
+    const inferred_focus: EmployerDetail["inferred_focus"] = {};
+    for (const f of inferred) {
+      inferred_focus[f.correspondentId] = {
+        industry_focus: f.industryFocus,
+        area_focus: f.areaFocus,
+      };
+    }
+
     return {
       employer,
       primary_pic,
       correspondents,
+      inferred_focus,
       notes,
       topics,
       team,

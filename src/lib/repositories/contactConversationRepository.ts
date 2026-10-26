@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   contactRelationshipOverviews,
   emails,
@@ -77,6 +77,13 @@ export interface NoteInputHash {
 }
 
 /** A contact whose notes changed since `since`, with what its overview is built from. */
+/** A contact's AI-inferred focus, from its relationship overview. */
+export interface InferredContactFocus {
+  correspondentId: string;
+  industryFocus: string | null;
+  areaFocus: string | null;
+}
+
 export interface OverviewRefreshCandidate {
   correspondentId: string;
   noteCount: number;
@@ -667,6 +674,8 @@ export class ContactConversationRepository {
       inputHash: string;
       dealNotes: OverviewDealNote[];
       roleSummary: string | null;
+      inferredIndustryFocus?: string | null;
+      inferredAreaFocus?: string | null;
     },
   ): Promise<void> {
     if (!workspaceId || !correspondentId) return;
@@ -677,6 +686,8 @@ export class ContactConversationRepository {
         overview: ready.text,
         deal_notes: ready.dealNotes,
         role_summary: ready.roleSummary,
+        inferred_industry_focus: ready.inferredIndustryFocus ?? null,
+        inferred_area_focus: ready.inferredAreaFocus ?? null,
         input_hash: ready.inputHash,
         generated_at: sql`now()`,
         updated_at: sql`now()`,
@@ -687,6 +698,36 @@ export class ContactConversationRepository {
           eq(contactRelationshipOverviews.correspondent_id, correspondentId),
         ),
       );
+  }
+
+  /**
+   * The AI-inferred Industry / Area Focus of many contacts in one query, for
+   * the contacts table's fallback where a stated focus is empty. Contacts with
+   * neither are absent. Ordered by contact id.
+   */
+  async findInferredFocus(
+    workspaceId: string,
+    correspondentIds: string[],
+  ): Promise<InferredContactFocus[]> {
+    if (!workspaceId || correspondentIds.length === 0) return [];
+    return this.db
+      .select({
+        correspondentId: contactRelationshipOverviews.correspondent_id,
+        industryFocus: contactRelationshipOverviews.inferred_industry_focus,
+        areaFocus: contactRelationshipOverviews.inferred_area_focus,
+      })
+      .from(contactRelationshipOverviews)
+      .where(
+        and(
+          eq(contactRelationshipOverviews.workspace_id, workspaceId),
+          inArray(contactRelationshipOverviews.correspondent_id, correspondentIds),
+          or(
+            isNotNull(contactRelationshipOverviews.inferred_industry_focus),
+            isNotNull(contactRelationshipOverviews.inferred_area_focus),
+          ),
+        ),
+      )
+      .orderBy(asc(contactRelationshipOverviews.correspondent_id));
   }
 
   /**

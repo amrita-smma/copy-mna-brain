@@ -241,6 +241,7 @@ describe('classifyApiRoute — rss feed admin routes', () => {
 
   it('gates the post-ingest CRM overview refresh behind the shared secret', () => {
     expect(classifyApiRoute('/api/auth/crm-overviews/refresh')).toBe('secret');
+    expect(classifyApiRoute('/api/auth/crm-contacts/backfill-profiles')).toBe('secret');
   });
 
   it('gates rss-feeds sub-paths behind the shared secret', () => {

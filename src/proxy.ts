@@ -39,6 +39,7 @@ const ADMIN_ROUTES = new Set([
   '/api/auth/api-keys',
   '/api/auth/rss-feeds',
   '/api/auth/crm-overviews/refresh',
+  '/api/auth/crm-contacts/backfill-profiles',
 ]);
 
 // Prefixes whose routes authenticate themselves inside the handler (API key,

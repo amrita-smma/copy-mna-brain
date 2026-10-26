@@ -466,3 +466,57 @@ describe('CorrespondentRepository.findNewlyTwoWayWithoutProfile', () => {
     ]);
   });
 });
+
+describe('CorrespondentRepository.findTwoWayWithoutProfile', () => {
+  it('needs both directions at any time, applies the sweep exclusions, newest first', async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [{ id: 'c1', name: 'Jane Doe', email: 'jane@gs.com' }] });
+    const repo = new CorrespondentRepository({ execute } as never);
+
+    await expect(repo.findTwoWayWithoutProfile('ws-1', 'crm_contact', 50, 3)).resolves.toEqual([
+      { id: 'c1', name: 'Jane Doe', email: 'jane@gs.com' },
+    ]);
+
+    const query = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+    const text = query.sql.replace(/\s+/g, ' ');
+    expect(text).toContain('JOIN from_us fu ON fu.correspondent_id = ft.correspondent_id');
+    expect(text).toContain("COALESCE(btrim(ce.bio), '') = ''");
+    expect(text).toContain("q.trigger_meta->>'correspondent_id' = ce.id::text");
+    expect(text).not.toContain('sent_at >=');
+    expect(text).toContain('ORDER BY ft.last_at DESC');
+    expect(query.params).toEqual(expect.arrayContaining(['ws-1', 'crm_contact', 50, 3]));
+  });
+
+  it('returns [] without hitting the DB for a zero limit', async () => {
+    const execute = vi.fn();
+    const repo = new CorrespondentRepository({ execute } as never);
+    expect(await repo.findTwoWayWithoutProfile('ws-1', 'crm_contact', 0)).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('CorrespondentRepository.fillAddressLikeNames', () => {
+  it('returns [] without hitting the DB when there is nothing to fill', async () => {
+    const execute = vi.fn();
+    const repo = new CorrespondentRepository({ execute } as never);
+    expect(await repo.fillAddressLikeNames([])).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('fills every name in one UPDATE guarded to address-like, non-manual rows', async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [{ id: 'c1' }] });
+    const repo = new CorrespondentRepository({ execute } as never);
+
+    await expect(
+      repo.fillAddressLikeNames([
+        { id: 'c1', name: 'Matthieu Simoncini' },
+        { id: 'c2', name: 'Xavier Denazelle' },
+      ]),
+    ).resolves.toEqual(['c1']);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const { sql: text, params } = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+    expect(text).toContain("co.origin <> 'manual'");
+    expect(text).toContain("strpos(co.name, '@') > 0");
+    expect(params).toEqual(['c1', 'Matthieu Simoncini', 'c2', 'Xavier Denazelle']);
+  });
+});

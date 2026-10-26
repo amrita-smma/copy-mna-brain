@@ -167,6 +167,11 @@ export interface EmployerDetail {
   email_count: number;
   last_contact_at: string | null;
   related_companies: EmployerRelatedCompany[];
+  /**
+   * Industry / Area Focus inferred from each contact's emails, by contact id —
+   * shown badged only where the contact's own focus is empty.
+   */
+  inferred_focus?: Record<string, { industry_focus: string | null; area_focus: string | null }>;
 }
 
 export interface Insights {

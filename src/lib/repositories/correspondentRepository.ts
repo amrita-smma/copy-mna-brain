@@ -57,6 +57,49 @@ function addressLikeNameSql(name: SQL, email: SQL): SQL {
 }
 
 /**
+ * FROM/JOINs for a direct exchange between a member of this workspace and a
+ * contact (`cp`), `contactRole` being the contact's side ('from' = they wrote
+ * to us). The emails are `em`.
+ */
+function directExchangeSql(workspaceId: string, contactRole: 'from' | 'to_cc'): SQL {
+  return sql`
+      FROM analytics.emails em
+      JOIN analytics.email_workspace ew
+        ON ew.email_id = em.id AND ew.workspace_id = ${workspaceId}
+      JOIN analytics.email_participants cp
+        ON cp.email_id = em.id
+       AND cp.correspondent_id IS NOT NULL
+       AND cp.user_id IS NULL
+       AND ${contactRole === 'from' ? sql`cp.role = 'from'` : sql`cp.role IN ('to', 'cc')`}
+      JOIN analytics.email_participants up
+        ON up.email_id = em.id
+       AND up.user_id IS NOT NULL
+       AND up.address <> cp.address
+       AND ${contactRole === 'from' ? sql`up.role IN ('to', 'cc')` : sql`up.role = 'from'`}
+      JOIN public.user_workspaces uw
+        ON uw.user_id = up.user_id AND uw.workspace_id = ew.workspace_id`;
+}
+
+/**
+ * A contact (`ce`, a `correspondent_workspace_effective` row) worth a web
+ * profile run: no bio yet, a name that is more than the address or its local
+ * part, not internal, and no `agentName` run in this workspace ever (any
+ * status — a run that found nothing is not retried).
+ */
+function profileGapSql(workspaceId: string, agentName: string): SQL {
+  return sql`COALESCE(btrim(ce.bio), '') = ''
+        AND ce.type IS DISTINCT FROM 'internal'
+        AND NOT ${addressLikeNameSql(sql`ce.name`, sql`ce.email`)}
+        AND lower(btrim(ce.name)) <> lower(split_part(COALESCE(ce.email, ''), '@', 1))
+        AND NOT EXISTS (
+          SELECT 1 FROM public.ai_workforce_queue q
+          WHERE q.workspace_id = ${workspaceId}
+            AND q.agent_name = ${agentName}
+            AND q.trigger_meta->>'correspondent_id' = ce.id::text
+        )`;
+}
+
+/**
  * Facets for the banker-matching search (`CorrespondentRepository.search`).
  *
  * Every facet is OPTIONAL and every provided facet is scored, not required: a
@@ -554,24 +597,7 @@ export class CorrespondentRepository {
     agentName: string,
     limit: number,
   ): Promise<Array<{ id: string; name: string; email: string | null; first_reply_at: string }>> {
-    // A direct exchange between a member of this workspace and the contact,
-    // `contactRole` being the contact's side ('from' = they wrote to us).
-    const exchange = (contactRole: 'from' | 'to_cc') => sql`
-      FROM analytics.emails em
-      JOIN analytics.email_workspace ew
-        ON ew.email_id = em.id AND ew.workspace_id = ${workspaceId}
-      JOIN analytics.email_participants cp
-        ON cp.email_id = em.id
-       AND cp.correspondent_id IS NOT NULL
-       AND cp.user_id IS NULL
-       AND ${contactRole === 'from' ? sql`cp.role = 'from'` : sql`cp.role IN ('to', 'cc')`}
-      JOIN analytics.email_participants up
-        ON up.email_id = em.id
-       AND up.user_id IS NOT NULL
-       AND up.address <> cp.address
-       AND ${contactRole === 'from' ? sql`up.role IN ('to', 'cc')` : sql`up.role = 'from'`}
-      JOIN public.user_workspaces uw
-        ON uw.user_id = up.user_id AND uw.workspace_id = ew.workspace_id`;
+    const exchange = (contactRole: 'from' | 'to_cc') => directExchangeSql(workspaceId, contactRole);
 
     const { rows } = await this.db.execute<{
       id: string;
@@ -604,16 +630,7 @@ export class CorrespondentRepository {
       FROM first_reply fr
       JOIN public.correspondent_workspace_effective ce
         ON ce.id = fr.correspondent_id AND ce.workspace_id = ${workspaceId}
-      WHERE COALESCE(btrim(ce.bio), '') = ''
-        AND ce.type IS DISTINCT FROM 'internal'
-        AND NOT ${addressLikeNameSql(sql`ce.name`, sql`ce.email`)}
-        AND lower(btrim(ce.name)) <> lower(split_part(COALESCE(ce.email, ''), '@', 1))
-        AND NOT EXISTS (
-          SELECT 1 FROM public.ai_workforce_queue q
-          WHERE q.workspace_id = ${workspaceId}
-            AND q.agent_name = ${agentName}
-            AND q.trigger_meta->>'correspondent_id' = ce.id::text
-        )
+      WHERE ${profileGapSql(workspaceId, agentName)}
       ORDER BY fr.first_reply_at ASC, ce.id
       LIMIT ${limit}
     `);
@@ -623,6 +640,44 @@ export class CorrespondentRepository {
       email: r.email,
       first_reply_at: new Date(r.first_reply_at as string | Date).toISOString(),
     }));
+  }
+
+  /**
+   * The profile backfill's candidates: contacts in this workspace with a
+   * two-way exchange at any time (they wrote to a member and a member wrote
+   * to them), at least `minEmailsFromThem` emails from them, and the same
+   * eligibility as the hourly sweep (no bio, a searchable name, not internal,
+   * never run by `agentName` here). Most recently heard from first, so a
+   * capped backfill spends its runs on the live relationships.
+   */
+  async findTwoWayWithoutProfile(
+    workspaceId: string,
+    agentName: string,
+    limit: number,
+    minEmailsFromThem = 1,
+  ): Promise<Array<{ id: string; name: string; email: string | null }>> {
+    if (!workspaceId || limit <= 0) return [];
+    const { rows } = await this.db.execute<{ id: string; name: string; email: string | null }>(sql`
+      WITH from_them AS (
+        SELECT cp.correspondent_id, max(em.sent_at) AS last_at, count(DISTINCT em.id) AS n
+        ${directExchangeSql(workspaceId, 'from')}
+        GROUP BY cp.correspondent_id
+      ),
+      from_us AS (
+        SELECT DISTINCT cp.correspondent_id
+        ${directExchangeSql(workspaceId, 'to_cc')}
+      )
+      SELECT ce.id, ce.name, ce.email
+      FROM from_them ft
+      JOIN from_us fu ON fu.correspondent_id = ft.correspondent_id
+      JOIN public.correspondent_workspace_effective ce
+        ON ce.id = ft.correspondent_id AND ce.workspace_id = ${workspaceId}
+      WHERE ft.n >= ${minEmailsFromThem}
+        AND ${profileGapSql(workspaceId, agentName)}
+      ORDER BY ft.last_at DESC, ce.id
+      LIMIT ${limit}
+    `);
+    return rows.map((r) => ({ id: r.id, name: r.name, email: r.email }));
   }
 
   /**
@@ -753,6 +808,31 @@ export class CorrespondentRepository {
    * index from a bare ON CONFLICT, and Drizzle 0.45 honors `targetWhere` on
    * `onConflictDoUpdate`.
    */
+  /**
+   * Give contacts whose name is still their address a name spelled out of it
+   * (`nameFromEmailLocalPart`), in one statement. Skips a row whose stored
+   * name is already real and a human-added (`origin = 'manual'`) row, so it
+   * can only fill a gap; a real name from a later email then replaces it
+   * through `upsertBatch`. Returns the ids renamed.
+   */
+  async fillAddressLikeNames(rows: Array<{ id: string; name: string }>): Promise<string[]> {
+    if (rows.length === 0) return [];
+    const values = sql.join(
+      rows.map((r) => sql`(${r.id}::uuid, ${r.name})`),
+      sql`, `,
+    );
+    const { rows: renamed } = await this.db.execute<{ id: string }>(sql`
+      UPDATE ${correspondents} AS co
+      SET name = v.name, updated_at = now()
+      FROM (VALUES ${values}) AS v(id, name)
+      WHERE co.id = v.id
+        AND co.origin <> 'manual'
+        AND ${addressLikeNameSql(sql`co.name`, sql`co.email`)}
+      RETURNING co.id
+    `);
+    return renamed.map((r) => r.id);
+  }
+
   async upsertBatch(
     rows: CorrespondentInsert[],
   ): Promise<Array<{ id: string; email: string | null }>> {

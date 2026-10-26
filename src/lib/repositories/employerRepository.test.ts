@@ -340,4 +340,120 @@ describe('EmployerRepository.list (sort)', () => {
     expect(leading.sql).not.toContain('DROP');
     expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at"[\s\S]*\) DESC NULLS LAST$/);
   });
+
+  describe('claimForIndustryClassification', () => {
+    it('claims in one statement scoped to the workspace and skips locked rows', async () => {
+      const execute = vi.fn().mockResolvedValue({ rows: [{ id: 'e1' }, { id: 'e2' }] });
+      const r = new EmployerRepository({ execute } as never);
+
+      await expect(r.claimForIndustryClassification('w1', '2026-10-12T00:00:00.000Z', 60)).resolves.toEqual([
+        'e1',
+        'e2',
+      ]);
+
+      const { sql: text, params } = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+      expect(text).toContain('SET industry_classified_at = now()');
+      expect(text).toContain('e.industry IS NULL');
+      expect(text).toContain('c.industry IS NOT NULL');
+      expect(text).toContain('FOR UPDATE SKIP LOCKED');
+      expect(params).toEqual(['2026-10-12T00:00:00.000Z', 'w1', 'w1', 60]);
+    });
+
+    it('returns [] without hitting the DB when the limit or workspace is empty', async () => {
+      const execute = vi.fn();
+      const r = new EmployerRepository({ execute } as never);
+      expect(await r.claimForIndustryClassification('w1', 'x', 0)).toEqual([]);
+      expect(await r.claimForIndustryClassification('', 'x', 10)).toEqual([]);
+      expect(execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findIndustryEvidence', () => {
+    it('returns [] without hitting the DB when the id list or workspace is empty', async () => {
+      const execute = vi.fn();
+      const r = new EmployerRepository({ execute, select: vi.fn() } as never);
+      expect(await r.findIndustryEvidence('w1', [])).toEqual([]);
+      expect(await r.findIndustryEvidence('', ['a'])).toEqual([]);
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('groups domains and contacts under each firm from three batched reads', async () => {
+      const firmsQuery = { from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), orderBy: vi.fn() };
+      const domainsQuery = { from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), orderBy: vi.fn() };
+      firmsQuery.orderBy.mockResolvedValue([
+        { id: 'a', name: 'Alpha' },
+        { id: 'b', name: 'Beta' },
+      ]);
+      domainsQuery.orderBy.mockResolvedValue([
+        { employerId: 'a', domain: 'alpha.com' },
+        { employerId: 'a', domain: 'alpha.sg' },
+      ]);
+      const select = vi.fn().mockReturnValueOnce(firmsQuery).mockReturnValueOnce(domainsQuery);
+      const execute = vi.fn().mockResolvedValue({
+        rows: [{ employer_id: 'b', title: 'Partner', specialization: null, bio: 'A law firm.' }],
+      });
+      const r = new EmployerRepository({ select, execute } as never);
+
+      const out = await r.findIndustryEvidence('w1', ['a', 'b', 'a'], 4);
+
+      expect(out).toEqual([
+        { id: 'a', name: 'Alpha', domains: ['alpha.com', 'alpha.sg'], contacts: [] },
+        {
+          id: 'b',
+          name: 'Beta',
+          domains: [],
+          contacts: [{ title: 'Partner', specialization: null, bio: 'A law firm.' }],
+        },
+      ]);
+      expect(select).toHaveBeenCalledTimes(2);
+      const { sql: text, params } = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+      expect(text).toContain('row_number() OVER');
+      expect(text).toContain('"correspondent_workspace_effective" co');
+      expect(params).toEqual(['w1', 'a', 'b', 4]);
+    });
+  });
+
+  describe('releaseIndustryClaims', () => {
+    it('does nothing for an empty list', async () => {
+      const db = makeDb();
+      await new EmployerRepository(db as never).releaseIndustryClaims([]);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('clears the claim stamp of still-unlabelled firms in one UPDATE', async () => {
+      const db = makeDb();
+      db.where.mockResolvedValueOnce(undefined);
+      await new EmployerRepository(db as never).releaseIndustryClaims(['a', 'b']);
+      expect(db.set).toHaveBeenCalledWith({ industry_classified_at: null });
+      const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(text).toContain('"employers"."industry" IS NULL');
+      expect(params).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('fillIndustries', () => {
+    it('returns [] without hitting the DB when there is nothing to write', async () => {
+      const execute = vi.fn();
+      const r = new EmployerRepository({ execute } as never);
+      expect(await r.fillIndustries([])).toEqual([]);
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('writes every label in one UPDATE that only fills a NULL industry', async () => {
+      const execute = vi.fn().mockResolvedValue({ rows: [{ id: 'a' }] });
+      const r = new EmployerRepository({ execute } as never);
+
+      await expect(
+        r.fillIndustries([
+          { id: 'a', industry: 'Legal' },
+          { id: 'b', industry: 'Insurance' },
+        ]),
+      ).resolves.toEqual(['a']);
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      const { sql: text, params } = new PgDialect().sqlToQuery(execute.mock.calls[0][0]);
+      expect(text).toContain('e.industry IS NULL');
+      expect(params).toEqual(['a', 'Legal', 'b', 'Insurance']);
+    });
+  });
 });

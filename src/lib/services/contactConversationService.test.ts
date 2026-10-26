@@ -103,7 +103,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'ready',
         overview: 'Old overview summary.',
-        input_hash: '4:e4',
+        input_hash: 'v2:4:e4',
         generated_at: '2026-10-01T00:00:00Z',
       });
 
@@ -122,7 +122,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'ready',
         overview: 'Fresh overview summary.',
-        input_hash: '4:e4',
+        input_hash: 'v2:4:e4',
         generated_at: '2026-10-01T00:00:00Z',
       });
 
@@ -218,7 +218,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'pending',
         overview: 'Existing text',
-        input_hash: '2:e2',
+        input_hash: 'v2:2:e2',
         generated_at: null,
         updated_at: new Date().toISOString(),
       });
@@ -238,7 +238,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'pending',
         overview: 'Existing text',
-        input_hash: '2:e2',
+        input_hash: 'v2:2:e2',
         generated_at: null,
         updated_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
       });
@@ -258,7 +258,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'ready',
         overview: 'Current overview',
-        input_hash: '3:e3',
+        input_hash: 'v2:3:e3',
         generated_at: '2026-10-15T00:00:00Z',
       });
 
@@ -299,7 +299,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'failed',
         overview: 'Prior text kept',
-        input_hash: '1:e1',
+        input_hash: 'v2:1:e1',
         generated_at: '2026-09-01T00:00:00Z',
       });
 
@@ -320,7 +320,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'ready',
         overview: 'Old text',
-        input_hash: '4:e4',
+        input_hash: 'v2:4:e4',
         generated_at: '2026-10-01T00:00:00Z',
       });
 
@@ -355,7 +355,7 @@ describe('ContactConversationService', () => {
       contactConversationRepo.getOverview.mockResolvedValueOnce({
         status: 'ready',
         overview: 'Text from before the link',
-        input_hash: '3:e3',
+        input_hash: 'v2:3:e3',
         deal_notes: [],
         generated_at: '2026-10-15T00:00:00Z',
       });
@@ -404,7 +404,7 @@ describe('ContactConversationService', () => {
       latestEmailId: 'e2',
       dealCompanyIds: [],
       status: 'ready',
-      inputHash: '2:e2',
+      inputHash: 'v2:2:e2',
       hasText: true,
       updatedAt: ago(30),
       ...over,
@@ -417,11 +417,11 @@ describe('ContactConversationService', () => {
     it('claims only missing or stale overviews no live job holds, and runs them in one job', async () => {
       contactConversationRepo.listOverviewRefreshCandidates.mockResolvedValueOnce([
         candidate({ correspondentId: 'fresh' }),
-        candidate({ correspondentId: 'stale', inputHash: '1:e1' }),
+        candidate({ correspondentId: 'stale', inputHash: 'v2:1:e1' }),
         candidate({ correspondentId: 'new-deal', dealCompanyIds: ['co-1'] }),
         candidate({ correspondentId: 'none', status: null, inputHash: null, hasText: false, updatedAt: null }),
-        candidate({ correspondentId: 'pending-live', status: 'pending', inputHash: '1:e1', updatedAt: ago(1) }),
-        candidate({ correspondentId: 'pending-dead', status: 'pending', inputHash: '1:e1', updatedAt: ago(10) }),
+        candidate({ correspondentId: 'pending-live', status: 'pending', inputHash: 'v2:1:e1', updatedAt: ago(1) }),
+        candidate({ correspondentId: 'pending-dead', status: 'pending', inputHash: 'v2:1:e1', updatedAt: ago(10) }),
         candidate({ correspondentId: 'failed-recent', status: 'failed', updatedAt: ago(10) }),
         candidate({ correspondentId: 'failed-old', status: 'failed', updatedAt: ago(90) }),
       ]);

@@ -25,6 +25,7 @@ vi.mock('@/lib/repositories', async (importOriginal) => {
 
 import {
   AUTO_ENRICH_PER_SWEEP,
+  BACKFILL_MAX_PER_CALL,
   AUTO_ENRICH_PRIORITY,
   ContactNotFoundError,
   CrmContactEnrichmentService,
@@ -52,6 +53,7 @@ function makeService() {
     findById: vi.fn().mockResolvedValue(CONTACT),
     findByEmployerId: vi.fn().mockResolvedValue([CONTACT]),
     findNewlyTwoWayWithoutProfile: vi.fn().mockResolvedValue([]),
+    findTwoWayWithoutProfile: vi.fn().mockResolvedValue([]),
   };
   const employerRepo = {
     findById: vi.fn().mockResolvedValue({ id: 'emp-1', name: 'Evercore' }),
@@ -440,5 +442,41 @@ describe('CrmContactEnrichmentService.enrichNewTwoWayContacts', () => {
       'corr-1',
       'corr-2',
     ]);
+  });
+});
+
+describe('CrmContactEnrichmentService.backfillProfiles', () => {
+  it('asks for two-way contacts without a profile, capped per call', async () => {
+    const { service, correspondentRepo } = makeService();
+
+    await expect(service.backfillProfiles(10_000, 3)).resolves.toEqual({ candidates: 0, queued: 0 });
+
+    expect(correspondentRepo.findTwoWayWithoutProfile).toHaveBeenCalledWith(
+      'ws-1',
+      CRM_CONTACT_AGENT_NAME,
+      BACKFILL_MAX_PER_CALL,
+      3,
+    );
+  });
+
+  it('queues one api-sourced, low-priority run per candidate and counts the new ones', async () => {
+    const { service, correspondentRepo } = makeService();
+    correspondentRepo.findTwoWayWithoutProfile.mockResolvedValue([
+      { id: 'corr-1', name: 'Matthieu Simoncini', email: 'matthieu.simoncini@gs.com' },
+      { id: 'corr-2', name: 'Bob Lee', email: 'bob@gs.com' },
+    ]);
+    mocks.findLatestByCorrespondentId.mockResolvedValue(null);
+    mocks.enqueueAgentRun
+      .mockResolvedValueOnce({ runId: 'run-1', created: true })
+      .mockResolvedValueOnce({ runId: 'run-2', created: false });
+    mocks.findById.mockResolvedValue(queueRow());
+
+    await expect(service.backfillProfiles(2)).resolves.toEqual({ candidates: 2, queued: 1 });
+
+    for (const [, input] of mocks.enqueueAgentRun.mock.calls) {
+      expect(input.triggerSource).toBe('api');
+      expect(input.priority).toBe(AUTO_ENRICH_PRIORITY);
+      expect(input.triggeredByUserId).toBeNull();
+    }
   });
 });

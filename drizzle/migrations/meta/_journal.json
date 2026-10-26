@@ -1310,6 +1310,27 @@
       "when": 1792713602000,
       "tag": "20261023000002_crm_contact_queue_correspondent_index",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "20261026000000_firm_industry_classification",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1792972801000,
+      "tag": "20261026000001_derive_contact_names_from_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1792972802000,
+      "tag": "20261026000002_contact_overview_inferred_focus",
+      "breakpoints": true
     }
   ]
 }
