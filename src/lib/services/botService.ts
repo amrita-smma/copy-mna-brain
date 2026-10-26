@@ -75,13 +75,6 @@ export interface BotMessageJob {
   requestId?: string;
 }
 
-/** The most of a message an @mention hands on. */
-export const MENTION_TEXT_MAX_LENGTH = 4000;
-
-function clip(text: string): string {
-  const trimmed = text.trim();
-  return trimmed.length > MENTION_TEXT_MAX_LENGTH ? `${trimmed.slice(0, MENTION_TEXT_MAX_LENGTH - 1)}…` : trimmed;
-}
 
 /** What the workspace service provides; injected so tests need no DB. */
 export interface BotWorkspaceDeps {
@@ -393,13 +386,13 @@ export class BotService {
     const visible = await this.presentAll(userId, await this.botRepo.listVisible(userId));
     const jobs: BotMessageJob[] = [];
     for (const target of findBotMentions(userText, visible, { excludeId: bot.id, limit: Infinity })) {
-      jobs.push({ userId, origin: { kind: 'user_mention', inBot: bot }, toBotId: target.id, text: clip(userText) });
+      jobs.push({ userId, origin: { kind: 'user_mention', inBot: bot }, toBotId: target.id, text: userText });
     }
     const asked: { id: string; name: string }[] = [];
     for (const target of findBotMentions(replyText, visible, { excludeId: bot.id })) {
       if (jobs.some((j) => j.toBotId === target.id) || input.alreadyPinged?.includes(target.id)) continue;
       asked.push({ id: target.id, name: target.name });
-      jobs.push({ userId, origin: { kind: 'bot_mention', fromBot: bot }, toBotId: target.id, text: clip(replyText) });
+      jobs.push({ userId, origin: { kind: 'bot_mention', fromBot: bot }, toBotId: target.id, text: replyText });
     }
     if (asked.length > 0 && input.chatId && this.workspace.openRequests) {
       try {

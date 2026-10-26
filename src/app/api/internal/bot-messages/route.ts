@@ -3,12 +3,21 @@ import { createDb } from '@/lib/server/db';
 import { JobRepository } from '@/lib/repositories';
 import { checkInternalSecret } from '@/lib/server/internalApi';
 import { botMessageRequestSchema } from '@/lib/bots/botMessageSchema';
-import { startBotMessageRun } from '@/lib/bots/botMessageRun';
+import { BotMessageStartTimeoutError, startBotMessageRun } from '@/lib/bots/botMessageRun';
+import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import type { BotMessageJob } from '@/lib/services/botService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+/**
+ * Room for the start's own deadline (`START_RUN_TIMEOUT_MS`, 15 s) and the
+ * bookkeeping after it fails (the row, the asker's request). The platform
+ * budget is the backstop, never the way a slow start is reported.
+ */
+export const maxDuration = 60;
+
+/** The failure note the asker hears when the hand-off itself never started. */
+export const NOT_STARTED_NOTE = 'The message could not be handed over (the turn never started).';
 
 /**
  * One bot messaging another (`sendBotMessage`): which workspace, which user,
@@ -22,6 +31,12 @@ export const maxDuration = 30;
  * credential (the data pipeline calls the smart-files route the same way).
  * `src/proxy.ts` gates `/api/internal/` on it; the check here is the second
  * line, and it fails closed without the secret.
+ *
+ * When the run cannot be started — `start()` throws, or hangs past its
+ * deadline — the job row is already failed by `startBotMessageRun`; here the
+ * bot request the message was answering (a `bot_mention`) is closed with a
+ * note too, so the asker hears back now rather than from the request sweep
+ * eleven minutes later, and the sender gets a 504 or 500 with the reason.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const auth = checkInternalSecret(req.headers.get('x-api-secret'));
@@ -60,7 +75,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     return NextResponse.json({ data: { jobId, runId } }, { status: 202 });
   } catch (err) {
-    console.error('[bot-messages] failed to start the turn:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const timedOut = err instanceof BotMessageStartTimeoutError;
+    console.error(
+      `[bot-messages] failed to start the turn (${job.origin.kind} → bot ${job.toBotId}, ws ${workspaceId}${
+        timedOut ? `, job ${err.jobId}` : ''
+      }):`,
+      err,
+    );
+    await closeRequestNotStarted(workspaceId, job);
+    return timedOut
+      ? NextResponse.json({ error: 'Timed out starting the turn' }, { status: 504 })
+      : NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/**
+ * Close the request this message was to answer, so the asker's reply turn
+ * runs now with the failure instead of waiting for `sweepBotRequests`.
+ * Best-effort: the sweep is still the backstop.
+ */
+async function closeRequestNotStarted(workspaceId: string, job: BotMessageJob): Promise<void> {
+  const requestId = job.requestId;
+  if (!requestId) return;
+  try {
+    // Lazy, and only on this path: the container is heavier than the route needs.
+    const { createContainer } = await import('@/lib/services/container');
+    const db = createDb();
+    await runWithWorkforceWorkspaceId(workspaceId, () =>
+      createContainer(db, workspaceId).botRequestService.close(requestId, { failure: NOT_STARTED_NOTE }),
+    );
+  } catch (closeErr) {
+    console.error(`[bot-messages] failed to close request ${requestId} after the turn did not start:`, closeErr);
   }
 }

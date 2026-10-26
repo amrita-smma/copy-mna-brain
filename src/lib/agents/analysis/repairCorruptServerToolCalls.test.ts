@@ -85,6 +85,32 @@ describe('stripCorruptServerToolCalls', () => {
     ]);
   });
 
+  it('strips a server tool call a cut-off turn left without its result block', () => {
+    // A direct web_search the stream never finished: the 400 "found without a
+    // corresponding web_search_tool_result block" on the next turn.
+    const direct = { type: 'server_tool_use', id: 'srv_direct', name: 'web_search', input: { query: 'Nippon Soda news' } };
+    const messages = [
+      new AIMessage({ id: 'a1', content: [{ type: 'text', text: 'Let me check.' }, direct] }),
+    ];
+    const [replacement] = stripCorruptServerToolCalls(messages);
+    expect(replacement.id).toBe('a1');
+    expect(replacement.content).toEqual([{ type: 'text', text: 'Let me check.' }]);
+  });
+
+  it('strips an unanswered nested search and keeps the code block that issued it', () => {
+    const messages = [
+      new AIMessage({ id: 'a1', content: [codeBlock, nestedSearch({ query: 'q' }), codeResult] }),
+    ];
+    const [replacement] = stripCorruptServerToolCalls(messages);
+    expect(replacement.content).toEqual([codeBlock, codeResult]);
+  });
+
+  it('leaves the placeholder when the unanswered call was the whole message', () => {
+    const direct = { type: 'server_tool_use', id: 'srv_direct', name: 'web_search', input: { query: 'q' } };
+    const [replacement] = stripCorruptServerToolCalls([new AIMessage({ id: 'a1', content: [direct] })]);
+    expect(replacement.content).toEqual([{ type: 'text', text: CORRUPT_SERVER_TOOL_PLACEHOLDER }]);
+  });
+
   it('skips messages without an id so the reducer never appends a duplicate', () => {
     const messages = [new AIMessage({ content: [nestedSearch({}), searchResult()] })];
     expect(stripCorruptServerToolCalls(messages)).toEqual([]);

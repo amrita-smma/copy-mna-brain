@@ -8,10 +8,11 @@ import type { BotMessageJob } from './botService';
  * minute waiting for the thread's lock plus the turn) and a minute's slack.
  */
 export const BOT_REQUEST_TIMEOUT_SECONDS = 660;
-/** How much of the asker's reply a request keeps as "what was asked". */
+/**
+ * How much of the asker's reply a request keeps as "what was asked" — the
+ * reminder the reply turn is headed with, not the message itself.
+ */
 export const BOT_REQUEST_ASK_MAX_LENGTH = 600;
-/** How much of each answer the reply turn is handed. */
-export const BOT_REQUEST_ANSWER_MAX_LENGTH = 4000;
 /** How many stale requests one sweep closes per workspace. */
 export const BOT_REQUEST_SWEEP_BATCH = 50;
 
@@ -84,7 +85,7 @@ export class BotRequestService {
     const { closed, group } = await this.deps.repo.close(
       requestId,
       'answer' in outcome
-        ? { status: 'done', answer: clip(outcome.answer, BOT_REQUEST_ANSWER_MAX_LENGTH) || null }
+        ? { status: 'done', answer: outcome.answer.trim() || null }
         // A failure keeps its note in `answer`, so the reply can say why.
         : { status: outcome.status ?? 'failed', answer: clip(outcome.failure, 500) || null },
     );

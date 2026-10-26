@@ -247,6 +247,23 @@ export async function runBotTurn(input: BotTurnInput, deps: BotTurnDeps): Promis
     const prior = await agent.getMessages(chat.id);
     const priorLastHumanId = lastHumanMessageId(prior);
 
+    // What the chat route does before every turn, for the same thread: a
+    // prior turn's `file` blocks point at uploads already deleted (a background
+    // turn attaches nothing, so they are neutralized), and a turn cut off
+    // mid-tool left a tool call with no result — a client tool_call without
+    // its ToolMessage, or a server tool (`web_search`) without its result
+    // block — which Anthropic rejects outright. Best-effort: a repair that
+    // fails is logged and the turn still runs.
+    if (prior.length > 0) {
+      try {
+        await agent.rewriteFileReferences(chat.id, [], prior);
+        await agent.repairCorruptServerToolCalls(chat.id, prior);
+        await agent.repairOrphanedToolCalls(chat.id);
+      } catch (err) {
+        console.warn('[bots] thread repair before the turn failed; continuing:', err);
+      }
+    }
+
     const question = new HumanMessage({
       content: text,
       additional_kwargs: originKwargs(origin),

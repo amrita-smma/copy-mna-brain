@@ -545,6 +545,15 @@ describe('BotService', () => {
       expect(workspace.dispatchBotMessage).not.toHaveBeenCalled();
     });
 
+    it('hands a long reply on whole — a research report is not clipped', async () => {
+      const report = `@Atlas, here is the full report.\n\n${'Section. '.repeat(3_000).trimEnd()}`;
+
+      await service.dispatchMentions('me', { bot: copilot, replyText: `  ${report}\n` });
+
+      expect(workspace.dispatchBotMessage).toHaveBeenCalledTimes(1);
+      expect(workspace.dispatchBotMessage.mock.calls[0][0].text).toBe(report);
+    });
+
     it("pings every bot the user's message mentions, past the reply cap", async () => {
       const many = ['a', 'b', 'c', 'd', 'e'].map((n) => row({ id: n, name: `Bot ${n}` }));
       repo.listVisible.mockResolvedValue([row({ id: 'copilot', name: 'Copilot' }), ...many]);

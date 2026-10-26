@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  BOT_REQUEST_ANSWER_MAX_LENGTH,
   BOT_REQUEST_ASK_MAX_LENGTH,
   BOT_REQUEST_TIMEOUT_SECONDS,
   BotRequestService,
@@ -108,13 +107,17 @@ describe('BotRequestService', () => {
       expect(result).toEqual({ closed: true, repliedTo: 'a' });
     });
 
-    it('records a failure with its note, clipping long answers', async () => {
+    it('records a failure with its note', async () => {
       repo.close.mockResolvedValue({ closed: request({ status: 'failed' }), group: null });
       await service.close('r1', { failure: 'anthropic 529' });
       expect(repo.close).toHaveBeenCalledWith('r1', { status: 'failed', answer: 'anthropic 529' });
+    });
 
-      await service.close('r1', { answer: 'y'.repeat(BOT_REQUEST_ANSWER_MAX_LENGTH + 10) });
-      expect(repo.close.mock.calls[1][1].answer).toHaveLength(BOT_REQUEST_ANSWER_MAX_LENGTH);
+    it('keeps the whole answer, however long — bots hand each other research reports', async () => {
+      repo.close.mockResolvedValue({ closed: request({ status: 'done' }), group: null });
+      const report = `# Report\n\n${'Findings. '.repeat(5_000).trimEnd()}`;
+      await service.close('r1', { answer: `  ${report}\n` });
+      expect(repo.close).toHaveBeenCalledWith('r1', { status: 'done', answer: report });
     });
 
     it('does nothing more for a request already closed', async () => {

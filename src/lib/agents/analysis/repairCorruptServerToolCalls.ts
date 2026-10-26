@@ -1,18 +1,29 @@
 import { AIMessage, BaseMessage } from "@langchain/core/messages";
 
 /**
- * Threads checkpointed before the `@langchain/anthropic` prefilled-input patch
- * (see `tools/server_tools.ts`) hold `server_tool_use` blocks whose `input`
- * was blanked to `""`/`{}` — the sandbox-issued `web_search` call arrives
- * complete in `content_block_start` with no deltas, and the unpatched library
- * discarded it. The fix stopped new corruption, but the Postgres checkpoints
- * keep the old blocks, so every later turn on such a thread replays searches
- * as `{"name":"web_search","input":{}}`. The model reads its own history as
- * malformed calls ("failed because of invalid input"), imitates the empty
- * input (a real `invalid_tool_input` error), and routes around web search.
+ * Two ways a persisted assistant turn can hold a `server_tool_use` block the
+ * API will not take back:
  *
- * This strips the corrupt `server_tool_use` blocks, their paired
- * `*_tool_result` blocks, and any nested call whose `caller.tool_id` pointed
+ * 1. **Blanked input.** Threads checkpointed before the `@langchain/anthropic`
+ *    prefilled-input patch (see `tools/server_tools.ts`) hold `server_tool_use`
+ *    blocks whose `input` was blanked to `""`/`{}` — the sandbox-issued
+ *    `web_search` call arrives complete in `content_block_start` with no
+ *    deltas, and the unpatched library discarded it. The fix stopped new
+ *    corruption, but the Postgres checkpoints keep the old blocks, so every
+ *    later turn on such a thread replays searches as
+ *    `{"name":"web_search","input":{}}`. The model reads its own history as
+ *    malformed calls ("failed because of invalid input"), imitates the empty
+ *    input (a real `invalid_tool_input` error), and routes around web search.
+ * 2. **Missing result.** A turn cut off mid-search — the turn budget, Stop, a
+ *    platform kill — persists the `server_tool_use` block without the
+ *    `*_tool_result` block that would have followed it. The next turn is
+ *    rejected outright: `400 invalid_request_error: web_search tool use with
+ *    id … was found without a corresponding web_search_tool_result block`.
+ *    Unlike a client tool call, a server tool's result cannot be made up, so
+ *    the call is stripped instead.
+ *
+ * This strips those `server_tool_use` blocks, their paired `*_tool_result`
+ * blocks (when present), and any nested call whose `caller.tool_id` pointed
  * at a stripped block. The surrounding `code_execution` block keeps the code
  * that issued the search (which names the query) and its printed results, so
  * little context is lost. Verified against the live API: the stripped history
@@ -29,7 +40,10 @@ const isEmptyInput = (input: unknown): boolean =>
 
 /** Placeholder kept when stripping would leave an assistant message empty. */
 export const CORRUPT_SERVER_TOOL_PLACEHOLDER =
-  "[An earlier server tool call was removed from this thread because its input was not recorded.]";
+  "[An earlier server tool call was removed from this thread because it was incomplete: its input or its result was not recorded.]";
+
+const isToolResult = (b: Block | undefined): boolean =>
+  typeof b?.type === "string" && (b.type as string).endsWith("tool_result");
 
 /**
  * Replacement AIMessages (reusing each message's `id` so the LangGraph
@@ -45,11 +59,16 @@ export function stripCorruptServerToolCalls(messages: BaseMessage[]): AIMessage[
     if (!AIMessage.isInstance(msg) || !Array.isArray(msg.content) || !msg.id) continue;
     const blocks = msg.content as Block[];
 
+    // A server tool's result is a block of the same assistant message (one
+    // model call, one message), so a call without one here has none at all.
+    const answered = new Set<string>();
+    for (const b of blocks) {
+      if (isToolResult(b) && typeof b.tool_use_id === "string") answered.add(b.tool_use_id);
+    }
     const corruptIds = new Set<string>();
     for (const b of blocks) {
-      if (b?.type === "server_tool_use" && isEmptyInput(b.input) && typeof b.id === "string") {
-        corruptIds.add(b.id);
-      }
+      if (b?.type !== "server_tool_use" || typeof b.id !== "string") continue;
+      if (isEmptyInput(b.input) || !answered.has(b.id)) corruptIds.add(b.id);
     }
     if (corruptIds.size === 0) continue;
 
@@ -74,13 +93,7 @@ export function stripCorruptServerToolCalls(messages: BaseMessage[]): AIMessage[
 
     const kept = blocks.filter((b) => {
       if (b?.type === "server_tool_use" && corruptIds.has(b.id as string)) return false;
-      if (
-        typeof b?.type === "string" &&
-        (b.type as string).endsWith("tool_result") &&
-        corruptIds.has(b.tool_use_id as string)
-      ) {
-        return false;
-      }
+      if (isToolResult(b) && corruptIds.has(b.tool_use_id as string)) return false;
       return true;
     });
 

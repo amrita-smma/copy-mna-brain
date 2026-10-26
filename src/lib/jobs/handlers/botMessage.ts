@@ -9,8 +9,9 @@ import { flushLangfuse } from '@/lib/langfuse';
 import { runBotTurn } from '@/lib/bots/runBotTurn';
 import type { BotMessageJob } from '@/lib/services/botService';
 
-/** The answering turn plus up to a minute waiting for the thread's lock. */
-export const BOT_MESSAGE_TIMEOUT_SECONDS = 600;
+import { BOT_MESSAGE_TIMEOUT_SECONDS } from '@/lib/bots/botMessageTimeout';
+
+export { BOT_MESSAGE_TIMEOUT_SECONDS };
 
 /**
  * The `bot_message` / `bot_routine` job: a bot answers a message handed to it

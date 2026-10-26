@@ -566,11 +566,12 @@ export class AgentGraph {
   }
 
   /**
-   * Strip server_tool_use blocks whose input was blanked by the pre-patch
-   * `@langchain/anthropic` (see repairCorruptServerToolCalls.ts). Threads
-   * checkpointed before the patch replay searches as `input: {}`, which the
-   * model reads as its own malformed calls and imitates — producing real
-   * `invalid_tool_input` errors and "web search is unavailable" caveats.
+   * Strip server_tool_use blocks the API would reject on replay (see
+   * repairCorruptServerToolCalls.ts): ones whose input was blanked by the
+   * pre-patch `@langchain/anthropic` (replayed as `input: {}`, which the model
+   * reads as its own malformed calls and imitates), and ones a cut-off turn
+   * left without their `*_tool_result` block (a hard 400: "`web_search` tool
+   * use … was found without a corresponding `web_search_tool_result` block").
    */
   async repairCorruptServerToolCalls(
     threadId: string,

@@ -5,17 +5,32 @@ const m = vi.hoisted(() => ({
   createDb: vi.fn(),
   startBotMessageRun: vi.fn(),
   appendLog: vi.fn(),
+  closeRequest: vi.fn(),
+  createContainer: vi.fn(),
+  runWithWorkforceWorkspaceId: vi.fn(),
+  // The route's `instanceof` runs against the mocked module's class.
+  BotMessageStartTimeoutError: class extends Error {
+    constructor(readonly jobId: string) {
+      super('starting the workflow run timed out after 15s');
+      this.name = 'BotMessageStartTimeoutError';
+    }
+  },
 }));
 
 vi.mock('@/lib/server/db', () => ({ createDb: m.createDb }));
-vi.mock('@/lib/bots/botMessageRun', () => ({ startBotMessageRun: m.startBotMessageRun }));
+vi.mock('@/lib/bots/botMessageRun', () => ({
+  startBotMessageRun: m.startBotMessageRun,
+  BotMessageStartTimeoutError: m.BotMessageStartTimeoutError,
+}));
+vi.mock('@/lib/services/container', () => ({ createContainer: m.createContainer }));
+vi.mock('@/lib/workspace', () => ({ runWithWorkforceWorkspaceId: m.runWithWorkforceWorkspaceId }));
 vi.mock('@/lib/repositories', () => ({
   JobRepository: class {
     appendLog = m.appendLog;
   },
 }));
 
-import { POST } from './route';
+import { NOT_STARTED_NOTE, POST } from './route';
 
 const message = {
   workspaceId: 'ws-9',
@@ -44,6 +59,9 @@ describe('POST /api/internal/bot-messages', () => {
     m.createDb.mockReturnValue(db);
     m.startBotMessageRun.mockResolvedValue({ jobId: 'job-1', runId: 'run-1' });
     m.appendLog.mockResolvedValue(undefined);
+    m.closeRequest.mockResolvedValue({ closed: true, repliedTo: 'copilot' });
+    m.createContainer.mockReturnValue({ botRequestService: { close: m.closeRequest } });
+    m.runWithWorkforceWorkspaceId.mockImplementation((_ws: string, fn: () => unknown) => fn());
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -116,10 +134,42 @@ describe('POST /api/internal/bot-messages', () => {
     expect((await POST(post(message))).status).toBe(202);
   });
 
-  it('answers 500 when the run cannot be started', async () => {
+  it('answers 500 when the run cannot be started, and closes the request so the asker hears back now', async () => {
     m.startBotMessageRun.mockRejectedValueOnce(new Error('no workflow world'));
     const res = await POST(post(message));
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Internal server error' });
+    expect(m.createContainer).toHaveBeenCalledWith(db, 'ws-9');
+    expect(m.runWithWorkforceWorkspaceId).toHaveBeenCalledWith('ws-9', expect.any(Function));
+    expect(m.closeRequest).toHaveBeenCalledWith('req-1', { failure: NOT_STARTED_NOTE });
+  });
+
+  it('answers 504 with the reason when starting the run timed out, instead of being killed by the platform', async () => {
+    m.startBotMessageRun.mockRejectedValueOnce(new m.BotMessageStartTimeoutError('job-1'));
+    const res = await POST(post(message));
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({ error: 'Timed out starting the turn' });
+    expect(m.closeRequest).toHaveBeenCalledWith('req-1', { failure: NOT_STARTED_NOTE });
+  });
+
+  it('closes no request for a message that answers none', async () => {
+    const { requestId: _omit, ...noRequest } = message;
+    m.startBotMessageRun.mockRejectedValueOnce(new Error('no workflow world'));
+    expect((await POST(post(noRequest))).status).toBe(500);
+    expect(m.createContainer).not.toHaveBeenCalled();
+    expect(m.closeRequest).not.toHaveBeenCalled();
+  });
+
+  it('still answers the sender when closing the request fails too (the sweep is the backstop)', async () => {
+    m.startBotMessageRun.mockRejectedValueOnce(new m.BotMessageStartTimeoutError('job-1'));
+    m.closeRequest.mockRejectedValueOnce(new Error('db gone'));
+    const res = await POST(post(message));
+    expect(res.status).toBe(504);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('failed to close request req-1'), expect.any(Error));
+  });
+
+  it('does not touch the container on the happy path', async () => {
+    await POST(post(message));
+    expect(m.createContainer).not.toHaveBeenCalled();
   });
 });

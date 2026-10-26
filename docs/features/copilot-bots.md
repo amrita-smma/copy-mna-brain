@@ -284,7 +284,8 @@ user↔B chat alone — A hears back and closes the loop with the user:
 
 1. `dispatchMentions` (the chat route's `after()`, or a routine turn) opens a
    `bot_requests` row per mentioned bot (`BotRequestService.open`), all with
-   `group_id` = A's turn id, `ask` = A's reply clipped to 600 chars, and
+   `group_id` = A's turn id, `ask` = A's reply clipped to 600 chars (a
+   reminder for the reply-turn header only — B is sent the whole reply), and
    stamps `requestId` on each `bot_mention` message. A shows nothing special
    while it waits — no thinking icon; its thread is free.
 2. B's run (`runBotMessage`, in its own Workflow step — see *A background
@@ -342,6 +343,19 @@ and B's lock held; previews, which have no cron, never recovered.
   `after()`, the cron tick, another bot's running turn). The caller carries
   nothing and never retries (a retry could run a turn twice); a failure is
   logged per target, and a routine reverts its schedule advance.
+- **A start that fails is reported, never killed.** The route reads the turn
+  budget from `src/lib/bots/botMessageTimeout.ts` (not the handler, whose
+  imports are the whole agent runtime — on a cold start that import alone
+  used up the route's 30 s). `start()` is bounded by `START_RUN_TIMEOUT_MS`
+  (15 s): past it the job row is failed with the reason and the sender gets a
+  504 (`Timed out starting the turn`); a `start()` that throws gets a 500.
+  Either way, when the message was answering a request (a `bot_mention`), the
+  route closes it with "the turn never started", so the asker's reply turn
+  runs now rather than after the 660 s sweep. The sender waits
+  `SEND_BOT_MESSAGE_TIMEOUT_MS` (30 s), longer than the route's deadline, so
+  it hears the route's reason rather than its own abort. A run that `start()`
+  does create after the deadline is harmless: its step finds the row failed,
+  not pending, and leaves it alone.
 - **Calling ourselves.** `src/lib/server/internalApi.ts`: the URL is
   `INTERNAL_API_URL`, else on Vercel the production domain
   (`VERCEL_PROJECT_PRODUCTION_URL`) or the deployment URL (`VERCEL_URL`),
@@ -395,6 +409,10 @@ the composer, the transcript and the server use the same rule.
   fails or is stopped. The active bot answers as usual *and* each mentioned bot
   gets the message.
 - **A bot** writes `@Name` in its reply: the mentioned bot gets the reply.
+- **Nothing handed on is clipped.** The message a mentioned bot receives and
+  the answer relayed back to the asker are passed whole, however long — bots
+  hand each other full research reports. Only the "you asked: «…»" reminder
+  (600 chars) and a failure note (500) are short by design.
 - `BotService.dispatchMentions` starts one `bot_message` Workflow run per
   mentioned bot (the user's mentions on arrival, the reply's after the turn —
   a bot the user already pinged is not pinged again by the reply) →
@@ -412,6 +430,15 @@ the composer, the transcript and the server use the same rule.
   thread's turn lock, then fails its job (and closes its request with that
   failure); while it holds the lock, an interactive turn on that thread gets
   a 409.
+- Before it runs, a background turn repairs its thread the way the chat
+  route does before every turn (`runBotTurn`): stale `file` blocks are
+  neutralized, and a tool call a cut-off turn left without its result is
+  closed — a client tool_call gets a cancelled ToolMessage, a server tool
+  (`web_search`, `code_execution`) without its `*_tool_result` block is
+  stripped (`repairCorruptServerToolCalls.ts`), since Anthropic rejects the
+  whole turn otherwise (`400 … found without a corresponding
+  web_search_tool_result block`). A repair that fails is logged and the turn
+  still runs.
 - History from before mentions may still hold `message_bot` tool calls; their
   `BotMessageCard` still renders.
 

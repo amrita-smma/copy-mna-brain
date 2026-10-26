@@ -12,7 +12,12 @@ import type { BotMessageJob } from '@/lib/services/botService';
 import { internalApiHeaders, internalApiUrl } from '@/lib/server/internalApi';
 
 export const BOT_MESSAGES_PATH = '/api/internal/bot-messages';
-export const SEND_BOT_MESSAGE_TIMEOUT_MS = 20_000;
+/**
+ * Longer than the route's own deadline on starting the run
+ * (`START_RUN_TIMEOUT_MS`, 15 s) plus its failure bookkeeping, so a slow start
+ * comes back as the route's 504 with a reason, not as this abort.
+ */
+export const SEND_BOT_MESSAGE_TIMEOUT_MS = 30_000;
 
 export async function sendBotMessage(input: {
   workspaceId: string;

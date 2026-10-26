@@ -44,6 +44,9 @@ const finalMessages = [
 describe('runBotTurn', () => {
   const invoke = vi.fn();
   const getMessages = vi.fn();
+  const rewriteFileReferences = vi.fn();
+  const repairCorruptServerToolCalls = vi.fn();
+  const repairOrphanedToolCalls = vi.fn();
   const presence = { setPhase: vi.fn(), done: vi.fn(async () => undefined) };
   const stop = { signal: new AbortController().signal, dispose: vi.fn() };
   let deps: { [K in keyof Required<BotTurnDeps>]: ReturnType<typeof vi.fn> };
@@ -52,11 +55,17 @@ describe('runBotTurn', () => {
     invoke.mockReset().mockResolvedValue({ messages: [] });
     // The read before the run sees the old thread; the one after sees the turn.
     getMessages.mockReset().mockResolvedValueOnce(priorMessages).mockResolvedValue(finalMessages);
+    rewriteFileReferences.mockReset().mockResolvedValue(undefined);
+    repairCorruptServerToolCalls.mockReset().mockResolvedValue(0);
+    repairOrphanedToolCalls.mockReset().mockResolvedValue(0);
     presence.setPhase.mockReset();
     presence.done.mockClear();
     stop.dispose.mockReset();
     deps = {
-      getGraph: vi.fn(async () => ({ invoke, getMessages }) as never),
+      getGraph: vi.fn(
+        async () =>
+          ({ invoke, getMessages, rewriteFileReferences, repairCorruptServerToolCalls, repairOrphanedToolCalls }) as never,
+      ),
       buildContext: vi.fn(async () => 'WORKSPACE'),
       claimTurn: vi.fn(async () => true),
       releaseTurn: vi.fn(async () => undefined),
@@ -70,6 +79,35 @@ describe('runBotTurn', () => {
       watchStop: vi.fn(() => stop),
       publishReply: vi.fn(async () => undefined),
     };
+  });
+
+  it('repairs the thread before the turn — stale file blocks, server tool calls, orphaned tool calls — in that order', async () => {
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+
+    expect(rewriteFileReferences).toHaveBeenCalledWith('chat-1', [], priorMessages);
+    expect(repairCorruptServerToolCalls).toHaveBeenCalledWith('chat-1', priorMessages);
+    expect(repairOrphanedToolCalls).toHaveBeenCalledWith('chat-1');
+    const order = [rewriteFileReferences, repairCorruptServerToolCalls, repairOrphanedToolCalls, invoke].map(
+      (fn) => fn.mock.invocationCallOrder[0],
+    );
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('skips the repairs on an empty thread, and still runs the turn when a repair fails', async () => {
+    getMessages.mockReset().mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+    expect(rewriteFileReferences).not.toHaveBeenCalled();
+    expect(repairOrphanedToolCalls).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    invoke.mockClear();
+    getMessages.mockReset().mockResolvedValueOnce(priorMessages).mockResolvedValue(finalMessages);
+    repairCorruptServerToolCalls.mockRejectedValueOnce(new Error('checkpointer down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('thread repair'), expect.any(Error));
+    warn.mockRestore();
   });
 
   it('puts what the bot remembers about the user into the turn, after the workspace context', async () => {

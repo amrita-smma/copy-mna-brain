@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
   start: vi.fn(),
@@ -13,10 +13,9 @@ vi.mock('@/lib/repositories', () => ({
     markFailed = m.markFailed;
   },
 }));
-vi.mock('@/lib/jobs/handlers/botMessage', () => ({ BOT_MESSAGE_TIMEOUT_SECONDS: 600 }));
 vi.mock('./botMessageWorkflow', () => ({ botMessageWorkflow: vi.fn() }));
 
-import { botJobType, startBotMessageRun } from './botMessageRun';
+import { BotMessageStartTimeoutError, START_RUN_TIMEOUT_MS, botJobType, startBotMessageRun } from './botMessageRun';
 import { botMessageWorkflow } from './botMessageWorkflow';
 import type { BotMessageJob } from '@/lib/services/botService';
 
@@ -72,6 +71,57 @@ describe('startBotMessageRun', () => {
       'no workflow world',
     );
     expect(m.markFailed).toHaveBeenCalledWith('job-1', 'could not start the workflow run: no workflow world');
+  });
+
+  it('reads the turn budget without loading the agent runtime', async () => {
+    // The route runs this on a cold start: the constant comes from its own
+    // light module, never from the handler (whose imports are the runtime).
+    await startBotMessageRun({ db: {} as never, workspaceId: 'ws-9', job });
+    expect(m.create.mock.calls[0][0].timeout_seconds).toBe(600);
+  });
+
+  describe('when start() hangs', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('gives up at the deadline, fails the row with the reason, and throws a typed error', async () => {
+      m.start.mockReturnValueOnce(new Promise(() => undefined));
+
+      const pending = startBotMessageRun({ db: {} as never, workspaceId: 'ws-9', job });
+      const outcome = pending.then(
+        () => 'resolved',
+        (err: unknown) => err,
+      );
+      await vi.advanceTimersByTimeAsync(START_RUN_TIMEOUT_MS);
+      const err = await outcome;
+
+      expect(err).toBeInstanceOf(BotMessageStartTimeoutError);
+      expect((err as BotMessageStartTimeoutError).jobId).toBe('job-1');
+      expect(m.markFailed).toHaveBeenCalledWith(
+        'job-1',
+        'could not start the workflow run: starting the workflow run timed out after 15s',
+      );
+    });
+
+    it('clears the deadline when start() returns in time', async () => {
+      const out = await startBotMessageRun({ db: {} as never, workspaceId: 'ws-9', job });
+      expect(out).toEqual({ jobId: 'job-1', runId: 'run-1' });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('does not leave an unhandled rejection when start() rejects after the deadline', async () => {
+      m.start.mockReturnValueOnce(
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('late')), START_RUN_TIMEOUT_MS + 1);
+        }),
+      );
+
+      const pending = startBotMessageRun({ db: {} as never, workspaceId: 'ws-9', job });
+      const outcome = expect(pending).rejects.toBeInstanceOf(BotMessageStartTimeoutError);
+      await vi.advanceTimersByTimeAsync(START_RUN_TIMEOUT_MS);
+      await outcome;
+      await vi.advanceTimersByTimeAsync(1);
+    });
   });
 
   it('still rethrows the start error when marking the row failed also fails', async () => {
