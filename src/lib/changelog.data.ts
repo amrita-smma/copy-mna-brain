@@ -58,6 +58,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "73add5bbbf9341074c195980a29d26e310c5466b",
+    "date": "2026-10-27",
+    "subject": "Credit every bot on multi-bot relay rows",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1424c77d3aef38c26e18c8350d66d5cbd49fdc57",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
