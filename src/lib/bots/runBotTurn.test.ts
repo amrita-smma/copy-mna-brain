@@ -261,7 +261,7 @@ describe('runBotTurn', () => {
     expect(inputs.additionalSystemContext).toContain('routine "Morning pipeline"');
   });
 
-  it("labels the other bots' answers as a reply from the first of them and tells the bot to close the loop", async () => {
+  it("labels the other bots' answers as a reply from all of them and tells the bot to close the loop", async () => {
     const replies = [
       { fromBot: { id: 'atlas', name: 'Atlas' }, requestId: 'r1', ask: 'NAV for Fund II?', answer: 'NAV is 1.2x.', failure: null },
       { fromBot: { id: 'miner', name: 'Miner' }, requestId: 'r2', ask: 'Coal comps?', answer: null, failure: 'timed out' },
@@ -269,7 +269,12 @@ describe('runBotTurn', () => {
     await runBotTurn({ ...input, origin: { kind: 'bot_reply', replies } }, deps as unknown as BotTurnDeps);
 
     const [inputs] = invoke.mock.calls[0];
-    expect(inputs.messages[0].additional_kwargs[FROM_BOT_KWARG]).toEqual({ id: 'atlas', name: 'Atlas', kind: 'bot_reply' });
+    expect(inputs.messages[0].additional_kwargs[FROM_BOT_KWARG]).toEqual({
+      id: 'atlas',
+      name: 'Atlas',
+      kind: 'bot_reply',
+      others: [{ id: 'miner', name: 'Miner' }],
+    });
     const context = inputs.additionalSystemContext as string;
     expect(context).toContain('Atlas, Miner have answered');
     expect(context).toContain('- Atlas (you asked: «NAV for Fund II?»): NAV is 1.2x.');

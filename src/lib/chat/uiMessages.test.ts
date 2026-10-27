@@ -151,6 +151,19 @@ describe('readFromBot', () => {
       kind: 'bot_reply',
     });
   });
+
+  it('keeps the other bots a fan-in reply carries, dropping malformed entries', () => {
+    expect(
+      readFromBot({
+        [FROM_BOT_KWARG]: { id: 'b', name: 'B', kind: 'bot_reply', others: [{ id: 'c', name: 'C' }, { id: 'd' }, null] },
+      }),
+    ).toEqual({ id: 'b', name: 'B', kind: 'bot_reply', others: [{ id: 'c', name: 'C' }] });
+    expect(readFromBot({ [FROM_BOT_KWARG]: { id: 'b', name: 'B', kind: 'bot_reply', others: [] } })).toEqual({
+      id: 'b',
+      name: 'B',
+      kind: 'bot_reply',
+    });
+  });
 });
 
 describe('readFromRoutine', () => {

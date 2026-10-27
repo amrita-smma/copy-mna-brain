@@ -69,6 +69,7 @@ import type { ReportPlanApprovalPayload } from "@/lib/reports/plan";
 import { useChatActions, useChatComposer, useChatThread } from "./ChatProvider";
 import { MentionPings } from "./MentionPings";
 import type { FromBot, FromRoutine } from "@/lib/chat/uiMessages";
+import { relayLabel, relaySenders } from "@/lib/chat/relayGroups";
 import { CompanyChip } from "./CompanyChip";
 import { ChipOverflow } from "./ChipOverflow";
 import { stripNavigateMarkers } from "@/lib/navigation/navigateAction";
@@ -403,10 +404,18 @@ function MessageTime({ message, className }: { message: { metadata?: unknown }; 
   );
 }
 
-function FromBotAvatar({ botId }: { botId: string }) {
+/** Every bot a relayed message speaks for, avatars side by side. */
+function FromBotAvatars({ fromBot }: { fromBot: FromBot }) {
   const { bots } = useChatThread();
-  const sender = bots.find((b) => b.id === botId);
-  return <BotAvatar avatar={sender?.avatar} size="xs" trackCursor={false} />;
+  return (
+    <span className="flex items-center">
+      {relaySenders(fromBot).map((sender, i) => (
+        <span key={sender.id} className={cn("rounded-full ring-2 ring-background", i > 0 && "-ml-2")} title={sender.name}>
+          <BotAvatar avatar={bots.find((b) => b.id === sender.id)?.avatar} size="xs" trackCursor={false} />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function UserMessageBubble({ message }: { message: UIMessage }) {
@@ -474,11 +483,11 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
     return (
       <div className="flex mb-3 min-w-0 gap-2" data-testid="bot-relay-message">
         <div className="mt-1 shrink-0">
-          <FromBotAvatar botId={fromBot.id} />
+          <FromBotAvatars fromBot={fromBot} />
         </div>
         <div className="flex-1 min-w-0 flex flex-col items-start gap-1 px-0 md:px-2">
           <span className="text-[11px] font-medium text-muted-foreground" data-testid="from-bot-label">
-            {fromBot.kind === 'bot_reply' ? `Reply from ${fromBot.name}` : `${fromBot.name} mentioned this bot`}
+            {relayLabel([{ fromBot }])}
           </span>
           {textContent && (
             <div className="w-full min-w-0 overflow-auto break-words text-sm">

@@ -326,12 +326,14 @@ user↔B chat alone — A hears back and closes the loop with the user:
    it, the context tells A to write the answer for the user, crediting each
    bot, and never to @mention them about it again (A→B→A, then stop). It is
    stored like any background turn: a user row with `author_bot_id` = the
-   first answering bot and `from_bot.kind = 'bot_reply'` ("Reply from B" in
-   the transcript), then A's assistant row, unread. In the transcript, other
+   first answering bot and `from_bot.kind = 'bot_reply'`, with every other
+   answering bot in `from_bot.others` ("Reply from B and 1 other", both
+   avatars, in the transcript), then A's assistant row, unread. In the transcript, other
    bots' messages — replies back and hand-offs — are **collapsed by default**
    (A relays what matters in its own answer, so open they would repeat it),
    and a run of them folds into one row with the senders' avatars side by
-   side and a label such as "Replies from Deal Scout and Market Watch"
+   side and a label naming the first and counting the rest, such as
+   "Reply from Deal Scout and 2 others"
    (`groupRelayMessages` in `src/lib/chat/relayGroups.ts`, rendered by
    `BotRelayGroup`); a click opens the messages.
 5. Safety net only: the dispatch cron (`/api/cron/dispatch`, every minute)

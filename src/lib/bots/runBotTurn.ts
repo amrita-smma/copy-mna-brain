@@ -183,8 +183,18 @@ function originKwargs(origin: BotTurnOrigin): Record<string, unknown> {
       return { [FROM_BOT_KWARG]: { ...origin.inBot, kind: 'user_mention' } satisfies FromBot };
     case 'routine':
       return { [FROM_ROUTINE_KWARG]: { ...origin.routine } };
-    case 'bot_reply':
-      return { [FROM_BOT_KWARG]: { ...origin.replies[0].fromBot, kind: 'bot_reply' } satisfies FromBot };
+    case 'bot_reply': {
+      // One row carries every answer, so it credits every answering bot.
+      const [first, ...rest] = origin.replies.map((r) => r.fromBot);
+      const others = rest.filter((b, i) => b.id !== first.id && rest.findIndex((o) => o.id === b.id) === i);
+      return {
+        [FROM_BOT_KWARG]: {
+          ...first,
+          kind: 'bot_reply',
+          ...(others.length > 0 ? { others: others.map((b) => ({ id: b.id, name: b.name })) } : {}),
+        } satisfies FromBot,
+      };
+    }
   }
 }
 

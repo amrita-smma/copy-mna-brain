@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { groupRelayMessages, relayLabel, relaySender } from './relayGroups';
+import { groupRelayMessages, relayLabel, relaySender, relaySenders } from './relayGroups';
+import type { FromBot } from './uiMessages';
 
 const scout = { id: 'scout', name: 'Deal Scout', kind: 'bot_reply' as const };
 const watch = { id: 'watch', name: 'Market Watch', kind: 'bot_reply' as const };
@@ -7,7 +8,7 @@ const mention = { id: 'scout', name: 'Deal Scout', kind: 'bot' as const };
 
 const user = (id: string) => ({ id, role: 'user' });
 const assistant = (id: string) => ({ id, role: 'assistant' });
-const relay = (id: string, fromBot: typeof scout | typeof mention) => ({ id, role: 'user', metadata: { fromBot } });
+const relay = (id: string, fromBot: FromBot) => ({ id, role: 'user', metadata: { fromBot } });
 
 describe('relaySender', () => {
   it('is another bot’s reply or hand-off, never the user’s own words', () => {
@@ -29,7 +30,7 @@ describe('groupRelayMessages', () => {
     expect(group.id).toBe('r1');
     expect(group.messages.map((m) => m.id)).toEqual(['r1', 'r2']);
     expect(group.senders.map((s) => s.name)).toEqual(['Deal Scout', 'Market Watch']);
-    expect(group.label).toBe('Replies from Deal Scout and Market Watch');
+    expect(group.label).toBe('Reply from Deal Scout and 1 other');
     expect(group.lastIndex).toBe(3);
     expect(items[3]).toMatchObject({ kind: 'message', index: 4 });
   });
@@ -51,14 +52,43 @@ describe('groupRelayMessages', () => {
   });
 });
 
+describe('fan-in replies', () => {
+  const fanIn = { ...scout, others: [{ id: 'watch', name: 'Market Watch' }, { id: 'crm', name: 'CRM Concierge' }] };
+
+  it('credits every bot one fan-in reply carries, with an avatar each', () => {
+    const items = groupRelayMessages([assistant('a1'), relay('r1', fanIn)]);
+    const group = items[1];
+    if (group.kind !== 'relay') throw new Error('expected a relay group');
+    expect(group.senders.map((s) => s.id)).toEqual(['scout', 'watch', 'crm']);
+    expect(group.label).toBe('Reply from Deal Scout and 2 others');
+  });
+
+  it('merges a fan-in reply with a neighbouring reply from one of the same bots', () => {
+    const items = groupRelayMessages([relay('r1', fanIn), relay('r2', watch)]);
+    const group = items[0];
+    if (group.kind !== 'relay') throw new Error('expected a relay group');
+    expect(group.senders.map((s) => s.id)).toEqual(['scout', 'watch', 'crm']);
+    expect(group.label).toBe('Reply from Deal Scout and 2 others');
+  });
+
+  it('lists the sender alone when it carries no others', () => {
+    expect(relaySenders(scout)).toEqual([scout]);
+    expect(relaySenders({ ...scout, others: [{ id: 'scout', name: 'Deal Scout' }] }).map((s) => s.id)).toEqual(['scout']);
+  });
+});
+
 describe('relayLabel', () => {
   it('names the senders and what they did', () => {
     expect(relayLabel([{ fromBot: scout }])).toBe('Reply from Deal Scout');
-    expect(relayLabel([{ fromBot: scout }, { fromBot: watch }])).toBe('Replies from Deal Scout and Market Watch');
+    expect(relayLabel([{ fromBot: scout }, { fromBot: scout }])).toBe('Replies from Deal Scout');
     expect(relayLabel([{ fromBot: mention }])).toBe('Deal Scout mentioned this bot');
-    expect(relayLabel([{ fromBot: mention }, { fromBot: watch }])).toBe('2 messages from Deal Scout and Market Watch');
+    expect(relayLabel([{ fromBot: mention }, { fromBot: watch }])).toBe('2 messages from Deal Scout and 1 other');
+  });
+
+  it('names the first of several bots and counts the rest', () => {
+    expect(relayLabel([{ fromBot: scout }, { fromBot: watch }])).toBe('Reply from Deal Scout and 1 other');
     expect(relayLabel([{ fromBot: scout }, { fromBot: watch }, { fromBot: { id: 'c', name: 'CRM Concierge', kind: 'bot_reply' } }])).toBe(
-      'Replies from Deal Scout, Market Watch and CRM Concierge',
+      'Reply from Deal Scout and 2 others',
     );
   });
 });

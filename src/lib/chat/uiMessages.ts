@@ -41,6 +41,12 @@ export interface FromBot {
   id: string;
   name: string;
   kind?: FromBotKind;
+  /**
+   * On a `bot_reply` that carries several bots' answers at once (the fan-in
+   * of one hand-off to many bots): every answering bot after the first, so
+   * the transcript credits them all, not just `name`.
+   */
+  others?: { id: string; name: string }[];
 }
 
 export function readFromBot(kwargs: Record<string, unknown> | undefined): FromBot | null {
@@ -48,9 +54,21 @@ export function readFromBot(kwargs: Record<string, unknown> | undefined): FromBo
   if (!raw || typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
   // Only the kinds the UI labels differently survive; anything else is a
   // plain message from that bot.
-  return raw.kind === 'user_mention' || raw.kind === 'bot_reply'
-    ? { id: raw.id, name: raw.name, kind: raw.kind }
-    : { id: raw.id, name: raw.name };
+  if (raw.kind === 'user_mention') return { id: raw.id, name: raw.name, kind: raw.kind };
+  if (raw.kind === 'bot_reply') {
+    const others = Array.isArray(raw.others)
+      ? raw.others.filter(
+          (o): o is { id: string; name: string } => !!o && typeof o.id === 'string' && typeof o.name === 'string',
+        )
+      : [];
+    return {
+      id: raw.id,
+      name: raw.name,
+      kind: raw.kind,
+      ...(others.length > 0 ? { others: others.map((o) => ({ id: o.id, name: o.name })) } : {}),
+    };
+  }
+  return { id: raw.id, name: raw.name };
 }
 
 /**

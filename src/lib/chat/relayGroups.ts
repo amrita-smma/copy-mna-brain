@@ -24,13 +24,24 @@ export function relaySender<M extends RelayMessageLike>(message: M): FromBot | n
   return fromBot;
 }
 
-/** The collapsed row's label: who sent what, in one line. */
+/**
+ * Every bot a message speaks for: its sender, then the other bots whose
+ * answers a fan-in reply carries alongside the sender's.
+ */
+export function relaySenders(fromBot: FromBot): FromBot[] {
+  return uniqueSenders([fromBot, ...(fromBot.others ?? []).map((o) => ({ id: o.id, name: o.name, kind: fromBot.kind }))]);
+}
+
+/**
+ * The collapsed row's label: who sent what, in one line. Several senders read
+ * as the first one "and N others", next to their avatars side by side.
+ */
 export function relayLabel(messages: readonly { fromBot: FromBot }[]): string {
-  const senders = uniqueSenders(messages.map((m) => m.fromBot));
-  const names = joinNames(senders.map((s) => s.name));
+  const senders = uniqueSenders(messages.flatMap((m) => relaySenders(m.fromBot)));
+  const names = summarizeNames(senders.map((s) => s.name));
   const kinds = new Set(messages.map((m) => m.fromBot.kind ?? 'bot'));
   if (kinds.size === 1 && kinds.has('bot_reply')) {
-    return senders.length === 1 && messages.length === 1 ? `Reply from ${names}` : `Replies from ${names}`;
+    return senders.length > 1 || messages.length === 1 ? `Reply from ${names}` : `Replies from ${names}`;
   }
   if (kinds.size === 1) return `${names} mentioned this bot`;
   return `${messages.length} messages from ${names}`;
@@ -45,8 +56,8 @@ export function groupRelayMessages<M extends RelayMessageLike>(messages: readonl
       kind: 'relay',
       id: run.messages[0].id,
       messages: run.messages,
-      senders: uniqueSenders(run.senders),
-      label: relayLabel(run.messages.map((m, i) => ({ fromBot: run!.senders[i] }))),
+      senders: uniqueSenders(run.senders.flatMap(relaySenders)),
+      label: relayLabel(run.senders.map((fromBot) => ({ fromBot }))),
       lastIndex: out.length === 0 ? run.messages.length - 1 : lastIndexOf(out) + run.messages.length,
     });
     run = null;
@@ -76,8 +87,8 @@ function uniqueSenders(senders: readonly FromBot[]): FromBot[] {
   return senders.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
 }
 
-function joinNames(names: string[]): string {
+function summarizeNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? 'another bot';
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  const others = names.length - 1;
+  return `${names[0]} and ${others} ${others === 1 ? 'other' : 'others'}`;
 }
