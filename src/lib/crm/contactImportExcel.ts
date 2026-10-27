@@ -1,5 +1,10 @@
 import type { Workbook, Worksheet } from "exceljs";
-import { fieldForHeader, parseContactTable, type ParsedContactFile } from "./contactImport";
+import {
+  fieldForHeader,
+  findHeaderRow,
+  parseContactTable,
+  type ParsedContactFile,
+} from "./contactImport";
 
 /**
  * Excel (.xlsx) reader for the CRM contact import. Turns the first worksheet
@@ -23,43 +28,50 @@ export async function parseContactWorkbook(
 }
 
 /**
- * Worksheet → rows of display strings, starting at the first non-empty row
- * (the header). A hyperlinked cell under a LinkedIn column yields the link
- * target, since the visible text is often just "Profile"; elsewhere the
- * visible text wins (a name linked to a profile stays a name).
+ * Worksheet → rows of display strings, blank rows dropped. A hyperlinked cell
+ * under the header row's LinkedIn column yields the link target, since the
+ * visible text is often just "Profile"; elsewhere the visible text wins (a
+ * name linked to a profile stays a name). The header row is located with
+ * `findHeaderRow`, so a banner above it doesn't hide the LinkedIn column.
  */
 export function worksheetToTable(sheet: Worksheet): string[][] {
   const table: string[][] = [];
-  let linkedinCol = -1;
+  const links: (string | undefined)[][] = [];
   sheet.eachRow({ includeEmpty: false }, (row) => {
     const cells: string[] = [];
+    const rowLinks: (string | undefined)[] = [];
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
       const i = colNumber - 1;
-      let text = cell.text?.trim() ?? "";
+      cells[i] = cell.text?.trim() ?? "";
       const value = cell.value as { hyperlink?: unknown } | null;
       if (
-        table.length > 0 &&
-        i === linkedinCol &&
         value &&
         typeof value === "object" &&
         typeof value.hyperlink === "string" &&
         /^https?:\/\//i.test(value.hyperlink)
       ) {
-        text = value.hyperlink;
+        rowLinks[i] = value.hyperlink;
       }
-      cells[i] = text;
     });
     for (let i = 0; i < cells.length; i++) cells[i] ??= "";
     if (!cells.some((c) => c !== "")) return;
-    if (table.length === 0) {
-      linkedinCol = cells.findIndex((h) => fieldForHeader(h) === "linkedinUrl");
-    }
     table.push(cells);
+    links.push(rowLinks);
   });
   if (table.length === 0) return table;
-  const width = table[0].length;
+
+  const headerRow = findHeaderRow(table);
+  const linkedinCol = table[headerRow].findIndex((h) => fieldForHeader(h) === "linkedinUrl");
+  if (linkedinCol >= 0) {
+    for (let r = headerRow + 1; r < table.length; r++) {
+      const link = links[r][linkedinCol];
+      if (link) table[r][linkedinCol] = link;
+    }
+  }
+
+  const width = Math.max(...table.map((row) => row.length));
   return table.map((row) => {
-    const padded = row.slice(0, width);
+    const padded = row.slice();
     while (padded.length < width) padded.push("");
     return padded;
   });

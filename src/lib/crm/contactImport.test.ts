@@ -75,6 +75,22 @@ describe('parseContactCsv', () => {
   it('reports an empty file', () => {
     expect(parseContactCsv('').errors).toEqual(['The file is empty.']);
   });
+
+  it('skips a banner above the header row and numbers rows from the top of the file', () => {
+    const out = parseContactCsv(
+      '"© Vendor Ltd 2026. All rights reserved."\nName,Email\nJane,jane@x.com\nBob,not-an-email\n',
+    );
+    expect(out.mappedHeaders).toMatchObject({ name: 'Name', email: 'Email' });
+    expect(out.extraHeaders).toEqual([]);
+    expect(out.rows).toEqual([{ name: 'Jane', email: 'jane@x.com' }]);
+    expect(out.errors).toEqual(['Row 4: "not-an-email" is not a valid email.']);
+  });
+
+  it('treats placeholder cells like "-" and "N/A" as blank', () => {
+    const out = parseContactCsv('Name,Email,LinkedIn,City\nJane,-,—,N/A\n');
+    expect(out.errors).toEqual([]);
+    expect(out.rows).toEqual([{ name: 'Jane' }]);
+  });
 });
 
 describe('sanitizeImportRows', () => {

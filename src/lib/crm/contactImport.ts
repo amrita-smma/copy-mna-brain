@@ -161,19 +161,56 @@ export interface ParsedContactFile {
   errors: string[];
 }
 
+/** Cell values exports use to mean "no data" ("-", "—", "N/A"). */
+const PLACEHOLDER_RE = /^(?:[-\u2013\u2014]+|n\/a)$/i;
+
+/** A trimmed cell, with placeholder values read as blank. */
+function cellText(cell: string | undefined): string {
+  const v = cell?.trim() ?? "";
+  return PLACEHOLDER_RE.test(v) ? "" : v;
+}
+
+/** How far down a sheet to look for the header row before giving up. */
+const HEADER_SCAN_ROWS = 20;
+
+function hasNameColumn(cells: string[]): boolean {
+  return cells.some((c) => {
+    const k = headerKey(c);
+    return (
+      HEADER_ALIASES.name.includes(k) ||
+      FIRST_NAME_ALIASES.includes(k) ||
+      LAST_NAME_ALIASES.includes(k)
+    );
+  });
+}
+
 /**
- * Maps a sheet (first row = headers) onto validated import rows. Shared by the
+ * Index of the header row: the first of the leading rows with a name (or
+ * first/last name) column. Data-vendor exports often open with a title or
+ * copyright banner above the real headers. Falls back to 0, so a file with no
+ * name column at all still reports the missing column.
+ */
+export function findHeaderRow(table: string[][]): number {
+  const idx = table.slice(0, HEADER_SCAN_ROWS).findIndex(hasNameColumn);
+  return idx >= 0 ? idx : 0;
+}
+
+/**
+ * Maps a sheet onto validated import rows; rows above the header row (see
+ * `findHeaderRow`) are skipped. Shared by the
  * CSV and Excel readers. A `name` column is optional when `first name` /
  * `last name` columns exist. Columns that match no field are not dropped:
  * their non-blank values are appended to `bio` as `Header: value` lines, so
  * details the CRM has no dedicated field for still land on the contact.
+ * Placeholder cells ("-", "N/A") count as blank.
  */
 export function parseContactTable(table: string[][]): ParsedContactFile {
   if (table.length === 0) {
     return { rows: [], mappedHeaders: {}, extraHeaders: [], errors: ["The file is empty."] };
   }
 
-  const [headers, ...body] = table;
+  const headerRow = findHeaderRow(table);
+  const [headers, ...body] = table.slice(headerRow);
   const keys = headers.map(headerKey);
   const colOf: Partial<Record<ImportContactField, number>> = {};
   const mappedHeaders: Partial<Record<ImportContactField, string>> = {};
@@ -207,17 +244,17 @@ export function parseContactTable(table: string[][]): ParsedContactFile {
     const out: Record<string, unknown> = {};
     for (const field of FIELDS) {
       const idx = colOf[field];
-      if (idx !== undefined) out[field] = cells[idx];
+      if (idx !== undefined) out[field] = cellText(cells[idx]);
     }
     if (colOf.name === undefined || !String(out.name ?? "").trim()) {
       out.name = [firstCol, lastCol]
         .filter((i) => i >= 0)
-        .map((i) => cells[i]?.trim() ?? "")
+        .map((i) => cellText(cells[i]))
         .filter(Boolean)
         .join(" ");
     }
     const extras = extraCols
-      .map(({ header, i }) => [header, cells[i]?.trim() ?? ""] as const)
+      .map(({ header, i }) => [header, cellText(cells[i])] as const)
       .filter(([, v]) => v)
       .map(([h, v]) => `${h}: ${v}`);
     if (extras.length > 0) {
@@ -226,8 +263,8 @@ export function parseContactTable(table: string[][]): ParsedContactFile {
     return out;
   });
 
-  // Row numbers are 1-based and count the header row.
-  const { rows, errors } = sanitizeImportRows(raw, 2);
+  // Row numbers are 1-based and count the header row and any banner above it.
+  const { rows, errors } = sanitizeImportRows(raw, headerRow + 2);
   return {
     rows,
     mappedHeaders,
@@ -236,7 +273,7 @@ export function parseContactTable(table: string[][]): ParsedContactFile {
   };
 }
 
-/** Parses a contacts CSV (first row = headers) into validated import rows. */
+/** Parses a contacts CSV into validated import rows. */
 export function parseContactCsv(text: string): ParsedContactFile {
   return parseContactTable(parseCsv(text));
 }

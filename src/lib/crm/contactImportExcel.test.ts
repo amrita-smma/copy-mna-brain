@@ -52,6 +52,34 @@ describe('parseContactWorkbook', () => {
     ]);
   });
 
+  it('finds the header row below a merged banner row and keeps every column', async () => {
+    const data = await workbookBuffer((wb) => {
+      const ws = wb.addWorksheet('Contacts');
+      ws.addRow(['© Vendor Ltd 2026. All data subject to terms.']);
+      ws.mergeCells('A1:D1');
+      ws.addRow(['Name', 'Firm Name', 'Email', 'LinkedIn']);
+      ws.addRow([
+        'Jane Doe',
+        'Acme',
+        'j@x.com',
+        { text: 'Profile', hyperlink: 'https://www.linkedin.com/in/jane' },
+      ]);
+    });
+
+    const out = await parseContactWorkbook(data);
+
+    expect(out.errors).toEqual([]);
+    expect(out.extraHeaders).toEqual([]);
+    expect(out.rows).toEqual([
+      {
+        name: 'Jane Doe',
+        firm: 'Acme',
+        email: 'j@x.com',
+        linkedinUrl: 'https://www.linkedin.com/in/jane',
+      },
+    ]);
+  });
+
   it('reports an empty workbook', async () => {
     const data = await workbookBuffer((wb) => {
       wb.addWorksheet('Empty');
