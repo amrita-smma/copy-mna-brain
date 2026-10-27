@@ -96,6 +96,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b751cfc26da5a9a86ea81f12fb4a3c7df19e77f7",
+    "date": "2026-10-27",
+    "subject": "defer six more rarely used tools, and stop get_company_stats inlining the filter doc",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7b417d798841a5b4c655d5d13e8c219fd823c79e",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
