@@ -160,6 +160,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "db552863267980de7cc1b9355a9f558abe4240b2",
+    "date": "2026-10-27",
+    "subject": "Email notes now save only for emails related to tracked deals",
+    "category": "improvement"
+  },
+  {
+    "hash": "78b5e21bd82840aa35c371223239583316ca8613",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
