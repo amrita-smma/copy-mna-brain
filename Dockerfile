@@ -1,7 +1,7 @@
 # Local development image for the Next.js app.
 # For production you'll want a multi-stage build using `next build`; this image
 # is tuned for `pnpm dev` with the source mounted from the host.
-FROM node:22-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH

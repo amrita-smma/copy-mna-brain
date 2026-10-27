@@ -21,7 +21,7 @@ resource "aws_lambda_function" "pipeline" {
   filename         = "${path.root}/../../dist/${each.key}.zip"
   source_code_hash = filebase64sha256("${path.root}/../../dist/${each.key}.zip")
   handler          = "index.handler"
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs24.x"
 
   timeout     = var.lambda_timeout_seconds
   memory_size = each.value.memory_heavy ? var.lambda_memory_mb_heavy : var.lambda_memory_mb

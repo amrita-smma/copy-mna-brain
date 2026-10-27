@@ -33,7 +33,7 @@ environment, and the `--base` URL.
 Have all of these before you start; three of them are manual AWS steps that
 Terraform does **not** do for you.
 
-1. **Tooling:** Node 22, `pnpm`, `terraform >= 1.3`, `aws` CLI authenticated
+1. **Tooling:** Node 24 (see `.nvmrc`), `pnpm`, `terraform >= 1.3`, `aws` CLI authenticated
    against the target account (staging and production are separate accounts —
    the Makefiles derive the state bucket from `aws sts get-caller-identity`).
 

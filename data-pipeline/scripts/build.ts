@@ -4,7 +4,7 @@
  * - Resolves the `@/*` alias to the app's ./src so shared repos/schema/s3
  *   bundle in.
  * - CJS output with `index.handler` so the Lambda runtime + SAM can invoke it.
- * - aws-sdk v3 is provided by the nodejs20 Lambda runtime → kept external.
+ * - aws-sdk v3 is provided by the nodejs24 Lambda runtime → kept external.
  *
  * Output naming uses the kebab-case keys that data-pipeline/terraform/pipeline-compute
  * expects (dist/<kebab>.zip).
@@ -43,12 +43,12 @@ async function main() {
       outfile,
       bundle: true,
       platform: 'node',
-      target: 'node20',
+      target: 'node24',
       format: 'cjs',
       sourcemap: false,
       minify: false,
       alias: { '@': srcAlias },
-      // Core AWS SDK v3 clients are in the nodejs20 Lambda runtime — keep external.
+      // Core AWS SDK v3 clients are in the nodejs24 Lambda runtime — keep external.
       // Helper packages NOT in the runtime must be bundled (rds-signer, lib-storage).
       //
       // `canvas` is a native (.node) optional dependency of `linkedom`, which is
