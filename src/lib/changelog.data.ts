@@ -42,6 +42,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "dbd15c24cb02ee5984db8cd8df1152f5a55cc5fa",
+    "date": "2026-10-27",
+    "subject": "upgrade Node to 24.22.1 (October 2026 security release)",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "7ba292dbede4048d5ca6d63ce01073b9ce4a8817",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
