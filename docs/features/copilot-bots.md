@@ -159,6 +159,17 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
    The compiled agent for a bot's prompt + tools is memoised on the flavor
    graph (`AgentGraph.getAgent`), so a turn does not rebuild it.
 4. The effort tier is chosen **per turn**; nothing is stored on the thread.
+   The tier also fixes the model's `thinking` setting (`EFFORT_TIERS[tier].thinking`
+   in `src/lib/agents/analysis/effort.ts`): the two Sonnet tiers run with **no
+   up-front thinking** (`between_tools` — the first tool call or the answer
+   starts at once and reasoning happens between tool calls), the Opus tiers
+   with adaptive thinking and its summary shown. Measured on the real chat
+   prompt with stubbed tools, first visible text fell from a median ~10 s to
+   ~1.5 s on `low` and ~7 s to ~1.7 s on `medium`, whole turns by 20–35%,
+   with tool choice and answers unchanged. The trade is the reasoning panel:
+   `between_tools` takes no `display` field, so there are no thinking
+   summaries to stream on those tiers; the model's own first sentence is the
+   progress the user sees.
    The router (`routeEffort`) is a Haiku call with thinking off, capped at
    `ROUTER_TIMEOUT_MS` (1.5 s), started as soon as the turn's text is known
    so it overlaps the thread open and the context reads. A turn it cannot

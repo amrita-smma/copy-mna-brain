@@ -580,6 +580,64 @@ any other guidance that only one deferred tool needs.
 
 ---
 
+## Where a chat turn's time still goes (audit 2026-10-27)
+
+**Area:** `src/app/api/chat/route.ts`, `src/lib/agents/analysis/runtime.ts`,
+`src/lib/bots/threadMiddleware.ts`, `src/lib/chat/effortRouter.ts`.
+
+**What it is:** after the prompt and tool payload work above, a re-read of the
+critical path from request to first streamed token, with what was measured
+locally (real model, real prompt, stubbed tools; no production timing data
+was available — the per-turn timeline the route logs, `[chat] … timeline`,
+and `recordTurnTiming` on the Langfuse trace are where the real numbers are).
+
+Done in this pass: the Sonnet tiers run with no up-front thinking
+(`EFFORT_TIERS[tier].thinking`, `between_tools`) — first visible text from a
+median ~10 s to ~1.5 s on `low` and ~7 s to ~1.7 s on `medium`, whole turns
+20–35% shorter, the write/research scenarios unchanged.
+
+Still on the table, in the order worth trying, each needing the production
+timeline to size it:
+
+1. **Setup round trips.** Before the stream opens the route runs about ten
+   sequential database round trips: session, workspace, the thread open
+   (default bot → the user's name for the bot's title → find-or-create the
+   thread), the bot list for @mentions (which reads the user again on a
+   fresh container), the turn claim, the checkpoint snapshot, the question
+   write. Candidates: pass the session's user name into the bot presentation
+   instead of reading it; generate the question row's id up front so its
+   insert runs alongside the repairs and the stream start rather than before
+   them (the id is what the trace and the reply's feedback key on, and the
+   `after()` hook already tolerates a missing row); parallelise the thread
+   find-or-create with the bot presentation. Each is one round trip; worth
+   doing together or not at all.
+2. **The router's share.** `routeEffort` (Haiku, 1.5 s cap) starts at body
+   time and is awaited after the context reads. On a fast database it is the
+   longest pre-stream stage on most turns. The per-turn design is deliberate
+   (a stored tier can only escalate). If the timeline shows the router
+   binding, bound its wait to the time the rest of the setup takes plus a
+   small grace and fall back (`fallbackEffort`) past that — the tiers it
+   picks differ mostly in effort, not model, so a late answer is cheap to
+   lose.
+3. **Long threads cost every step.** A permanent bot thread carries up to
+   `BOT_SUMMARY_TRIGGER_TOKENS` (60k) of history. Two costs scale with it:
+   every checkpoint write (one per model call and per tool call) serialises
+   the whole message list, and the turn that crosses the trigger pays the
+   summariser call in line before its first model call — a one-turn spike.
+   Candidates: summarise ahead of need in `after()` once a thread passes a
+   lower mark, so the in-line trigger is rarely hit; or Anthropic's
+   server-side compaction (`compact_20260112`), which the installed library
+   already knows, in place of the client-side summariser.
+4. **The checkpoint is read twice per turn.** `getThreadSnapshot` (for the
+   repairs and the zero-work check) and LangGraph's own load inside
+   `streamEvents`. Unavoidable with the checkpointer as used; only matters on
+   long threads.
+
+**Trigger to revisit:** a production timeline showing any pre-stream stage
+above ~300 ms, or the summariser visible as a spike on long threads.
+
+---
+
 ## The Copilot is one monolithic agent instead of an orchestrator with subagents
 
 **Area:** `src/lib/agents/analysis/runtime.ts` (the single `createAgent` call),

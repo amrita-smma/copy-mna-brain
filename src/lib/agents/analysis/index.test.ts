@@ -1549,14 +1549,32 @@ describe('Agent LLM configuration', () => {
     expect(asManualEffort(null)).toBeNull();
   });
 
-  it('configures ChatAnthropic with adaptive thinking, summarized display, and ephemeral cache_control', () => {
+  it('configures ChatAnthropic with the tier\'s thinking setting and ephemeral cache_control', () => {
     createLocalAgent({ apiKey: 'test-key' });
     const model = builtModel();
-    expect(model.opts.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    // The default tier is `medium`: Sonnet with no up-front thinking.
+    expect(model.opts.thinking).toEqual({ type: 'between_tools' });
     expect(model.config?.cache_control).toEqual({ type: 'ephemeral' });
     expect(model.opts.cache_control).toBeUndefined();
     expect(model.opts.streaming).toBe(true);
     expect(model.opts.temperature).toBeUndefined();
+  });
+
+  it('runs the Sonnet tiers with no up-front thinking and the Opus tiers with adaptive thinking shown', () => {
+    for (const [tier, expected] of [
+      ['low', { type: 'between_tools' }],
+      ['medium', { type: 'between_tools' }],
+      ['high', { type: 'adaptive', display: 'summarized' }],
+      ['deep', { type: 'adaptive', display: 'summarized' }],
+    ] as const) {
+      mocks.createAgent.mockClear();
+      createLocalAgent({ apiKey: 'test-key', effort: tier });
+      const model = builtModel();
+      expect(model.opts.thinking, tier).toEqual(expected);
+      expect(model.opts.model, tier).toBe(EFFORT_TIERS[tier].model);
+      // `between_tools` takes no other field; `display` next to it is a 400.
+      if (expected.type === 'between_tools') expect(model.opts.thinking).not.toHaveProperty('display');
+    }
   });
 
   it('enables context editing and beta header on workforce agent graph, but not on chat graphs', async () => {

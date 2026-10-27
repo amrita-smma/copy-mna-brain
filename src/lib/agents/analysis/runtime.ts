@@ -267,16 +267,12 @@ export function createLocalAgent(
     // deprecated for this model"). Explicitly leave it unset — ChatAnthropic
     // omits the field from the request when this is undefined.
     temperature: undefined,
-    // Opus 5.5 and Sonnet 5.5 always think, so this is no longer what turns
-    // reasoning on — but display: 'summarized' is still what makes it visible
-    // to the chat UI (the default is omitted, which streams empty thinking
-    // text). It also carries the inter-tool-call progress updates, which these
-    // models return as thinking blocks rather than text blocks.
-    thinking: {
-      type: 'adaptive',
-      // Cast until @anthropic-ai/sdk adds `display` to ThinkingConfigAdaptive.
-      ['display' as any]: 'summarized',
-    },
+    // Per tier (`effort.ts`): the Sonnet tiers run with no up-front thinking
+    // so the first tool call or answer starts at once; the Opus tiers keep
+    // adaptive thinking with the summary shown. Every ChatAnthropic in this
+    // repo sets `thinking` explicitly — the library's default is a 400 on half
+    // the lineup (`@/lib/ai/thinking`).
+    thinking: tier.thinking,
     // Always sent: omitting output_config means the API default (`high`), not the
     // tier's. Cast until @langchain/anthropic adds `xhigh` to OutputEffort.
     outputConfig: {

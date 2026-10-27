@@ -41,3 +41,17 @@ export const BETWEEN_TOOLS_THINKING = {
  * reject it with a 400. Use `BETWEEN_TOOLS_THINKING` on Sonnet 5.5.
  */
 export const DISABLED_THINKING = { type: 'disabled' } as const satisfies ThinkingParam;
+
+/**
+ * Adaptive thinking with the summary shown. The only valid setting on Opus
+ * 5.5 (no off switch), and what the chat UI's reasoning panel streams: without
+ * `display: 'summarized'` the thinking blocks arrive empty. It also carries the
+ * inter-tool-call progress notes these models write as thinking.
+ *
+ * Cast because `@anthropic-ai/sdk` 0.74 lacks `display` on
+ * ThinkingConfigAdaptive. Drop the cast once the SDK carries the field.
+ */
+export const ADAPTIVE_SUMMARIZED_THINKING = {
+  type: 'adaptive',
+  display: 'summarized',
+} as unknown as ThinkingParam;
