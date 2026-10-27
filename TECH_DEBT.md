@@ -591,35 +591,51 @@ locally (real model, real prompt, stubbed tools; no production timing data
 was available — the per-turn timeline the route logs, `[chat] … timeline`,
 and `recordTurnTiming` on the Langfuse trace are where the real numbers are).
 
-Done in this pass: the Sonnet tiers run with no up-front thinking
-(`EFFORT_TIERS[tier].thinking`, `between_tools`) — first visible text from a
-median ~10 s to ~1.5 s on `low` and ~7 s to ~1.7 s on `medium`, whole turns
-20–35% shorter, the write/research scenarios unchanged.
+Done so far:
 
-Still on the table, in the order worth trying, each needing the production
-timeline to size it:
+- The Sonnet tiers run with no up-front thinking
+  (`EFFORT_TIERS[tier].thinking`, `between_tools`) — first visible text from
+  a median ~10 s to ~1.5 s on `low` and ~7 s to ~1.7 s on `medium`, whole
+  turns 20–35% shorter, the write/research scenarios unchanged.
+- The setup round trips. The chain of sequential database round trips
+  before the first model call was: session → default bot → the user's name
+  (for the primary bot's title) → the thread → the bot list and bot memory →
+  the turn claim → the checkpoint snapshot → the question insert → the
+  checkpoint load inside the run. Now: the user's name and the thread are
+  read together (`BotService.openThreadWith`; the thread is created only
+  when the find is empty); the bot list is started before the thread open
+  (`prepareMentionContext`) and the one user read is shared between the two
+  presentations (the name cache holds the promise); the turn claim rides in
+  the same round trip as the per-bot context reads; and the question row's
+  id is chosen in the route so its insert is not awaited — it runs alongside
+  the repairs and the stream start, the `after()` hook waits for it, and a
+  failed insert stores the question under the same id at the end
+  (`persistTurn`'s `question`). On a turn the router places, every database
+  read before the router's answer is now hidden behind it; after it, two
+  round trips remain (the snapshot and the run's own checkpoint load). On a
+  turn with a hand-picked tier the serial chain is six round trips instead
+  of nine or ten.
 
-1. **Setup round trips.** Before the stream opens the route runs about ten
-   sequential database round trips: session, workspace, the thread open
-   (default bot → the user's name for the bot's title → find-or-create the
-   thread), the bot list for @mentions (which reads the user again on a
-   fresh container), the turn claim, the checkpoint snapshot, the question
-   write. Candidates: pass the session's user name into the bot presentation
-   instead of reading it; generate the question row's id up front so its
-   insert runs alongside the repairs and the stream start rather than before
-   them (the id is what the trace and the reply's feedback key on, and the
-   `after()` hook already tolerates a missing row); parallelise the thread
-   find-or-create with the bot presentation. Each is one round trip; worth
-   doing together or not at all.
-2. **The router's share.** `routeEffort` (Haiku, 1.5 s cap) starts at body
-   time and is awaited after the context reads. On a fast database it is the
-   longest pre-stream stage on most turns. The per-turn design is deliberate
-   (a stored tier can only escalate). If the timeline shows the router
-   binding, bound its wait to the time the rest of the setup takes plus a
-   small grace and fall back (`fallbackEffort`) past that — the tiers it
-   picks differ mostly in effort, not model, so a late answer is cheap to
-   lose.
-3. **Long threads cost every step.** A permanent bot thread carries up to
+Still on the table, in the order worth trying:
+
+1. **The router's share.** `routeEffort` (Haiku, 1.5 s cap) starts at body
+   time and, with the reads above now behind it, is the pre-stream stage on
+   every Auto turn. Measured from a developer machine (36 calls, three
+   message shapes): median ~0.7–0.9 s, p90 ~1.4 s, and the 1.5 s cap was hit
+   on a run of calls — a turn that then falls back to `low` for a short
+   question that needed `medium`. From Vercel's region expect less, but the
+   same shape. Two things make it hard to shrink: `temperature` is rejected
+   by Haiku 5.5 (400), so a borderline question ("compare three targets and
+   tell me which to promote") flips between `medium` and `high` — a
+   different model — from one run to the next; and the per-turn design is
+   deliberate (a stored tier can only escalate). What is left is product:
+   skip the router for very short attachment-free turns (they route `low`
+   almost always), or persist the tier per thread and re-route only on
+   attachments. Either is one line in the route; both change which tier a
+   turn lands on, so they are not made here. Bounding the wait to the setup
+   time plus a grace, as first suggested, would with these numbers drop most
+   routed answers, so it is withdrawn.
+2. **Long threads cost every step.** A permanent bot thread carries up to
    `BOT_SUMMARY_TRIGGER_TOKENS` (60k) of history. Two costs scale with it:
    every checkpoint write (one per model call and per tool call) serialises
    the whole message list, and the turn that crosses the trigger pays the
@@ -628,13 +644,16 @@ timeline to size it:
    lower mark, so the in-line trigger is rarely hit; or Anthropic's
    server-side compaction (`compact_20260112`), which the installed library
    already knows, in place of the client-side summariser.
-4. **The checkpoint is read twice per turn.** `getThreadSnapshot` (for the
+3. **The checkpoint is read twice per turn.** `getThreadSnapshot` (for the
    repairs and the zero-work check) and LangGraph's own load inside
    `streamEvents`. Unavoidable with the checkpointer as used; only matters on
-   long threads.
+   long threads. The snapshot read also waits for the router today, because
+   it goes through the tier's graph; a tier-independent reader on the shared
+   checkpointer would let it ride behind the router with the other reads.
 
-**Trigger to revisit:** a production timeline showing any pre-stream stage
-above ~300 ms, or the summariser visible as a spike on long threads.
+**Trigger to revisit:** a production timeline showing the router as the
+longest pre-stream stage on most turns (it will be), or the summariser
+visible as a spike on long threads.
 
 ---
 

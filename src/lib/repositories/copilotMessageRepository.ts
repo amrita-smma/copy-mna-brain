@@ -14,6 +14,8 @@ export interface NewCopilotMessage {
   author_bot_id?: string | null;
   parts: unknown[];
   text: string;
+  /** The row's id when the writer chose it up front (a question row the turn already runs under); the database picks one otherwise. */
+  id?: string;
   /** The model and effort tier a turn ran on; set on its question row only. */
   model?: string | null;
   effort_tier?: string | null;

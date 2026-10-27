@@ -148,6 +148,35 @@ describe('ChatHistoryService', () => {
       expect(chats.stampMessage).toHaveBeenCalledWith('chat-1', { read: true });
     });
 
+    it('stores the question under the id and turn facts it was handed when the up-front write failed', async () => {
+      await service().persistTurn({
+        chat,
+        finalMessages,
+        interactive: true,
+        questionStored: false,
+        question: { id: 'q-chosen', turn: { model: 'claude-sonnet-5-5', effortTier: 'medium' } },
+      });
+
+      const rows = messages.insertMany.mock.calls[0][0];
+      expect(rows).toEqual([
+        expect.objectContaining({
+          role: 'user',
+          id: 'q-chosen',
+          model: 'claude-sonnet-5-5',
+          effort_tier: 'medium',
+          text: 'How many deals?',
+        }),
+        expect.objectContaining({ role: 'assistant' }),
+      ]);
+      expect(rows[1]).not.toHaveProperty('id');
+    });
+
+    it('stores no question row when its up-front write landed, whatever id it was handed', async () => {
+      await service().persistTurn({ chat, finalMessages, interactive: true, questionStored: true, question: { id: 'q-chosen' } });
+
+      expect(messages.insertMany.mock.calls[0][0]).toEqual([expect.objectContaining({ role: 'assistant' })]);
+    });
+
     it('keeps the turn when queuing its embedding fails', async () => {
       dispatchEmbedding.mockRejectedValue(new Error('no AWS'));
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -208,6 +237,28 @@ describe('ChatHistoryService', () => {
       await service().persistQuestion({ chat, message: new HumanMessage('Find targets'), prior: [] });
 
       expect(messages.insertMany.mock.calls[0][0][0]).not.toHaveProperty('model');
+    });
+  });
+
+  describe('ChatHistoryService.persistQuestion with a chosen id', () => {
+    it('stores the row under the id the caller picked, with the turn facts', async () => {
+      await service().persistQuestion({
+        chat,
+        message: new HumanMessage('Find targets'),
+        prior: [],
+        turn: { model: 'claude-sonnet-5-5', effortTier: 'low' },
+        id: 'q-chosen',
+      });
+
+      expect(messages.insertMany.mock.calls[0][0]).toEqual([
+        expect.objectContaining({ role: 'user', id: 'q-chosen', model: 'claude-sonnet-5-5', effort_tier: 'low' }),
+      ]);
+    });
+
+    it('leaves the id to the database when the caller picked none', async () => {
+      await service().persistQuestion({ chat, message: new HumanMessage('Find targets'), prior: [] });
+
+      expect(messages.insertMany.mock.calls[0][0][0]).not.toHaveProperty('id');
     });
   });
 

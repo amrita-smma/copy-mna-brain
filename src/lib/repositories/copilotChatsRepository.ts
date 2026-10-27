@@ -42,7 +42,8 @@ export class CopilotChatsRepository {
     return raced;
   }
 
-  private async findBotThread(userId: string, botId: string): Promise<CopilotChatRow | null> {
+  /** The user's thread with a bot when one has been opened before: `findOrCreateBotThread` without the create. */
+  async findBotThread(userId: string, botId: string): Promise<CopilotChatRow | null> {
     const [row] = await this.db
       .select()
       .from(copilotChats)

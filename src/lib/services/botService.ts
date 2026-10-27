@@ -319,8 +319,7 @@ export class BotService {
    * along with the bot itself (the chat route needs both, from one bot read).
    */
   async openThread(userId: string, id: string): Promise<{ bot: BotRow; chat: CopilotChatRow }> {
-    const bot = await this.findVisible(userId, id);
-    const chat = await this.chatsRepo.findOrCreateBotThread(userId, bot.id, bot.name);
+    const { bot, chat } = await this.openThreadWith(userId, await this.visibleRow(userId, id));
     const greet = this.workspace.greet;
     if (
       greet &&
@@ -342,8 +341,26 @@ export class BotService {
   async openDefaultThread(userId: string): Promise<{ bot: BotRow; chat: CopilotChatRow }> {
     const found = (await this.botRepo.findDefault()) ?? (await this.ensureDefault());
     if (!found) throw new BotNotFoundError();
-    const [bot] = await this.presentAll(userId, [found]);
-    const chat = await this.chatsRepo.findOrCreateBotThread(userId, bot.id, bot.name);
+    return this.openThreadWith(userId, found);
+  }
+
+  /**
+   * `row` as the app runs it, and the user's thread with it. The two reads
+   * behind that — the user's name, which titles their primary bot, and the
+   * thread — do not depend on each other, so they are in flight together:
+   * this is on every chat turn's critical path, and they used to be one round
+   * trip after the other. The thread is created, titled with the presented
+   * name, only when the find comes back empty — its first open.
+   */
+  private async openThreadWith<T extends BotRow>(
+    userId: string,
+    row: T,
+  ): Promise<{ bot: T; chat: CopilotChatRow }> {
+    const [[bot], existing] = await Promise.all([
+      this.presentAll(userId, [row]),
+      this.chatsRepo.findBotThread(userId, row.id),
+    ]);
+    const chat = existing ?? (await this.chatsRepo.findOrCreateBotThread(userId, bot.id, bot.name));
     return { bot, chat };
   }
 
@@ -423,7 +440,20 @@ export class BotService {
 
   /** The per-turn note naming the other bots this one can @mention. */
   async mentionContext(userId: string, botId: string): Promise<string> {
-    return mentionableBotsContext(await this.presentAll(userId, await this.botRepo.listVisible(userId)), botId);
+    return this.prepareMentionContext(userId)(botId);
+  }
+
+  /**
+   * `mentionContext` in two steps: the bot list is read now, the note is
+   * built once the answering bot is known. The chat route calls this before
+   * it opens the thread, so the list — the heaviest of its per-turn reads —
+   * is in flight behind the open instead of after it. A failed read surfaces
+   * when the note is asked for, never as an unhandled rejection before then.
+   */
+  prepareMentionContext(userId: string): (botId: string) => Promise<string> {
+    const rows = this.botRepo.listVisible(userId).then((visible) => this.presentAll(userId, visible));
+    rows.catch(() => undefined);
+    return async (botId) => mentionableBotsContext(await rows, botId);
   }
 
   /**
@@ -464,14 +494,19 @@ export class BotService {
   }
 
   private async findVisible(userId: string, id: string): Promise<BotRow> {
+    const [bot] = await this.presentAll(userId, [await this.visibleRow(userId, id)]);
+    return bot;
+  }
+
+  /** The bot's row as stored, if the user may see it (`findVisible` before presentation). */
+  private async visibleRow(userId: string, id: string): Promise<BotRow> {
     const row = await this.botRepo.findById(id);
     if (!row) throw new BotNotFoundError();
     if (!row.is_default && row.visibility !== 'workspace' && row.owner_user_id !== userId) {
       // A private bot owned by someone else is indistinguishable from a missing one.
       throw new BotNotFoundError();
     }
-    const [bot] = await this.presentAll(userId, [row]);
-    return bot;
+    return row;
   }
 
   /**
@@ -484,16 +519,22 @@ export class BotService {
     return rows.map((r) => presentBotRow(r, name));
   }
 
-  private readonly primaryNames = new Map<string, string>();
+  /**
+   * The read in flight, not its result: two presentations started together
+   * (the chat route reads the bot list while it opens the thread) share one
+   * user read instead of each missing the cache.
+   */
+  private readonly primaryNames = new Map<string, Promise<string>>();
 
-  private async primaryNameFor(userId: string): Promise<string> {
+  private primaryNameFor(userId: string): Promise<string> {
     const cached = this.primaryNames.get(userId);
     if (cached) return cached;
-    const user = await this.workspace.getUser?.(userId).catch((err: unknown) => {
-      console.error('[bots] failed to read the user for their primary bot name:', err);
-      return null;
-    });
-    const name = primaryBotName(user);
+    const name = Promise.resolve(this.workspace.getUser?.(userId))
+      .catch((err: unknown) => {
+        console.error('[bots] failed to read the user for their primary bot name:', err);
+        return null;
+      })
+      .then((user) => primaryBotName(user));
     this.primaryNames.set(userId, name);
     return name;
   }

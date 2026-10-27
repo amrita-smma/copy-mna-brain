@@ -143,9 +143,16 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
 ## A chat turn (`POST /api/chat`)
 
 1. `BotService.openThread` (or `openDefaultThread` when no `bot_id` is sent)
-   resolves the visible bot and the user's thread with it.
-2. `CopilotChatsService.claimTurn` takes the thread's turn lock; while another
-   bot's message is being answered on it, the route returns **409**.
+   resolves the visible bot and the user's thread with it. The user's name
+   (which titles their primary bot) and the thread are read together; the
+   thread is created only when the find comes back empty. The bot list for
+   the @mention note (`prepareMentionContext`) is started before the open
+   and read behind it.
+2. `CopilotChatsService.claimTurn` takes the thread's turn lock, in the same
+   round trip as the per-bot context reads; while another bot's message is
+   being answered on it, the route returns **409**. A path that ends between
+   the claim and the `after()` hook that normally releases it — attachments
+   refused, no agent, a throw — gives the lock back itself (`abandonTurn`).
 3. The graph is the bot's **base flavor's** cached chat graph; the graph cache
    is never keyed by bot. `buildBotTurnOverride` swaps in this turn's prompt,
    tools and middleware:
@@ -189,9 +196,14 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
    per-stage timeline of the setup path (`TurnTimer`).
 5. The question is stored in `copilot_messages` as soon as the turn lock is
    held (`ChatHistoryService.persistQuestion`), so a tab reloaded mid-turn
-   shows it under the live bubble rather than an empty thread. After the
-   response (`after()`): the reply is stored (`persistTurn` with
-   `questionStored`, marked read; a turn that never reached the thread
+   shows it under the live bubble rather than an empty thread. The route
+   picks the row's id itself and does not wait for the insert: the run, its
+   Langfuse trace and the reply's feedback key all use that id while the
+   write is in flight alongside the stream start. After the
+   response (`after()`): the insert is awaited, the reply is stored
+   (`persistTurn` with `questionStored`, marked read; when the up-front
+   write failed the question is stored here under the same id, so the id
+   the reply was given never dangles; a turn that never reached the thread
    discards its question row instead), an embedding job is queued,
    the reply's @mentions are handed on (`BotService.dispatchMentions`; the
    user's own @mentions went out when the message arrived), the turn

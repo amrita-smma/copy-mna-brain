@@ -7,7 +7,6 @@ import {
   type EffortChoice,
 } from '@/lib/agents/analysis';
 import { lastHumanMessageId } from '@/lib/agents/analysis/messages';
-import type { ThreadSnapshot } from '@/lib/agents/analysis/runtime';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
@@ -176,6 +175,12 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
   // trace, once the first text streams — or when the turn ends without any.
   const timer = new TurnTimer(`turn ${turnId.slice(0, 8)}`);
   timer.mark('auth');
+  // Live state for the bot icons (`startTurnPresence`), from the lock to its
+  // release; and the way back out of the lock on a path that ends — by a
+  // return or a throw — between the claim and the `after()` hook that
+  // normally releases it. Null once that hook owns the release.
+  let presence: TurnPresence | undefined;
+  let abandonTurn: (() => Promise<void>) | null = null;
   // The agent run's root run id, which the Langfuse LangChain handler uses as
   // the trace id. Once the question is stored it becomes the question row's id
   // (MB-693: feedback on the reply scores the trace by the id it already
@@ -377,6 +382,11 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     // is built without the `query_fund_sources` tool (see getAgentGraph).
     const sofEnabledPromise = sourceOfFundsEnabled();
 
+    // The bots this turn can @mention: the list is the heaviest of the
+    // per-turn reads, so it is started here and read behind the thread open
+    // rather than after it; the note is built once the bot is known.
+    const mentionContextFor = botService.prepareMentionContext(userId);
+
     let opened;
     try {
       opened = requestedBotId
@@ -391,14 +401,31 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     const { bot, chat } = opened;
     timer.mark('thread_open');
 
+    // One turn at a time per thread: a bot answering an @mention or a routine
+    // (a background job) writes this same checkpoint thread. Claimed in the
+    // same round trip as the reads below — only the thread's id is needed —
+    // and before everything that writes to the thread: the history read's
+    // repairs, the question row, the run itself. Released by the `after()`
+    // hook registered further down once the turn is stored, or by
+    // `abandonTurn` on a path that ends before that hook exists.
+    const claimPromise = copilotChatsService.claimTurn(chat.id, maxDuration);
+    claimPromise.catch(() => undefined);
+    abandonTurn = async () => {
+      // Only a granted claim is given back; one that failed or threw held nothing.
+      if (await claimPromise.catch(() => false)) {
+        await copilotChatsService.releaseTurn(chat.id).catch(() => undefined);
+      }
+      await presence?.done();
+    };
+
     // The reads that need the bot, all at once: the other bots this one can
     // hand work to with an @mention, the notes the user asked this bot to
     // keep (explicit requests, so not behind the mem0 switch; best-effort
     // like the recall), and the flavor the bot runs on ('mna' — M&A — or
     // 'investment' — funds & investing, …; falling back to the workspace's).
-    const [contextData, mentionContext, botMemoryContext, copilotAgent] = await Promise.all([
+    const [contextData, mentionContext, botMemoryContext, copilotAgent, claimed] = await Promise.all([
       contextDataPromise,
-      botService.mentionContext(userId, bot.id).catch((err: unknown) => {
+      mentionContextFor(bot.id).catch((err: unknown) => {
         console.error('[chat] failed to list the bots to mention:', err);
         return '';
       }),
@@ -409,8 +436,19 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
       isCopilotAgentType(bot.base_flavor)
         ? Promise.resolve(bot.base_flavor)
         : workspaceService.getCopilotAgent(workspaceId),
+      claimPromise,
     ]);
     timer.mark('context');
+    if (!claimed) {
+      abandonTurn = null;
+      return NextResponse.json(
+        { error: `${bot.name} is working on a background task. Try again in a moment.` },
+        { status: 409 },
+      );
+    }
+    timer.mark('turn_claimed');
+    presence = startTurnPresence({ workspaceId, userId, chatId: chat.id, botId: bot.id, turnId });
+
     // Auth-sensitive values (the user's email) and per-user bytes (the user's
     // name) are NOT in `contextData`; they travel via `configurable` so tools
     // can read them as parameters rather than parsing them out of LLM-facing
@@ -480,6 +518,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
         ];
       } catch (err) {
         if (err instanceof ChatAttachmentForbiddenError) {
+          await abandonTurn();
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
         throw err;
@@ -505,7 +544,6 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     // an explicit Stop (`POST /api/copilot/chats/[id]/stop`, polled by
     // `stopPoll`) ends it early. Resolved now for the paths that never stream.
     let turnFinished: Promise<void> = Promise.resolve();
-    let presence: TurnPresence | undefined;
     let stopWatch: StopWatch | undefined;
 
     const sofEnabled = await sofEnabledPromise;
@@ -538,6 +576,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     const memoryContext = await memoryContextPromise;
     timer.mark('memory_recall');
     if (!agent) {
+      await abandonTurn();
       return NextResponse.json(
         {
           error:
@@ -561,19 +600,6 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     // skill tools and history summarization swapped in.
     const override = buildBotTurnOverride(agent, bot);
 
-    // One turn at a time per thread: a bot answering an @mention or a routine
-    // (a background job) writes this same checkpoint thread. Claimed before the
-    // history read and the repairs below, which write to the thread too.
-    // Released by the `after()` right below, once the turn is stored.
-    if (!(await copilotChatsService.claimTurn(chat.id, maxDuration))) {
-      return NextResponse.json(
-        { error: `${bot.name} is working on a background task. Try again in a moment.` },
-        { status: 409 },
-      );
-    }
-    timer.mark('turn_claimed');
-    presence = startTurnPresence({ workspaceId, userId, chatId: chat.id, botId: bot.id, turnId });
-
     // The user's @mentions ping now, not after the reply: an @mention is the
     // user involving that bot, so it goes out on every message that names
     // one, whatever happens to this turn. Each mentioned bot answers in its own
@@ -593,42 +619,45 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
     // The thread's persisted history, read once: the zero-work check, the
     // earlier attachments, the file-reference rewrite and the orphaned-call
     // repair below all use this one read.
-    let snapshot: ThreadSnapshot;
-    let userPinged: string[];
-    try {
-      [snapshot, userPinged] = await Promise.all([agent.getThreadSnapshot(chat.id), userPingedPromise]);
-    } catch (err) {
-      await copilotChatsService.releaseTurn(chat.id).catch(() => undefined);
-      await presence?.done();
-      throw err;
-    }
+    const [snapshot, userPinged] = await Promise.all([agent.getThreadSnapshot(chat.id), userPingedPromise]);
     const priorMessages = snapshot.messages;
     timer.mark('history_read');
     const priorLastHumanId = lastHumanMessageId(priorMessages);
 
     // The question goes into the history now, under the lock, so a tab
     // reloaded mid-turn shows it beneath the live bubble; the reply follows
-    // in the `after()` below. Best-effort: without it the turn stores both
-    // at the end, as before.
-    let questionRowId: string | null = null;
+    // in the `after()` below. The row's id is chosen here rather than read
+    // back from the insert, so the write is NOT awaited: the run, its trace
+    // and the reply's feedback key all use the id while the insert is still
+    // in flight, alongside the repairs and the stream start. The hook waits
+    // for it. A failed write (logged) means the turn stores both rows at the
+    // end, the question under this same id, so nothing handed out dangles.
     const question = messages[0];
-    if (question) {
-      try {
-        questionRowId = await chatHistoryService.persistQuestion({
-          chat,
-          message: question,
-          prior: priorMessages,
-          // What produced the reply, for feedback on it (MB-693). The same
-          // model the agent's trace metadata names.
-          turn: { model: EFFORT_TIERS[effort].model, effortTier: effort },
-        });
-        // The trace runs under the question's id from here on (see `traceRunId`).
-        traceRunId = questionRowId ?? traceRunId;
-      } catch (err) {
-        console.error('[chat] failed to store the question in history:', err);
-      }
-    }
-    timer.mark('question_stored');
+    const questionId = question ? randomUUID() : null;
+    // The trace runs under the question's id from here on (see `traceRunId`).
+    if (questionId) traceRunId = questionId;
+    // What produced the reply, for feedback on it (MB-693). The same model
+    // the agent's trace metadata names.
+    const questionTurn = { model: EFFORT_TIERS[effort].model, effortTier: effort };
+    const questionStored: Promise<boolean> =
+      question && questionId
+        ? chatHistoryService
+            .persistQuestion({
+              chat,
+              message: question,
+              prior: priorMessages,
+              turn: questionTurn,
+              id: questionId,
+            })
+            .then((id) => {
+              timer.mark('question_stored');
+              return id !== null;
+            })
+            .catch((err: unknown) => {
+              console.error('[chat] failed to store the question in history:', err);
+              return false;
+            })
+        : Promise.resolve(false);
 
     // After the response has finished — registered here, right after the
     // claim, so the lock is released on every path, including an error
@@ -654,6 +683,9 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
       // A turn that produced no visible text (stopped, budget, error) still
       // files what it has; before the Langfuse drain below.
       recordTimeline();
+      // The question's insert was started under the lock and not awaited;
+      // whether it landed decides what is stored and what is taken back.
+      const questionWritten = await questionStored;
       let finalMessages: BaseMessage[] | undefined;
       try {
         try {
@@ -667,9 +699,9 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
         // and the question stored at the start comes back out.
         if (lastHumanMessageId(finalMessages) === priorLastHumanId) {
           finalMessages = undefined;
-          if (questionRowId) {
+          if (questionWritten && questionId) {
             await withBackgroundDb(async (bgDb) =>
-              createContainer(bgDb, workspaceId).chatHistoryService.discardQuestion(questionRowId!),
+              createContainer(bgDb, workspaceId).chatHistoryService.discardQuestion(questionId),
             ).catch((err: unknown) => {
               console.error('[chat] failed to discard the unanswered question:', err);
             });
@@ -684,7 +716,8 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
               chat,
               finalMessages: stored,
               interactive: true,
-              questionStored: questionRowId !== null,
+              questionStored: questionWritten,
+              ...(questionId ? { question: { id: questionId, turn: questionTurn } } : {}),
             });
           });
           // Stored: other tabs reload the thread (this one streamed it live).
@@ -760,6 +793,8 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
         console.error('[chat] failed to record the turn to memory:', err);
       }
     });
+    // From here the hook above releases the lock on every path.
+    abandonTurn = null;
 
 
     // `chat_message_sent` — one event per user turn, captured here rather than
@@ -944,7 +979,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
               type: 'message-metadata',
               messageMetadata: {
                 createdAt: new Date().toISOString(),
-                ...(questionRowId ? { questionId: questionRowId } : {}),
+                ...(questionId ? { questionId } : {}),
               },
             });
             timer.mark('stream_opened');
@@ -1065,6 +1100,9 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
       }
     }
   } catch (e: unknown) {
+    // A throw between the claim and the hook that releases it: give the
+    // thread back, or the next message 409s until the lock's TTL runs out.
+    await abandonTurn?.();
     return chatErrorResponse(e);
   }
 }

@@ -19,7 +19,12 @@ const repo = vi.hoisted(() => ({
   archive: vi.fn(),
   savePinned: vi.fn(),
 }));
-const chats = vi.hoisted(() => ({ findOrCreateBotThread: vi.fn(), markRead: vi.fn(), markUnread: vi.fn() }));
+const chats = vi.hoisted(() => ({
+  findBotThread: vi.fn(),
+  findOrCreateBotThread: vi.fn(),
+  markRead: vi.fn(),
+  markUnread: vi.fn(),
+}));
 const workspace = vi.hoisted(() => ({
   getCopilotAgent: vi.fn(),
   dispatchBotMessage: vi.fn(),
@@ -58,6 +63,8 @@ describe('BotService', () => {
     workspace.getCopilotAgent.mockResolvedValue('vc');
     workspace.getUser.mockResolvedValue({ name: 'Nico Alimin', email: 'nico@example.com' });
     workspace.greet.mockResolvedValue(undefined);
+    // No thread yet: an open below creates one unless the test says otherwise.
+    chats.findBotThread.mockResolvedValue(null);
     service = new BotService(repo as never, chats as never, workspace);
   });
 
@@ -404,7 +411,18 @@ describe('BotService', () => {
   });
 
   describe('BotService.openThread', () => {
-    it("opens the user's permanent thread with a bot they can see, titled with its name", async () => {
+    it("returns the user's thread with a bot they can see, in one read, without an insert", async () => {
+      const bot = row({ owner_user_id: 'other', visibility: 'workspace', persona_md: 'Deal scout.' });
+      const chat = { id: 'chat-1', last_message_at: '2026-10-19T00:00:00Z', history_imported_at: null };
+      repo.findById.mockResolvedValueOnce(bot);
+      chats.findBotThread.mockResolvedValueOnce(chat);
+
+      await expect(service.openThread('me', 'bot-1')).resolves.toEqual({ bot, chat });
+      expect(chats.findBotThread).toHaveBeenCalledWith('me', 'bot-1');
+      expect(chats.findOrCreateBotThread).not.toHaveBeenCalled();
+    });
+
+    it("creates the user's permanent thread on its first open, titled with the bot's name", async () => {
       const bot = row({ owner_user_id: 'other', visibility: 'workspace', persona_md: 'Deal scout.' });
       const chat = { id: 'chat-1', last_message_at: null, history_imported_at: null };
       repo.findById.mockResolvedValueOnce(bot);
@@ -472,6 +490,66 @@ describe('BotService', () => {
 
       expect(repo.ensureDefault).toHaveBeenCalledWith(expect.objectContaining({ base_flavor: 'vc' }));
       expect(chats.findOrCreateBotThread).toHaveBeenCalledWith('me', 'def', "Nico's bot");
+    });
+
+    it("reads the user's name and the thread together, not one after the other", async () => {
+      const def = row({ id: 'def', owner_user_id: null, is_default: true, visibility: 'workspace', name: 'Copilot' });
+      repo.findDefault.mockResolvedValueOnce(def);
+      let releaseUser!: (user: { name: string }) => void;
+      workspace.getUser.mockReturnValueOnce(new Promise((resolve) => { releaseUser = resolve; }));
+      let threadReadWhileUserPending = false;
+      chats.findBotThread.mockImplementationOnce(async () => {
+        threadReadWhileUserPending = true;
+        return { id: 'chat-def' };
+      });
+
+      const opening = service.openDefaultThread('me');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(threadReadWhileUserPending).toBe(true);
+      releaseUser({ name: 'Nico Alimin' });
+
+      const { bot, chat } = await opening;
+      expect(chat).toEqual({ id: 'chat-def' });
+      expect(bot.name).toBe("Nico's bot");
+      expect(chats.findOrCreateBotThread).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('BotService.prepareMentionContext', () => {
+    const def = row({ id: 'def', owner_user_id: null, is_default: true, visibility: 'workspace' });
+    const scout = row({ id: 'scout', name: 'Scout', owner_user_id: 'me' });
+
+    it('starts the list read at once and writes the note for the bot named later', async () => {
+      repo.listVisible.mockResolvedValue([def, scout]);
+
+      const note = service.prepareMentionContext('me');
+      expect(repo.listVisible).toHaveBeenCalledWith('me');
+
+      const written = await note('def');
+      expect(written).toContain('Scout');
+      expect(written).toBe(await service.mentionContext('me', 'def'));
+    });
+
+    it('shares one user read between a list and a thread open in flight together', async () => {
+      repo.listVisible.mockResolvedValue([def, scout]);
+      repo.findDefault.mockResolvedValue(def);
+      chats.findBotThread.mockResolvedValue({ id: 'chat-def' });
+
+      const note = service.prepareMentionContext('me');
+      const { bot } = await service.openDefaultThread('me');
+      await note(bot.id);
+
+      expect(workspace.getUser).toHaveBeenCalledTimes(1);
+      expect(bot.name).toBe("Nico's bot");
+    });
+
+    it('surfaces a failed list read when the note is asked for, not before', async () => {
+      repo.listVisible.mockRejectedValueOnce(new Error('db down'));
+
+      const note = service.prepareMentionContext('me');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      await expect(note('def')).rejects.toThrow('db down');
     });
   });
 

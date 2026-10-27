@@ -19,6 +19,7 @@ const {
   openThreadMock,
   openDefaultThreadMock,
   mentionContextMock,
+  prepareMentionContextMock,
   dispatchMentionsMock,
   recordTaskMock,
   routeEffortMock,
@@ -29,6 +30,7 @@ const {
   openThreadMock: vi.fn(),
   openDefaultThreadMock: vi.fn(),
   mentionContextMock: vi.fn(),
+  prepareMentionContextMock: vi.fn(),
   dispatchMentionsMock: vi.fn(),
   recordTaskMock: vi.fn(),
   routeEffortMock: vi.fn(),
@@ -274,7 +276,7 @@ describe('POST /api/chat', () => {
       botService: {
         openThread: openThreadMock,
         openDefaultThread: openDefaultThreadMock,
-        mentionContext: mentionContextMock,
+        prepareMentionContext: prepareMentionContextMock,
         dispatchMentions: dispatchMentionsMock,
       },
       chatHistoryService: {
@@ -285,7 +287,10 @@ describe('POST /api/chat', () => {
       botTaskLogService: { record: recordTaskMock },
     });
     openThreadMock.mockReset();
+    // The route starts the bot-list read before the thread open and names the
+    // bot afterwards; the reader it gets back is `mentionContextMock`.
     mentionContextMock.mockReset().mockResolvedValue('');
+    prepareMentionContextMock.mockReset().mockReturnValue(mentionContextMock);
     dispatchMentionsMock.mockReset().mockResolvedValue([]);
     recordTaskMock.mockReset().mockResolvedValue(undefined);
     buildBotTurnOverrideMock.mockReset().mockReturnValue({ systemPrompt: 'BOT', toolList: [] });
@@ -389,6 +394,9 @@ describe('POST /api/chat', () => {
 
     expect(res.status).toBe(500);
     expect(invokeMock).not.toHaveBeenCalled();
+    // The lock was already held: given back, since the hook that would release it never registered.
+    expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+    expect(presence.handle.done).toHaveBeenCalledTimes(1);
   });
 
   describe('the open insight as context (MB-550)', () => {
@@ -850,6 +858,11 @@ describe('POST /api/chat', () => {
         finalMessages,
         interactive: true,
         questionStored: true,
+        // What the up-front write stamped, for the case it had failed.
+        question: {
+          id: persistQuestionMock.mock.calls[0][0].id,
+          turn: { model: 'claude-haiku-5-5', effortTier: 'low' },
+        },
       });
     });
 
@@ -879,14 +892,14 @@ describe('POST /api/chat', () => {
       const res = await POST(chatRequest({ show_intermediate_steps: false }));
 
       // A short, attachment-free turn with no router answer falls back to `low`.
-      expect(persistQuestionMock.mock.calls[0][0].turn).toEqual({
-        model: 'claude-haiku-5-5',
-        effortTier: 'low',
-      });
+      const [call] = persistQuestionMock.mock.calls[0];
+      expect(call.turn).toEqual({ model: 'claude-haiku-5-5', effortTier: 'low' });
+      // The route picks the row's id itself, so the run never waits for the insert.
+      expect(call.id).toMatch(UUID);
       // The root runId is the Langfuse trace id that feedback scores.
-      expect(streamEventsMock.mock.calls[0][1].runId).toBe('q-row');
+      expect(streamEventsMock.mock.calls[0][1].runId).toBe(call.id);
       // The reply learns its question id, which keys its feedback.
-      expect(await res.text()).toContain('"questionId":"q-row"');
+      expect(await res.text()).toContain(`"questionId":"${call.id}"`);
     });
 
     it("runs a non-streamed turn under the question's id too", async () => {
@@ -897,22 +910,111 @@ describe('POST /api/chat', () => {
 
       await POST(chatRequest({}));
 
-      expect(invokeMock.mock.calls[0][1].runId).toBe('q-row');
+      expect(invokeMock.mock.calls[0][1].runId).toBe(persistQuestionMock.mock.calls[0][0].id);
     });
 
-    it('runs the turn under a fresh id and sends no question id when the question was not stored', async () => {
+    it("keeps the question's id for the run and the reply when its insert fails, and stores the question under it at the end", async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
       persistQuestionMock.mockRejectedValue(new Error('db hiccup'));
-      getMessagesMock.mockResolvedValue([]);
+      const finalMessages = [new HumanMessage({ id: 'h-new', content: 'q' }), new AIMessage('a')];
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
       resolve();
 
       const res = await POST(chatRequest({ show_intermediate_steps: false }));
+      const body = await res.text();
+      await runAfter();
 
-      // Still a known id (the turn timeline is filed under it), just not a question's.
-      const runId = streamEventsMock.mock.calls[0][1].runId as string;
-      expect(runId).toMatch(UUID);
-      expect(runId).not.toBe('q-row');
-      expect(await res.text()).not.toContain('questionId');
+      // The id went out before the insert came back, so nothing dangles: the
+      // run, the reply and the question stored at the end all carry it.
+      const id = persistQuestionMock.mock.calls[0][0].id as string;
+      expect(id).toMatch(UUID);
+      expect(streamEventsMock.mock.calls[0][1].runId).toBe(id);
+      expect(body).toContain(`"questionId":"${id}"`);
+      expect(persistTurnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          questionStored: false,
+          question: { id, turn: { model: 'claude-haiku-5-5', effortTier: 'low' } },
+        }),
+      );
+      spy.mockRestore();
+    });
+
+    it('does not wait for the question insert before running the agent, and counts it once it lands', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      let land!: (id: string) => void;
+      persistQuestionMock.mockReturnValue(new Promise<string>((resolveInsert) => { land = resolveInsert; }));
+      const finalMessages = [new HumanMessage({ id: 'h-new', content: 'q' }), new AIMessage('a')];
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
+      resolve();
+
+      await POST(chatRequest({}));
+      // The agent ran while the insert was still in flight.
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+
+      land(persistQuestionMock.mock.calls[0][0].id);
+      await runAfter();
+      expect(persistTurnMock).toHaveBeenCalledWith(expect.objectContaining({ questionStored: true }));
+    });
+
+    it('claims the turn with the context reads, before the router has answered', async () => {
+      shouldRouteMock.mockReturnValue(true);
+      let claimsWhenRouted = -1;
+      routeEffortMock.mockImplementation(
+        () =>
+          new Promise((resolveRoute) =>
+            setTimeout(() => {
+              claimsWhenRouted = claimTurnMock.mock.calls.length;
+              resolveRoute('medium');
+            }, 5),
+          ),
+      );
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(claimsWhenRouted).toBe(1);
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
+    });
+
+    it('gives the thread back when the attachments are refused after the claim', async () => {
+      const { ChatAttachmentForbiddenError } = await import('@/lib/services/chatAttachmentService');
+      attachmentPrepareMock.mockRejectedValue(new ChatAttachmentForbiddenError());
+      resolve();
+
+      const res = await POST(chatRequest({ attachments: [{ key: 'chat-attachments/ws-1/a.pdf', name: 'a.pdf' }] }));
+
+      expect(res.status).toBe(403);
+      expect(claimTurnMock).toHaveBeenCalledTimes(1);
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(presence.handle.done).toHaveBeenCalledTimes(1);
+      expect(invokeMock).not.toHaveBeenCalled();
+    });
+
+    it('gives the thread back when a step after the claim throws', async () => {
+      resolveChatAgentGraphMock.mockRejectedValue(new Error('registry down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(500);
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(presence.handle.done).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    it('releases nothing when the claim itself failed', async () => {
+      claimTurnMock.mockRejectedValue(new Error('db down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(500);
+      expect(releaseTurnMock).not.toHaveBeenCalled();
+      expect(presence.startTurnPresence).not.toHaveBeenCalled();
       spy.mockRestore();
     });
 
@@ -1014,7 +1116,12 @@ describe('POST /api/chat', () => {
 
       await POST(chatRequest({}));
 
-      expect(mentionContextMock).toHaveBeenCalledWith('u1', defaultBot.id);
+      // The list read starts before the thread is opened; the note names the bot afterwards.
+      expect(prepareMentionContextMock).toHaveBeenCalledWith('u1');
+      expect(prepareMentionContextMock.mock.invocationCallOrder[0]).toBeLessThan(
+        openDefaultThreadMock.mock.invocationCallOrder[0],
+      );
+      expect(mentionContextMock).toHaveBeenCalledWith(defaultBot.id);
       expect(systemContext()).toBe('WORKSPACE CONTEXT\n\n<other_bots>');
     });
 
@@ -1029,7 +1136,7 @@ describe('POST /api/chat', () => {
       await runAfter();
 
       expect(persistTurnMock).not.toHaveBeenCalled();
-      expect(discardQuestionMock).toHaveBeenCalledWith('q-row');
+      expect(discardQuestionMock).toHaveBeenCalledWith(persistQuestionMock.mock.calls[0][0].id);
       expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
     });
 
@@ -1065,7 +1172,7 @@ describe('POST /api/chat', () => {
       await POST(chatRequest({}));
 
       const runId = invokeMock.mock.calls[0][1].runId as string;
-      expect(runId).toBe('q-row');
+      expect(runId).toBe(persistQuestionMock.mock.calls[0][0].id);
       expect(recordTurnTimingMock).toHaveBeenCalledTimes(1);
       const [timing] = recordTurnTimingMock.mock.calls[0];
       expect(timing.traceId).toBe(runId);

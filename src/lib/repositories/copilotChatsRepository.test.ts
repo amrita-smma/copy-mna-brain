@@ -127,6 +127,15 @@ describe('CopilotChatsRepository', () => {
       expect(mockDb.onConflictDoNothing).toHaveBeenCalled();
     });
 
+    it('finds the thread on its own, for a caller that creates it only when the find comes back empty', async () => {
+      const thread = { id: 'chat-1', bot_id: 'bot-1' };
+      mockDb.limit.mockResolvedValueOnce([thread]).mockResolvedValueOnce([]);
+
+      await expect(repo.findBotThread('u1', 'bot-1')).resolves.toBe(thread);
+      await expect(repo.findBotThread('u1', 'bot-1')).resolves.toBeNull();
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
     it('reads the row a concurrent open inserted when its own insert hits the unique index', async () => {
       const raced = { id: 'chat-3', bot_id: 'bot-1' };
       mockDb.limit.mockResolvedValueOnce([]).mockResolvedValueOnce([raced]);

@@ -93,6 +93,12 @@ export class ChatHistoryService {
     prior: BaseMessage[];
     authorBotId?: string | null;
     turn?: { model: string; effortTier: string };
+    /**
+     * The row's id when the caller chose it up front: the chat route runs the
+     * turn under the question's id before this insert returns, so it picks
+     * the id and hands it out while the write is still in flight.
+     */
+    id?: string;
   }): Promise<string | null> {
     const { chat } = input;
     // A thread from before the table: its earlier turns come in first, so the
@@ -100,9 +106,11 @@ export class ChatHistoryService {
     if (!chat.history_imported_at) await this.importIfFirst(chat, () => Promise.resolve(input.prior));
     const ui = toUIMessages([input.message]).filter((m) => m.role === 'user');
     if (ui.length === 0) return null;
-    const rows = this.toRows(chat, ui, input.authorBotId ?? null).map((r) =>
-      input.turn ? { ...r, model: input.turn.model, effort_tier: input.turn.effortTier } : r,
-    );
+    const rows = this.toRows(chat, ui, input.authorBotId ?? null).map((r) => ({
+      ...r,
+      ...(input.id ? { id: input.id } : {}),
+      ...(input.turn ? { model: input.turn.model, effort_tier: input.turn.effortTier } : {}),
+    }));
     const [row] = await this.deps.messages.insertMany(rows);
     return row?.id ?? null;
   }
@@ -117,7 +125,10 @@ export class ChatHistoryService {
    * checkpoint after the turn. `interactive` is false for a background turn
    * (a message from another bot), which leaves the thread unread.
    * `questionStored`: `persistQuestion` already wrote the user row when the
-   * turn started, so only the reply is stored here.
+   * turn started, so only the reply is stored here. `question` is what that
+   * write would have stamped — the id the reply was already handed and the
+   * turn's model and tier — for when it failed and the user row is stored
+   * here instead, so the reply's feedback still finds its question.
    */
   async persistTurn(input: {
     chat: Pick<CopilotChatRow, 'id' | 'user_id' | 'bot_id' | 'history_imported_at'>;
@@ -125,6 +136,7 @@ export class ChatHistoryService {
     interactive: boolean;
     authorBotId?: string | null;
     questionStored?: boolean;
+    question?: { id: string; turn?: { model: string; effortTier: string } };
   }): Promise<void> {
     const { chat, finalMessages } = input;
     // A thread's first write imports everything the checkpoint holds, which
@@ -139,9 +151,19 @@ export class ChatHistoryService {
       if (!ui.some((m) => m.role === 'assistant')) return;
       // The reply's row text still carries the question: `toRows` reads it
       // from the batch before the user row is dropped.
-      const rows = this.toRows(chat, ui, input.authorBotId ?? null).filter(
-        (r) => !(input.questionStored && r.role === 'user'),
-      );
+      const rows = this.toRows(chat, ui, input.authorBotId ?? null)
+        .filter((r) => !(input.questionStored && r.role === 'user'))
+        .map((r) =>
+          r.role === 'user' && input.question
+            ? {
+                ...r,
+                id: input.question.id,
+                ...(input.question.turn
+                  ? { model: input.question.turn.model, effort_tier: input.question.turn.effortTier }
+                  : {}),
+              }
+            : r,
+        );
       const inserted = await this.deps.messages.insertMany(rows);
       await this.embed(inserted);
     }
