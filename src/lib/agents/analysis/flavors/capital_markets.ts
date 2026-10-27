@@ -24,7 +24,7 @@ import {
   NEXT_ACTION_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
-import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
+import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
 
@@ -124,7 +124,7 @@ You have access to the following tools:
 12. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
 13. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
 14. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
-15. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
+15. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Pipeline Operations" below)
 16. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate (sector, sub-sector, geography, deal size, deal type scope)
 17. **get_company_profile** - Gather external evidence on a company's overview, founders, leadership, business model, products and disclosed funding — the issuer story behind both a credit and an equity offering
 18. **get_sector_context** - Gather external evidence on industry/sector market sizing, growth rates (CAGR), drivers, headwinds and macro trends — the backdrop investors price the sector against
@@ -155,7 +155,7 @@ Beyond those five: \`valyu_search\` for comparable pricing, covenant packages, r
 6. **For "is the window open?":** this is \`get_market_signals\` plus \`web_search\` run from several angles (recent issuance, rating actions, index levels), in the same turn, and never an answer from memory
 7. **For internal history:** \`query_files\` — a prior term sheet, an existing indenture or a board paper tells you what the issuer has already committed to and what it is contractually free to do
 
-${MNA_PIPELINE_OPERATIONS_GUIDE}
+${MNA_PIPELINE_OPERATIONS_SUMMARY}
 
 ## Response Guidelines
 

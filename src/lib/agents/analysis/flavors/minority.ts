@@ -11,7 +11,7 @@ import {
 } from "../guides";
 import { financialEquityAnalysis } from "../tools";
 import { defaultChatToolList } from "./mna";
-import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
+import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
 
@@ -51,7 +51,7 @@ You have access to the following tools:
 11. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
 12. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
 13. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
-14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
+14. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Pipeline Operations" below)
 15. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate (sector, sub-sector, geography, deal size, deal type scope). Use it whenever a question turns on whether something is in or out of mandate, and to check how crowded a thesis already is
 16. **financial_equity_analysis** - Run the standard equity analysis on a set of financials: revenue growth, EBITDA/EBIT growth, margins and multiples against local and global peers and the market, net profit growth and its sustainability, P/E, EV/EBITDA and P/B placed against the company's own history in standard deviations, dividend yield, and a sum-of-the-parts build-up. Deterministic arithmetic over figures YOU supply — it fetches nothing. When it answers \`needs_financial_data\`, get the missing figures once (record, files, web/Valyu, or the user) and call it again; if they still cannot be had, call it with \`data_request_already_made: true\` and work with what it can compute.
 
@@ -66,7 +66,7 @@ You have access to the following tools:
 7. **For recent market news, rounds, exits or sponsor activity:** web_search, aggressively — several calls from different angles in the same turn (the company, the sponsor, the sector), with valyu_search when the answer should rest on filings or research.
 8. **For evaluating a company, a position or an entry price:** run financial_equity_analysis. Gather the figures first — get_company_details for what the firm recorded, query_files for memos and statements, valyu_search or web_search for filings, peer multiples and index benchmarks — then pass them in one call. Do not do the growth, margin and multiple arithmetic in your head: the tool is deterministic and shows its gaps.
 
-${MNA_PIPELINE_OPERATIONS_GUIDE}
+${MNA_PIPELINE_OPERATIONS_SUMMARY}
 
 ## Portfolio Manager Judgment
 

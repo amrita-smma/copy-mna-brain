@@ -26,7 +26,7 @@ import {
   NEXT_ACTION_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
-import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
+import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
 
@@ -112,7 +112,7 @@ You have access to the following tools:
 12. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies from the pipeline (chat writes directly on user confirm — no Workforce roundtrip)
 13. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 (or any stage) with checkboxes, tags, and per-row signals (chat writes directly on user confirm — no Workforce roundtrip)
 14. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint (\`presentation\`) in the same message (self-service; PPTX may take several minutes)
-15. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Editing a Company Card Section" below)
+15. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit; allowed inline — see "Pipeline Operations" below)
 16. **get_investment_theses** - Read the workspace's investment theses: the firm's active mandate (sector, sub-sector, geography, deal size, deal type scope). Use it whenever a question turns on whether an opportunity is in or out of scope
 17. **get_company_profile** - Gather external evidence on a company's overview, founders, leadership team, business model, products and disclosed funding — the raw material of an equity story or a CIM
 18. **get_sector_context** - Gather external evidence on industry/sector market sizing, growth rates (CAGR), drivers, headwinds and macro trends — the market section of any pitch, and the backdrop a buyer or an investor prices against
@@ -143,7 +143,7 @@ Beyond those five: \`valyu_search\` for trading multiples, precedent-transaction
 6. **For process, timeline or deal mechanics:** lay out the phases with realistic elapsed time, the documents produced at each, the decision points, and what usually slips.
 7. **For internal history on a mandate:** \`query_files\` — a prior teaser, an old IM, a board pack or a past valuation tells you what has already been argued and what price expectation is already in the room.
 
-${MNA_PIPELINE_OPERATIONS_GUIDE}
+${MNA_PIPELINE_OPERATIONS_SUMMARY}
 
 ## Response Guidelines
 

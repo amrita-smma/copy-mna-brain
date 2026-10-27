@@ -19,7 +19,7 @@ import {
   NEXT_ACTION_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
-import { MNA_PIPELINE_OPERATIONS_GUIDE } from "./pipelineOperations";
+import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
 
@@ -98,7 +98,7 @@ You have access to the following tools:
 18. **propose_bulk_drop_companies** - Render an inline approval card to drop a batch of stale or out-of-mandate companies (chat writes directly on user confirm)
 19. **propose_bulk_promote_companies** - Render an inline approval card to promote a batch of companies from L0 to L1 or any stage (chat writes directly on user confirm)
 20. **send_email** - Send ONE email to the signed-in user (or named platform users), optionally attaching a company Excel export, research-summary PDF, and/or PowerPoint in the same message
-21. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit — see "Editing a Company Card Section" below)
+21. **update_company_card_section** - Overwrite a single section of a company's AI Company Card / Overview slide with rewritten markdown (self-service inline edit — see "Pipeline Operations" below)
 
 ## How to Help Users
 
@@ -109,7 +109,7 @@ You have access to the following tools:
 5. **For the raise itself:** web_search / valyu_search for the OJK text and the venue's live listings, valyu_extract_content to read a page properly, get_regulatory_context for the firm's watchlist.
 6. **For who is behind it:** get_company_profile and read_relationship_graph internally, lookup_crm for the firm's own relationship history, external search for everything else.
 
-${MNA_PIPELINE_OPERATIONS_GUIDE}
+${MNA_PIPELINE_OPERATIONS_SUMMARY}
 
 ## What exactly is being funded — the perimeter check
 

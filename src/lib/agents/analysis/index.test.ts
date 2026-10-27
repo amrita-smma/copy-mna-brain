@@ -97,6 +97,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
     { name: 'calculate_investment_returns' },
   ],
   valyuSearch: { name: 'valyu_search' },
+  readPipelineOperationsGuide: { name: 'read_pipeline_operations_guide' },
   // The read-only tools the crowdfunding (five) and the advisory /
   // capital-markets (seven) flavors add on top of the M&A chat list.
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
@@ -145,6 +146,10 @@ import {
   type ToolList,
 } from '@/lib/agents/analysis';
 import { WORKFORCE_HITL_INTERRUPT_ON } from '@/lib/agents/analysis/hitl';
+import {
+  MNA_PIPELINE_OPERATIONS_GUIDE,
+  MNA_PIPELINE_OPERATIONS_SUMMARY,
+} from '@/lib/agents/analysis/flavors/pipelineOperations';
 import { logger } from '@/lib/agents/logger';
 import type { BaseMessage } from '@langchain/core/messages';
 
@@ -282,13 +287,16 @@ describe('getAgentGraph flavor selection', () => {
 
     const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
 
-    expect(prompt).toContain('## Editing Company Details');
-    expect(prompt).toContain('update_company_details');
-    expect(prompt).toMatch(/only by the Workforce/i);
-    expect(prompt).toMatch(/editing a company's stored details/i);
-    // The Workforce cannot see this conversation, so the instruction has to
-    // carry the company id, the field, and the exact value.
-    expect(prompt).toMatch(/exact, self-contained field-level order/i);
+    // The routing rule is in the prompt: any stored detail is a Workforce write.
+    expect(prompt).toMatch(/editing any stored company detail \(name, segment, geography, banker, financials — any field\)/);
+    expect(prompt).toContain('`edit_company_details`');
+    // The procedure is behind the reader tool. The Workforce cannot see this
+    // conversation, so the instruction has to carry the company id, the
+    // field, and the exact value.
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toContain('## Editing Company Details');
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toContain('update_company_details');
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toMatch(/only by the Workforce/i);
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toMatch(/exact, self-contained field-level order/i);
   });
 
   it('documents update_company_details as a workforce write tool', async () => {
@@ -510,18 +518,15 @@ describe('getAgentGraph flavor selection', () => {
 
     // Same tools means the same write discipline: no direct writes, handoffs
     // and the inline bulk cards, verbatim in both prompts.
-    for (const heading of [
-      '## Emailing the User (one email, whatever they asked for)',
-      '## Editing a Company Card Section',
-      '## Delegating to the Workforce',
-      '## Adding a New Company (Chat-Initiated)',
-      '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
-      '## Promoting Companies from L0 to L1',
-    ]) {
-      expect(mnaPrompt).toContain(heading);
-      expect(minorityPrompt).toContain(heading);
+    // The same Pipeline Operations summary, verbatim in both prompts, pointing
+    // at the same reader tool for the procedures.
+    for (const prompt of [mnaPrompt, minorityPrompt]) {
+      expect(prompt).toContain(MNA_PIPELINE_OPERATIONS_SUMMARY);
+      expect(prompt).toContain('**You have NO direct write tools.**');
+      expect(prompt).toContain('`read_pipeline_operations_guide`');
+      // The procedures themselves live behind the tool, not in the prompt.
+      expect(prompt).not.toContain('## Promoting Companies from L0 to L1');
     }
-    expect(minorityPrompt).toContain('**You have NO direct write tools.**');
   });
 
   it('memoizes the minority flavor independently from mna', async () => {
@@ -626,18 +631,15 @@ describe('getAgentGraph flavor selection', () => {
     const crowdfundingPrompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
 
     // It holds every M&A chat tool, so it inherits the same write discipline.
-    for (const heading of [
-      '## Emailing the User (one email, whatever they asked for)',
-      '## Editing a Company Card Section',
-      '## Delegating to the Workforce',
-      '## Adding a New Company (Chat-Initiated)',
-      '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
-      '## Promoting Companies from L0 to L1',
-    ]) {
-      expect(mnaPrompt).toContain(heading);
-      expect(crowdfundingPrompt).toContain(heading);
+    // The same Pipeline Operations summary, verbatim in both prompts, pointing
+    // at the same reader tool for the procedures.
+    for (const prompt of [mnaPrompt, crowdfundingPrompt]) {
+      expect(prompt).toContain(MNA_PIPELINE_OPERATIONS_SUMMARY);
+      expect(prompt).toContain('**You have NO direct write tools.**');
+      expect(prompt).toContain('`read_pipeline_operations_guide`');
+      // The procedures themselves live behind the tool, not in the prompt.
+      expect(prompt).not.toContain('## Promoting Companies from L0 to L1');
     }
-    expect(crowdfundingPrompt).toContain('**You have NO direct write tools.**');
   });
 
   it('memoizes the crowdfunding flavor independently from mna', async () => {
@@ -707,18 +709,14 @@ describe('getAgentGraph — advisory desk flavors', () => {
       const mnaPrompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
       const prompt = mocks.createAgent.mock.calls[1][0].systemPrompt as string;
 
-      for (const heading of [
-        '## Emailing the User (one email, whatever they asked for)',
-        '## Editing a Company Card Section',
-        '## Delegating to the Workforce',
-        '## Adding a New Company (Chat-Initiated)',
-        '## Bulk Drop and Bulk Promote — Inline Approval Cards (Chat-Only)',
-        '## Promoting Companies from L0 to L1',
-      ]) {
-        expect(mnaPrompt).toContain(heading);
-        expect(prompt, flavor).toContain(heading);
+      // The same Pipeline Operations summary, verbatim in both prompts,
+      // pointing at the same reader tool for the procedures.
+      for (const p of [mnaPrompt, prompt]) {
+        expect(p, flavor).toContain(MNA_PIPELINE_OPERATIONS_SUMMARY);
+        expect(p, flavor).toContain('**You have NO direct write tools.**');
+        expect(p, flavor).toContain('`read_pipeline_operations_guide`');
+        expect(p, flavor).not.toContain('## Promoting Companies from L0 to L1');
       }
-      expect(prompt, flavor).toContain('**You have NO direct write tools.**');
     },
   );
 
@@ -928,12 +926,18 @@ describe('shared chat guidance (chat flavors)', () => {
     expect(prompt).toMatch(/what a memo said last year is evidence about last year/);
   });
 
-  it('points the M&A flavor at the bulk cards section that actually follows it', async () => {
+  it('serves the bulk-cards cross-reference from the guide, and keeps the prompt to the summary', async () => {
     const prompt = await promptFor('mna');
 
-    // The cross-reference used to say "above" while the section sits below it.
-    expect(prompt).toContain('see "Bulk Drop and Bulk Promote — Inline Approval Cards" below');
-    expect(prompt).not.toMatch(/`propose_bulk_promote_companies`'s sibling/);
+    // The delegation procedure points at the bulk-cards section that follows
+    // it inside the guide (the cross-reference used to say "above").
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toContain('see "Bulk Drop and Bulk Promote — Inline Approval Cards" below');
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).not.toMatch(/`propose_bulk_promote_companies`'s sibling/);
+    // The prompt no longer enumerates its tools: the schemas carry that, and
+    // the routing guidance is in "How to Help Users" and the summary.
+    expect(prompt).not.toContain('You have access to the following tools:');
+    expect(prompt).toContain('## How to Help Users');
+    expect(prompt).toContain(MNA_PIPELINE_OPERATIONS_SUMMARY);
   });
 
   it('makes external evidence the default for the vc flavor rather than a not-found fallback', async () => {
@@ -969,12 +973,15 @@ describe('shared chat guidance (chat flavors)', () => {
   it('puts an external check inside the M&A promote and drop procedures', async () => {
     const prompt = await promptFor('mna');
 
+    // The procedures are served by read_pipeline_operations_guide; the prompt
+    // only says the promotion is judged with a fresh external check.
+    expect(prompt).toMatch(/assess EBITDA with a fresh external check/);
     // Single L0→L1: judge the EBITDA against something newer than the record.
-    expect(prompt).toMatch(/Search externally first for anything that post-dates the stored figures/);
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toMatch(/Search externally first for anything that post-dates the stored figures/);
     // Bulk promote: verify the shortlist before proposing it.
-    expect(prompt).toMatch(/search the shortlist externally before you commit to it/);
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toMatch(/search the shortlist externally before you commit to it/);
     // Bulk drop: several drop signals only exist outside the record.
-    expect(prompt).toMatch(/check the names you intend to drop externally/);
+    expect(MNA_PIPELINE_OPERATIONS_GUIDE).toMatch(/check the names you intend to drop externally/);
   });
 
   it('stops framing the per-company read as a gap-fill in the M&A flavor', async () => {

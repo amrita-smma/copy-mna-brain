@@ -556,7 +556,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 91 | 83/91 | ✅ |
+| `analysis` | 92 | 84/92 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 7 | 7/7 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |

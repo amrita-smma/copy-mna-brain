@@ -86,6 +86,7 @@ import { proposeReportPlan } from "./propose_report_plan";
 import { createInsight } from "./create_insight";
 import { editInsightSection } from "./edit_insight_section";
 import { replaceInsightDocument } from "./replace_insight_document";
+import { readPipelineOperationsGuide } from "./read_pipeline_operations_guide";
 
 export { searchChatHistory, lookupBot, proposeCreateBot, updateBot, listRoutines, proposeCreateRoutine, updateRoutine, deleteRoutine, offerOptions };
 export { listTasks, createTask, updateTask, deleteTask };
@@ -155,6 +156,7 @@ export {
   createInsight,
   editInsightSection,
   replaceInsightDocument,
+  readPipelineOperationsGuide,
 };
 
 export {

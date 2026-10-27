@@ -13,6 +13,7 @@ import type {
   AnthropicServerTool,
 } from "../tools";
 import type { financialEquityAnalysis } from "../tools/financial_equity_analysis";
+import type { readPipelineOperationsGuide } from "../tools/read_pipeline_operations_guide";
 
 // The user-selectable Copilot flavors. Persisted per-workspace on
 // `workspaces.copilot_agent` and resolved by the chat route. The union is
@@ -35,6 +36,10 @@ export type ToolList = Array<
   // In no array above: @minority adds it to the M&A chat list and the
   // workforce list appends it, rather than it belonging to one shared base.
   | typeof financialEquityAnalysis
+  // The M&A chat list's own addition (see `mna.ts`): it serves the prompt's
+  // pipeline-operations guide on demand, so only the flavors that carry that
+  // summary need it.
+  | typeof readPipelineOperationsGuide
   | AnthropicServerTool
 >;
 

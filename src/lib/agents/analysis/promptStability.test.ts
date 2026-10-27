@@ -63,6 +63,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   combinedTools: [],
   vcTools: [],
   valyuSearch: { name: 'valyu_search' },
+  readPipelineOperationsGuide: { name: 'read_pipeline_operations_guide' },
   calculateInvestmentReturns: { name: 'calculate_investment_returns' },
   financialEquityAnalysis: { name: 'financial_equity_analysis' },
   getCompanyProfile: { name: 'get_company_profile' },
@@ -139,32 +140,38 @@ function lastSystemPrompt(): string {
 // was removed on purpose, and NEXT_ACTION_GUIDE ("## Offer the Next Action")
 // took its place: every chat flavor now closes an answer that leaves an
 // action open with one short follow-up question offering that action. Each
-// flavor's own prompt still says when to search.
+// flavor's own prompt still says when to search. The mna, minority,
+// crowdfunding, investment_banking and capital_markets prompts then changed on
+// purpose together: the ~25k-character pipeline-operations guide they
+// interpolated is now MNA_PIPELINE_OPERATIONS_SUMMARY (the routing rules) with
+// the procedures served on demand by read_pipeline_operations_guide, and the
+// mna prompt dropped its numbered tool enumeration, which the tool schemas
+// already carry.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '794718b4ce4af552f487a921fa580c853941dca5971c23cdaf6adfd148349192',
+  mna: '82dc3be8e7b0892e662ff1863368e0c8eeb4c472c6205c73368145c6895dfe06',
   investment: '4455e9ff3257818b5987a4d659c977fd686727cd807e72df5cc481866159b14a',
   combined: 'ba61e40e31b27e81a87747411641cb5bf26908b8a7b1debcc522a7e003bd9162',
   vc: '9d938807fd4dba1ba15bebe7642dc0af85b27a8341b5457a97fcef645b9d0061',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: 'da9029be8715b7452ec2cfc7a535bacb4809ae195457f9528170f33cb2f83239',
+  minority: '987038ab0a66e9a388bd39a2027c080ff5216fef4b7fe31f097567f9b3970e93',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '2b84bc77d406e79130a1ee40cdc3af4eeb78fa84a88a682a4e60b20149fab949',
+  crowdfunding: 'd01915cfa56eb46df18f7299ae0b221e8aeda1ded990d5ba5b9cc7b485b2fe51',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: 'a62b5a564f786b9f69d0585cefcd7fa82ec2ff8006cafb57d01190cc9f6ad2ee',
+  investment_banking: 'd80691c4ff4be43b285df1d9b714f36ee84d88c6976a115ab5ea80de8163ab5f',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: 'f7ffb5eb00ac49ad9629f1946a863cc8a13b4e0c1239b9f8daae6a26e69509b5',
+  capital_markets: '20e0850e8bc503870cd9b6487134624ec4454dad07d73942ec84fdb836bb518c',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which

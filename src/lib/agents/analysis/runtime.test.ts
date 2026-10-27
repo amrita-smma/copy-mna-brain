@@ -30,6 +30,7 @@ vi.mock('@/lib/agents/analysis/tools', () => ({
   tools: [],
   chatOnlyTools: [],
   valyuSearch: { name: 'valyu_search' },
+  readPipelineOperationsGuide: { name: 'read_pipeline_operations_guide' },
 }));
 
 import {

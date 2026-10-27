@@ -15,6 +15,7 @@ vi.mock('@/lib/agents/analysis/tools', () => {
     proposeInsightRefresh: t('propose_insight_refresh'),
     SERVER_TOOLS: [t('web_search'), t('web_fetch')],
     valyuSearch: t('valyu_search'),
+    readPipelineOperationsGuide: { name: 'read_pipeline_operations_guide' },
     readRelationshipGraph: t('read_relationship_graph'),
     sendEmailTool: t('send_email'),
     searchChatHistory: t('search_chat_history'),

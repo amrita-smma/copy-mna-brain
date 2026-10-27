@@ -83,9 +83,13 @@ The eight flavors:
   passively, what the position does to portfolio concentration and sizing, what
   minority protections govern it (information and consent rights, tag-along,
   drag-along, pre-emption, preference), and how we ever get liquid. The shared
-  pipeline mechanics live in one constant, `MNA_PIPELINE_OPERATIONS_GUIDE`, which
-  the `mna` and `minority` prompts both interpolate so the two can't drift;
-  `promptStability.test.ts` pins both assembled prompts' hashes. Persisted via
+  pipeline mechanics live in one module, `flavors/pipelineOperations.ts`: the
+  `mna` and `minority` prompts both interpolate its
+  `MNA_PIPELINE_OPERATIONS_SUMMARY` (the routing rules — self-service, approval
+  card, or Workforce) so the two can't drift, and the procedures behind it are
+  read on demand through `read_pipeline_operations_guide` (see "Pipeline
+  operations are read on demand" below); `promptStability.test.ts` pins both
+  assembled prompts' hashes. Persisted via
   `workspaces.copilot_agent = 'minority'` — no migration needed.
 - **`crowdfunding`** — the **Crowdfunding Agent**: the Copilot for the firm's
   small-ticket book, a position of around **Rp 10bn** into a raise whose whole
@@ -98,8 +102,9 @@ The eight flavors:
   entry multiple), `get_regulatory_context`, `get_company_profile` (at this size
   the owner-operator *is* the credit), `get_sector_context`, and
   `valyu_extract_content` (reading a venue listing or an OJK page properly
-  rather than off a search snippet). It shares `MNA_PIPELINE_OPERATIONS_GUIDE`
-  with `mna` and `minority`, so the write discipline is identical. What differs
+  rather than off a search snippet). It shares `MNA_PIPELINE_OPERATIONS_SUMMARY`
+  (and the guide behind it) with `mna` and `minority`, so the write discipline
+  is identical. What differs
   is the job, and four things in the prompt carry it:
   - **A mandate gate checked before any analysis** — a larger raise or ticket is
     named as outside the mandate and pointed at the M&A / VC flavors. Because
@@ -174,13 +179,47 @@ The eight flavors:
   `get_company_profile`, `get_sector_context`, `get_competitor_landscape`,
   `get_regulatory_context`, `get_market_signals` and `valyu_extract_content` —
   so they read the M&A pipeline, CRM, files and news surface and share
-  `MNA_PIPELINE_OPERATIONS_GUIDE` (identical write discipline: no direct writes,
-  Workforce handoffs and the inline bulk cards). The two desks read the same
+  `MNA_PIPELINE_OPERATIONS_SUMMARY` (identical write discipline: no direct
+  writes, Workforce handoffs and the inline bulk cards). The two desks read the same
   data; what differs is the job. `promptStability.test.ts` pins both assembled
   prompts' hashes. Persisted via `workspaces.copilot_agent =
   'investment_banking'` / `'capital_markets'` — no migration needed.
 
 ## Follow-up questions: offer the next action
+
+## Pipeline operations are read on demand
+
+The M&A write discipline — how to email, edit a card section, delegate to the
+Workforce, add a company, edit company details, use the bulk cards, promote a
+single company — is ~25k characters of procedure, and most turns are research
+that never writes. So `flavors/pipelineOperations.ts` splits it in two:
+
+- `MNA_PIPELINE_OPERATIONS_SUMMARY` stays in the prompt of every flavor built on
+  `defaultChatToolList()` (`mna`, `minority`, `crowdfunding`,
+  `investment_banking`, `capital_markets`). It carries what the model must get
+  right without a tool call: the routing rules (self-service `send_email` /
+  `update_company_card_section`; the bulk approval cards; everything else to
+  `propose_workforce_handoff`), the direct answer to "how do I add a company?"
+  (a navigation-guide exception), and the instruction to read a topic's
+  procedure before acting on it.
+- `PIPELINE_OPERATION_TOPICS` holds the procedures by topic (`emailing`,
+  `card_section`, `workforce_delegation`, `add_company`,
+  `edit_company_details`, `bulk_cards`, `promote_l0_l1`), served by the
+  `read_pipeline_operations_guide` tool, which is on `defaultChatToolList()`
+  and nowhere else. The model calls it with the topic at hand once per
+  conversation (the text then sits in the thread history) and follows it
+  verbatim. `MNA_PIPELINE_OPERATIONS_GUIDE` is the joined full text, pinned
+  byte-identical to the old single constant by `pipelineOperations.test.ts`.
+
+The trade: one extra tool round trip on a turn that writes, against ~6k fewer
+fixed tokens on every turn — the fixed prefix is prompt-cached, but the cache
+is rewritten whenever a thread sits idle past the cache TTL, and the model
+reads the whole prefix on every cache miss. The `mna` prompt also dropped its
+numbered tool enumeration (the tool schemas already carry every description;
+the when-to-use guidance is in "How to Help Users"). The other flavors keep
+theirs because their entries carry flavor-specific framing ("your issuer and
+peer-issuer starting point", "at this size the owner-operator IS the credit")
+that a shared tool description cannot.
 
 Every chat flavor and the sector chat agents append `NEXT_ACTION_GUIDE`
 (`src/lib/agents/analysis/guides.ts`, "## Offer the Next Action"). When an

@@ -523,19 +523,37 @@ block.)
 
 **Trigger to revisit:** when adding the next flavor or the next ~5 tools.
 
-**Intended fix (highest value first):**
-1. Move `MNA_PIPELINE_OPERATIONS_GUIDE` behind progressive disclosure (an Agent
-   Skill) so the body loads only when the task calls for it.
-2. Delete the numbered tool enumeration from the flavor system prompts; move any
-   when-to-use guidance into each tool's own `description`, where it also lifts
-   call rate.
-3. Adopt Anthropic's tool-search server tool
+**Done so far (2026-10-26):** the pipeline-operations guide is behind
+progressive disclosure — `MNA_PIPELINE_OPERATIONS_SUMMARY` (routing rules) in
+the prompt, the procedures served by `read_pipeline_operations_guide` — and
+the `mna` prompt lost its numbered tool enumeration. Assembled prompt text,
+before → after: `mna` 51.2k → 26.7k chars; `minority` 57.5k → 36.4k;
+`crowdfunding` 61.8k → 40.7k; `investment_banking` 61.0k → 39.9k;
+`capital_markets` 61.7k → 40.6k (roughly 6k tokens each). See
+`docs/features/copilot-flavors.md` §"Pipeline operations are read on demand".
+
+**Still to do (highest value first):**
+1. Delete the numbered tool enumeration from the other seven flavor prompts.
+   Each of those lists carries flavor-specific framing per tool ("your issuer
+   and peer-issuer starting point", "at this size the owner-operator IS the
+   credit") that a shared tool `description` cannot hold, so this is a
+   per-flavor rewrite — keep the framing as a short "how this desk uses its
+   tools" paragraph and drop the restated descriptions — not a deletion.
+2. Adopt Anthropic's tool-search server tool
    (`tool_search_tool_regex_20251119`) with `defer_loading: true` on long-tail
    tools. Discovered schemas are *appended*, not swapped, so unlike the existing
-   `withoutTools()` path (`runtime.ts:63`, which eats a cache miss by design)
-   this preserves the prompt cache. Constraints: the search tool itself must not
-   be deferred, and at least one tool must stay non-deferred.
-4. Defer `add_company` and `send_email` first.
+   `withoutTools()` path (`runtime.ts`, which eats a cache miss by design) this
+   preserves the prompt cache. Constraints: the search tool itself must not be
+   deferred, and at least one tool must stay non-deferred. **Blocker:**
+   `@langchain/anthropic` 1.3.26 accepts `defer_loading` on a tool (`tool()`'s
+   `extras`) and adds the `advanced-tool-use-2025-11-20` beta itself, but its
+   inbound/outbound result-type allowlists (`dist/utils/message_outputs.js`,
+   `message_inputs.js`) do not include `tool_search_tool_result`, so a search
+   result block would be dropped and orphan the server tool use — the same
+   defect class the local patch fixes for the web/code tools. Extend
+   `patches/@langchain__anthropic@1.3.26.patch` first, and verify against the
+   live API before deferring anything.
+3. Defer `add_company` and `send_email` first.
 
 ---
 
