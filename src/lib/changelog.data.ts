@@ -174,6 +174,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "60162944e5344386d1122c9c5c8be432ae37eb23",
+    "date": "2026-10-27",
+    "subject": "Copilot starts answering faster, with less delay before the first response",
+    "category": "improvement"
+  },
+  {
+    "hash": "4474feccca552e913eab592212f67cf84f9f900e",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
