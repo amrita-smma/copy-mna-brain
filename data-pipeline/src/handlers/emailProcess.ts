@@ -100,13 +100,17 @@ export const EXTRACT_MAX_TOKENS = 2000;
  */
 export const EXTRACT_MAX_TOKENS_RETRY = 4096;
 
+/**
+ * Triage types that go to Smart Files. `financial_statement` is still a triage
+ * category (so the classifier has a home for AFS / P&Ls and doesn't push them
+ * into `financial_model` or `prospectus`) but is never uploaded (MB-887).
+ */
 const DEAL_DOC_TYPES = new Set([
   'prospectus',
   'im',
   'teaser',
   'mom',
   'financial_model',
-  'financial_statement',
   'shopping_list',
   'market_study',
 ]);

@@ -870,12 +870,20 @@ export class FileService {
         needsHitlReview = await this.fundUpdateProposalNeedsReview(structuredResult);
       }
 
-      // Ephemeral pipeline: email-origin files classified as `other` are
-      // dropped after classify — delete S3 bytes, keep the files row as audit.
-      // Manual uploads (origin_email=false) are never auto-wiped.
+      // Ephemeral pipeline: email-origin files classified as `other`, and every
+      // email-origin financial statement (MB-887: email intake is deal
+      // material, not a target's financials), are dropped after classify —
+      // delete S3 bytes, keep the files row as audit. Manual uploads
+      // (origin_email=false) are never auto-wiped.
       // Never persist classifier summary prose in drop_reason (privacy).
-      if (originEmail && !needsHitlReview && finalFileType === 'other') {
-        const dropReason = 'afd_classified_other';
+      const dropReason = !originEmail
+        ? null
+        : finalFileType === 'financial_statement'
+          ? 'afd_excluded_financial_statement'
+          : finalFileType === 'other' && !needsHitlReview
+            ? 'afd_classified_other'
+            : null;
+      if (dropReason) {
         // Mark dropped in DB first so a failed S3 delete still leaves an audit
         // row; never delete bytes while the row still looks processable.
         await primaryFileRepo.updatePartial(initialData.id, {
@@ -927,21 +935,6 @@ export class FileService {
           needsHitlReview = needsHitlReview || result.needsReview;
         } catch (err) {
           console.error('[fileService] Failed to auto-create companies from file:', err);
-        }
-      }
-
-      // MB-300: financial statements update company_financials for matched existing
-      // deal targets but never create new company rows.
-      if (isPrimaryWorkspace && originEmail && structuredResult && finalFileType === 'financial_statement') {
-        try {
-          const fss = (structuredResult as Record<string, unknown>).financial_statement_summary as FinancialStatementSummary | undefined;
-          await this.mergeFinancialStatementCompanyFinancials({
-            matchedCompanies: matched_companies,
-            financialStatementSummary: fss,
-            fileId: initialData.id,
-          });
-        } catch (err) {
-          console.error('[fileService] Failed to merge financial statement financials:', err);
         }
       }
 
@@ -3846,48 +3839,6 @@ function isEntityDecisionRemapped(
     );
     if (this.workspaceRepo) service.setWorkspaceRepo(this.workspaceRepo);
     return service;
-  }
-
-  private async mergeFinancialStatementCompanyFinancials(opts: {
-    matchedCompanies: unknown[];
-    financialStatementSummary: FinancialStatementSummary | undefined;
-    fileId: string;
-  }): Promise<void> {
-    // Resolve company from matched_companies (fuzzy search already ran — use the id).
-    const matchedCompany = (opts.matchedCompanies as Array<{ id?: string | null; type?: string }>)
-      .find((m) => m?.id && (m.type === undefined || m.type === 'company'));
-    let companyId = matchedCompany?.id ?? null;
-
-    // Fallback: fuzzy match by company_name from the financial_statement_summary.
-    // Substring match first, then Levenshtein so a typo'd/variant name still
-    // merges financials into the existing company rather than silently dropping.
-    if (!companyId && opts.financialStatementSummary?.company_name) {
-      const name = opts.financialStatementSummary.company_name;
-      const found =
-        (await this.companyService.findByNameFuzzy(name)) ??
-        (await this.companyService.findBestFuzzyMatch(name));
-      companyId = found?.id ?? null;
-    }
-
-    if (!companyId) {
-      console.warn(`[fileService] financial_statement ${opts.fileId}: no matching company found, skipping financials upsert`);
-      return;
-    }
-
-    const rows = (opts.financialStatementSummary?.financials ?? []).filter(
-      (r) => r && Number.isInteger(r.fiscal_year) && (
-        r.revenue_usd_mn !== null || r.ebitda_usd_mn !== null || r.ev_usd_mn !== null ||
-        r.ebitda_margin !== null || r.ev_ebitda !== null || r.revenue_cagr_vs_prior !== null
-      ),
-    );
-
-    if (rows.length === 0) {
-      console.warn(`[fileService] financial_statement ${opts.fileId}: no financial rows extracted for company ${companyId}`);
-      return;
-    }
-
-    await this.companyFinancialRepo.bulkUpsertForCompany(companyId, rows);
-    console.log(`[fileService] financial_statement ${opts.fileId}: upserted ${rows.length} financial row(s) for company ${companyId}`);
   }
 
   private parseStructuredNotes(raw: string | null): Record<string, unknown> | null {

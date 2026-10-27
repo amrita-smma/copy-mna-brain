@@ -89,10 +89,17 @@ Notification rules:
   (`INTERNAL_MAIL_DOMAINS`) is still ingested into the CRM, but its attachments
   never go to Smart Files, so nothing lands and nothing notifies — whoever else
   is on To/Cc/Bcc.
+- **Never for financial statements.** Financial statements are not email
+  intake: the pipeline's attachment triage never uploads one it classifies
+  `financial_statement`, and `FileService.processUpload` drops any email-origin
+  file it classifies as one (`drop_reason` `afd_excluded_financial_statement`),
+  so emailed AFS/P&Ls never land and never update `company_financials` (MB-887).
+  A manual upload of a financial statement is unaffected.
 - **Email-origin PDFs only.** Manual Smart Files uploads never notify (the
   uploader added the file themselves), and non-PDF attachments are out of scope.
 - **Skipped for files that never landed** — duplicates, files auto-dropped as
-  `other`, and failed processing all return before the notification.
+  `other` or as an email financial statement, and failed processing all return
+  before the notification.
 - **One email per ingested PDF.** When a mailbox is watched by several
   workspaces, the primary workspace is named as the destination and the rest are
   listed under "Also added to" rather than sending one email per workspace.

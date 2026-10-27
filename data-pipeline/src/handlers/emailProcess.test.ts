@@ -278,6 +278,31 @@ describe('triageAttachmentForSmartFiles', () => {
     expect(outcome).toEqual({ kind: 'skip' });
   });
 
+  it('skips financial statements even at high confidence (MB-887)', async () => {
+    const extractText = vi.fn().mockResolvedValue(
+      'Audited financial statements FY2024 balance sheet and P&L. '.repeat(5),
+    );
+    const office = await triageAttachmentForSmartFiles({
+      mime: officeMime,
+      fileName: 'Project_Nova_AFS_FY24.docx',
+      bytes: Buffer.from('fake-docx'),
+      client: mockClient({ doc_type: 'financial_statement', confidence: 'high' }),
+      model: 'claude-haiku-5-5',
+      extractText,
+      readZipSizes,
+    });
+    const pdf = await triageAttachmentForSmartFiles({
+      mime: 'application/pdf',
+      fileName: 'Project_Nova_AFS_FY24.pdf',
+      bytes: Buffer.from('fake-pdf'),
+      client: mockClient({ doc_type: 'financial_statement', confidence: 'high' }),
+      model: 'claude-haiku-5-5',
+      inspectPdfBytes: async () => ({ ok: true, pages: 3 }),
+    });
+    expect(office).toEqual({ kind: 'skip' });
+    expect(pdf).toEqual({ kind: 'skip' });
+  });
+
   // MBOX parts often declare application/octet-stream for real Office docs.
   it('triages Office files that arrive with a generic MIME type', async () => {
     const extractText = vi.fn().mockResolvedValue(

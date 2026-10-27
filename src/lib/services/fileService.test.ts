@@ -1691,28 +1691,6 @@ describe('FileService.processUpload', () => {
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
-  it('does not auto-create a company from a financial_statement email attachment', async () => {
-    // A standalone financial statement (e.g. a buyer's AFS shared for
-    // financing) describes finances, not a company on sale. (MB-300)
-    vi.mocked(processFileContent).mockResolvedValue({
-      file_type: 'financial_statement',
-      prospectus_summary: { company_name: 'Frontier Resources Pte. Ltd.' },
-    } as never);
-    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
-
-    await service.processUpload(
-      'uploads/frontier-afs.pdf',
-      'financial_statement_FRPL_AFS_FY24.pdf',
-      'application/pdf',
-      undefined,
-      undefined,
-      true,
-    );
-
-    expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
-  });
-
   it('does not auto-create a company from a legal_document email attachment', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'legal_document',
@@ -1733,20 +1711,22 @@ describe('FileService.processUpload', () => {
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
-  it('upserts company_financials for a financial_statement email attachment matched to an existing company', async () => {
+  it('drops a financial_statement email attachment without touching companies or financials (MB-887)', async () => {
     vi.mocked(processFileContent).mockResolvedValue({
       file_type: 'financial_statement',
       matched_companies: [{ id: 'company-1', name: 'Project Lisbon', type: 'company', similarity: 1 }],
+      prospectus_summary: { company_name: 'Lisbon Holdings Pte. Ltd.' },
       financial_statement_summary: {
         company_name: 'Lisbon Holdings Pte. Ltd.',
-        financials: [
-          { fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: 30, ev_usd_mn: null, ebitda_margin: 0.25, ev_ebitda: null, revenue_cagr_vs_prior: null },
-          { fiscal_year: 2023, revenue_usd_mn: 100, ebitda_usd_mn: 22, ev_usd_mn: null, ebitda_margin: 0.22, ev_ebitda: null, revenue_cagr_vs_prior: null },
-        ],
+        financials: [{ fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: 30, ev_usd_mn: null, ebitda_margin: 0.25, ev_ebitda: null, revenue_cagr_vs_prior: null }],
       },
     } as never);
+    vi.mocked(deleteFile).mockResolvedValue(undefined as never);
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({ id: 'file-1', processing_status: 'dropped', drop_reason: 'afd_excluded_financial_statement' }),
+    );
 
-    await service.processUpload(
+    const result = await service.processUpload(
       'uploads/lisbon_afs.pdf',
       'financial_statement_Pr._Lisbon_Financial_Overview.pdf',
       'application/pdf',
@@ -1755,40 +1735,34 @@ describe('FileService.processUpload', () => {
       true,
     );
 
-    expect(companyFinancialRepo.bulkUpsertForCompany).toHaveBeenCalledWith(
-      'company-1',
-      expect.arrayContaining([
-        expect.objectContaining({ fiscal_year: 2024, revenue_usd_mn: 120, ebitda_usd_mn: 30 }),
-        expect.objectContaining({ fiscal_year: 2023, revenue_usd_mn: 100, ebitda_usd_mn: 22 }),
-      ]),
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        processing_status: 'dropped',
+        file_type: 'financial_statement',
+        drop_reason: 'afd_excluded_financial_statement',
+        structured_notes: null,
+        matched_companies: [],
+      }),
     );
+    expect(deleteFile).toHaveBeenCalledWith('uploads/lisbon_afs.pdf');
+    expect(result).toMatchObject({ dropped: true });
+    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+    expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
   });
 
-  it('does not create a company when a financial_statement email attachment has no matched company', async () => {
-    vi.mocked(processFileContent).mockResolvedValue({
-      file_type: 'financial_statement',
-      matched_companies: [],
-      financial_statement_summary: {
-        company_name: 'Frontier Resources Pte. Ltd.',
-        financials: [
-          { fiscal_year: 2024, revenue_usd_mn: 500, ebitda_usd_mn: 80, ev_usd_mn: null, ebitda_margin: 0.16, ev_ebitda: null, revenue_cagr_vs_prior: null },
-        ],
-      },
-    } as never);
-    vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+  it('keeps a manually uploaded financial_statement', async () => {
+    vi.mocked(processFileContent).mockResolvedValue({ file_type: 'financial_statement' } as never);
 
-    await service.processUpload(
-      'uploads/frontier_afs.pdf',
-      'financial_statement_FRPL_AFS_FY24.pdf',
-      'application/pdf',
-      undefined,
-      undefined,
-      true,
+    const result = await service.processUpload('uploads/lisbon_afs.pdf', 'lisbon_afs.pdf', 'application/pdf');
+
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(fileRepo.updatePartial).not.toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'dropped' }),
     );
-
-    expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
-    expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    expect(result).not.toMatchObject({ dropped: true });
   });
 
   it('skips financials upsert for financial_statement uploaded without origin_email', async () => {
