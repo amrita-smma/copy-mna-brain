@@ -18,6 +18,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "9f132289d17c9e25807d9912e3ca0cb129c69d32",
+    "date": "2026-10-27",
+    "subject": "Remove LangSmith tracing config (Langfuse is the tracer)",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
@@ -311,6 +319,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "62dba4cdfa290a823562c76b530e9a13f565156b",
+    "date": "2026-10-26",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "89fda6725dbbeb212c17dccb42c97d2c9fd4fcb3",
     "date": "2026-10-26",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
