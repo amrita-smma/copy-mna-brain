@@ -134,6 +134,32 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "23e2337cada5c8193be04cb735d664b0c1e7283d",
+    "date": "2026-10-27",
+    "subject": "Smart Files email intake no longer picks up financial statement attachments",
+    "category": "improvement"
+  },
+  {
+    "hash": "a227697313398af87585c7c05b1e3d8b50b02f5a",
+    "date": "2026-10-27",
+    "subject": "Copilot now shows its first reply text much faster on Sonnet models",
+    "category": "improvement"
+  },
+  {
+    "hash": "d507ba249af6d5676aa484e8f21b3d5d7c6f1550",
+    "date": "2026-10-27",
+    "subject": "Email attachments from Energi Group and GEAR senders are no longer imported",
+    "category": "improvement"
+  },
+  {
+    "hash": "7c048118c5f570f4524308c8dbe5cf54c48d854a",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
