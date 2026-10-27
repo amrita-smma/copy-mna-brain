@@ -548,20 +548,24 @@ under that name, because the history's `tool_search_tool_result` references
 it — `withoutTools()` substitutes a refusing stand-in instead of dropping it.
 See `docs/features/copilot-flavors.md` §"Tools loaded on demand".
 
+**Done (2026-10-27), second deferral round:** six more tools load on demand —
+the three insight proposals (`propose_report_plan`, `propose_insight_edit`,
+`propose_insight_refresh`), `analyze_stalled_deals`, `get_task_progress` and
+`read_relationship_graph` — another ~8.9k characters off every chat call's
+loaded tool payload, and `get_company_stats` points at `query_companies` for
+the filter vocabulary instead of inlining `COMPANY_FILTER_DOC` (the schema
+still carries every field; the two tools' 8.5k-character schemas are the
+bulk and cannot be shared). The tool-search server tool moved into the
+shared base list `tools`, so every list built on it carries it once;
+`investmentTools` and `vcTools` name it themselves; the sector agents get it
+through `withToolSearch` in `composeSectorTools` and name their deferred tools
+in `composeSectorRolePrompt` from the actual list. What stays loaded up front
+is what nearly every turn uses: the company queries, the CRM lookups, the
+searches, the approval cards, the handoff, navigation, the page context, the
+insight reads.
+
 **Still to do (highest value first):**
-1. Defer more of the long tail the same way. Candidates by size and rarity on
-   a typical turn: the insight tools (`propose_report_plan`,
-   `propose_insight_edit`, `propose_insight_refresh`, `get_insight_template`),
-   `navigate_page`, `get_task_progress`. Keep the 3–5 tools nearly every turn
-   uses (`query_companies`, `get_company_details`, `web_search`,
-   `valyu_search`, `get_company_stats`) loaded up front. Each deferral costs
-   one search call before the first use on a thread; measure with the
-   `cache_read` / `cache_write` log line before and after.
-2. `query_companies` and `get_company_stats` are 12.5k characters each because
-   both inline the whole `COMPANY_FILTER_DOC`; a shared "filters" note in the
-   prompt plus a short per-tool pointer would halve that without deferring
-   either.
-3. Upgrade `@langchain/anthropic` past 1.6.0, whose allowlists carry the
+1. Upgrade `@langchain/anthropic` past 1.6.0, whose allowlists carry the
    tool-search result types natively, and drop that part of the patch. Blocked
    on `@langchain/core` ^1.3 and `@anthropic-ai/sdk` ^0.129 (we pin ^1.1.45 /
    ^0.74), so it is a dependency-wide upgrade, not a bump.

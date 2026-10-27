@@ -186,6 +186,13 @@ export const tools = [
   crmInsights,
   crmBankerInsights,
   ...SERVER_TOOLS,
+  // Some tools load on demand (`extras: DEFER_LOADING` on the definition —
+  // in this list analyze_stalled_deals, read_relationship_graph and
+  // get_task_progress; send_email and the insight proposals in the lists built
+  // on it). This is the server tool the model finds them with; every list sent
+  // to the API that carries a deferred tool carries it exactly once
+  // (`index.test.ts`).
+  TOOL_SEARCH_TOOL,
   queryMeetingNotes,
   readRelationshipGraph,
   getTaskProgress,
@@ -215,10 +222,6 @@ export const chatOnlyTools = [
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   sendEmailTool,
-  // send_email (and, for the workforce, add_company) load on demand; this is
-  // the server tool the model finds them with. Every list that carries a
-  // deferred tool carries it (`index.test.ts`).
-  TOOL_SEARCH_TOOL,
   updateCompanyCardSection,
   navigatePage,
   readPageContext,
@@ -284,10 +287,6 @@ export const workforceOnlyTools = [
   notifyProgress,
   flagInsight,
   sendEmailTool,
-  // send_email (and, for the workforce, add_company) load on demand; this is
-  // the server tool the model finds them with. Every list that carries a
-  // deferred tool carries it (`index.test.ts`).
-  TOOL_SEARCH_TOOL,
   dropCompany,
   createInsight,
   editInsightSection,
@@ -322,9 +321,8 @@ export const investmentTools = [
   crmBankerInsights,
   lookupUser,
   sendEmailTool,
-  // send_email (and, for the workforce, add_company) load on demand; this is
-  // the server tool the model finds them with. Every list that carries a
-  // deferred tool carries it (`index.test.ts`).
+  // This list does not spread `tools`, so it names the tool-search server
+  // tool itself (see `tools`).
   TOOL_SEARCH_TOOL,
   proposeWorkforceHandoff,
   navigatePage,
@@ -399,9 +397,8 @@ export const vcTools = [
   calculateInvestmentReturns,
   lookupUser,
   sendEmailTool,
-  // send_email (and, for the workforce, add_company) load on demand; this is
-  // the server tool the model finds them with. Every list that carries a
-  // deferred tool carries it (`index.test.ts`).
+  // This list does not spread `tools`, so it names the tool-search server
+  // tool itself (see `tools`).
   TOOL_SEARCH_TOOL,
   proposeWorkforceHandoff,
   navigatePage,

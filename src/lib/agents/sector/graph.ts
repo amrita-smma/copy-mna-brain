@@ -23,6 +23,7 @@ import {
   type AgentGraph,
   type EffortChoice,
 } from '@/lib/agents/analysis';
+import { deferredToolNames } from '@/lib/agents/analysis/tools/server_tools';
 import { BANGUN_PROMPT } from '@/lib/agents/bangun/prompt';
 import { BANGUN_TOOLS } from '@/lib/agents/bangun/tools';
 import { DIKTI_PROMPT } from '@/lib/agents/dikti/prompt';
@@ -53,6 +54,7 @@ export function getSectorAgentSpec(key: SectorAgentKey, role: SectorAgentRole) {
     role,
     definition.prompt,
     tools.map((t) => t.name),
+    deferredToolNames(tools),
   );
   return { tools, systemPrompt };
 }

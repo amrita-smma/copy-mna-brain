@@ -23,6 +23,8 @@ import {
 } from "./index";
 import { isDeferredTool, isToolSearchTool } from "./server_tools";
 import { defaultChatToolList } from "../flavors/mna";
+import { CHAT_ON_DEMAND_TOOL_NAMES } from "../guides";
+import { WORKFORCE_ON_DEMAND_TOOL_NAMES } from "../workforce";
 import { SECTOR_CHAT_CORE_TOOLS, SECTOR_WORKFORCE_CORE_TOOLS } from "@/lib/agents/sector/coreTools";
 import { MINERBA_TOOLS } from "@/lib/agents/minerba/tools";
 import { DIKTI_TOOLS } from "@/lib/agents/dikti/tools";
@@ -42,10 +44,9 @@ describe("deferred tools and the tool-search server tool", () => {
   const nameOf = (t: unknown) => (t as Named)?.name ?? "";
   // Some lists are lazy factories (`lazyToolList`); call them.
   const materialise = (v: unknown): readonly unknown[] => (typeof v === "function" ? (v as () => readonly unknown[])() : (v as readonly unknown[]));
+  // The lists an agent is actually built from. `tools`, `chatOnlyTools` and
+  // `workforceOnlyTools` are parts of these and are never sent on their own.
   const lists: Record<string, readonly unknown[]> = Object.fromEntries(Object.entries({
-    tools,
-    chatOnlyTools,
-    workforceOnlyTools,
     investmentTools,
     combinedTools,
     vcTools,
@@ -89,6 +90,23 @@ describe("deferred tools and the tool-search server tool", () => {
       const names = list.map(nameOf);
       expect(new Set(names).size, `${label} has a duplicate tool name`).toBe(names.length);
     }
+    // The parts: the shared base carries the search tool (it defers three of
+    // its own), the two lists built on it do not, so no composition doubles it.
+    expect(tools.filter(isToolSearchTool)).toHaveLength(1);
+    expect(chatOnlyTools.filter(isToolSearchTool)).toHaveLength(0);
+    expect(workforceOnlyTools.filter(isToolSearchTool)).toHaveLength(0);
+  });
+
+  it("names every deferred tool in the prompts' on-demand lists, and nothing else", () => {
+    const deferredNames = (list: readonly unknown[]) => list.filter(isDeferredTool).map(nameOf);
+    const chatUnion = new Set([
+      ...deferredNames(defaultChatToolList()),
+      ...deferredNames(investmentTools),
+      ...deferredNames(combinedTools),
+      ...deferredNames(vcTools),
+    ]);
+    expect([...chatUnion].sort()).toEqual([...CHAT_ON_DEMAND_TOOL_NAMES].sort());
+    expect(deferredNames([...tools, ...workforceOnlyTools]).sort()).toEqual([...WORKFORCE_ON_DEMAND_TOOL_NAMES].sort());
   });
 
   it("keeps at least one non-deferred client tool in every list (the API requires it)", () => {

@@ -55,6 +55,7 @@ import {
   reportProgress,
   valyuSearch,
 } from '@/lib/agents/analysis/tools';
+import { withToolSearch } from '@/lib/agents/analysis/tools/server_tools';
 import type { ToolList } from '@/lib/agents/analysis';
 import type { SectorAgentRole } from './types';
 
@@ -71,7 +72,9 @@ const SECTOR_READ_CORE_TOOLS: ToolList = [
   getInsightTemplate,
 ];
 
-export const SECTOR_CHAT_CORE_TOOLS: ToolList = [
+// `withToolSearch`: the three insight proposal tools load on demand, so the
+// list carries the tool-search server tool that finds them.
+export const SECTOR_CHAT_CORE_TOOLS: ToolList = withToolSearch([
   ...SECTOR_READ_CORE_TOOLS,
   readPageContext,
   navigatePage,
@@ -79,7 +82,7 @@ export const SECTOR_CHAT_CORE_TOOLS: ToolList = [
   proposeInsightRefresh,
   proposeReportPlan,
   proposeWorkforceHandoff,
-];
+]);
 
 export const SECTOR_WORKFORCE_CORE_TOOLS: ToolList = [
   ...SECTOR_READ_CORE_TOOLS,
@@ -99,9 +102,11 @@ export type SectorToolSet = Record<SectorAgentRole, ToolList>;
  * skipped so no name is registered twice with createAgent.
  */
 export function composeSectorTools(extras: ToolList): SectorToolSet {
+  // An extra that loads on demand (read_relationship_graph on the minerba and
+  // dikti agents) brings the tool-search server tool with it.
   const withExtras = (core: ToolList): ToolList => {
     const names = new Set(core.map((t) => t.name));
-    return [...core, ...extras.filter((t) => !names.has(t.name))];
+    return withToolSearch([...core, ...extras.filter((t) => !names.has(t.name))]);
   };
   return {
     chat: withExtras(SECTOR_CHAT_CORE_TOOLS),

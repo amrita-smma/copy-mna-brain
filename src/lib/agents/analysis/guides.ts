@@ -100,14 +100,30 @@ A template is not an insight. It is a reusable starting point in the workspace's
  */
 export function onDemandToolsGuide(toolNames: readonly string[]): string {
   const names = toolNames.map((n) => `\`${n}\``).join(", ");
+  const one = toolNames.length === 1;
   return `
 ## Tools loaded on demand
 
-${names} ${toolNames.length === 1 ? "is" : "are"} not in your tool list until you look ${toolNames.length === 1 ? "it" : "them"} up: call \`tool_search_tool_regex\` with the tool's name as the pattern (one call), then use the tool it returns. Everything else in this prompt that names ${toolNames.length === 1 ? "that tool" : "those tools"} assumes that step. Never tell the user a tool is missing without searching for it first; once found, it stays available for the rest of the conversation.`;
+${names} ${one ? "is" : "are"} not in your tool list until you look ${one ? "it" : "them"} up: call \`tool_search_tool_regex\` with the tool's name as the pattern (one call; a pattern like \`insight|report\` finds a group), then use the tool it returns. Everything else in this prompt that names ${one ? "that tool" : "those tools"} assumes that step. Never tell the user a tool is missing without searching for it first; once found, it stays available for the rest of the conversation. An empty search result means this Copilot does not have that tool.`;
 }
 
-/** The chat flavors all defer the same tool. */
-export const ON_DEMAND_TOOLS_GUIDE = onDemandToolsGuide(["send_email"]);
+/**
+ * Every tool a chat flavor defers (`tools/index.test.ts` keeps this list equal
+ * to the union over the chat lists). A flavor that lacks one of them just
+ * gets an empty search result for it, which the guide covers; naming the
+ * union here is what lets one static prompt per flavor stay correct.
+ */
+export const CHAT_ON_DEMAND_TOOL_NAMES = [
+  "send_email",
+  "propose_report_plan",
+  "propose_insight_edit",
+  "propose_insight_refresh",
+  "analyze_stalled_deals",
+  "get_task_progress",
+  "read_relationship_graph",
+] as const;
+
+export const ON_DEMAND_TOOLS_GUIDE = onDemandToolsGuide(CHAT_ON_DEMAND_TOOL_NAMES);
 
 export const NEXT_ACTION_GUIDE = `
 ## Offer the Next Action

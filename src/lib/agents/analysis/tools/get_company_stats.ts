@@ -11,7 +11,6 @@ import {
   type Tables,
 } from "@/lib/repositories";
 import {
-  COMPANY_FILTER_DOC,
   COMPANY_STAGE_DEFAULT_DOC,
   PRE_PIPELINE_STAGE_KEYS,
   companyFilterShape,
@@ -306,9 +305,7 @@ export const getCompanyStats = tool(
 
 The summary always reports: total companies, active vs dropped, inbound vs outbound, financial data coverage, revenue/EBITDA totals + averages + medians, and AI Opinion coverage (with/without an opinion and the pass/fail/tentative split).
 
-Scope the cohort with the SAME filter vocabulary as query_companies and send_email's company_excel:
-
-${COMPANY_FILTER_DOC}
+Scope the cohort with the SAME filters as query_companies — every filter in its schema, by the same name and meaning (identity, classification, pipeline, deal shape, people, narrative text, AI Opinion, financials, timestamps, housekeeping, relationship graph, free text); see query_companies for the full list.
 
 ${COMPANY_STAGE_DEFAULT_DOC}
 

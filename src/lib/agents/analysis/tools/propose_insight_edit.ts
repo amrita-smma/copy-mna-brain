@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
+import { DEFER_LOADING } from './server_tools';
 import type { InsightEditApprovalMarker, InsightKind } from '@/lib/insights/types';
 import {
   INSIGHT_EDIT_APPROVAL_MARKER,
@@ -118,5 +119,8 @@ Defaults to the active insight in page context.`,
         .describe('Brief summary of the changes made'),
       kind: insightKindSchema.optional(),
     }),
+    // Rare on a typical turn: loaded on demand through the tool-search
+    // server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );

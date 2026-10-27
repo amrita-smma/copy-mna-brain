@@ -259,8 +259,21 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 - Caveats the user acknowledged ("user acknowledged weak FY2024 EBITDA", "user approved despite missing financials") MUST end up in the \`note\` arg of the write tool so the audit trail captures that the user proceeded knowingly. The \`reason\` arg is for the positive case (why the company qualifies for the next stage); \`note\` is for caveats and risks. Both are persisted on the deal record.
 - On a gated \`move_stage\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 
+/**
+ * Every tool the workforce list defers: its own two large write tools plus
+ * what the shared base list defers (`tools/index.test.ts` keeps this equal to
+ * the list's actual deferred names).
+ */
+export const WORKFORCE_ON_DEMAND_TOOL_NAMES = [
+  "add_company",
+  "send_email",
+  "analyze_stalled_deals",
+  "get_task_progress",
+  "read_relationship_graph",
+] as const;
+
 export const WORKFORCE_SYSTEM_PROMPT = `${MNA_WORKFORCE_INTRO_AND_TOOLS}
-${onDemandToolsGuide(["add_company", "send_email"])}
+${onDemandToolsGuide(WORKFORCE_ON_DEMAND_TOOL_NAMES)}
 
 ${WORKFORCE_QUESTION_TOOL_GUIDE}
 

@@ -25,6 +25,7 @@ import {
   NEXT_ACTION_GUIDE,
 } from '@/lib/agents/analysis';
 import { COMPANY_MENTIONS_PROMPT_GUIDE } from '@/lib/navigation/companyMentions';
+import { onDemandToolsGuide } from '@/lib/agents/analysis/guides';
 import { getSectorAgent } from './registry';
 import type { SectorAgentKey, SectorAgentRole } from './types';
 
@@ -85,7 +86,11 @@ export function composeSectorRolePrompt(
   role: SectorAgentRole,
   sectorPrompt: string,
   toolNames: string[],
+  deferredToolNames: string[] = [],
 ): string {
+  // Tools sent with `defer_loading`: absent from the model's list until it
+  // searches for them, so the prompt says so (same block as the chat flavors).
+  const onDemand = deferredToolNames.length > 0 ? onDemandToolsGuide(deferredToolNames) : '';
   const agent = getSectorAgent(key);
   if (!agent) throw new Error(`Unknown sector agent: ${key}`);
 
@@ -95,6 +100,7 @@ export function composeSectorRolePrompt(
     return `${sectorPrompt}
 
 ${sectorChatGuide(agent.handle)}
+${onDemand}
 ${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}
@@ -105,6 +111,7 @@ ${COMPANY_MENTIONS_PROMPT_GUIDE}`;
     sectorWorkforceIntro(key),
     sectorPrompt,
     sectorWorkforceTools(agent.handle, toolNames),
+    ...(onDemand ? [onDemand.trimStart()] : []),
     WORKFORCE_QUESTION_TOOL_GUIDE,
     WORKFORCE_TRACE_TOOLS_GUIDE,
     WORKFORCE_EVIDENCE_GUIDE,

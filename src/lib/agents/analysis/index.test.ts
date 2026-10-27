@@ -887,13 +887,13 @@ describe('shared chat guidance (chat flavors)', () => {
       mocks.createAgent.mockClear();
       const prompt = await promptFor(flavor);
       expect(prompt, flavor).toContain('## Tools loaded on demand');
-      expect(prompt, flavor).toMatch(/`send_email` is not in your tool list until you look it up/);
+      expect(prompt, flavor).toMatch(/`send_email`, `propose_report_plan`, [^\n]* are not in your tool list until you look them up/);
       expect(prompt, flavor).toContain('`tool_search_tool_regex`');
       // The block sits with the other shared guides, ahead of "Offer the Next Action".
       expect(prompt.indexOf('## Tools loaded on demand'), flavor).toBeLessThan(prompt.indexOf('## Offer the Next Action'));
     }
     // The workforce defers add_company as well.
-    expect(WORKFORCE_SYSTEM_PROMPT).toMatch(/`add_company`, `send_email` are not in your tool list until you look them up/);
+    expect(WORKFORCE_SYSTEM_PROMPT).toMatch(/`add_company`, `send_email`, `analyze_stalled_deals`, `get_task_progress`, `read_relationship_graph` are not in your tool list until you look them up/);
     expect(WORKFORCE_SYSTEM_PROMPT).toContain('`tool_search_tool_regex`');
   });
 

@@ -151,31 +151,33 @@ function lastSystemPrompt(): string {
 // for the workforce, add_company — are sent with `defer_loading` and found
 // through the tool-search server tool, and the block is what tells the model
 // to search rather than report a missing tool.
+// The block then grew to name the second deferral round (the three insight
+// proposals, analyze_stalled_deals, get_task_progress, read_relationship_graph).
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '29ab05cd726702b6106e5b0014318ba4391d0bb06acfc3e0b86c9137ba43ab9a',
-  investment: '769a7a7879d95911e9a85b554aca44b036d8d8ca1fe95e5f5db10a5749da4310',
-  combined: '3c36465ad9f2feaf9b0f5c70789dd2732514494f9d49cd6963005e6b8171e5ea',
-  vc: 'be74c6b81d3913e03589cf3ab163f7adfb081c5f132d1881d96e665c5658d587',
+  mna: '15fad42e91f5031a52891de756903c474c894ca943a98af9cf702f71cdbba0d4',
+  investment: '230375f5e47c7213e31121c36e9d38b2bbdea397bfe08bc72f10404c8ea2d841',
+  combined: 'ac2dd349f486182a7e2bd5d5f589a7178a6aa566c2c79da089f355b71417b213',
+  vc: '3e7f57aef6fdc6825792fb7864a00817e5aafaa7099bcf32176e2398a8e0bcb5',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: 'c0fda1c3b32493eb9f71bbdc6d05b50009c2dce72dcb9d7b758c0a93e1a2ee7f',
+  minority: '25f4d7d2e24324f688adef2d659e0c589855be73f5d689affecfa6fc54fb3d4d',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: 'a16f53a2e1ae83dd4cd0745ea958def788e4689dbb7345c88582d4173e330c87',
+  crowdfunding: '63d6222ebc711d35e0552e275d09d61c2cdf8010446521d9c603840e97064589',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: 'ba4141dd3c9bb37a3aabdf6967a965c41b5249eb0cf01ffefe4acced3bd2cffe',
+  investment_banking: '2d7f691e6e5e3037e6cd467ed1211febe776b7e6b3cb1d0f3c81c0920fad0bd3',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: 'd676cb9096d3d93777ab6231baa1f7f2bda827694fb619e0afaeb0df6d2b78bd',
+  capital_markets: '3c344f9f9d56aec728c9f2c4f68bb04bfac421d45d8063eb429635d87234ed1c',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which
@@ -183,7 +185,7 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
 // stages) one step at a time and gate any move touching L1+.
 // It then gained the "Tools loaded on demand" block for add_company and
 // send_email (see above).
-const EXPECTED_WORKFORCE_HASH = '8b869b5a1c4d71330c64a626a2c6b22d317ce8525125688cda78f0cab6eb5aec';
+const EXPECTED_WORKFORCE_HASH = '5baaddccefb9f24a28bea8fa7585b74b673e58dafc708ed2f55da18ed6234e5d';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {

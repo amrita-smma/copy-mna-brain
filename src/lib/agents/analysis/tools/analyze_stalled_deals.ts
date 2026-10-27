@@ -1,6 +1,7 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../logger";
+import { DEFER_LOADING } from "./server_tools";
 import { createDb } from "@/lib/server/db";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import type {
@@ -159,5 +160,8 @@ Use this to spot deals losing momentum, prioritize follow-ups, or answer "which 
           "Restrict analysis to a single pipeline stage key (L0–L5, or a key the workspace added — see list_pipeline_stages)",
         ),
     }),
+    // Rare on a typical turn: loaded on demand through the tool-search
+    // server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );

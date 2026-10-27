@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { logger } from '../../logger';
+import { DEFER_LOADING } from './server_tools';
 import {
   type ReportPlanApprovalPayload,
   type ReportPlanQuestion,
@@ -119,5 +120,8 @@ Once the plan is confirmed, decide WHERE the report gets built before you start.
         .optional()
         .describe('Up to 3 clarifying questions with selectable options'),
     }),
+    // Rare on a typical turn: loaded on demand through the tool-search
+    // server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );

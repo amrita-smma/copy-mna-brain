@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { z } from "zod";
 import { logger } from "../../logger";
+import { DEFER_LOADING } from "./server_tools";
 import { createDb } from "@/lib/server/db";
 import { CompanyRepository } from "@/lib/repositories";
 
@@ -183,5 +184,8 @@ Returns:
           "Company names. One name lists that company's connections; two or more checks every pair for a direct connection.",
         ),
     }),
+    // Rare on a typical turn: loaded on demand through the tool-search
+    // server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );

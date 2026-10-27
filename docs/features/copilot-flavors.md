@@ -263,7 +263,20 @@ send it — and the workforce list `add_company` too — with Anthropic's
 Measured on the `mna` list against the live API: the first model call of a
 turn went from 50.2k to 37.6k input tokens, and a turn that emails pays one
 extra search call (about 1k tokens of discovered definitions) before the
-`send_email` call. `TECH_DEBT.md` lists what to defer next.
+`send_email` call.
+
+A second round deferred the three insight proposals (`propose_report_plan`,
+`propose_insight_edit`, `propose_insight_refresh`), `analyze_stalled_deals`,
+`get_task_progress` and `read_relationship_graph`. `CHAT_ON_DEMAND_TOOL_NAMES`
+(`guides.ts`) is the union the chat prompts name — a flavor that lacks one of
+them gets an empty search result, which the block tells the model to read as
+"not available here" — and `WORKFORCE_ON_DEMAND_TOOL_NAMES` (`workforce.ts`)
+the workforce's; `tools/index.test.ts` keeps both equal to the lists' actual
+deferred names. The search tool lives in the shared base list `tools`
+(`investmentTools` and `vcTools`, which do not spread it, name it themselves),
+and the sector agents, whose lists share these tool objects, get it from
+`withToolSearch` in `composeSectorTools` and name their deferred tools in
+`composeSectorRolePrompt` from the list they actually run with.
 
 Every chat flavor and the sector chat agents append `NEXT_ACTION_GUIDE`
 (`src/lib/agents/analysis/guides.ts`, "## Offer the Next Action"). When an

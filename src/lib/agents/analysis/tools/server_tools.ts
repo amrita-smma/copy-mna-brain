@@ -142,3 +142,19 @@ export function isDeferredTool(t: unknown): boolean {
   const extras = (t as { extras?: { defer_loading?: unknown } })?.extras;
   return extras?.defer_loading === true;
 }
+
+/** The names of the tools in `list` that load on demand, in list order. */
+export function deferredToolNames(list: readonly unknown[]): string[] {
+  return list.filter(isDeferredTool).map((t) => (t as { name: string }).name);
+}
+
+/**
+ * `list`, plus `TOOL_SEARCH_TOOL` when the list holds a deferred tool and no
+ * search tool yet — the pairing the API requires. For lists composed from
+ * parts at runtime (the sector agents); the hand-written lists in `index.ts`
+ * name the search tool themselves.
+ */
+export function withToolSearch<T>(list: readonly T[]): T[] {
+  if (!list.some(isDeferredTool) || list.some(isToolSearchTool)) return [...list];
+  return [...list, TOOL_SEARCH_TOOL as unknown as T];
+}

@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
+import { DEFER_LOADING } from './server_tools';
 import type { InsightRefreshApprovalPayload } from '@/lib/insights/types';
 import {
   INSIGHT_REFRESH_APPROVAL_MARKER,
@@ -79,5 +80,8 @@ Defaults to the insight open in page context.`,
           'One sentence: which figure is stale, the insight value and date, and the newer value, source and date.',
         ),
     }),
+    // Rare on a typical turn: loaded on demand through the tool-search
+    // server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );
