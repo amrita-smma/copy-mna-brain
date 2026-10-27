@@ -11,15 +11,18 @@ import {
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
- * The guide used to be one template literal the prompts interpolated. Splitting
- * it into topics for the reader tool must not change a byte of what the model
+ * The guide used to be one template literal the prompts interpolated; the
+ * topics the reader tool serves must join back into exactly the text the model
  * reads when it asks for the whole thing. If you change the guide ON PURPOSE,
- * update this hash in the same commit.
+ * update this hash in the same commit. Last change: the promotion procedure
+ * moved the EBITDA assessment to the reply after the handoff card, banner
+ * first — the model had been writing the assessment into its thinking and
+ * skipping the banner.
  */
-const EXPECTED_GUIDE_HASH = '7fb49d67ffc0b07c015ba330310ab42a356ee1800acdea1cb81b2fbd5d513a37';
+const EXPECTED_GUIDE_HASH = 'a66a2e9f2124e050967e969927e7444b5453c73e77826667a3099fc802925aa6';
 
 describe('MNA_PIPELINE_OPERATIONS_GUIDE', () => {
-  it('is the topics joined in prompt order, byte-identical to the single constant it replaced', () => {
+  it('is the topics joined in prompt order, pinned byte for byte', () => {
     expect(sha256(MNA_PIPELINE_OPERATIONS_GUIDE)).toBe(EXPECTED_GUIDE_HASH);
     expect(MNA_PIPELINE_OPERATIONS_GUIDE).toBe(
       PIPELINE_OPERATION_TOPIC_KEYS.map((key) => PIPELINE_OPERATION_TOPICS[key].body).join('\n\n'),
@@ -33,6 +36,25 @@ describe('MNA_PIPELINE_OPERATIONS_GUIDE', () => {
       expect(section.summary.trim(), key).not.toBe('');
       expect(section.summary, key).not.toContain('\n');
     }
+  });
+});
+
+describe('promote_l0_l1', () => {
+  const body = PIPELINE_OPERATION_TOPICS.promote_l0_l1.body;
+
+  it('puts the EBITDA assessment in the reply after the handoff card, banner first', () => {
+    // Steps in order: read, confirm L0, assess, hand off, then the visible reply.
+    const handoff = body.indexOf('4. Call `propose_workforce_handoff`');
+    const reply = body.indexOf('5. **Your reply after the card is the assessment');
+    expect(handoff).toBeGreaterThan(0);
+    expect(reply).toBeGreaterThan(handoff);
+    expect(body).toMatch(/never only in your thinking/);
+    expect(body).toMatch(/it is the first thing in your reply, before any other sentence/);
+    // The format is shown, not just described, and the caveat in the
+    // instruction is explicitly not a substitute for the banner.
+    expect(body).toContain('<!-- WARNING_START -->\nEBITDA was -$2M in FY2024 on $30M revenue (negative margin).\n<!-- WARNING_END -->');
+    expect(body).toMatch(/Writing the caveat into the handoff instruction is not a substitute/);
+    expect(PIPELINE_OPERATION_TOPICS.promote_l0_l1.summary).toMatch(/the handoff, then the warning block first in your reply/);
   });
 });
 

@@ -226,7 +226,7 @@ Flow:
   promote_l0_l1: {
     title: "Promoting Companies from L0 to L1",
     summary:
-      "a single named L0→L1 promotion: confirm the stage, assess EBITDA with a fresh external check, the warning block, then the handoff",
+      "a single named L0→L1 promotion: confirm the stage, assess EBITDA with a fresh external check, the handoff, then the warning block first in your reply",
     body: `## Promoting Companies from L0 to L1
 
 L0→L1 promotion is a write action, so it goes through the Workforce handoff like every other write. But before issuing the handoff, you owe the user an **EBITDA assessment** so they know what they're sending off.
@@ -236,17 +236,22 @@ L0→L1 promotion is a write action, so it goes through the Workforce handoff li
 1. Call \`get_company_details\` for the target company. This returns the pipeline stage and the last four fiscal years of revenue, EBITDA, margin, EV, and EV/EBITDA.
 2. **Confirm the company is currently at L0.** If the pipeline stage is anything else (L1+, dropped, unset), tell the user plainly that the promotion can't happen and stop — do NOT issue a handoff.
 3. **Evaluate the EBITDA quality.** Search externally first for anything that post-dates the stored figures — the record can easily be a year or more old, and a promotion judged on stale financials is the most expensive version of that mistake. Then form the view: you own the judgment, and there is no fixed threshold. Consider absolute level, margin (EBITDA/Revenue), trend vs the prior year, EV/EBITDA, and what's reasonable for the company's segment. EBITDA is "not good" when it is negative, when margin is thin for the segment, when it is trending down meaningfully, or when no financial data is available to assess.
-4. State the EBITDA assessment to the user in one or two sentences:
-   - If EBITDA looks healthy: a brief positive note.
-   - If EBITDA looks weak or is missing: emit a **warning block** that the UI will render as a yellow banner.
-5. Call \`propose_workforce_handoff\` with:
+4. Call \`propose_workforce_handoff\` with:
    - \`title\`: e.g. "Promote Acme Corp from L0 to L1"
    - \`rationale\`: one sentence explaining what the Workforce will do and why this is a write that needs the queue.
-   - \`instruction\`: a complete imperative sentence the Workforce will execute verbatim, e.g. "Promote Acme Corp (id: <use the id from get_company_details if you have it>) from pipeline stage L0 to L1. Note: user acknowledged weak FY2024 EBITDA of -$2M." Include the EBITDA caveat in the instruction whenever you emitted a warning, so the Workforce trace records that the user proceeded knowingly.
+   - \`instruction\`: a complete imperative sentence the Workforce will execute verbatim, e.g. "Promote Acme Corp (id: <use the id from get_company_details if you have it>) from pipeline stage L0 to L1. Note: user acknowledged weak FY2024 EBITDA of -$2M." Include the EBITDA caveat in the instruction whenever EBITDA is weak or missing, so the Workforce trace records that the user proceeded knowingly.
    - \`agent_name\`: leave default unless a specific agent is named elsewhere.
-6. Then write a short sentence acknowledging the offer. The card the user sees gives them the explicit "Assign to Workforce" confirmation step — do not ask for separate inline confirmation, and keep working if the user asked for further analysis or has other pending requests.
+5. **Your reply after the card is the assessment — the user must see it, so it goes in the text you write, never only in your thinking.** It has exactly two parts, in this order:
+   - First, the EBITDA assessment. If EBITDA looks weak or is missing, this is the **warning block** below — it is the first thing in your reply, before any other sentence. If EBITDA looks healthy, one plain sentence saying so instead (no block).
+   - Then one short sentence acknowledging the offer. The card gives the user the explicit "Assign to Workforce" confirmation step — do not ask for separate inline confirmation, and keep working if the user asked for further analysis or has other pending requests.
 
-**Warning block format (only when EBITDA is weak or missing):** put the concern between \`<!-- WARNING_START -->\` and \`<!-- WARNING_END -->\` delimiters on their own lines. The text between the delimiters should be a single concise sentence the user can read at a glance — e.g. "EBITDA was -$2M in FY2024 on $30M revenue (negative margin)." or "No financial data on file, so I can't evaluate EBITDA." Only emit the warning block when EBITDA is actually weak or missing — never wrap a positive assessment in it.
+**Warning block format (only when EBITDA is weak or missing):** put the concern between \`<!-- WARNING_START -->\` and \`<!-- WARNING_END -->\` delimiters on their own lines; the UI renders it as a yellow banner, and a reply without the delimiters shows no banner. The text between them is a single concise sentence the user can read at a glance — e.g.
+
+<!-- WARNING_START -->
+EBITDA was -$2M in FY2024 on $30M revenue (negative margin).
+<!-- WARNING_END -->
+
+or "No financial data on file, so I can't evaluate EBITDA." Only emit the warning block when EBITDA is actually weak or missing — never wrap a positive assessment in it. Writing the caveat into the handoff instruction is not a substitute: the instruction is what the Workforce reads, the banner is what the user reads, and a weak EBITDA needs both.
 
 A weak EBITDA does **not** block the handoff — the user can still assign it via the card — but the warning must be shown and the caveat must end up in the Workforce instruction.`,
   },

@@ -158,31 +158,34 @@ function lastSystemPrompt(): string {
 // INSIGHT_AUTHORING_GUIDE then shrank to its routing half: the document
 // authoring rules moved to propose_insight_edit's description
 // (INSIGHT_EDIT_AUTHORING_RULES), which loads with that deferred tool.
+// The five M&A-family prompts then changed with the pipeline-operations
+// summary: the promotion topic's one-line summary now says the EBITDA
+// warning banner comes first in the reply after the handoff card.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '1072e317231e08bdcfe8bcb8f97a3493de93ce4d990c4abece913f3a48e070cb',
+  mna: '95b85c314923b2b075ca40169b561d4785dff76b6ef1eb53cbdb1ac54f3895d2',
   investment: 'bed13307c88aef648a33997d32af450f8e54827c3cd43d3c9f090aca9a3caebe',
   combined: '8f91828ae56a7b62aa9841b90fadbc3318f5c629fd360b17c54f0207e086cf7f',
   vc: '1e0eacdf382e6fed0983c02d55862b96285d2885d9856afdc249a8705f79ceae',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: '119b2c054ba5b49aaf54cad5cb3083ede89e5ad2791b3c99e7004dd58cd90473',
+  minority: '9b57a6d2e7b941f367a1129b6db47532108fd9142694ff64ad27173502fdd3cb',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '5abd35f8b066becd6443e41d4a6aeaf7e22b430ab41db445af56193962402b69',
+  crowdfunding: '3fc584913efdd9bdfa4e169800a44b8906f82d1309135d2d5ca1bcb1ff7ebfcb',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: '91ddcc0d1da468a88cb4fa06c603ece95227731aa1bb1926567d8d90e2a21df9',
+  investment_banking: 'ffc330f92e245f02bee136aacd3ca91d87b0aa0abff3fa0e1f67b29fce60a28a',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: 'cdf973d27f4df7e629c403326a61e8f122a5d832f67a4a42676c3f6f8fdb7db9',
+  capital_markets: '0214f784b80a604a854d7cbb36cb96ea7a59ec25909d8f1e690bd44863aef657',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which
