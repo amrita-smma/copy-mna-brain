@@ -35,4 +35,6 @@ export const INTERNAL_MAIL_DOMAINS: ReadonlySet<string> = new Set<string>([
   'essensrenewable.com',
   'sinarmasland.com',
   'banksinarmas.com',
+  'energigroupindonesia.com',
+  'gear.com.sg',
 ]);

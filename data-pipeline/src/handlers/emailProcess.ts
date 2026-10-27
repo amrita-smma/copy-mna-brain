@@ -1423,6 +1423,18 @@ export async function processMboxSource(
         if (afdRetryFromOffset !== null) break;
         const item = entry.item;
 
+        // Documents we send out are not deal intake: mail from one of our own
+        // domains still feeds the CRM above, but its attachments never reach
+        // Smart Files (and so never notify), whoever else is on the thread.
+        if (INTERNAL_MAIL_DOMAINS.has(item.fromAddress.split('@')[1] ?? '')) {
+          pipelineLog(SCOPE, 'afd_internal_sender_skip', {
+            run_id: run.id,
+            custodian_hash: custodianHash(custodianEmail),
+            reason: 'internal_sender',
+          });
+          continue;
+        }
+
         if (!entry.allowSmartFiles) {
           pipelineLog(SCOPE, 'afd_deal_signal_skip', {
             run_id: run.id,

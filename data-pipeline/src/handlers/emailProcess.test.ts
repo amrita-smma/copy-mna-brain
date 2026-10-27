@@ -116,6 +116,8 @@ import {
 describe('mailDomains single source', () => {
   it('includes known internal and personal domains', () => {
     expect(INTERNAL_MAIL_DOMAINS.has('starcapital.co.id')).toBe(true);
+    expect(INTERNAL_MAIL_DOMAINS.has('energigroupindonesia.com')).toBe(true);
+    expect(INTERNAL_MAIL_DOMAINS.has('gear.com.sg')).toBe(true);
     expect(PERSONAL_MAIL_DOMAINS.has('gmail.com')).toBe(true);
   });
 
@@ -1189,84 +1191,88 @@ describe('Backfill notes for existing emails', () => {
 });
 
 
+const extraction = {
+  topics: [{ name: 'Project Falcon sale', is_deal_related: true }],
+  related_companies: [],
+  people: [],
+  is_personal: false,
+  email_note: {
+    summary: 'Banker shares the Project Falcon teaser.',
+    key_points: [],
+    next_step: null,
+    next_step_status: 'none',
+    sentiment: 'neutral',
+    counterparty_roles: [],
+  },
+};
+
+/** Extraction for `extract_email_info`, a deal-teaser verdict for PDF triage. */
+function answerByTool() {
+  anthropicMocks.create.mockImplementation(
+    async (req: { tool_choice?: { name?: string } }) => ({
+      content: [
+        {
+          type: 'tool_use',
+          input:
+            req.tool_choice?.name === 'classify_document'
+              ? { doc_type: 'teaser', confidence: 'high' }
+              : extraction,
+        },
+      ],
+      stop_reason: 'end_turn',
+    }),
+  );
+}
+
+/** A real 1-page PDF, padded past the attachment minimum size. */
+let validPdf: Buffer;
+beforeAll(async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage();
+  doc.setSubject('Project Falcon teaser '.repeat(1_500));
+  validPdf = Buffer.from(await doc.save());
+});
+
+/** One deal email carrying a PDF large enough to reach triage. */
+function makePdfMbox(
+  id: string,
+  headers: { from?: string; to?: string; cc?: string } = {},
+) {
+  const pdf = validPdf.toString('base64').replace(/(.{76})/g, '$1\n');
+  const content = [
+    `From envelope-${id} Mon Jan  1 00:00:00 2024`,
+    `From: ${headers.from ?? 'banker@external.com'}`,
+    `To: ${headers.to ?? 'alice@starcapital.co.id'}`,
+    ...(headers.cc ? [`Cc: ${headers.cc}`] : []),
+    'Subject: Project Falcon teaser',
+    'Date: Mon, 01 Jan 2024 10:00:00 +0000',
+    `Message-ID: <${id}>`,
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="BOUND"',
+    '',
+    '--BOUND',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Attached is the teaser for the Project Falcon acquisition and M&A advisory mandate.',
+    '--BOUND',
+    'Content-Type: application/pdf; name="Falcon_Teaser.pdf"',
+    'Content-Transfer-Encoding: base64',
+    'Content-Disposition: attachment; filename="Falcon_Teaser.pdf"',
+    '',
+    pdf,
+    '--BOUND--',
+    '',
+  ].join('\n');
+  return async function* () {
+    yield Buffer.from(content, 'utf-8');
+  };
+}
+
+const uploadUrlCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/smart-files/upload-url'));
+
 describe('Re-extract export', () => {
   const SINCE = '2026-10-22 01:00:00.123456+00';
-
-  const extraction = {
-    topics: [{ name: 'Project Falcon sale', is_deal_related: true }],
-    related_companies: [],
-    people: [],
-    is_personal: false,
-    email_note: {
-      summary: 'Banker shares the Project Falcon teaser.',
-      key_points: [],
-      next_step: null,
-      next_step_status: 'none',
-      sentiment: 'neutral',
-      counterparty_roles: [],
-    },
-  };
-
-  /** Extraction for `extract_email_info`, a deal-teaser verdict for PDF triage. */
-  function answerByTool() {
-    anthropicMocks.create.mockImplementation(
-      async (req: { tool_choice?: { name?: string } }) => ({
-        content: [
-          {
-            type: 'tool_use',
-            input:
-              req.tool_choice?.name === 'classify_document'
-                ? { doc_type: 'teaser', confidence: 'high' }
-                : extraction,
-          },
-        ],
-        stop_reason: 'end_turn',
-      }),
-    );
-  }
-
-  /** A real 1-page PDF, padded past the attachment minimum size. */
-  let validPdf: Buffer;
-  beforeAll(async () => {
-    const doc = await PDFDocument.create();
-    doc.addPage();
-    doc.setSubject('Project Falcon teaser '.repeat(1_500));
-    validPdf = Buffer.from(await doc.save());
-  });
-
-  /** One deal email carrying a PDF large enough to reach triage. */
-  function makePdfMbox(id: string) {
-    const pdf = validPdf.toString('base64').replace(/(.{76})/g, '$1\n');
-    const content = [
-      `From envelope-${id} Mon Jan  1 00:00:00 2024`,
-      'From: banker@external.com',
-      'To: alice@starcapital.co.id',
-      'Subject: Project Falcon teaser',
-      'Date: Mon, 01 Jan 2024 10:00:00 +0000',
-      `Message-ID: <${id}>`,
-      'MIME-Version: 1.0',
-      'Content-Type: multipart/mixed; boundary="BOUND"',
-      '',
-      '--BOUND',
-      'Content-Type: text/plain; charset=utf-8',
-      '',
-      'Attached is the teaser for the Project Falcon acquisition and M&A advisory mandate.',
-      '--BOUND',
-      'Content-Type: application/pdf; name="Falcon_Teaser.pdf"',
-      'Content-Transfer-Encoding: base64',
-      'Content-Disposition: attachment; filename="Falcon_Teaser.pdf"',
-      '',
-      pdf,
-      '--BOUND--',
-      '',
-    ].join('\n');
-    return async function* () {
-      yield Buffer.from(content, 'utf-8');
-    };
-  }
-
-  const uploadUrlCalls = () =>
-    fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/smart-files/upload-url'));
 
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-api-key';
@@ -1386,6 +1392,122 @@ describe('Re-extract export', () => {
       ),
     ).toHaveLength(0);
     expect(uploadUrlCalls()).toHaveLength(0);
+  });
+});
+
+describe('attachments on mail from an internal sender', () => {
+  const triageCalls = () =>
+    anthropicMocks.create.mock.calls.filter(
+      ([req]) => req.tool_choice?.name === 'classify_document',
+    );
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-api-key';
+    anthropicMocks.create.mockReset();
+    crmMocks.upsertEphemeralCrmBatch.mockReset().mockResolvedValue({ emails_inserted: 1 });
+    crmMocks.upsertEmailNotes.mockReset().mockResolvedValue(undefined);
+    extractTextMock.mockReset().mockResolvedValue('Project Falcon teaser');
+  });
+
+  afterEach(() => {
+    extractTextMock.mockReset();
+  });
+
+  it('ingests the email into the CRM but never triages or sends its attachment to Smart Files', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: [] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-internal-1',
+        custodianEmail: 'dessi@starcapital.co.id',
+        openStream: makePdfMbox('msg-internal-1', {
+          from: 'kartyan@starcapital.co.id',
+          to: 'banker@external.com',
+          cc: 'dessi@starcapital.co.id',
+        }),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          message_id: 'msg-internal-1',
+          from_address: 'kartyan@starcapital.co.id',
+          direction: 'outbound',
+        }),
+      ],
+      expect.anything(),
+    );
+    expect(triageCalls()).toHaveLength(0);
+    expect(uploadUrlCalls()).toHaveLength(0);
+  });
+
+  it('applies to every internal group domain, not only starcapital.co.id', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: [] });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-internal-2',
+        custodianEmail: 'dessi@starcapital.co.id',
+        openStream: makePdfMbox('msg-internal-2', {
+          from: 'Nico <Nico@SMMA.id>',
+          to: 'banker@external.com, dessi@starcapital.co.id',
+        }),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(crmMocks.upsertEphemeralCrmBatch).toHaveBeenCalledTimes(1);
+    expect(uploadUrlCalls()).toHaveLength(0);
+  });
+
+  it('does not send the attachment when resuming an email that is already ingested', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: ['msg-internal-3'] });
+
+    const result = await processMboxSource(
+      {
+        sourceKey: 'src-internal-3',
+        custodianEmail: 'dessi@starcapital.co.id',
+        openStream: makePdfMbox('msg-internal-3', {
+          from: 'kartyan@starcapital.co.id',
+          to: 'banker@external.com',
+        }),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(result.status).toBe('completed');
+    expect(triageCalls()).toHaveLength(0);
+    expect(uploadUrlCalls()).toHaveLength(0);
+  });
+
+  it('still sends the attachment when the sender is external and we are on the thread', async () => {
+    answerByTool();
+    const db = createProcessDb({ existingEmails: [] });
+
+    await processMboxSource(
+      {
+        sourceKey: 'src-internal-4',
+        custodianEmail: 'dessi@starcapital.co.id',
+        openStream: makePdfMbox('msg-external-4', {
+          from: 'banker@external.com',
+          to: 'dessi@starcapital.co.id',
+          cc: 'kartyan@starcapital.co.id',
+        }),
+      },
+      {},
+      { db: db as never },
+    );
+
+    expect(uploadUrlCalls().length).toBeGreaterThan(0);
   });
 });
 

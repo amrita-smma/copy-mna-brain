@@ -85,6 +85,10 @@ and is deliberately never persisted on the `files` row.
 
 Notification rules:
 
+- **Never for mail we sent.** An email whose `From` is on one of our own domains
+  (`INTERNAL_MAIL_DOMAINS`) is still ingested into the CRM, but its attachments
+  never go to Smart Files, so nothing lands and nothing notifies — whoever else
+  is on To/Cc/Bcc.
 - **Email-origin PDFs only.** Manual Smart Files uploads never notify (the
   uploader added the file themselves), and non-PDF attachments are out of scope.
 - **Skipped for files that never landed** — duplicates, files auto-dropped as
