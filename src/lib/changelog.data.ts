@@ -112,6 +112,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b9618176173b76a524cee828b07d7f8dd4cfb361",
+    "date": "2026-10-27",
+    "subject": "Warning banner now appears for EBITDA issues when promoting deals from L0 to L1",
+    "category": "improvement"
+  },
+  {
+    "hash": "0afe59908c2918d010a48429535e31b0c8a20edf",
+    "date": "2026-10-27",
+    "subject": "carry the insight authoring rules on propose_insight_edit, not in every prompt",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "6fd8a7d3f3f959401dcc9d25b2f0dbef44ae03c1",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
