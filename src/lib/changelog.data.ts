@@ -74,6 +74,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "6a44111a83777570e9e80b177351ce0737db54c7",
+    "date": "2026-10-27",
+    "subject": "load send_email and add_company on demand through Anthropic tool search",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "09bbe34a8e8864866d019d90b3de2bba514ba4b4",
+    "date": "2026-10-27",
+    "subject": "Contact import now detects column headers below banner rows and ignores blank dash cells",
+    "category": "fix"
+  },
+  {
+    "hash": "394928efa058158c9ba521b05f4a954d002c5138",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "6f6d487e80387c97cab41e8c7f74d3b9317a93ec",
     "date": "2026-10-26",
     "subject": "Resolve open Dependabot alerts",
