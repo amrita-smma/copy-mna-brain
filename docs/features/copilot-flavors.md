@@ -278,6 +278,18 @@ and the sector agents, whose lists share these tool objects, get it from
 `withToolSearch` in `composeSectorTools` and name their deferred tools in
 `composeSectorRolePrompt` from the list they actually run with.
 
+A deferred tool's description is itself loaded on demand, which makes it the
+right home for guidance only that tool needs. The insight-authoring mechanics —
+complete self-contained HTML, the sandbox, the allowed script hosts, charts,
+`data-section` keys, the sources and unavailable-data rules, and how a
+selected section scopes an edit — moved out of `INSIGHT_AUTHORING_GUIDE`
+(every chat prompt, now 4.7k characters instead of 11.4k) into
+`INSIGHT_EDIT_AUTHORING_RULES`, appended to `propose_insight_edit`'s
+description. The prompt keeps the routing: what goes to the Workforce, the
+report planning gate, templates, and the read-before-edit flow, with a pointer
+to the rules. The Workforce keeps its own copy of the mechanics
+(`WORKFORCE_INSIGHT_AUTHORING_GUIDE`).
+
 Every chat flavor and the sector chat agents append `NEXT_ACTION_GUIDE`
 (`src/lib/agents/analysis/guides.ts`, "## Offer the Next Action"). When an
 answer leaves a step the agent could take with its own tools (an approval

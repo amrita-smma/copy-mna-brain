@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
 import { DEFER_LOADING } from './server_tools';
+import { INSIGHT_EDIT_AUTHORING_RULES } from '../guides';
 import type { InsightEditApprovalMarker, InsightKind } from '@/lib/insights/types';
 import {
   INSIGHT_EDIT_APPROVAL_MARKER,
@@ -103,7 +104,9 @@ document byte-identically. Keep each major block's data-section="kebab-key"
 attribute intact, and add one to any block you introduce, or the reader can no
 longer click it.
 
-Defaults to the active insight in page context.`,
+Defaults to the active insight in page context.
+
+${INSIGHT_EDIT_AUTHORING_RULES}`,
     schema: z.object({
       insight_id: z
         .string()

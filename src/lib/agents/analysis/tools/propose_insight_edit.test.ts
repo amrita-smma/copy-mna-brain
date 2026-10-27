@@ -9,6 +9,7 @@ import {
 import { extractApprovalPayload } from '@/lib/insights/approvalMarker';
 import { makeTruncatedCandidate, makeValidReport } from '@/lib/insights/testFixtures';
 import { RENDER_CHECK_REFUSAL_LEAD } from '@/lib/insights/structuralCheck';
+import { INSIGHT_EDIT_AUTHORING_RULES } from '../guides';
 
 const VALID_UUID = '11111111-2222-3333-4444-555555555555';
 
@@ -37,6 +38,33 @@ function payloadOf(result: string): InsightEditApprovalMarker {
   if (!payload) throw new Error(`No approval payload in result:\n${result}`);
   return payload;
 }
+
+describe('proposeInsightEdit description', () => {
+  it('carries the authoring rules for the document, since the tool loads on demand', () => {
+    // The chat prompts keep only the routing (INSIGHT_AUTHORING_GUIDE); the
+    // mechanics travel with this tool's definition, which the API appends
+    // when the model finds the tool.
+    const d = proposeInsightEdit.description;
+    expect(d).toContain(INSIGHT_EDIT_AUTHORING_RULES);
+    expect(d).toContain('## Authoring rules for the document you submit');
+    for (const rule of [
+      'Complete, self-contained HTML',
+      'Let the page grow',
+      'Numbers are frozen at authoring time',
+      'Sandboxed execution',
+      'Allowed scripts & styles',
+      'chart.umd.min.js',
+      'Key every major block',
+      'Write the document INTO the tool call',
+      'When sections are selected',
+      '### Sources',
+      '### Data you could not obtain',
+    ]) {
+      expect(d, rule).toContain(rule);
+    }
+    expect((proposeInsightEdit as { extras?: { defer_loading?: boolean } }).extras?.defer_loading).toBe(true);
+  });
+});
 
 describe('proposeInsightEdit', () => {
   it('returns an approval payload carrying insight_id and summary without html', async () => {

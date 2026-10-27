@@ -564,6 +564,14 @@ is what nearly every turn uses: the company queries, the CRM lookups, the
 searches, the approval cards, the handoff, navigation, the page context, the
 insight reads.
 
+**Done (2026-10-27), insight authoring rules on demand:** `INSIGHT_AUTHORING_GUIDE`
+was 11.4k characters in every chat prompt, and most of it was HTML authoring
+mechanics only needed on a turn that edits an insight. Those rules are now
+`INSIGHT_EDIT_AUTHORING_RULES` on `propose_insight_edit`'s description — a
+deferred tool's description is loaded only when the tool is found — and the
+prompt keeps the 4.7k-character routing half. Same pattern is available for
+any other guidance that only one deferred tool needs.
+
 **Still to do (highest value first):**
 1. Upgrade `@langchain/anthropic` past 1.6.0, whose allowlists carry the
    tool-search result types natively, and drop that part of the patch. Blocked

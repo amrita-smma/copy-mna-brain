@@ -93,12 +93,14 @@ import {
   WORKFORCE_SOURCES_WRITE_ORDER,
 } from '@/lib/agents/sector/evidenceMarkers';
 import {
+  INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
   getAgentGraph,
   getWorkforceAgentGraphForEffort,
   resetAgent,
   type CopilotAgentType,
 } from '@/lib/agents/analysis';
+import { INSIGHT_EDIT_AUTHORING_RULES } from '@/lib/agents/analysis/guides';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -153,31 +155,34 @@ function lastSystemPrompt(): string {
 // to search rather than report a missing tool.
 // The block then grew to name the second deferral round (the three insight
 // proposals, analyze_stalled_deals, get_task_progress, read_relationship_graph).
+// INSIGHT_AUTHORING_GUIDE then shrank to its routing half: the document
+// authoring rules moved to propose_insight_edit's description
+// (INSIGHT_EDIT_AUTHORING_RULES), which loads with that deferred tool.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
-  mna: '15fad42e91f5031a52891de756903c474c894ca943a98af9cf702f71cdbba0d4',
-  investment: '230375f5e47c7213e31121c36e9d38b2bbdea397bfe08bc72f10404c8ea2d841',
-  combined: 'ac2dd349f486182a7e2bd5d5f589a7178a6aa566c2c79da089f355b71417b213',
-  vc: '3e7f57aef6fdc6825792fb7864a00817e5aafaa7099bcf32176e2398a8e0bcb5',
+  mna: '1072e317231e08bdcfe8bcb8f97a3493de93ce4d990c4abece913f3a48e070cb',
+  investment: 'bed13307c88aef648a33997d32af450f8e54827c3cd43d3c9f090aca9a3caebe',
+  combined: '8f91828ae56a7b62aa9841b90fadbc3318f5c629fd360b17c54f0207e086cf7f',
+  vc: '1e0eacdf382e6fed0983c02d55862b96285d2885d9856afdc249a8705f79ceae',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: '25f4d7d2e24324f688adef2d659e0c589855be73f5d689affecfa6fc54fb3d4d',
+  minority: '119b2c054ba5b49aaf54cad5cb3083ede89e5ad2791b3c99e7004dd58cd90473',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '63d6222ebc711d35e0552e275d09d61c2cdf8010446521d9c603840e97064589',
+  crowdfunding: '5abd35f8b066becd6443e41d4a6aeaf7e22b430ab41db445af56193962402b69',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: '2d7f691e6e5e3037e6cd467ed1211febe776b7e6b3cb1d0f3c81c0920fad0bd3',
+  investment_banking: '91ddcc0d1da468a88cb4fa06c603ece95227731aa1bb1926567d8d90e2a21df9',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: '3c344f9f9d56aec728c9f2c4f68bb04bfac421d45d8063eb429635d87234ed1c',
+  capital_markets: 'cdf973d27f4df7e629c403326a61e8f122a5d832f67a4a42676c3f6f8fdb7db9',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which
@@ -206,13 +211,25 @@ describe('existing CoPilot prompts', () => {
     expect(sha256(lastSystemPrompt())).toBe(EXPECTED_WORKFORCE_HASH);
   });
 
-  it('teaches Sources and unavailable cells in every chat prompt and the workforce prompt (MB-551, MB-556)', async () => {
+  it('teaches Sources and unavailable cells with the edit tool, in every chat prompt\'s routing, and in the workforce prompt (MB-551, MB-556)', async () => {
+    // The chat side authors an insight only through propose_insight_edit, a
+    // deferred tool whose description carries the authoring rules — the
+    // Sources and unavailable-cell rules among them — so the chat prompts
+    // keep only the routing and point at the tool.
+    expect(INSIGHT_EDIT_AUTHORING_RULES).toContain(INSIGHT_SOURCES_GUIDE);
+    expect(INSIGHT_EDIT_AUTHORING_RULES).toContain(INSIGHT_UNAVAILABLE_GUIDE);
     for (const flavor of Object.keys(EXPECTED_CHAT_HASHES) as CopilotAgentType[]) {
       await getAgentGraph(flavor, 'medium');
       const prompt = lastSystemPrompt();
-      expect(prompt, flavor).toContain(INSIGHT_SOURCES_GUIDE);
-      expect(prompt, flavor).toContain(INSIGHT_UNAVAILABLE_GUIDE);
+      expect(prompt, flavor).toContain(INSIGHT_AUTHORING_GUIDE);
+      expect(prompt, flavor).toMatch(/governed by the rules in `propose_insight_edit`'s description/);
+      expect(prompt, flavor).not.toContain(INSIGHT_SOURCES_GUIDE);
+      expect(prompt, flavor).not.toContain('Sandboxed execution');
       expect(prompt, flavor).not.toContain(WORKFORCE_SOURCES_WRITE_ORDER);
+      // The routing the model must get right without a tool call stays.
+      expect(prompt, flavor).toContain('Report planning gate');
+      expect(prompt, flavor).toContain('Creating an insight — always hand it to the Workforce');
+      expect(prompt, flavor).toContain('Editing an insight');
     }
     await getWorkforceAgentGraphForEffort('medium');
     const workforce = lastSystemPrompt();
