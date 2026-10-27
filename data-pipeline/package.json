@@ -38,6 +38,7 @@
     "tsc": "tsc --noEmit",
     "invoke": "tsx scripts/invoke-local.ts",
     "process-mbox": "tsx scripts/process-mbox.ts",
+    "reclassify-notes": "tsx scripts/reclassify-email-notes.ts",
     "build": "tsx scripts/build.ts",
     "sam": "bash scripts/sam-invoke.sh"
   }

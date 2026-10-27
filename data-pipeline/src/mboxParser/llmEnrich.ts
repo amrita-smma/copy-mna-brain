@@ -33,6 +33,8 @@ export interface LlmCounterpartyRole {
 }
 
 export interface LlmEmailNote {
+  /** The model's verdict against DEAL_NOTE_RUBRIC; absent on a sanitized note. */
+  is_deal_related?: boolean;
   summary: string | null;                // 1–2 sentences; null when nothing substantive
   key_points: string[];                  // 0–4 short paraphrased points
   next_step: string | null;
@@ -127,6 +129,19 @@ export type EnrichmentResult = EnrichedRecord | EnrichmentError;
 
 // ─── Schema (JSON Schema for Anthropic tool_use; mirrors Python's pydantic) ──
 
+/**
+ * Which emails earn a CRM note. Shared by the extraction prompt's NOTE RULES
+ * and the reclassification of stored notes (`emailNoteReclassify`), so a note
+ * written today and a note re-judged later meet the same bar.
+ */
+export const DEAL_NOTE_RUBRIC = `An email is deal-related when it moves or informs a transaction: a company for sale or being acquired, a target or opportunity being pitched or screened, a mandate, fundraising or financing for a specific deal or company, due diligence, valuation, deal terms (NDA, LOI, term sheet, SPA), a named Project, or a counterparty's role in one of these. A deal's process timetable, bid deadlines, data room access, or a request for or sharing of deal documents is deal-related.
+It is NOT deal-related when it is only:
+- arranging, rescheduling or confirming a meeting or call, an office visit, a room booking or a calendar invite. This holds even when the meeting is about a deal; it counts only if the email itself also carries deal substance (terms, numbers, a decision, a document's content or a process step).
+- an acknowledgement, "thanks", "noted", "received", or an out-of-office reply
+- admin or operations: invoices, expenses, payroll, HR, IT, office matters
+- a newsletter, marketing, an event invitation, or market/sector commentary not tied to a specific transaction
+- relationship chat with no transaction in it`;
+
 export const EMAIL_EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -217,8 +232,13 @@ export const EMAIL_EXTRACTION_SCHEMA = {
     email_note: {
       type: 'object',
       description:
-        'Business-substance email note and counterparty deal roles. Paraphrase only, never quote the email verbatim. Summary must be null for emails with nothing substantive (acknowledgements, scheduling, "thanks").',
+        'Deal-substance email note and counterparty deal roles. Paraphrase only, never quote the email verbatim. Summary must be null for emails with nothing substantive (acknowledgements, scheduling, "thanks").',
       properties: {
+        is_deal_related: {
+          type: 'boolean',
+          description:
+            'true ONLY if the email is deal-related under NOTE RULES. false for meeting scheduling (including office meetings), acknowledgements, admin, newsletters and relationship chat; a false note is discarded.',
+        },
         summary: {
           type: ['string', 'null'],
           description:
@@ -279,6 +299,7 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         },
       },
       required: [
+        'is_deal_related',
         'summary',
         'key_points',
         'next_step',
@@ -400,7 +421,10 @@ If nothing qualifies, return [].
 NOTE RULES:
 - Extract a concise business-substance note for the email.
 - Paraphrase only: NEVER quote the email body or subject verbatim. All text must be derived/paraphrased.
-- Business substance only: if the email is purely administrative, scheduling, acknowledgements, or "thanks" with no deal or business substance, set summary = null, key_points = [], next_step = null, next_step_status = "none", sentiment = "neutral", counterparty_roles = [].
+- Deal substance only. Set is_deal_related against this rubric:
+${DEAL_NOTE_RUBRIC}
+- When is_deal_related = false, set summary = null, key_points = [], next_step = null, next_step_status = "none", sentiment = "neutral". The note is discarded, so do not write one.
+- If the email is purely administrative, scheduling, an acknowledgement or "thanks", also set counterparty_roles = [].
 - summary: 1-2 sentences capturing the substantive business discussion; null if nothing substantive.
 - key_points: 0-4 short paraphrased bullet points.
 - next_step: next action item if any, or null.
@@ -666,16 +690,21 @@ export function sanitizeEmailNote(
 
   const raw = note as Record<string, unknown>;
 
-  const summary = str(raw.summary);
-  const keyPoints = Array.isArray(raw.key_points)
+  // A non-deal note is stored as one with no substance (summary null): the row
+  // still exists so the note backfill never re-asks the model, and every CRM
+  // read skips it. Only an explicit `false` drops the note — a missing flag (an
+  // output salvaged by repairToolInput) keeps it rather than erasing it.
+  const summary = raw.is_deal_related === false ? null : str(raw.summary);
+  let keyPoints = Array.isArray(raw.key_points)
     ? raw.key_points.map(str).filter((kp): kp is string => kp !== null).slice(0, 4)
     : [];
   let nextStep = str(raw.next_step);
   let nextStepStatus = oneOf(raw.next_step_status, ['action', 'done', 'none'] as const, 'none');
 
-  // An email with no business substance (summary null) never carries a next
-  // step, whatever the model returned for it.
+  // An email with no substance (summary null) never carries key points or a
+  // next step, whatever the model returned for them.
   if (summary === null) {
+    keyPoints = [];
     nextStep = null;
     nextStepStatus = 'none';
   }

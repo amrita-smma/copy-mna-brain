@@ -471,11 +471,16 @@ call that already reads each email in memory (`extract_email_info`) also returns
 an `email_note`, and only that **paraphrased** text is kept — never a quote:
 
 - `analytics.email_notes` — one row per LLM-processed email: `summary` (NULL
-  when the email has no business substance; the row still exists so it is never
+  when the email is not deal-related; the row still exists so it is never
   re-asked), `key_points` (≤4), `next_step`, `next_step_status`
-  (`action`/`done`/`none`), `sentiment`, `model`. An email with no business
-  substance (scheduling, admin, "thanks") has a NULL summary and no next step
-  — the sanitizer enforces it.
+  (`action`/`done`/`none`), `sentiment`, `model`. Only deal-related emails keep
+  a note. The model answers `email_note.is_deal_related` against
+  `DEAL_NOTE_RUBRIC` (`llmEnrich.ts`). Arranging a meeting (office meetings
+  included, even for a deal), acknowledgements, admin, newsletters and
+  relationship chat are not deal-related. On an explicit `false` the sanitizer
+  stores the note blank: NULL summary, no key points, no next step. A missing
+  flag keeps the note. The email itself is still ingested, and its role
+  signals are kept.
 - `analytics.email_role_signals` — per external participant address:
   `label` (`funding`/`lending`/`finance`/`tax`/`advisory`/`legal`, plus
   `due_diligence` for third-party diligence providers, `principal` for the
@@ -502,6 +507,17 @@ it in that same email.
 again, each duplicate email with no `email_notes` row gets one note-only call.
 A failed backfill call is logged and retried on the next re-run; it never
 blocks the offset or re-runs the CRM upsert.
+
+**Reclassifying stored notes.** `pnpm --filter data-pipeline reclassify-notes`
+(`emailNoteReclassify.ts`) has Haiku re-judge every kept note against the same
+`DEAL_NOTE_RUBRIC`, from the note's own text (the email is gone), and blanks
+the ones it calls not deal-related. It is a dry run unless given `--apply`. Each
+batch's dropped notes are appended to a JSONL backup before they are blanked,
+because that backup is the only copy left. A failed call or a missing verdict
+keeps the note. `--limit` and `--after <email_id>` page through and resume. Once a
+contact's notes change, their relationship overview reads as stale and is
+rebuilt the next time the panel opens. A contact left with no notes shows no
+overview, because generation needs at least one note.
 
 ### Reads
 

@@ -94,6 +94,25 @@ describe('ContactConversationService', () => {
       expect(conv.overview.stale).toBe(true);
     });
 
+    it('hides a stored overview once no note is left behind it', async () => {
+      contactConversationRepo.getOverview.mockResolvedValueOnce({
+        status: 'ready',
+        overview: 'Mostly arranged office meetings.',
+        input_hash: 'v2:2:e2',
+        generated_at: '2026-10-01T00:00:00Z',
+        role_summary: 'Advisor',
+      });
+
+      const conv = await service.getConversation('c1', 'u1');
+      expect(conv.overview).toMatchObject({
+        status: 'none',
+        text: null,
+        stale: false,
+        dealNotes: [],
+        roleSummary: null,
+      });
+    });
+
     it('marks overview stale when row input_hash differs from currentHash', async () => {
       contactConversationRepo.getNoteInputHash.mockResolvedValueOnce({
         noteCount: 5,

@@ -114,7 +114,10 @@ function overviewOf(
   noteCount: number,
   currentHash: string,
 ): RelationshipOverview {
-  if (!row) {
+  // With no note left behind it (every one blanked as not deal-related), a
+  // stored overview describes mail the CRM no longer keeps, and nothing
+  // regenerates it: generation needs at least one note.
+  if (!row || noteCount === 0) {
     return {
       status: 'none',
       text: null,

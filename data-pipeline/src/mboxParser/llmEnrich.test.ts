@@ -11,6 +11,9 @@ import {
   externalAddresses,
   dropThreadOnlyCompanies,
   EMAIL_EXTRACTION_SCHEMA,
+  EMAIL_NOTE_SCHEMA,
+  DEAL_NOTE_RUBRIC,
+  SYSTEM_PROMPT,
   type LlmPerson,
   type QueueEntry,
 } from './llmEnrich';
@@ -488,6 +491,86 @@ describe('sanitizeEmailNote', () => {
       next_step: null,
       next_step_status: 'none',
     });
+  });
+
+  it('blanks the note of an email the model judged not deal-related', () => {
+    const sanitized = sanitizeEmailNote(
+      {
+        is_deal_related: false,
+        summary: 'Team agreed to meet at the office on Thursday.',
+        key_points: ['Meeting moved to Thursday'],
+        next_step: 'Book the meeting room',
+        next_step_status: 'action',
+        sentiment: 'positive',
+        counterparty_roles: [],
+      },
+      externalAddrs,
+    );
+    expect(sanitized).toMatchObject({
+      summary: null,
+      key_points: [],
+      next_step: null,
+      next_step_status: 'none',
+    });
+  });
+
+  it('keeps the note of a deal-related email', () => {
+    const sanitized = sanitizeEmailNote(
+      {
+        is_deal_related: true,
+        summary: 'Banker shared the teaser for Project Titan.',
+        key_points: ['Bids due end of month'],
+        next_step: 'Sign the NDA',
+        next_step_status: 'action',
+        sentiment: 'positive',
+        counterparty_roles: [],
+      },
+      externalAddrs,
+    );
+    expect(sanitized).toMatchObject({
+      summary: 'Banker shared the teaser for Project Titan.',
+      key_points: ['Bids due end of month'],
+      next_step: 'Sign the NDA',
+      next_step_status: 'action',
+    });
+  });
+
+  it('keeps the note when the deal flag is missing rather than erasing it', () => {
+    const sanitized = sanitizeEmailNote(
+      {
+        summary: 'Seller lowered the asking price.',
+        key_points: [],
+        next_step: null,
+        next_step_status: 'none',
+        sentiment: 'neutral',
+        counterparty_roles: [],
+      },
+      externalAddrs,
+    );
+    expect(sanitized!.summary).toBe('Seller lowered the asking price.');
+  });
+
+  it('keeps counterparty roles on a non-deal note', () => {
+    const sanitized = sanitizeEmailNote(
+      {
+        is_deal_related: false,
+        summary: null,
+        key_points: [],
+        next_step: null,
+        next_step_status: 'none',
+        sentiment: 'neutral',
+        counterparty_roles: [
+          { address: 'claire@law.com', label: 'legal', confidence: 'high', evidence: 'Sent the firm invoice.' },
+        ],
+      },
+      externalAddrs,
+    );
+    expect(sanitized!.counterparty_roles).toHaveLength(1);
+  });
+
+  it('puts the deal rubric into the extraction prompt and requires the flag', () => {
+    expect(SYSTEM_PROMPT).toContain(DEAL_NOTE_RUBRIC);
+    expect(EMAIL_NOTE_SCHEMA.properties.email_note.required).toContain('is_deal_related');
   });
 
   it('returns null on garbage input', () => {
