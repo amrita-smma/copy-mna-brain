@@ -21,6 +21,8 @@ import {
   valyuSearch,
   getToolDescriptions,
 } from "./index";
+import { isDeferredTool, isToolSearchTool } from "./server_tools";
+import { defaultChatToolList } from "../flavors/mna";
 import { SECTOR_CHAT_CORE_TOOLS, SECTOR_WORKFORCE_CORE_TOOLS } from "@/lib/agents/sector/coreTools";
 import { MINERBA_TOOLS } from "@/lib/agents/minerba/tools";
 import { DIKTI_TOOLS } from "@/lib/agents/dikti/tools";
@@ -34,6 +36,68 @@ const AGENT_TOOL_LISTS = {
   combined: combinedTools,
   vc: vcTools,
 };
+
+describe("deferred tools and the tool-search server tool", () => {
+  type Named = { name?: string };
+  const nameOf = (t: unknown) => (t as Named)?.name ?? "";
+  // Some lists are lazy factories (`lazyToolList`); call them.
+  const materialise = (v: unknown): readonly unknown[] => (typeof v === "function" ? (v as () => readonly unknown[])() : (v as readonly unknown[]));
+  const lists: Record<string, readonly unknown[]> = Object.fromEntries(Object.entries({
+    tools,
+    chatOnlyTools,
+    workforceOnlyTools,
+    investmentTools,
+    combinedTools,
+    vcTools,
+    "defaultChatToolList()": defaultChatToolList(),
+    // What the workforce list spreads (`workforceToolList` lives in a module that reaches the mocked agent barrel).
+    "tools + workforceOnlyTools": [...tools, ...workforceOnlyTools],
+    SECTOR_CHAT_CORE_TOOLS,
+    SECTOR_WORKFORCE_CORE_TOOLS,
+    "MINERBA_TOOLS.chat": MINERBA_TOOLS.chat,
+    "MINERBA_TOOLS.workforce": MINERBA_TOOLS.workforce,
+    "DIKTI_TOOLS.chat": DIKTI_TOOLS.chat,
+    "DIKTI_TOOLS.workforce": DIKTI_TOOLS.workforce,
+    "BANGUN_TOOLS.chat": BANGUN_TOOLS.chat,
+    "BANGUN_TOOLS.workforce": BANGUN_TOOLS.workforce,
+  }).map(([k, v]) => [k, materialise(v)]));
+
+  it("defers send_email everywhere it appears, and add_company on the workforce", () => {
+    for (const [label, list] of Object.entries(lists)) {
+      for (const t of list) {
+        if (nameOf(t) === "send_email" || nameOf(t) === "add_company") {
+          expect(isDeferredTool(t), `${nameOf(t)} in ${label}`).toBe(true);
+        }
+      }
+    }
+    expect(workforceOnlyTools.some((t) => nameOf(t) === "add_company")).toBe(true);
+    expect(defaultChatToolList().some((t) => nameOf(t) === "send_email")).toBe(true);
+  });
+
+  it("gives every list that holds a deferred tool exactly one tool-search tool, and lists without one none", () => {
+    // The API rejects a request whose tools include defer_loading without a
+    // search tool to find them, and a duplicate tool name in the same request.
+    for (const [label, list] of Object.entries(lists)) {
+      const deferred = list.filter(isDeferredTool).map(nameOf);
+      const searchTools = list.filter(isToolSearchTool);
+      if (deferred.length > 0) {
+        expect(searchTools, `${label} defers ${deferred.join(", ")} but has no tool-search tool`).toHaveLength(1);
+      } else {
+        expect(searchTools, `${label} carries a tool-search tool with nothing to find`).toHaveLength(0);
+      }
+      expect(list.some((t) => isToolSearchTool(t) && isDeferredTool(t)), label).toBe(false);
+      const names = list.map(nameOf);
+      expect(new Set(names).size, `${label} has a duplicate tool name`).toBe(names.length);
+    }
+  });
+
+  it("keeps at least one non-deferred client tool in every list (the API requires it)", () => {
+    for (const [label, list] of Object.entries(lists)) {
+      if (!list.some(isDeferredTool)) continue;
+      expect(list.some((t) => !isDeferredTool(t) && !isToolSearchTool(t)), label).toBe(true);
+    }
+  });
+});
 
 describe("agent tool lists", () => {
   // The AI Opinion workforce run has to read the firm's mandate before it votes

@@ -2,6 +2,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
+import { DEFER_LOADING } from './server_tools';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { UserRepository } from '@/lib/repositories';
@@ -431,5 +432,8 @@ Args:
 Returns:
     A confirmation string listing recipients, what was attached, and any skipped addresses, or an error string starting with **Error:**.`,
     schema: argsSchema,
+    // ~8k tokens of description + schema that most turns never use: loaded
+    // on demand through the tool-search server tool (see `server_tools.ts`).
+    extras: DEFER_LOADING,
   },
 );

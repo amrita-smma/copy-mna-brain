@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from "zod";
 import { logger } from "../../logger";
+import { DEFER_LOADING } from "./server_tools";
 import { createDb } from "@/lib/server/db";
 import { CompanyRepository, UserRepository } from "@/lib/repositories";
 import { companyDisplayTitle } from "@/lib/companyDisplay";
@@ -584,5 +585,8 @@ Returns:
           "Short triage remark about this intake, saved to the company's notes timeline (shown under the Context tab). For durable background about the company itself, use `context`.",
         ),
     }),
+    // The largest tool definition in the workforce list (~13k chars) and a
+    // once-per-task call: loaded on demand through the tool-search server tool.
+    extras: DEFER_LOADING,
   },
 );

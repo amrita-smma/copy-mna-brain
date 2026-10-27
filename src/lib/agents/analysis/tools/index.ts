@@ -12,7 +12,7 @@ import { listPipelineStages } from "./list_pipeline_stages";
 import { lookupCrm } from "./lookup_crm";
 import { crmInsights } from "./crm_insights";
 import { crmBankerInsights } from "./crm_banker_insights";
-import { SERVER_TOOLS } from "./server_tools";
+import { SERVER_TOOLS, TOOL_SEARCH_TOOL } from "./server_tools";
 import { valyuSearch } from "./valyu_search";
 // AlphaSense is retired: the subscription is no longer in use, so
 // `alphasense_search` is not registered with any agent and no tool list
@@ -102,6 +102,7 @@ export {
   crmInsights,
   crmBankerInsights,
   SERVER_TOOLS,
+  TOOL_SEARCH_TOOL,
   valyuSearch,
   alphasenseSearch,
   queryMeetingNotes,
@@ -214,6 +215,10 @@ export const chatOnlyTools = [
   proposeBulkDropCompanies,
   proposeBulkPromoteCompanies,
   sendEmailTool,
+  // send_email (and, for the workforce, add_company) load on demand; this is
+  // the server tool the model finds them with. Every list that carries a
+  // deferred tool carries it (`index.test.ts`).
+  TOOL_SEARCH_TOOL,
   updateCompanyCardSection,
   navigatePage,
   readPageContext,
@@ -279,6 +284,10 @@ export const workforceOnlyTools = [
   notifyProgress,
   flagInsight,
   sendEmailTool,
+  // send_email (and, for the workforce, add_company) load on demand; this is
+  // the server tool the model finds them with. Every list that carries a
+  // deferred tool carries it (`index.test.ts`).
+  TOOL_SEARCH_TOOL,
   dropCompany,
   createInsight,
   editInsightSection,
@@ -313,6 +322,10 @@ export const investmentTools = [
   crmBankerInsights,
   lookupUser,
   sendEmailTool,
+  // send_email (and, for the workforce, add_company) load on demand; this is
+  // the server tool the model finds them with. Every list that carries a
+  // deferred tool carries it (`index.test.ts`).
+  TOOL_SEARCH_TOOL,
   proposeWorkforceHandoff,
   navigatePage,
   readPageContext,
@@ -386,6 +399,10 @@ export const vcTools = [
   calculateInvestmentReturns,
   lookupUser,
   sendEmailTool,
+  // send_email (and, for the workforce, add_company) load on demand; this is
+  // the server tool the model finds them with. Every list that carries a
+  // deferred tool carries it (`index.test.ts`).
+  TOOL_SEARCH_TOOL,
   proposeWorkforceHandoff,
   navigatePage,
   readPageContext,

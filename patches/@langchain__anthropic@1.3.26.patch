@@ -1,31 +1,37 @@
 diff --git a/dist/utils/message_inputs.cjs b/dist/utils/message_inputs.cjs
-index 545a8fd724346e1f7800e6092dc6f98207cb44ac..707d81a0de73abb43a27ef03479ee0e4a0ef16cf 100644
+index 545a8fd724346e1f7800e6092dc6f98207cb44ac..86c0513a67b5986373b605a57c72cda6d38d0bc6 100644
 --- a/dist/utils/message_inputs.cjs
 +++ b/dist/utils/message_inputs.cjs
-@@ -67,6 +67,8 @@ function* _formatContentBlocks(content, toolCalls) {
+@@ -67,6 +67,11 @@ function* _formatContentBlocks(content, toolCalls) {
  		"input_json_delta",
  		"server_tool_use",
  		"text_editor_code_execution_tool_result",
 +		"code_execution_tool_result",
 +		"web_fetch_tool_result",
++		"tool_search_tool_result",
++		"tool_search_tool_bm25_tool_result",
++		"tool_search_tool_regex_tool_result",
  		"tool_result",
  		"tool_use",
  		"web_search_result",
 diff --git a/dist/utils/message_inputs.js b/dist/utils/message_inputs.js
-index bdf8e45c5f1f5305e88db6b99e0340e029bf2d70..0a0d205d0bfb80cd7df0e90f75ebe14953123d74 100644
+index bdf8e45c5f1f5305e88db6b99e0340e029bf2d70..d0b499a35993d459b9f793a2c32ab22db412dc73 100644
 --- a/dist/utils/message_inputs.js
 +++ b/dist/utils/message_inputs.js
-@@ -66,6 +66,8 @@ function* _formatContentBlocks(content, toolCalls) {
+@@ -66,6 +66,11 @@ function* _formatContentBlocks(content, toolCalls) {
  		"input_json_delta",
  		"server_tool_use",
  		"text_editor_code_execution_tool_result",
 +		"code_execution_tool_result",
 +		"web_fetch_tool_result",
++		"tool_search_tool_result",
++		"tool_search_tool_bm25_tool_result",
++		"tool_search_tool_regex_tool_result",
  		"tool_result",
  		"tool_use",
  		"web_search_result",
 diff --git a/dist/utils/message_outputs.cjs b/dist/utils/message_outputs.cjs
-index ca00859e10792bf4b552cf1e41389384491fe5cd..47b7437246606f95f3ad7dc0ad90576cfb6c5df6 100644
+index ca00859e10792bf4b552cf1e41389384491fe5cd..498cbe3427dd80a14586808bd1c5a7b2d43590c4 100644
 --- a/dist/utils/message_outputs.cjs
 +++ b/dist/utils/message_outputs.cjs
 @@ -3,6 +3,10 @@ const require_output_parsers = require("../output_parsers.cjs");
@@ -39,7 +45,7 @@ index ca00859e10792bf4b552cf1e41389384491fe5cd..47b7437246606f95f3ad7dc0ad90576c
  function _makeMessageChunkFromAnthropicEvent(data, fields) {
  	const response_metadata = { model_provider: "anthropic" };
  	if (data.type === "message_start") {
-@@ -38,7 +42,11 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+@@ -38,7 +42,14 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
  		"tool_use",
  		"document",
  		"server_tool_use",
@@ -48,11 +54,14 @@ index ca00859e10792bf4b552cf1e41389384491fe5cd..47b7437246606f95f3ad7dc0ad90576c
 +		"web_fetch_tool_result",
 +		"code_execution_tool_result",
 +		"bash_code_execution_tool_result",
-+		"text_editor_code_execution_tool_result"
++		"text_editor_code_execution_tool_result",
++		"tool_search_tool_result",
++		"tool_search_tool_bm25_tool_result",
++		"tool_search_tool_regex_tool_result"
  	].includes(data.content_block.type)) {
  		const contentBlock = data.content_block;
  		let toolCallChunks;
-@@ -53,7 +61,7 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+@@ -53,7 +64,7 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
  			content: fields.coerceContentToString ? "" : [{
  				index: data.index,
  				...data.content_block,
@@ -62,7 +71,7 @@ index ca00859e10792bf4b552cf1e41389384491fe5cd..47b7437246606f95f3ad7dc0ad90576c
  			response_metadata,
  			additional_kwargs: {},
 diff --git a/dist/utils/message_outputs.js b/dist/utils/message_outputs.js
-index 4edf724077c82e61b1982879592216a6d78288fb..884ce53c78b159ad8f5c408e8f4a77155b4772f9 100644
+index 4edf724077c82e61b1982879592216a6d78288fb..a4887f60d0722a6a57003883b47b482041806acd 100644
 --- a/dist/utils/message_outputs.js
 +++ b/dist/utils/message_outputs.js
 @@ -2,6 +2,10 @@ import { extractToolCalls } from "../output_parsers.js";
@@ -76,7 +85,7 @@ index 4edf724077c82e61b1982879592216a6d78288fb..884ce53c78b159ad8f5c408e8f4a7715
  function _makeMessageChunkFromAnthropicEvent(data, fields) {
  	const response_metadata = { model_provider: "anthropic" };
  	if (data.type === "message_start") {
-@@ -37,7 +41,11 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+@@ -37,7 +41,14 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
  		"tool_use",
  		"document",
  		"server_tool_use",
@@ -85,11 +94,14 @@ index 4edf724077c82e61b1982879592216a6d78288fb..884ce53c78b159ad8f5c408e8f4a7715
 +		"web_fetch_tool_result",
 +		"code_execution_tool_result",
 +		"bash_code_execution_tool_result",
-+		"text_editor_code_execution_tool_result"
++		"text_editor_code_execution_tool_result",
++		"tool_search_tool_result",
++		"tool_search_tool_bm25_tool_result",
++		"tool_search_tool_regex_tool_result"
  	].includes(data.content_block.type)) {
  		const contentBlock = data.content_block;
  		let toolCallChunks;
-@@ -52,7 +60,7 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
+@@ -52,7 +63,7 @@ function _makeMessageChunkFromAnthropicEvent(data, fields) {
  			content: fields.coerceContentToString ? "" : [{
  				index: data.index,
  				...data.content_block,

@@ -13,7 +13,7 @@ import {
   INSIGHT_UNAVAILABLE_GUIDE,
   WORKFORCE_SOURCES_WRITE_ORDER,
 } from "@/lib/agents/sector/evidenceMarkers";
-import { INSIGHT_CDN_LIST } from "./guides";
+import { INSIGHT_CDN_LIST, onDemandToolsGuide } from "./guides";
 import { WORKFORCE_HITL_INTERRUPT_ON } from "./hitl";
 import { lazyToolList } from "./flavors/lazyToolList";
 import { financialEquityAnalysis, tools, workforceOnlyTools } from "./tools";
@@ -260,6 +260,7 @@ When the instruction asks you to "analyze the AI Opinion" / "re-evaluate the AI 
 - On a gated \`move_stage\`, the \`reason\` arg is what the human reviewer sees in the approval card. Write it so a reviewer with no other context could decide: name the concrete fit (e.g. "Revenue $42M FY2024, EBITDA margin 18%, growing 28% YoY; comparable Asia-Pacific semicap deals closed at 11–14x EBITDA — Acme fits the thesis cleanly"). Avoid vague phrasing.`;
 
 export const WORKFORCE_SYSTEM_PROMPT = `${MNA_WORKFORCE_INTRO_AND_TOOLS}
+${onDemandToolsGuide(["add_company", "send_email"])}
 
 ${WORKFORCE_QUESTION_TOOL_GUIDE}
 

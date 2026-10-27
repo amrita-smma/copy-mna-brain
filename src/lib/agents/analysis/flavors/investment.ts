@@ -9,6 +9,7 @@ import {
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
   NEXT_ACTION_GUIDE,
+  ON_DEMAND_TOOLS_GUIDE,
 } from "../guides";
 import { lazyToolList } from "./lazyToolList";
 import type { CopilotFlavor } from "./types";
@@ -93,6 +94,7 @@ You may narrow \`search_investments\` with \`types\` when the user is explicit (
 - **Never guess what a name refers to.** Resolve every user-supplied name with search_investments first, then drill in with the tool that matches the resolved type (get_fund_asset_details for a holding, query_funds / query_fund_assets for a fund, query_investors for an LP, query_fund_sources for a capital source). Pass \`fund_asset_id\` rather than a name whenever you have it.
 - **Never report "not found" from a single tool.** A name missing from query_fund_assets may still be a fund, an LP, or a capital source — that is exactly what search_investments is for. Only once it comes back empty may you say the entity isn't in the portfolio, and then go looking with query_files and an external search.
 - send_email recipients are restricted to registered platform users. Use lookup_user to resolve a name to an email before calling send_email.
+${ON_DEMAND_TOOLS_GUIDE}
 ${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}

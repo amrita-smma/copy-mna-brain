@@ -90,6 +90,25 @@ A template is not an insight. It is a reusable starting point in the workspace's
  * or acting unasked. Tools are named only as examples a flavor may lack, so
  * the block stays correct for every tool list.
  */
+/**
+ * The prompt's side of deferred tool loading (`tools/server_tools.ts`,
+ * `TOOL_SEARCH_TOOL`): the named tools are sent to the API with
+ * `defer_loading`, so they are absent from the model's tool list until it
+ * looks them up with the tool-search server tool. The procedures elsewhere in
+ * the prompt name them as if they were present; this block is what turns
+ * "I have no such tool" into one search call.
+ */
+export function onDemandToolsGuide(toolNames: readonly string[]): string {
+  const names = toolNames.map((n) => `\`${n}\``).join(", ");
+  return `
+## Tools loaded on demand
+
+${names} ${toolNames.length === 1 ? "is" : "are"} not in your tool list until you look ${toolNames.length === 1 ? "it" : "them"} up: call \`tool_search_tool_regex\` with the tool's name as the pattern (one call), then use the tool it returns. Everything else in this prompt that names ${toolNames.length === 1 ? "that tool" : "those tools"} assumes that step. Never tell the user a tool is missing without searching for it first; once found, it stays available for the rest of the conversation.`;
+}
+
+/** The chat flavors all defer the same tool. */
+export const ON_DEMAND_TOOLS_GUIDE = onDemandToolsGuide(["send_email"]);
+
 export const NEXT_ACTION_GUIDE = `
 ## Offer the Next Action
 

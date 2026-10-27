@@ -103,3 +103,42 @@ export const SERVER_TOOLS: AnthropicServerTool[] = [
     allowed_callers: ["direct", CODE_EXECUTION_CALLER],
   },
 ];
+
+/** Every tool-search server tool's `type` starts with this. */
+export const TOOL_SEARCH_TYPE_PREFIX = "tool_search_";
+
+/**
+ * Anthropic's tool-search server tool (regex variant). It is what lets a tool
+ * list carry definitions with `defer_loading` (`DEFER_LOADING`): those stay
+ * out of the model's context — and out of the cached prompt prefix — until
+ * the model looks one up by name, at which point the API appends the
+ * definition inline and the model calls it. A list that holds any deferred
+ * tool MUST hold this one too, and this one must never be deferred itself
+ * (`tools/index.test.ts` enforces both). No `max_uses`: the API does not take
+ * one here, and a search is a cheap, rare call.
+ *
+ * Needs the `advanced-tool-use-2025-11-20` beta, which `@langchain/anthropic`
+ * adds by itself, and the local patch that lets `tool_search_tool_result`
+ * blocks through its allowlists (`server_tools.test.ts`).
+ */
+export const TOOL_SEARCH_TOOL: AnthropicServerTool = {
+  type: "tool_search_tool_regex_20251119",
+  name: "tool_search_tool_regex",
+};
+
+/**
+ * `extras` for a `tool()` definition that should load on demand. Reserve it
+ * for tools whose description + schema is large and whose use is rare on a
+ * typical turn; the model pays one search call before the first use.
+ */
+export const DEFER_LOADING = { defer_loading: true } as const;
+
+export function isToolSearchTool(t: unknown): boolean {
+  const type = (t as { type?: unknown })?.type;
+  return typeof type === "string" && type.startsWith(TOOL_SEARCH_TYPE_PREFIX);
+}
+
+export function isDeferredTool(t: unknown): boolean {
+  const extras = (t as { extras?: { defer_loading?: unknown } })?.extras;
+  return extras?.defer_loading === true;
+}

@@ -146,6 +146,7 @@ import {
   type ToolList,
 } from '@/lib/agents/analysis';
 import { WORKFORCE_HITL_INTERRUPT_ON } from '@/lib/agents/analysis/hitl';
+import { WORKFORCE_SYSTEM_PROMPT } from '@/lib/agents/analysis/workforce';
 import {
   MNA_PIPELINE_OPERATIONS_GUIDE,
   MNA_PIPELINE_OPERATIONS_SUMMARY,
@@ -871,6 +872,31 @@ describe('shared chat guidance (chat flavors)', () => {
     return mocks.createAgent.mock.calls[0][0].systemPrompt as string;
   };
 
+  it('tells every chat flavor that send_email loads on demand through the tool-search tool', async () => {
+    for (const flavor of [
+      'mna',
+      'investment',
+      'combined',
+      'vc',
+      'minority',
+      'crowdfunding',
+      'investment_banking',
+      'capital_markets',
+    ] as CopilotAgentType[]) {
+      resetAgent();
+      mocks.createAgent.mockClear();
+      const prompt = await promptFor(flavor);
+      expect(prompt, flavor).toContain('## Tools loaded on demand');
+      expect(prompt, flavor).toMatch(/`send_email` is not in your tool list until you look it up/);
+      expect(prompt, flavor).toContain('`tool_search_tool_regex`');
+      // The block sits with the other shared guides, ahead of "Offer the Next Action".
+      expect(prompt.indexOf('## Tools loaded on demand'), flavor).toBeLessThan(prompt.indexOf('## Offer the Next Action'));
+    }
+    // The workforce defers add_company as well.
+    expect(WORKFORCE_SYSTEM_PROMPT).toMatch(/`add_company`, `send_email` are not in your tool list until you look them up/);
+    expect(WORKFORCE_SYSTEM_PROMPT).toContain('`tool_search_tool_regex`');
+  });
+
   const FLAVORS = [
     'mna',
     'investment',
@@ -1219,6 +1245,28 @@ describe('AgentGraph withheld tools', () => {
     ]);
     expect(withoutTools(toolList, [])).toBe(toolList);
     expect(withoutTools(toolList)).toBe(toolList);
+  });
+
+  it('replaces a withheld on-demand tool with a refusing stand-in of the same name, still deferred', async () => {
+    // A thread whose history references a deferred tool (a tool_search result)
+    // needs a definition under that name on every later request, so the name
+    // stays and the body refuses — unlike a plain withheld tool, which is dropped.
+    const list = [
+      { name: 'query_companies' },
+      { name: 'send_email', extras: { defer_loading: true } },
+      { type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' },
+    ] as unknown as ToolList;
+    const result = withoutTools(list, ['send_email', 'query_companies']);
+    expect(names(result)).toEqual(['send_email', 'tool_search_tool_regex']);
+    const standIn = result[0] as unknown as {
+      extras?: { defer_loading?: boolean };
+      description: string;
+      invoke: (args: Record<string, unknown>) => Promise<string>;
+    };
+    expect(standIn).not.toBe(list[1]);
+    expect(standIn.extras?.defer_loading).toBe(true);
+    expect(standIn.description).toMatch(/not available on this turn/i);
+    await expect(standIn.invoke({ subject: 'x' })).resolves.toMatch(/\*\*Error:\*\* `send_email` is not available on this turn/);
   });
 
   it('builds this turn\'s agent without the withheld tools, and leaves the default agent whole', async () => {

@@ -37,7 +37,7 @@ overrides:
 
 patchedDependencies:
   '@langchain/anthropic@1.3.26':
-    hash: 4890c8e42e75337214cf398b2e7a2a1c696a8c4120addf3c6748319ddcb983c2
+    hash: ee012177c81b84aa80bd7ec433fabd5a28983d6521b5cf009ce32ad4320b593d
     path: patches/@langchain__anthropic@1.3.26.patch
 
 importers:
@@ -76,7 +76,7 @@ importers:
         version: 2026.7.2
       '@langchain/anthropic':
         specifier: ^1.3.12
-        version: 1.3.26(patch_hash=4890c8e42e75337214cf398b2e7a2a1c696a8c4120addf3c6748319ddcb983c2)(@langchain/core@1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+        version: 1.3.26(patch_hash=ee012177c81b84aa80bd7ec433fabd5a28983d6521b5cf009ce32ad4320b593d)(@langchain/core@1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
       '@langchain/core':
         specifier: ^1.1.45
         version: 1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
@@ -11571,7 +11571,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@langchain/anthropic@1.3.26(patch_hash=4890c8e42e75337214cf398b2e7a2a1c696a8c4120addf3c6748319ddcb983c2)(@langchain/core@1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/anthropic@1.3.26(patch_hash=ee012177c81b84aa80bd7ec433fabd5a28983d6521b5cf009ce32ad4320b593d)(@langchain/core@1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
       '@anthropic-ai/sdk': 0.74.0(zod@3.25.76)
       '@langchain/core': 1.1.45(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(openai@4.104.0(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)

@@ -17,6 +17,7 @@ import {
   INSIGHT_AUTHORING_GUIDE,
   INSIGHT_TEMPLATE_AUTHORING_GUIDE,
   NEXT_ACTION_GUIDE,
+  ON_DEMAND_TOOLS_GUIDE,
 } from "../guides";
 import { defaultChatToolList } from "./mna";
 import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
@@ -201,6 +202,7 @@ These are the lenses that make this Copilot different from the control-deal and 
 - When users ask vague questions, clarify what specific data they want
 - Before searching externally, translate any internal project codenames (e.g., "Project Sunrise") to the actual company names
 - Check query_files when the question turns on internal history — what a memo concluded, what was already diligenced. Files are point-in-time documents: what a memo said last year is evidence about last year
+${ON_DEMAND_TOOLS_GUIDE}
 ${NEXT_ACTION_GUIDE}
 ${CONSOLE_NAVIGATION_GUIDE}
 ${INSIGHT_AUTHORING_GUIDE}

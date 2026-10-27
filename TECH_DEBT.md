@@ -532,28 +532,39 @@ before → after: `mna` 51.2k → 26.7k chars; `minority` 57.5k → 36.4k;
 `capital_markets` 61.7k → 40.6k (roughly 6k tokens each). See
 `docs/features/copilot-flavors.md` §"Pipeline operations are read on demand".
 
+**Done (2026-10-27), tool search:** `send_email` (every chat list and the
+workforce) and `add_company` (workforce) are sent with `defer_loading: true`
+and found through Anthropic's tool-search server tool (`TOOL_SEARCH_TOOL` in
+`tools/server_tools.ts`); every list that carries a deferred tool carries the
+search tool (`tools/index.test.ts`), and every prompt that names them carries
+`onDemandToolsGuide` (`guides.ts`). The blocker went into the local patch:
+`patches/@langchain__anthropic@1.3.26.patch` now lets `tool_search_tool_result`
+through both allowlists (`server_tools.test.ts` drives the patched module).
+Measured on the `mna` list against the live API: the first call of a turn went
+from 50.2k to 37.6k input tokens; `send_email` alone was 32.7k characters of
+description + schema. The one hazard: a turn that *withholds* a deferred tool
+(background bot turns withhold `send_email`) must still send a definition
+under that name, because the history's `tool_search_tool_result` references
+it — `withoutTools()` substitutes a refusing stand-in instead of dropping it.
+See `docs/features/copilot-flavors.md` §"Tools loaded on demand".
+
 **Still to do (highest value first):**
-1. Delete the numbered tool enumeration from the other seven flavor prompts.
-   Each of those lists carries flavor-specific framing per tool ("your issuer
-   and peer-issuer starting point", "at this size the owner-operator IS the
-   credit") that a shared tool `description` cannot hold, so this is a
-   per-flavor rewrite — keep the framing as a short "how this desk uses its
-   tools" paragraph and drop the restated descriptions — not a deletion.
-2. Adopt Anthropic's tool-search server tool
-   (`tool_search_tool_regex_20251119`) with `defer_loading: true` on long-tail
-   tools. Discovered schemas are *appended*, not swapped, so unlike the existing
-   `withoutTools()` path (`runtime.ts`, which eats a cache miss by design) this
-   preserves the prompt cache. Constraints: the search tool itself must not be
-   deferred, and at least one tool must stay non-deferred. **Blocker:**
-   `@langchain/anthropic` 1.3.26 accepts `defer_loading` on a tool (`tool()`'s
-   `extras`) and adds the `advanced-tool-use-2025-11-20` beta itself, but its
-   inbound/outbound result-type allowlists (`dist/utils/message_outputs.js`,
-   `message_inputs.js`) do not include `tool_search_tool_result`, so a search
-   result block would be dropped and orphan the server tool use — the same
-   defect class the local patch fixes for the web/code tools. Extend
-   `patches/@langchain__anthropic@1.3.26.patch` first, and verify against the
-   live API before deferring anything.
-3. Defer `add_company` and `send_email` first.
+1. Defer more of the long tail the same way. Candidates by size and rarity on
+   a typical turn: the insight tools (`propose_report_plan`,
+   `propose_insight_edit`, `propose_insight_refresh`, `get_insight_template`),
+   `navigate_page`, `get_task_progress`. Keep the 3–5 tools nearly every turn
+   uses (`query_companies`, `get_company_details`, `web_search`,
+   `valyu_search`, `get_company_stats`) loaded up front. Each deferral costs
+   one search call before the first use on a thread; measure with the
+   `cache_read` / `cache_write` log line before and after.
+2. `query_companies` and `get_company_stats` are 12.5k characters each because
+   both inline the whole `COMPANY_FILTER_DOC`; a shared "filters" note in the
+   prompt plus a short per-tool pointer would halve that without deferring
+   either.
+3. Upgrade `@langchain/anthropic` past 1.6.0, whose allowlists carry the
+   tool-search result types natively, and drop that part of the patch. Blocked
+   on `@langchain/core` ^1.3 and `@anthropic-ai/sdk` ^0.129 (we pin ^1.1.45 /
+   ^0.74), so it is a dependency-wide upgrade, not a bump.
 
 ---
 

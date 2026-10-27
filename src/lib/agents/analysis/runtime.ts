@@ -10,6 +10,8 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import { createAgent, dynamicSystemPromptMiddleware, type AgentMiddleware } from "langchain";
 import { AIMessage, BaseMessage, SystemMessage } from "@langchain/core/messages";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import type { CheckpointPendingWrite } from "@langchain/langgraph-checkpoint";
 
@@ -24,6 +26,7 @@ import { logger } from "../logger";
 import { CHAT_SYSTEM_PROMPT, defaultChatToolList } from "./flavors/mna";
 import type { ToolList } from "./flavors/types";
 import { EFFORT_TIERS, type EffortChoice } from "./effort";
+import { DEFER_LOADING, isDeferredTool } from "./tools/server_tools";
 
 /**
  * Beta flag required for the Files API — carried on the chat LLM so messages
@@ -127,8 +130,33 @@ export interface InvokeOptions {
   override?: AgentTurnOverride;
 }
 
+/** What a withheld on-demand tool answers when the model finds and calls it anyway. */
+export const withheldToolResult = (name: string): string =>
+  `**Error:** \`${name}\` is not available on this turn. Do not retry it; say so, or hand the request off.`;
+
 /**
- * `toolList` without the tools named in `withheld`. Pure; order is kept.
+ * The definition that stands in for a withheld on-demand tool. A deferred
+ * tool cannot simply be left out: once a thread's history holds a
+ * `tool_search_tool_result` that references it, every later request must
+ * carry a definition under that name or the API rejects the whole turn
+ * ("Tool reference 'send_email' not found in available tools"). So the name
+ * stays, still deferred, with a description that says it is closed and a body
+ * that refuses.
+ */
+function withheldStandIn(name: string): ToolList[number] {
+  return tool(async () => withheldToolResult(name), {
+    name,
+    description: `Not available on this turn; calling it returns an error. (On other turns it is loaded on demand.)`,
+    schema: z.object({}).passthrough(),
+    extras: DEFER_LOADING,
+  }) as unknown as ToolList[number];
+}
+
+/**
+ * `toolList` without the tools named in `withheld`. Pure; order is kept. A
+ * withheld tool that loads on demand (`isDeferredTool`) is replaced by
+ * `withheldStandIn` rather than dropped — see there for why.
+ *
  * Changing the tool set mid-thread costs one prompt-cache miss. On a model
  * with preserved thinking (Opus 5.5, Fable 5.1) it is also a history edit that
  * drops or rejects earlier thinking blocks, so revisit this before moving a
@@ -137,7 +165,13 @@ export interface InvokeOptions {
 export function withoutTools(toolList: ToolList, withheld: readonly string[] = []): ToolList {
   if (withheld.length === 0) return toolList;
   const skip = new Set(withheld);
-  return toolList.filter((t) => !skip.has((t as { name?: string }).name ?? ""));
+  const out: ToolList = [];
+  for (const t of toolList) {
+    const name = (t as { name?: string }).name ?? "";
+    if (!skip.has(name)) out.push(t);
+    else if (isDeferredTool(t)) out.push(withheldStandIn(name));
+  }
+  return out;
 }
 
 export interface InvokeConfig {
@@ -390,10 +424,14 @@ export class AgentGraph {
     const systemPrompt = override?.systemPrompt ?? this.systemPrompt;
     const middleware = override?.middleware ?? this.middleware;
 
+    // The withheld names are part of the key because a withheld on-demand
+    // tool keeps its name in the list (as a stand-in), so names alone would
+    // not tell the two agents apart.
     const key = JSON.stringify([
       config.contextEditing ?? false,
       systemPrompt,
       toolList.map((t) => (t as { name?: string }).name ?? ""),
+      [...withheldTools].sort(),
     ]);
     const cached = this.agentCache.get(key);
     // The middleware list is compared by identity: a bot's is built once per

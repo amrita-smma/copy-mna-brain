@@ -221,6 +221,50 @@ theirs because their entries carry flavor-specific framing ("your issuer and
 peer-issuer starting point", "at this size the owner-operator IS the credit")
 that a shared tool description cannot.
 
+## Tools loaded on demand
+
+The tool definitions are the other half of the fixed prefix, and `send_email`
+alone is ~32k characters of description and schema (the research-PDF block
+catalogue) that most turns never use. So the chat lists and the workforce list
+send it — and the workforce list `add_company` too — with Anthropic's
+`defer_loading: true`, and carry the tool-search server tool
+(`TOOL_SEARCH_TOOL` in `src/lib/agents/analysis/tools/server_tools.ts`,
+`tool_search_tool_regex_20251119`) that finds them:
+
+- A deferred tool's definition is still sent on every request, but the API
+  keeps it out of the model's context — and out of the cached prompt prefix —
+  until the model searches for it by name. The search is a `server_tool_use`
+  block; its `tool_search_tool_result` lists `tool_reference`s, which the API
+  expands into the full definition inline. Both blocks stay in the thread
+  history as they are, so a later turn reuses the tool without searching
+  again.
+- `DEFER_LOADING` (same module) is the `extras` a `tool()` definition carries
+  to opt in. `tools/index.test.ts` enforces the two rules the API has: a list
+  that holds a deferred tool holds exactly one tool-search tool, and the
+  search tool is never deferred itself.
+- The prompt's side is `onDemandToolsGuide` (`guides.ts`, "## Tools loaded on
+  demand"), appended to every chat flavor for `send_email` and to the
+  workforce prompt for `add_company` and `send_email`. Every procedure that
+  names those tools assumes the one search call it describes; without it the
+  model reports a missing tool.
+- Withholding a deferred tool for a turn (`withoutTools`, used by background
+  bot turns for `send_email` and by large-document turns) does not drop it:
+  once the history references a tool, every later request must carry a
+  definition under that name or the API rejects the turn ("Tool reference
+  'send_email' not found in available tools"). `withoutTools` substitutes a
+  stand-in with the same name, still deferred, whose description says it is
+  closed and whose call returns `**Error:** … not available on this turn`.
+- The stock `@langchain/anthropic` drops `tool_search_tool_result` blocks like
+  it drops the web-tool results, which orphans the search on the next turn.
+  `patches/@langchain__anthropic@1.3.26.patch` adds the three tool-search
+  result types to both allowlists; `tools/server_tools.test.ts` drives the
+  patched module so a node_modules tree without the patch fails loudly.
+
+Measured on the `mna` list against the live API: the first model call of a
+turn went from 50.2k to 37.6k input tokens, and a turn that emails pays one
+extra search call (about 1k tokens of discovered definitions) before the
+`send_email` call. `TECH_DEBT.md` lists what to defer next.
+
 Every chat flavor and the sector chat agents append `NEXT_ACTION_GUIDE`
 (`src/lib/agents/analysis/guides.ts`, "## Offer the Next Action"). When an
 answer leaves a step the agent could take with its own tools (an approval

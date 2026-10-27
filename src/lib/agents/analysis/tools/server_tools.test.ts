@@ -5,20 +5,57 @@ import { pathToFileURL } from 'node:url';
 import { AIMessage } from '@langchain/core/messages';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
 import {
   CODE_EXECUTION_CALLER,
+  DEFER_LOADING,
   MIN_SERVER_TOOL_MAX_USES,
   MIN_WEB_SEARCH_MAX_USES,
   SERVER_TOOLS,
+  TOOL_SEARCH_TOOL,
+  isDeferredTool,
+  isToolSearchTool,
 } from './server_tools';
 
+// The last three are what the tool-search server tool answers with. The
+// stock library drops them like it drops the web ones, which orphans the
+// `server_tool_use` and fails the next turn with "Tool reference … not found"
+// or "found without a corresponding … result block".
 const SERVER_TOOL_RESULT_TYPES = [
   'web_search_tool_result',
   'web_fetch_tool_result',
   'code_execution_tool_result',
   'bash_code_execution_tool_result',
   'text_editor_code_execution_tool_result',
+  'tool_search_tool_result',
+  'tool_search_tool_bm25_tool_result',
+  'tool_search_tool_regex_tool_result',
 ] as const;
+
+describe('tool search and deferred loading', () => {
+  it('declares the regex tool-search server tool, never deferred and without max_uses', () => {
+    expect(TOOL_SEARCH_TOOL.type).toBe('tool_search_tool_regex_20251119');
+    expect(TOOL_SEARCH_TOOL.name).toBe('tool_search_tool_regex');
+    expect(TOOL_SEARCH_TOOL).not.toHaveProperty('max_uses');
+    expect(TOOL_SEARCH_TOOL).not.toHaveProperty('defer_loading');
+    expect(isToolSearchTool(TOOL_SEARCH_TOOL)).toBe(true);
+    expect(isDeferredTool(TOOL_SEARCH_TOOL)).toBe(false);
+  });
+
+  it('keeps the tool-search tool out of SERVER_TOOLS, which the sector and CRM agents spread without deferring anything', () => {
+    expect(SERVER_TOOLS.some(isToolSearchTool)).toBe(false);
+  });
+
+  it('recognises a tool() definition carrying DEFER_LOADING', () => {
+    const deferred = tool(async () => 'x', { name: 'a', description: 'a', schema: z.object({}), extras: DEFER_LOADING });
+    const plain = tool(async () => 'x', { name: 'b', description: 'b', schema: z.object({}) });
+    expect(isDeferredTool(deferred)).toBe(true);
+    expect(isDeferredTool(plain)).toBe(false);
+    expect(isDeferredTool({ type: 'web_search_20260209', name: 'web_search' })).toBe(false);
+    expect(isToolSearchTool(plain)).toBe(false);
+  });
+});
 
 const byName = (name: string) => SERVER_TOOLS.find((t) => t.name === name);
 
