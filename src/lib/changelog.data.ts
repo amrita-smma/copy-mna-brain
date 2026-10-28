@@ -192,6 +192,32 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "d965852221477f3881c88ab7dc8b7c2d40c01ef1",
+    "date": "2026-10-28",
+    "subject": "Notes on scheduled meetings now stay linked to the named deal",
+    "category": "improvement"
+  },
+  {
+    "hash": "5216310ac3cb815a980ea94461458b50d966557d",
+    "date": "2026-10-28",
+    "subject": "Pipeline presentations can now be downloaded as PPTX using a selectable workspace template",
+    "category": "improvement"
+  },
+  {
+    "hash": "ac4a49fa0cd8f15e90266827b8d739c4b5661ec1",
+    "date": "2026-10-28",
+    "subject": "Overview keeps workforce generation status visible until the card finishes",
+    "category": "improvement"
+  },
+  {
+    "hash": "390cf351693702fa47539e7d53f0647ed75c8e79",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
