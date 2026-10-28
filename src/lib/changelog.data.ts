@@ -146,6 +146,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "1e8c8d5738fb5362f87b2c4ab7ea3a6853132c9a",
+    "date": "2026-10-28",
+    "subject": "file the tier decision and the checkpoint writes on the turn's trace",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "f00e1b825243c4bd2d65333d31722bb90d13425e",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
