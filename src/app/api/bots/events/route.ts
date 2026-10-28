@@ -62,18 +62,26 @@ export async function GET(req: NextRequest) {
           }
         };
         const emit = (event: BotLiveEvent) => send(encodeSseEvent(event));
-        const close = async () => {
+        // Ends the response FIRST, then drops the socket without a QUIT round
+        // trip: on a half-open connection `quit()` waits for a reply that never
+        // comes, and a close that awaited it left the response open until the
+        // platform killed the function at `maxDuration`.
+        const close = () => {
           if (closed) return;
           closed = true;
           clearInterval(reconcile);
           clearTimeout(lifetime);
-          await subscriber.quit().catch(() => undefined);
           try {
             controller.close();
           } catch {
             // Already closed.
           }
+          subscriber.disconnect();
         };
+        // Armed before anything is awaited, so a SUBSCRIBE or a first read that
+        // hangs still ends the stream before `maxDuration`.
+        lifetime = setTimeout(close, STREAM_LIFETIME_MS);
+        req.signal.addEventListener('abort', close, { once: true });
 
         const snapshot = async () => {
           const bots = await botService.list(userId);
@@ -128,24 +136,25 @@ export async function GET(req: NextRequest) {
             // A new bot means a new thread to watch: re-read the list.
             if (event.type === 'bots-changed') void snapshot().catch(() => undefined);
           });
-          subscriber.on('error', () => void close());
+          subscriber.on('error', close);
           await subscriber.subscribe(userChannel(workspaceId, userId), workspaceChannel(workspaceId));
           await snapshot();
         } catch (err) {
           console.error('[bots/events] failed to start the stream:', err);
-          await close();
+          close();
           return;
         }
 
+        // Closed while starting (the lifetime cap, an abort, a Redis error):
+        // arming the timer now would keep a dead stream's function alive.
+        if (closed) return;
         reconcile = setInterval(() => void tick().catch(() => send(encodeSseComment('err'))), RECONCILE_MS);
-        lifetime = setTimeout(() => void close(), STREAM_LIFETIME_MS);
-        req.signal.addEventListener('abort', () => void close(), { once: true });
       },
-      async cancel() {
+      cancel() {
         closed = true;
         clearInterval(reconcile);
         clearTimeout(lifetime);
-        await subscriber.quit().catch(() => undefined);
+        subscriber.disconnect();
       },
     });
 

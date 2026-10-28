@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   factory: { create: (() => undefined) as (p: string, c: unknown) => unknown },
   llmFactory: { create: (() => undefined) as (p: string, c: unknown) => unknown },
   builtinLlmCreate: vi.fn(),
+  embedderFactory: { create: (() => undefined) as (p: string, c: unknown) => unknown },
+  builtinEmbedderCreate: vi.fn(),
 }));
 
 /**
@@ -22,11 +24,13 @@ vi.mock('mem0ai/oss', () => ({
   Memory: mocks.MemoryCtor,
   VectorStoreFactory: mocks.factory,
   LLMFactory: mocks.llmFactory,
+  EmbedderFactory: mocks.embedderFactory,
 }));
 
 import { DrizzleMemoryVectorStore } from './vectorStore';
 import { createUserMemory, memoryConfigured, resetFactoryPatchForTests } from './client';
 import { AnthropicMemoryLlm } from './llm';
+import { BedrockMemoryEmbedder } from './embedder';
 
 const repository = { list: vi.fn() } as never;
 const ORIGINAL_ENV = { ...process.env };
@@ -41,6 +45,8 @@ beforeEach(() => {
   mocks.factory.create = mocks.builtinCreate;
   mocks.builtinLlmCreate.mockReset().mockReturnValue({ builtinLlm: true });
   mocks.llmFactory.create = mocks.builtinLlmCreate;
+  mocks.builtinEmbedderCreate.mockReset().mockReturnValue({ builtinEmbedder: true });
+  mocks.embedderFactory.create = mocks.builtinEmbedderCreate;
   mocks.MemoryCtor.mockImplementation(function (this: Record<string, unknown>) {
     return this;
   });
@@ -101,19 +107,21 @@ describe('createUserMemory', () => {
     expect(embedder.config.embeddingDims).toBe(EMBEDDING_DIMENSIONS);
   });
 
-  it('embeds on Bedrock Titan in the Bedrock region, not the app region', async () => {
-    process.env.BEDROCK_REGION = 'ap-southeast-2';
-
+  it('embeds through our shared Bedrock client, not mem0’s per-request one', async () => {
     await createUserMemory({ repository, userId: 'u1' });
 
-    expect(lastConfig().embedder).toEqual({
-      provider: 'aws_bedrock',
-      config: {
-        model: 'amazon.titan-embed-text-v2:0',
-        awsRegion: 'ap-southeast-2',
-        embeddingDims: EMBEDDING_DIMENSIONS,
-      },
+    const { embedder } = lastConfig();
+    expect(embedder).toEqual({
+      provider: 'mna-bedrock',
+      config: { model: 'amazon.titan-embed-text-v2:0', embeddingDims: EMBEDDING_DIMENSIONS },
     });
+
+    // The factory patch resolves that provider to ours, and still defers every
+    // other provider to mem0's own factory.
+    expect(mocks.embedderFactory.create('mna-bedrock', embedder.config)).toBeInstanceOf(
+      BedrockMemoryEmbedder,
+    );
+    expect(mocks.embedderFactory.create('aws_bedrock', {})).toEqual({ builtinEmbedder: true });
   });
 
   it('extracts through our own LLM, not either of mem0’s broken providers', async () => {

@@ -55,18 +55,26 @@ export async function GET(req: NextRequest) {
           }
         };
         const emit = (event: LiveEvent) => send(encodeSseEvent(event));
-        const close = async () => {
+        // Ends the response FIRST, then drops the socket without a QUIT round
+        // trip: on a half-open connection `quit()` waits for a reply that never
+        // comes, and a close that awaited it left the response open until the
+        // platform killed the function at `maxDuration`.
+        const close = () => {
           if (closed) return;
           closed = true;
           clearInterval(heartbeat);
           clearTimeout(lifetime);
-          await subscriber.quit().catch(() => undefined);
           try {
             controller.close();
           } catch {
             // Already closed.
           }
+          subscriber.disconnect();
         };
+        // Armed before anything is awaited, so a SUBSCRIBE or a first read that
+        // hangs still ends the stream before `maxDuration`.
+        lifetime = setTimeout(close, STREAM_LIFETIME_MS);
+        req.signal.addEventListener('abort', close, { once: true });
 
         try {
           subscriber.on('message', (_channel: string, message: string) => {
@@ -79,24 +87,25 @@ export async function GET(req: NextRequest) {
             if (!isLiveEvent(event)) return;
             emit(event);
           });
-          subscriber.on('error', () => void close());
+          subscriber.on('error', close);
           await subscriber.subscribe(liveEventsChannel(workspaceId));
           emit({ type: 'resync' });
         } catch (err) {
           console.error('[events] failed to start the stream:', err);
-          await close();
+          close();
           return;
         }
 
+        // Closed while starting (the lifetime cap, an abort, a Redis error):
+        // arming the timer now would keep a dead stream's function alive.
+        if (closed) return;
         heartbeat = setInterval(() => send(encodeSseComment('hb')), HEARTBEAT_MS);
-        lifetime = setTimeout(() => void close(), STREAM_LIFETIME_MS);
-        req.signal.addEventListener('abort', () => void close(), { once: true });
       },
-      async cancel() {
+      cancel() {
         closed = true;
         clearInterval(heartbeat);
         clearTimeout(lifetime);
-        await subscriber.quit().catch(() => undefined);
+        subscriber.disconnect();
       },
     });
 

@@ -20,7 +20,7 @@ import { GET, HEARTBEAT_MS, STREAM_LIFETIME_MS } from './route';
 /** An ioredis subscriber double: records subscriptions, replays messages. */
 class FakeSubscriber extends EventEmitter {
   channels: string[] = [];
-  quit = vi.fn(async () => 'OK');
+  disconnect = vi.fn();
   subscribe = vi.fn(async (...channels: string[]) => {
     this.channels.push(...channels);
     return channels.length;
@@ -111,7 +111,7 @@ describe('GET /api/events', () => {
     expect(hb).toBe(': hb');
   });
 
-  it('quits the subscriber when the client disconnects', async () => {
+  it('drops the subscriber when the client disconnects', async () => {
     const controller = new AbortController();
     const res = await GET(request(controller.signal));
     await readFrames(res, 1);
@@ -119,7 +119,7 @@ describe('GET /api/events', () => {
     controller.abort();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(subscriber.quit).toHaveBeenCalledTimes(1);
+    expect(subscriber.disconnect).toHaveBeenCalledTimes(1);
     const { done } = await res.body!.getReader().read();
     expect(done).toBe(true);
   });
@@ -130,11 +130,25 @@ describe('GET /api/events', () => {
 
     await vi.advanceTimersByTimeAsync(STREAM_LIFETIME_MS);
 
-    expect(subscriber.quit).toHaveBeenCalledTimes(1);
+    expect(subscriber.disconnect).toHaveBeenCalledTimes(1);
     // Drain the heartbeats sent before the cap; the stream then ends.
     const reader = res.body!.getReader();
     let done = false;
     for (let i = 0; i < 50 && !done; i++) done = (await reader.read()).done;
     expect(done).toBe(true);
+  });
+  it('ends at the lifetime cap even when SUBSCRIBE never answers', async () => {
+    // A half-open Redis socket: the reply never comes. The cap must not wait
+    // on it, or the function runs until the platform kills it at maxDuration.
+    subscriber.subscribe.mockImplementationOnce(() => new Promise<number>(() => {}));
+    const res = await GET(request());
+
+    await vi.advanceTimersByTimeAsync(STREAM_LIFETIME_MS);
+
+    expect(subscriber.disconnect).toHaveBeenCalledTimes(1);
+    const { done } = await res.body!.getReader().read();
+    expect(done).toBe(true);
+    // Nothing was left armed to keep the function alive.
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

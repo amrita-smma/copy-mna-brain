@@ -7,7 +7,8 @@
  *   mem0's `pgvector` provider. See that file for why.
  * - **Embeddings** — Amazon Titan Embed Text v2 on Bedrock, the same model and
  *   1024 dimensions `rss.item_chunks` uses, so this app has exactly one
- *   embedding model. mem0's default is OpenAI, which this app does not use.
+ *   embedding model. Through `BedrockMemoryEmbedder`, not mem0's `aws_bedrock`
+ *   provider, which opens a new Bedrock client per request. See `./embedder.ts`.
  * - **Extraction LLM** — `AnthropicMemoryLlm`, ours. Neither of mem0's own
  *   providers works against the current Claude models: `anthropic` always sends
  *   a `temperature` they reject, and `langchain` returns an object where mem0's
@@ -24,7 +25,8 @@
  */
 import type { UserMemoryRepository } from '@/lib/repositories';
 import { AnthropicMemoryLlm } from './llm';
-import { DEFAULT_BEDROCK_REGION, DEFAULT_EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from '@/lib/bedrock';
+import { BedrockMemoryEmbedder } from './embedder';
+import { DEFAULT_EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from '@/lib/bedrock';
 import { DrizzleMemoryVectorStore } from './vectorStore';
 // Defined in a dependency-free module so `@/lib/flags` can read the
 // kill-switch without pulling this file's graph into every route; re-exported
@@ -34,6 +36,7 @@ export { memoryConfigured, memoryDeploymentEnabled } from './switch';
 /** The provider names our store and LLM are registered under in mem0's factories. */
 const DRIZZLE_PROVIDER = 'mna-drizzle';
 const ANTHROPIC_PROVIDER = 'mna-anthropic';
+const BEDROCK_PROVIDER = 'mna-bedrock';
 
 /**
  * Appended to mem0's extraction prompt. Everything it receives has already been
@@ -150,10 +153,26 @@ function registerAnthropicLlm(factory: {
       : original(provider, config);
 }
 
+/**
+ * Teach mem0's embedder factory about ours, for the reasons in `./embedder.ts`.
+ * Same patch shape as the two above.
+ */
+let embedderFactoryPatched = false;
+function registerBedrockEmbedder(factory: {
+  create: (provider: string, config: Record<string, unknown>) => unknown;
+}): void {
+  if (embedderFactoryPatched) return;
+  embedderFactoryPatched = true;
+  const original = factory.create.bind(factory);
+  factory.create = (provider: string, config: Record<string, unknown>) =>
+    provider === BEDROCK_PROVIDER ? new BedrockMemoryEmbedder() : original(provider, config);
+}
+
 /** Exported for tests: lets a fresh test file re-register against a stub factory. */
 export function resetFactoryPatchForTests(): void {
   factoryPatched = false;
   llmFactoryPatched = false;
+  embedderFactoryPatched = false;
 }
 
 /**
@@ -170,8 +189,8 @@ function silenceTelemetry(): void {
 /**
  * One `Memory` bound to one user. Deliberately per-request rather than a process
  * singleton: the store closes over a request-scoped repository, and building it
- * is just a few plain objects — the Bedrock and Anthropic clients inside are
- * lazy.
+ * is just a few plain objects — the Anthropic client inside is lazy, and the
+ * Bedrock client is shared across the process (`./embedder.ts`).
  */
 export async function createUserMemory({
   repository,
@@ -179,18 +198,18 @@ export async function createUserMemory({
 }: UserMemoryClientOptions): Promise<UserMemoryClient> {
   silenceTelemetry();
 
-  const { Memory, VectorStoreFactory, LLMFactory } = await import('mem0ai/oss');
+  const { Memory, VectorStoreFactory, LLMFactory, EmbedderFactory } = await import('mem0ai/oss');
   registerDrizzleStore(VectorStoreFactory as never);
   registerAnthropicLlm(LLMFactory as never);
+  registerBedrockEmbedder(EmbedderFactory as never);
 
   const memory = new Memory({
     embedder: {
-      provider: 'aws_bedrock',
+      // Model and region (BEDROCK_EMBEDDING_MODEL / BEDROCK_REGION) are read by
+      // the shared client in `@/lib/bedrock`; mem0 reads only the dimension.
+      provider: BEDROCK_PROVIDER,
       config: {
         model: process.env.BEDROCK_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL,
-        // Bedrock is not offered in the region the rest of this app runs in,
-        // so the embedding region is its own setting — see src/lib/bedrock.ts.
-        awsRegion: process.env.BEDROCK_REGION ?? DEFAULT_BEDROCK_REGION,
         embeddingDims: EMBEDDING_DIMENSIONS,
       },
     },
