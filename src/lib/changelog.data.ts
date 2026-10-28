@@ -178,6 +178,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c2fa1eeaa1120df267d0ae4b160dd2bcd7a383b2",
+    "date": "2026-10-28",
+    "subject": "Copilot now queues messages sent while it is still responding",
+    "category": "improvement"
+  },
+  {
+    "hash": "295f73f2791646c775046445b8393f32013a9d87",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
