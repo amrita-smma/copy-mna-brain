@@ -132,6 +132,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "fc8fa7c322bb66f142705831569c47942b7d7796",
+    "date": "2026-10-28",
+    "subject": "Copilot now saves your action card choices and uses them in later responses",
+    "category": "improvement"
+  },
+  {
+    "hash": "4a715c7d0bda36975ac060991d0e6e4cf80212c6",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
