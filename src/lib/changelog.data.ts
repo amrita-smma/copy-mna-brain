@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
+    "date": "2026-10-28",
+    "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
+    "category": "improvement"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
@@ -181,6 +187,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "4474feccca552e913eab592212f67cf84f9f900e",
+    "date": "2026-10-27",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "8562fbdb006b9a5cfcdd4f66d3e328d1c9d133a0",
     "date": "2026-10-27",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
