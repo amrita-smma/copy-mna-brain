@@ -242,9 +242,10 @@ const composeOccurredAt = (date: string, time: string): string | null => {
  * rail of entries, newest first, beside a reading pane for whichever entry is
  * selected.
  *
- * It also owns manual entry: the composer above the rail writes a note, a link
- * or an upload, each stamped with the date/time its pill is set to, so the
- * Attachments tab it replaced has no surviving affordance of its own.
+ * It also owns manual entry: the + in the rail header opens a composer in the
+ * reading pane that writes a note, a link or an upload, each stamped with the
+ * date/time its pill is set to, so the Attachments tab it replaced has no
+ * surviving affordance of its own.
  *
  * Shared by `CompanyDetail` (full page) and `CompanyDetailDialog` (pipeline
  * dialog) so the two Timeline tabs cannot drift apart.
@@ -282,7 +283,8 @@ export function CompanyTimeline<
 }: CompanyTimelineProps<D, F>) {
   const isDialog = variant === 'dialog';
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // The composer stays collapsed behind the + in its header until asked for.
+  // The composer stays behind the + in the rail header until asked for, and
+  // then takes over the reading pane rather than pushing the rail down.
   const [composerOpen, setComposerOpen] = useState(false);
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -425,11 +427,18 @@ export function CompanyTimeline<
 
     awaitingComposerAddRef.current = false;
     setVisibleCount((prev) => Math.max(prev, addedIndex + 1));
+    // Hand the pane back from the composer to the entry it just wrote.
+    setComposerOpen(false);
     setSelectedKey(events[addedIndex].key);
   }, [events]);
 
   const visibleEvents = events.slice(0, visibleCount);
   const hasMore = events.length > visibleEvents.length;
+
+  const openComposer = () => {
+    setSelectedKey(null);
+    setComposerOpen(true);
+  };
 
   const addNote = () => {
     if (overrideIncomplete) return;
@@ -486,141 +495,6 @@ export function CompanyTimeline<
     // In the dialog the cards instead grow to the bottom of the modal: the
     // parent's TabsContent is a flex column, and the rail row takes the rest.
     <div className={cn('space-y-5', isDialog ? 'flex flex-1 flex-col lg:min-h-0' : 'pb-6')}>
-      {/* Manual entry — a note, a link, or a file, all landing on the rail. */}
-      <div
-        className={cn(
-          'rounded-lg border bg-card p-4 space-y-3',
-          isDialog && 'shrink-0',
-        )}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-semibold">Add to timeline</p>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setComposerOpen((open) => !open)}
-            title={composerOpen ? 'Close' : 'Add to timeline'}
-            aria-expanded={composerOpen}
-          >
-            {composerOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          </Button>
-        </div>
-        {composerOpen && (
-          <>
-            <Textarea
-              placeholder="Write a timeline entry…"
-              value={newNote}
-              onChange={(e) => onNewNoteChange(e.target.value)}
-              rows={isDialog ? 2 : 3}
-              className={isDialog ? 'min-h-[60px]' : 'min-h-[90px]'}
-            />
-            {showLinkForm && (
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  placeholder="https://..."
-                  value={newLinkUrl}
-                  onChange={(e) => onNewLinkUrlChange(e.target.value)}
-                  className="sm:flex-1"
-                />
-                <Input
-                  placeholder="Title (optional)"
-                  value={newLinkTitle}
-                  onChange={(e) => onNewLinkTitleChange(e.target.value)}
-                  className="sm:flex-1"
-                />
-                <Button
-                  onClick={addLink}
-                  disabled={!canSubmit || !newLinkUrl.trim()}
-                  size="sm"
-                  className="shrink-0"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Plus className="h-4 w-4 mr-2" />
-                  )}
-                  Add link
-                </Button>
-              </div>
-            )}
-            {/* Stamping an entry with anything other than the moment it was added
-                is the exception, so the pickers stay behind this toggle rather than
-                asking every author to confirm "now". They sit on their own row:
-                revealed inside the action row, the pill wrapped "Add entry" onto a
-                line of its own at dialog width. */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="timeline-override-time"
-                  checked={overrideTime}
-                  onCheckedChange={(checked) => toggleOverrideTime(checked === true)}
-                />
-                <Label
-                  htmlFor="timeline-override-time"
-                  className="cursor-pointer text-sm font-normal text-muted-foreground"
-                >
-                  Override note time
-                </Label>
-              </div>
-              {overrideTime && (
-                <div className="flex h-9 items-center overflow-hidden rounded-md border border-primary bg-card text-primary">
-                  <input
-                    type="date"
-                    aria-label="Entry date"
-                    value={entryDate}
-                    onChange={(e) => setEntryDate(e.target.value)}
-                    className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
-                  />
-                  <span className="h-full w-px bg-primary/30" />
-                  <input
-                    type="time"
-                    aria-label="Entry time"
-                    value={entryTime}
-                    onChange={(e) => setEntryTime(e.target.value)}
-                    className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
-                  />
-                </div>
-              )}
-              {overrideIncomplete && (
-                <p className="text-xs text-destructive">
-                  Pick a date, or switch the override off to stamp it with now.
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Label htmlFor="timeline-file-upload" className="cursor-pointer">
-                <Button variant="ghost" size="sm" disabled={!canSubmit} asChild>
-                  <span>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload file
-                  </span>
-                </Button>
-              </Label>
-              <Input
-                id="timeline-file-upload"
-                type="file"
-                className="hidden"
-                onChange={uploadFile}
-                disabled={!canSubmit}
-              />
-              <Button variant="ghost" size="sm" onClick={() => setShowLinkForm((prev) => !prev)}>
-                <LinkIcon className="h-4 w-4 mr-2" />
-                {showLinkForm ? 'Cancel link' : 'Add link'}
-              </Button>
-              <Button onClick={addNote} disabled={!canSubmit || !newNote.trim()} size="sm">
-                {isSubmitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Plus className="h-4 w-4 mr-2" />
-                )}
-                Add entry
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-
       {/* The rail beside its reading pane. */}
       <div
         className={cn(
@@ -634,13 +508,25 @@ export function CompanyTimeline<
             isDialog && 'lg:min-h-0',
           )}
         >
-          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {events.length} event{events.length === 1 ? '' : 's'}
-          </p>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {events.length} event{events.length === 1 ? '' : 's'}
+            </p>
+            <Button
+              variant={composerOpen ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-6 w-6"
+              onClick={openComposer}
+              title="Add to timeline"
+              aria-label="Add to timeline"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
 
           {events.length === 0 ? (
             <p className="py-6 text-sm text-muted-foreground">
-              Nothing here yet — use + above to add a note, a link, or a file.
+              Nothing here yet — use + to add a note, a link, or a file.
             </p>
           ) : (
             <>
@@ -671,11 +557,12 @@ export function CompanyTimeline<
                         />
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            setComposerOpen(false);
                             setSelectedKey((prev) =>
                               prev === event.key ? null : event.key,
-                            )
-                          }
+                            );
+                          }}
                           title={event.title}
                           className={cn(
                             'flex min-w-0 flex-1 flex-col gap-1 rounded-md border px-2.5 py-2 text-left transition-colors',
@@ -737,7 +624,132 @@ export function CompanyTimeline<
             isDialog && 'lg:min-h-0',
           )}
         >
-          {selected ? (
+          {composerOpen ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-base font-semibold">Add to timeline</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  title="Close"
+                  onClick={() => setComposerOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea
+                placeholder="Write a timeline entry…"
+                value={newNote}
+                onChange={(e) => onNewNoteChange(e.target.value)}
+                rows={isDialog ? 5 : 8}
+                className={isDialog ? 'min-h-[120px]' : 'min-h-[180px]'}
+                autoFocus
+              />
+              {showLinkForm && (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    placeholder="https://..."
+                    value={newLinkUrl}
+                    onChange={(e) => onNewLinkUrlChange(e.target.value)}
+                    className="sm:flex-1"
+                  />
+                  <Input
+                    placeholder="Title (optional)"
+                    value={newLinkTitle}
+                    onChange={(e) => onNewLinkTitleChange(e.target.value)}
+                    className="sm:flex-1"
+                  />
+                  <Button
+                    onClick={addLink}
+                    disabled={!canSubmit || !newLinkUrl.trim()}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Add link
+                  </Button>
+                </div>
+              )}
+              {/* Stamping an entry with anything other than the moment it was added
+                  is the exception, so the pickers stay behind this toggle rather than
+                  asking every author to confirm "now". They sit on their own row:
+                  revealed inside the action row, the pill wrapped "Add entry" onto a
+                  line of its own at dialog width. */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="timeline-override-time"
+                    checked={overrideTime}
+                    onCheckedChange={(checked) => toggleOverrideTime(checked === true)}
+                  />
+                  <Label
+                    htmlFor="timeline-override-time"
+                    className="cursor-pointer text-sm font-normal text-muted-foreground"
+                  >
+                    Override note time
+                  </Label>
+                </div>
+                {overrideTime && (
+                  <div className="flex h-9 items-center overflow-hidden rounded-md border border-primary bg-card text-primary">
+                    <input
+                      type="date"
+                      aria-label="Entry date"
+                      value={entryDate}
+                      onChange={(e) => setEntryDate(e.target.value)}
+                      className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+                    />
+                    <span className="h-full w-px bg-primary/30" />
+                    <input
+                      type="time"
+                      aria-label="Entry time"
+                      value={entryTime}
+                      onChange={(e) => setEntryTime(e.target.value)}
+                      className="h-full cursor-pointer bg-transparent px-2 text-sm outline-none dark:[color-scheme:dark]"
+                    />
+                  </div>
+                )}
+                {overrideIncomplete && (
+                  <p className="text-xs text-destructive">
+                    Pick a date, or switch the override off to stamp it with now.
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Label htmlFor="timeline-file-upload" className="cursor-pointer">
+                  <Button variant="ghost" size="sm" disabled={!canSubmit} asChild>
+                    <span>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload file
+                    </span>
+                  </Button>
+                </Label>
+                <Input
+                  id="timeline-file-upload"
+                  type="file"
+                  className="hidden"
+                  onChange={uploadFile}
+                  disabled={!canSubmit}
+                />
+                <Button variant="ghost" size="sm" onClick={() => setShowLinkForm((prev) => !prev)}>
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  {showLinkForm ? 'Cancel link' : 'Add link'}
+                </Button>
+                <Button onClick={addNote} disabled={!canSubmit || !newNote.trim()} size="sm">
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Add entry
+                </Button>
+              </div>
+            </div>
+          ) : selected ? (
             <EventDetail
               event={selected}
               getStageLabel={getStageLabel}
@@ -766,8 +778,8 @@ export function CompanyTimeline<
                 <History className="mx-auto h-7 w-7 text-muted-foreground" />
                 <p className="mt-3.5 text-base font-semibold">No entry selected</p>
                 <p className="mt-1.5 text-sm text-muted-foreground">
-                  Add a new entry above, or select an existing one from the timeline on the
-                  left to view its details.
+                  Use + to add a new entry, or select an existing one from the timeline on
+                  the left to view its details.
                 </p>
               </div>
             </div>
