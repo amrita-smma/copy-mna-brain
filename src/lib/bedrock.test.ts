@@ -54,7 +54,43 @@ describe('BedrockEmbeddingClient.embed', () => {
     await client.embed('x'.repeat(100_000));
 
     const body = JSON.parse(send.mock.calls[0][0].input.body as string);
-    expect(body.inputText.length).toBeLessThanOrEqual(32_000);
+    expect(body.inputText.length).toBeLessThanOrEqual(20_000);
+  });
+
+  it('shrinks and retries when Bedrock rejects the input for too many tokens', async () => {
+    const tooMany = Object.assign(
+      new Error(
+        '400 Bad Request: Too many input tokens. Max input tokens: 8192, request input token count: 9246',
+      ),
+      { name: 'ValidationException' },
+    );
+    const send = vi.fn().mockRejectedValueOnce(tooMany).mockResolvedValueOnce(bedrockResponse(vector));
+    const client = new BedrockEmbeddingClient({ send });
+
+    expect(await client.embed('x'.repeat(20_000))).toEqual(vector);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    const retried = JSON.parse(send.mock.calls[1][0].input.body as string).inputText as string;
+    expect(retried.length).toBeLessThanOrEqual(Math.floor(20_000 * (8192 / 9246) * 0.9));
+  });
+
+  it('gives up after a bounded number of token-limit retries', async () => {
+    const tooMany = new Error(
+      'Too many input tokens. Max input tokens: 8192, request input token count: 8200',
+    );
+    const send = vi.fn().mockRejectedValue(tooMany);
+    const client = new BedrockEmbeddingClient({ send });
+
+    await expect(client.embed('x'.repeat(20_000))).rejects.toThrow(/Too many input tokens/);
+    expect(send).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not retry errors unrelated to the token limit', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('AccessDeniedException'));
+    const client = new BedrockEmbeddingClient({ send });
+
+    await expect(client.embed('hello')).rejects.toThrow('AccessDeniedException');
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 
