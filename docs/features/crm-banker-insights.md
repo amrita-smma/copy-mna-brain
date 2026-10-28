@@ -479,9 +479,14 @@ an `email_note`, and only that **paraphrased** text is kept — never a quote:
   re-asked), `key_points` (≤4), `next_step`, `next_step_status`
   (`action`/`done`/`none`), `sentiment`, `model`. Only deal-related emails keep
   a note. The model answers `email_note.is_deal_related` against
-  `DEAL_NOTE_RUBRIC` (`llmEnrich.ts`). Arranging a meeting (office meetings
-  included, even for a deal), acknowledgements, admin, newsletters and
-  relationship chat are not deal-related. On an explicit `false` the sanitizer
+  `DEAL_NOTE_RUBRIC` (`llmEnrich.ts`). An email about a specific deal the
+  people on it are working on (a named Project, or a company being bought,
+  sold, financed or advised on) is deal-related even when it only arranges a
+  call, acknowledges something or bills for the work, so the note still
+  records who is in touch with whom about that deal. Scheduling,
+  acknowledgements and admin that concern no such deal, newsletters
+  (including news of other firms' deals) and relationship chat are not
+  deal-related. On an explicit `false` the sanitizer
   stores the note blank: NULL summary, no key points, no next step. A missing
   flag keeps the note. The email itself is still ingested, and its role
   signals are kept. A deal note follows `MEETING_NOTE_RULE`: a meeting appears
@@ -515,22 +520,9 @@ again, each duplicate email with no `email_notes` row gets one note-only call.
 A failed backfill call is logged and retried on the next re-run; it never
 blocks the offset or re-runs the CRM upsert.
 
-**Reclassifying stored notes.** `pnpm --filter data-pipeline reclassify-notes`
-(`emailNoteReclassify.ts`) has Haiku re-judge every kept note against the same
-`DEAL_NOTE_RUBRIC` and `MEETING_NOTE_RULE`, from the note's own text (the email
-is gone). It blanks the notes it calls not deal-related and rewrites the deal
-notes that give a meeting's date, time, place, link or a "confirm the slot"
-next step. It is a dry run unless given `--apply`. Each batch's changes are
-appended to a JSONL backup (`action`: `blanked`, or `rewritten` with the new
-text) before they are written, because that backup is the only copy of the
-original. A rewrite only lands while the row still holds the judged summary,
-and `--restore` only puts back a row that still holds what the run left. A
-failed call, a missing verdict or a malformed rewrite keeps the note. `--limit` and `--after <email_id>` page through and resume. Once a
-contact loses a note, their relationship overview reads as stale and is
-rebuilt the next time the panel opens. A rewrite keeps the note count and
-newest email that `overviewInputHash` is built from, so it does not make the
-overview stale. A contact left with no notes shows no
-overview, because generation needs at least one note.
+**Notes are judged once.** The email is not retained, so a note cannot be
+re-judged against a changed rubric from its own email; that needs a fresh
+extraction from a Vault export.
 
 ### Reads
 

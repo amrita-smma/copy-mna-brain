@@ -574,6 +574,15 @@ describe('sanitizeEmailNote', () => {
     expect(EMAIL_NOTE_SCHEMA.properties.email_note.required).toContain('is_deal_related');
   });
 
+  it('keeps a note on scheduling or an acknowledgement about a specific deal, so who reached whom survives', () => {
+    expect(DEAL_NOTE_RUBRIC).toContain('even when all it does is arrange a call, acknowledge something or bill for work on that deal');
+    expect(DEAL_NOTE_RUBRIC).toContain('concerns no such deal');
+    expect(DEAL_NOTE_RUBRIC).not.toContain('This holds even when the meeting is about a deal');
+    expect(EMAIL_NOTE_SCHEMA.properties.email_note.properties.is_deal_related.description).toContain(
+      'concern a specific deal',
+    );
+  });
+
   it('keeps meeting time, place and link out of the note text', () => {
     expect(SYSTEM_PROMPT).toContain(MEETING_NOTE_RULE);
     const { summary, next_step } = EMAIL_NOTE_SCHEMA.properties.email_note.properties;

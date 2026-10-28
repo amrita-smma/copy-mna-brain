@@ -130,24 +130,23 @@ export type EnrichmentResult = EnrichedRecord | EnrichmentError;
 // ─── Schema (JSON Schema for Anthropic tool_use; mirrors Python's pydantic) ──
 
 /**
- * Which emails earn a CRM note. Shared by the extraction prompt's NOTE RULES
- * and the reclassification of stored notes (`emailNoteReclassify`), so a note
- * written today and a note re-judged later meet the same bar.
+ * Which emails earn a CRM note, judged by the extraction prompt's NOTE RULES.
  */
 export const DEAL_NOTE_RUBRIC = `An email is deal-related when it moves or informs a transaction: a company for sale or being acquired, a target or opportunity being pitched or screened, a mandate, fundraising or financing for a specific deal or company, due diligence, valuation, deal terms (NDA, LOI, term sheet, SPA), a named Project, or a counterparty's role in one of these. A deal's process timetable, bid deadlines, data room access, or a request for or sharing of deal documents is deal-related.
-It is NOT deal-related when it is only:
-- arranging, rescheduling or confirming a meeting or call, an office visit, a room booking or a calendar invite. This holds even when the meeting is about a deal; it counts only if the email itself also carries deal substance (terms, numbers, a decision, a document's content or a process step).
+An email about a specific deal the people on it are working on (a named Project, or a company they are buying, selling, financing or advising on) is deal-related even when all it does is arrange a call, acknowledge something or bill for work on that deal: its note records who is in touch with whom about that deal, and the MEETING RULE keeps the meeting's logistics out of it.
+It is NOT deal-related when it is only one of these and concerns no such deal:
+- arranging, rescheduling or confirming a meeting or call, an office visit, a room booking or a calendar invite
 - an acknowledgement, "thanks", "noted", "received", or an out-of-office reply
 - admin or operations: invoices, expenses, payroll, HR, IT, office matters
-- a newsletter, marketing, an event invitation, or market/sector commentary not tied to a specific transaction
+- a newsletter, research report, marketing, an event invitation, or market/sector commentary, including news of deals other firms are doing
 - relationship chat with no transaction in it`;
 
 /**
  * How a note that is already deal-related may mention a meeting. Notes are read
  * back to the deal team and fed into shared relationship overviews, so a
  * meeting is named only as having been proposed or held — never when, where or
- * how to join it. Shared by the extraction prompt's NOTE RULES and the stored
- * note reclassification pass. It never decides is_deal_related.
+ * how to join it. Part of the extraction prompt's NOTE RULES. It never decides
+ * is_deal_related.
  */
 export const MEETING_NOTE_RULE = `This rule shapes the text of a note already judged deal-related; it never changes is_deal_related.
 - Mention a meeting or call only generically: "proposed a meeting to discuss the acquisition", "met management". Never state its date, day, time, time zone, venue, office, city, room, video link, dial-in or passcode.
@@ -244,17 +243,17 @@ export const EMAIL_EXTRACTION_SCHEMA = {
     email_note: {
       type: 'object',
       description:
-        'Deal-substance email note and counterparty deal roles. Paraphrase only, never quote the email verbatim. Summary must be null for emails with nothing substantive (acknowledgements, scheduling, "thanks").',
+        'Deal-substance email note and counterparty deal roles. Paraphrase only, never quote the email verbatim. Summary must be null for emails with nothing substantive (acknowledgements, scheduling, "thanks") unless they concern a specific deal (NOTE RULES).',
       properties: {
         is_deal_related: {
           type: 'boolean',
           description:
-            'true ONLY if the email is deal-related under NOTE RULES. false for meeting scheduling (including office meetings), acknowledgements, admin, newsletters and relationship chat; a false note is discarded.',
+            'true ONLY if the email is deal-related under NOTE RULES; true for scheduling, acknowledgements or invoices that concern a specific deal the people on it are working on. false for meeting scheduling (including office meetings), acknowledgements and admin that concern no such deal, newsletters and relationship chat; a false note is discarded.',
         },
         summary: {
           type: ['string', 'null'],
           description:
-            '1-2 sentence business substance summary. Paraphrase only, never quote verbatim. A meeting is mentioned only generically, never its date, time, place or link (MEETING RULE). null if the email has no business or deal substance (e.g. acknowledgements, scheduling, "thanks").',
+            '1-2 sentence business substance summary. Paraphrase only, never quote verbatim. A meeting is mentioned only generically, never its date, time, place or link (MEETING RULE). For scheduling or an acknowledgement on a specific deal, say who is in touch with whom about which deal. null if the email has no business or deal substance (e.g. acknowledgements, scheduling, "thanks" on no specific deal).',
         },
         key_points: {
           type: 'array',

@@ -12,7 +12,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 244 | `src/app/api/**/route.ts` |
+| API routes | 245 | `src/app/api/**/route.ts` |
 | Services | 101 | `src/lib/services/` |
 | Repositories | 88 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
