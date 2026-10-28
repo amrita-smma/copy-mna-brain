@@ -28,6 +28,30 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "e01d9dab1edc7728b3601b9aad4bffbe5f9031b0",
+    "date": "2026-10-28",
+    "subject": "Fund ledger: run batched reads sequentially inside a transaction",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "01bf34422412a0fed2eebaffd0957a072b6aa909",
+    "date": "2026-10-28",
+    "subject": "Name Langfuse traces by run kind and tag them with the workspace slug",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "4d99234c1c6d75fa11817bc9eaa6acdb052461f0",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
