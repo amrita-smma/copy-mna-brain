@@ -8,6 +8,7 @@ import { CompanyFinancialRepository, CompanyRepository, InvestmentThesisReposito
 import type { DbClient } from '@/lib/repositories';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { getActiveWorkspaceId } from '@/lib/workspace';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 
 export const MARKET_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -218,9 +219,10 @@ ${schemaFields}
 
 Find ${sourcesCount} companies. Return ONLY the JSON object, no other text. Use null for any fields where data is not available.`;
 
-  const result = await agent.invoke({
-    messages: [new HumanMessage(prompt)],
-  });
+  const result = await agent.invoke(
+    { messages: [new HumanMessage(prompt)] },
+    { runName: TRACE_NAMES.marketScreeningJob },
+  );
 
   const aiMessages = result.messages.filter(
     (m: { _getType?: () => string; constructor?: { name: string } }) =>

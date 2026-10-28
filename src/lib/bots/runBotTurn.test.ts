@@ -110,6 +110,24 @@ describe('runBotTurn', () => {
     warn.mockRestore();
   });
 
+  it('names the trace by how the message reached the bot, and records which bot answered', async () => {
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+    expect(invoke.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        runName: 'bots.bot_to_bot',
+        metadata: { bot_id: 'scout', bot_name: 'Deal Scout' },
+      }),
+    );
+
+    invoke.mockClear();
+    getMessages.mockReset().mockResolvedValueOnce(priorMessages).mockResolvedValue(finalMessages);
+    await runBotTurn(
+      { ...input, origin: { kind: 'routine', routine: { id: 'r1', title: 'Weekly scan' } } },
+      deps as unknown as BotTurnDeps,
+    );
+    expect(invoke.mock.calls[0][1].runName).toBe('bots.routine');
+  });
+
   it('puts what the bot remembers about the user into the turn, after the workspace context', async () => {
     deps.recallMemory = vi.fn(async () => '## What you remember about this user\n\n- Covers coal');
 

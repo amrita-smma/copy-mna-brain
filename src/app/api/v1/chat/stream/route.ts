@@ -1,6 +1,8 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { flushLangfuse } from '@/lib/langfuse';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
@@ -59,17 +61,18 @@ export async function POST(req: NextRequest) {
     // hand-builds mid-drain (the pptx skill) unattributed.
     const sse = await runWithLangfuseUser(
       langfuseUserForApiKey(principal),
-      async () => {
+      () => runWithLangfuseWorkspaceId(db, workspaceId, async () => {
         const eventStream = await agent.streamEvents(
           { messages },
           {
             version: 'v2',
+            runName: TRACE_NAMES.apiChat,
             recursionLimit: 50,
             configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
           },
         );
         return eventStreamToSse(eventStream, conversationId);
-      },
+      }),
     );
 
     // Not a `finally`: streamEvents returns the iterator immediately and the

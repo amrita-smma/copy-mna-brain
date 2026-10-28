@@ -3,6 +3,7 @@ import { JobRepository } from '@/lib/repositories';
 import type { DbClient, Tables, TablesInsert } from '@/lib/repositories';
 import { runJob } from './runner';
 import { withBackgroundDb } from '@/lib/server/db';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
 
 export type JobType = Tables<'jobs'>['type'];
 
@@ -38,8 +39,10 @@ export async function dispatchJob<T>(opts: {
   after(async () => {
     await withBackgroundDb(async (db) => {
       const runnerRepo = new JobRepository(db);
+      // The job's workspace files every Langfuse trace its agent runs emit
+      // (company cards, AI screening, file processing, …) under its slug.
       await runJob(runnerRepo, job.id, opts.timeoutSeconds * 1000, async (current) =>
-        opts.work({ job: current, db }),
+        runWithLangfuseWorkspaceId(db, current.workspace_id, () => opts.work({ job: current, db })),
       );
     });
   });

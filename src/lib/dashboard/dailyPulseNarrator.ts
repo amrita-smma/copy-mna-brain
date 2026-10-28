@@ -1,5 +1,8 @@
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import { flushLangfuse } from '@/lib/langfuse';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
+import { createDb } from '@/lib/server/db';
 
 /** Generates the "Today's Recap" markdown by asking the Analyst agent. Injectable
  * so the service can be tested without spinning up a real agent. */
@@ -129,11 +132,16 @@ export const generateDailyPulse: DailyPulseGenerator = async (now, workspaceId) 
   // rather than leaving it to the caller.
   let result;
   try {
-    result = await runWithWorkforceWorkspaceId(workspaceId, () =>
-      graph.invoke({
-        messages: [new HumanMessage(buildDailyPulsePrompt(now))],
-        additionalSystemContext: PULSE_SYSTEM_CONTEXT,
-      }),
+    result = await runWithLangfuseWorkspaceId(createDb(), workspaceId, () =>
+      runWithWorkforceWorkspaceId(workspaceId, () =>
+        graph.invoke(
+          {
+            messages: [new HumanMessage(buildDailyPulsePrompt(now))],
+            additionalSystemContext: PULSE_SYSTEM_CONTEXT,
+          },
+          { runName: TRACE_NAMES.dailyPulse },
+        ),
+      ),
     );
   } finally {
     await flushLangfuse();

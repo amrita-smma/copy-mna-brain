@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { flushLangfuse } from '@/lib/langfuse';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
@@ -57,13 +59,14 @@ export async function POST(req: NextRequest) {
       // Filed under the calling API key rather than a person — see
       // langfuseUserForApiKey.
       result = await runWithLangfuseUser(langfuseUserForApiKey(principal), () =>
-        agent.invoke(
+        runWithLangfuseWorkspaceId(db, workspaceId, () => agent.invoke(
           { messages },
           {
+            runName: TRACE_NAMES.apiChat,
             recursionLimit: 50,
             configurable: { thread_id: conversationId, originalUserQuestion, agent_key: agentKey },
           },
-        ),
+        )),
       );
     } finally {
       // The external chat API runs the same agent as Copilot and so emits the

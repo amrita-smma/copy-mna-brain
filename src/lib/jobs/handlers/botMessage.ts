@@ -5,6 +5,7 @@ import { isCopilotAgentType } from '@/lib/agents/analysis/flavors/keys';
 import { copilotMemoryEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
 import { flushLangfuse } from '@/lib/langfuse';
 import { runBotTurn } from '@/lib/bots/runBotTurn';
 import { summarizeThreadAhead } from '@/lib/bots/summarizeAhead';
@@ -29,7 +30,7 @@ export async function runBotMessage(
 ): Promise<{ chatId: string }> {
   const { db, workspaceId, userId } = deps;
   return runWithWorkforceWorkspaceId(workspaceId, () =>
-    runWithLangfuseUser(userId, async () => {
+    runWithLangfuseUser(userId, () => runWithLangfuseWorkspaceId(db, workspaceId, async () => {
       const {
         botService,
         botRequestService,
@@ -132,6 +133,6 @@ export async function runBotMessage(
         await flushLangfuse();
       }
       return { chatId: chat.id };
-    }),
+    })),
   );
 }

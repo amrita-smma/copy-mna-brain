@@ -14,6 +14,7 @@ import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 
 export const AI_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -248,9 +249,10 @@ export async function runAIScreening(
 
     let agentResult;
     try {
-      agentResult = await agent.invoke({
-        messages: [new HumanMessage(evaluationPrompt)],
-      });
+      agentResult = await agent.invoke(
+        { messages: [new HumanMessage(evaluationPrompt)] },
+        { runName: TRACE_NAMES.aiScreeningJob },
+      );
     } catch (agentError) {
       const errorMsg = (agentError as Error).message;
       const isRateLimit =

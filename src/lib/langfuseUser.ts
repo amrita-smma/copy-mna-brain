@@ -68,3 +68,39 @@ export function getLangfuseUserId(): string | undefined {
   // shake-out this module's laziness exists for.
   return langfuseUserContext?.getStore();
 }
+
+/**
+ * The workspace the current async context's traces belong to, by slug.
+ *
+ * Same mechanism, laziness and reasoning as the user store above, and seeded at
+ * the same entrypoints: `withLangfuseCallbacks` stamps it onto every trace's
+ * metadata as `workspace_slug`, so Langfuse can be filtered to one tenant
+ * without threading the workspace through every LLM call site. The slug rather
+ * than the id because it is what people read in a `/w/<slug>` URL and what the
+ * PostHog events carry (`captureWorkspaceEvent`).
+ */
+let langfuseWorkspaceContext: AsyncLocalStorage<string> | null = null;
+
+/**
+ * File every Langfuse trace produced inside `fn` under workspace `slug`.
+ *
+ * A null/blank slug is a no-op, as for the user: a caller that could not
+ * resolve one (a pipeline job with no workspace) leaves the field off rather
+ * than stamping an empty string. Request handlers get the slug from the
+ * session's claims (`workspaceSlugFromClaims`); background work resolves it
+ * from the row's workspace id with `runWithLangfuseWorkspaceId`.
+ */
+export function runWithLangfuseWorkspace<T>(
+  slug: string | null | undefined,
+  fn: () => T,
+): T {
+  const trimmed = slug?.trim();
+  if (!trimmed) return fn();
+  langfuseWorkspaceContext ??= new AsyncLocalStorage<string>();
+  return langfuseWorkspaceContext.run(trimmed, fn);
+}
+
+/** The workspace slug the current async context's traces are filed under, if any. */
+export function getLangfuseWorkspaceSlug(): string | undefined {
+  return langfuseWorkspaceContext?.getStore();
+}

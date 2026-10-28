@@ -236,6 +236,8 @@ function graph(extra: Record<string, unknown> = {}) {
 function configOf(mock: typeof invokeMock, call = 0) {
   return mock.mock.calls[call]![mock === resumeMock ? 2 : 1] as {
     configurable: Record<string, unknown>;
+    runName?: string;
+    metadata?: Record<string, unknown>;
   };
 }
 
@@ -1061,6 +1063,25 @@ describe('runAgent — attachments, effort tiers, and user attribution', () => {
     await runAgent({ runId: RUN_ID });
 
     expect(configOf(invokeMock).configurable.agent_name).toBe('ai_screening');
+  });
+
+  it('names the Langfuse trace after the Workforce task instead of the default "LangGraph"', async () => {
+    findById.mockResolvedValueOnce(makeRow({ agent_name: 'company_card' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).runName).toBe('workforce.company_card');
+    expect(configOf(invokeMock).metadata).toEqual(
+      expect.objectContaining({ workforce_run_id: RUN_ID, workforce_agent_name: 'company_card' }),
+    );
+  });
+
+  it('names a general run ad hoc', async () => {
+    findById.mockResolvedValueOnce(makeRow({ agent_name: 'chat_handoff' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    expect(configOf(invokeMock).runName).toBe('workforce.ad_hoc');
   });
 });
 

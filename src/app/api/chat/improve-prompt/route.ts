@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { improvePrompt } from '@/lib/chat/improvePrompt';
-import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseUser, runWithLangfuseWorkspace } from '@/lib/langfuseUser';
+import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,8 +19,12 @@ export async function POST(req: NextRequest) {
 
     // `improvePrompt` runs a Haiku call and takes no user parameter, so the
     // trace is attributed from the ambient store like every other entrypoint.
+    const workspaceSlug = workspaceSlugFromClaims(
+      session.user.workspaces,
+      await getActiveWorkspaceId(),
+    );
     const improved = await runWithLangfuseUser(session.user.id, () =>
-      improvePrompt(prompt),
+      runWithLangfuseWorkspace(workspaceSlug, () => improvePrompt(prompt)),
     );
     return NextResponse.json({ data: { improved } });
   } catch (err) {

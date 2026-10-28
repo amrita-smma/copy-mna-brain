@@ -195,6 +195,14 @@ export interface InvokeConfig {
    * after the run (the chat turn's timeline) picks it.
    */
   runId?: string;
+  /**
+   * The root run's name, which the Langfuse handler uses as the trace name.
+   * Left unset, the graph's root run is called "LangGraph" whatever the run
+   * was for — pass one of `@/lib/langfuseTraceNames`.
+   */
+  runName?: string;
+  /** Extra trace metadata, merged under the effort-tier fields. */
+  metadata?: Record<string, unknown>;
 }
 
 /** What `AgentGraph.getThreadSnapshot` reads in one checkpoint round trip. */
@@ -506,7 +514,7 @@ export class AgentGraph {
 
       const mergedConfig = withLangfuseCallbacks({
         ...this.withTurnContext(config, inputs.additionalSystemContext),
-        metadata: { ...((config as any)?.metadata ?? {}), ...this.traceMetadata() },
+        metadata: { ...(config?.metadata ?? {}), ...this.traceMetadata() },
       });
       const result = await agent.invoke({ messages: inputs.messages }, mergedConfig);
       return this.shapeInvokeResult(result);

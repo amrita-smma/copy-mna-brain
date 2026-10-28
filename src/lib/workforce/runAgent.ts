@@ -37,6 +37,8 @@ import { createDb } from '@/lib/server/db';
 // part of that bundle.
 import { flushLangfuse } from '@/lib/langfuseClient';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
+import { workforceTraceName } from '@/lib/langfuseTraceNames';
 import { asWorkforceEffort } from '@/lib/chat/effortTiers';
 import { ChatAttachmentService, type ChatAttachmentRef } from '@/lib/services/chatAttachmentService';
 import { resolveInsightAgentStamp } from '@/lib/insights/agentStamp';
@@ -438,13 +440,32 @@ export async function invokeAgent(
    */
   const inRunContext = <T>(fn: () => Promise<T>): Promise<T> =>
     runWithLangfuseUser(triggered_by_user_id, () =>
-      runWithWorkforceWorkspaceId(workspaceId, fn),
+      runWithLangfuseWorkspaceId(createDb(), workspaceId, () =>
+        runWithWorkforceWorkspaceId(workspaceId, fn),
+      ),
     );
+
+  // Names the run's Langfuse trace by its task (company card, AI screening,
+  // partnership contacts, …) instead of the graph's default "LangGraph", and
+  // keeps the raw queue fields alongside for runs that share a name.
+  const traceConfig = {
+    runName: workforceTraceName({
+      agentName,
+      originRoutineId: refresh.originRoutineId,
+      refreshInsightId: refresh.refreshInsightId,
+    }),
+    metadata: {
+      workforce_run_id: runId,
+      ...(agentName ? { workforce_agent_name: agentName } : {}),
+      ...(agentKey ? { sector_agent_key: agentKey } : {}),
+    },
+  };
 
   try {
     const result = await inRunContext(async () => {
       if (resumePayloadJson) {
         return graph.resume(runId, JSON.parse(resumePayloadJson), {
+          ...traceConfig,
           configurable: toolConfig,
           recursionLimit: 50,
         });
@@ -484,7 +505,7 @@ export async function invokeAgent(
                 ...pendingMessages.map((t) => new HumanMessage(t)),
               ],
         },
-        { configurable: toolConfig, recursionLimit: 50 },
+        { ...traceConfig, configurable: toolConfig, recursionLimit: 50 },
       );
     });
 
@@ -505,7 +526,7 @@ export async function invokeAgent(
       finalResult = await inRunContext(() =>
         graph.invoke(
           { messages: pendingMessages.map((t) => new HumanMessage(t)) },
-          { configurable: toolConfig, recursionLimit: 50 },
+          { ...traceConfig, configurable: toolConfig, recursionLimit: 50 },
         ),
       );
       if (finalResult.interrupt?.actionRequests?.length) {

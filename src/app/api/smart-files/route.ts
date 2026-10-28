@@ -5,6 +5,7 @@ import { createContainer } from '@/lib/services/container';
 import { asyncJobId, type EmailIngestContext } from '@/lib/services/fileService';
 import { auth } from '@/auth';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
 import {
   UserWorkspaceRepository,
   type FileSortField,
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
     // fund-update agents trace under the uploader. An internal pipeline upload
     // has no session and stays unattributed.
     const data = await runWithLangfuseUser(uploaderUserId, () =>
-      fileService.processUpload(
+      runWithLangfuseWorkspaceId(db, workspaceId, () => fileService.processUpload(
         key,
         fileName,
         contentType,
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
         enteredByEmail,
         uploaderUserId,
         emailContext,
-      ),
+      )),
     );
 
     const isAsync = Boolean(asyncJobId(data));

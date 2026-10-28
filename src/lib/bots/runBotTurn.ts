@@ -13,6 +13,7 @@
  * aborts it.
  */
 import { randomUUID } from 'node:crypto';
+import { botTurnTraceName } from '@/lib/langfuseTraceNames';
 import { HumanMessage, type AIMessage, type BaseMessage } from '@langchain/core/messages';
 import type { AgentGraph } from '@/lib/agents/analysis/runtime';
 import type { BotRow, CopilotChatRow } from '@/lib/repositories';
@@ -329,6 +330,9 @@ export async function runBotTurn(input: BotTurnInput, deps: BotTurnDeps): Promis
         override: buildBotTurnOverride(agent, bot),
       },
       {
+        runName: botTurnTraceName(origin.kind),
+        // The bot answering, so a bot-to-bot trace says which bot it was.
+        metadata: { bot_id: bot.id, bot_name: bot.name },
         recursionLimit: 50,
         configurable: {
           thread_id: chat.id,

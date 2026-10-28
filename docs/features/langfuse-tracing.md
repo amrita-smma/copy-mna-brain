@@ -19,7 +19,7 @@ load-bearing rather than cosmetic:
 | Module | Holds | May import `node:`? |
 |---|---|---|
 | `src/lib/langfuseClient.ts` | the gate, the shared handler, `flushLangfuse` | **no** |
-| `src/lib/langfuseUser.ts` | the AsyncLocalStorage carrying who a run belongs to | yes (`node:async_hooks`) |
+| `src/lib/langfuseUser.ts` | the AsyncLocalStorages carrying who a run belongs to, and which workspace | yes (`node:async_hooks`) |
 | `src/lib/langfuse.ts` | `withLangfuseCallbacks` — where the two meet; re-exports the client | — |
 
 The workforce drain lives in `invokeAgent`'s `finally` — a `'use step'`
@@ -72,6 +72,8 @@ Every trace is tagged with:
 | `effort_tier`, `effort_model`, `output_effort` | `AnalysisAgent.traceMetadata()` | Answers "which tier ran this turn?" from the trace |
 | `turn_timeline` (metadata), `time_to_first_token_ms` / `time_to_first_text_ms` (scores) | `recordTurnTiming` from the chat route's `TurnTimer` | Where a chat turn's time went before the model answered — charted as scores, broken down in the metadata |
 | `userId` | `runWithLangfuseUser` (see below) | Groups a trace under the person or key that caused it |
+| `workspace_slug` (metadata) | `runWithLangfuseWorkspace` / `runWithLangfuseWorkspaceId` (see below) | Filters traces to one tenant |
+| trace name | the root run's `runName`, from `src/lib/langfuseTraceNames.ts` (see below) | Tells a Copilot turn from a bot hand-off from a company card |
 
 `langfuseEnvironment()` normalises the environment name and degrades to
 `"default"` on anything Langfuse would reject — an invalid value 400s the whole
@@ -116,6 +118,42 @@ returning the original config when tracing is off.
 Raw Anthropic SDK call sites (the pptx skill and single-slide generation)
 cannot use callbacks and build spans by hand with `createPptxTrace` in
 `src/lib/pptx/pptxLangfuse.ts`. It gates on the same `isLangfuseEnabled()`.
+
+## What a trace is called
+
+The LangChain handler names a trace after its root run, and an unnamed
+`createAgent` graph's root run is called `LangGraph` — so without a name every
+agent run lands in Langfuse as the same row. Every `AgentGraph` caller passes a
+`runName` from `src/lib/langfuseTraceNames.ts`:
+
+| Name | Run |
+|---|---|
+| `chat.copilot` | a user's Copilot turn (`/api/chat`) |
+| `chat.api` | the external chat API |
+| `bots.bot_to_bot` / `bots.bot_to_bot_reply` | a bot answering another bot's @mention / writing up the answers to its own |
+| `bots.user_mention`, `bots.routine` | a bot @mentioned by the user in another chat / its routine firing |
+| `workforce.company_card`, `workforce.ai_screening`, `workforce.find_partnership_contacts`, `workforce.crm_contact_enrichment`, `workforce.ai_opinion`, `workforce.fund_ai_opinion` | an AI Workforce task, by the queue row's `agent_name` |
+| `workforce.insight_refresh`, `workforce.routine`, `workforce.ad_hoc` | any other Workforce run, by how it started (a chat hand-off or a hand-typed task is ad hoc) |
+| `jobs.company_analysis`, `jobs.ai_screening`, `jobs.market_screening`, `jobs.track_matching` | the background job handlers |
+| `dashboard.daily_pulse`, `chat.memory_import`, `files.extract`, `fund_update.extract` | the remaining agent runs |
+
+Workforce traces also carry `workforce_run_id` and `workforce_agent_name`, and
+bot turns `bot_id` / `bot_name`, so runs that share a name can still be told
+apart. A new agent entrypoint adds its name there rather than inlining a string.
+
+## Which workspace a trace belongs to
+
+Every trace carries `metadata.workspace_slug`, seeded the same way as the user:
+an AsyncLocalStorage in `@/lib/langfuseUser` that `withLangfuseCallbacks` (and
+`createPptxTrace`) stamps onto the trace. A request handler reads the slug from
+the session's claims (`runWithLangfuseWorkspace(workspaceSlugFromClaims(...))`,
+no DB call); background work holding only a workspace id uses
+`runWithLangfuseWorkspaceId(db, workspaceId, fn)` from `@/lib/langfuseWorkspace`,
+which looks the slug up and caches it per process for five minutes. Seeded at
+`/api/chat`, `/api/chat/improve-prompt`, `/api/profile/memories/import`,
+`/api/smart-files`, `/api/v1/chat*`, `dispatchJob` (every dispatched job), the
+bot-message job, AI Workforce runs and their enqueue-time title, and the daily
+pulse. The same wrap-the-work rules as for the user (below) apply.
 
 ## Who a trace belongs to
 
@@ -252,6 +290,8 @@ Locally they match the dummy init values in `docker-compose.yml`.
   `runWithLangfuseUser`** at a new entrypoint — or a call site that built its
   config by hand around `getLangfuseCallbacks()` instead of going through
   `withLangfuseCallbacks`.
+- **A trace named `LangGraph`** is an `AgentGraph` caller that passed no
+  `runName` — add one to `src/lib/langfuseTraceNames.ts`.
 - **Do not set the Langfuse S3 env vars to empty strings** in the deployment.
   Langfuse falls back to the AWS default credential chain only when they are
   genuinely unset; empty strings are sent as real (invalid) credentials and 403.

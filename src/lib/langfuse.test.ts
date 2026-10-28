@@ -5,7 +5,12 @@ import {
   resetLangfuseHandlerForTests,
   withLangfuseCallbacks,
 } from "./langfuse";
-import { getLangfuseUserId, runWithLangfuseUser } from "./langfuseUser";
+import {
+  getLangfuseUserId,
+  getLangfuseWorkspaceSlug,
+  runWithLangfuseUser,
+  runWithLangfuseWorkspace,
+} from "./langfuseUser";
 
 afterEach(() => {
   resetLangfuseHandlerForTests();
@@ -314,5 +319,69 @@ describe("withLangfuseCallbacks user attribution", () => {
     expect(runWithLangfuseUser("user-1", () => withLangfuseCallbacks(config))).toBe(
       config,
     );
+  });
+});
+
+describe("runWithLangfuseWorkspace", () => {
+  it("exposes the slug to everything inside the callback, across async hops", async () => {
+    const seen = await runWithLangfuseWorkspace("acme", async () => {
+      await new Promise((r) => setTimeout(r, 1));
+      return getLangfuseWorkspaceSlug();
+    });
+
+    expect(seen).toBe("acme");
+    expect(getLangfuseWorkspaceSlug()).toBeUndefined();
+  });
+
+  it("is a no-op for an absent or blank slug", () => {
+    expect(runWithLangfuseWorkspace(null, () => getLangfuseWorkspaceSlug())).toBeUndefined();
+    expect(runWithLangfuseWorkspace("  ", () => getLangfuseWorkspaceSlug())).toBeUndefined();
+  });
+
+  it("trims the slug", () => {
+    expect(runWithLangfuseWorkspace(" acme ", () => getLangfuseWorkspaceSlug())).toBe("acme");
+  });
+});
+
+describe("withLangfuseCallbacks workspace attribution", () => {
+  const stubKeys = () => {
+    vi.stubEnv("LANGFUSE_SECRET_KEY", "sk-lf-test");
+    vi.stubEnv("LANGFUSE_PUBLIC_KEY", "pk-lf-test");
+  };
+
+  it("stamps the ambient workspace slug as workspace_slug", () => {
+    stubKeys();
+
+    const merged = runWithLangfuseWorkspace("acme", () =>
+      withLangfuseCallbacks({ runName: "chat.copilot" }),
+    ) as unknown as { metadata: Record<string, unknown> };
+
+    expect(merged.metadata).toEqual({ workspace_slug: "acme" });
+  });
+
+  it("stamps the user and the workspace together, keeping the caller's metadata", () => {
+    stubKeys();
+
+    const merged = runWithLangfuseUser("user-1", () =>
+      runWithLangfuseWorkspace("acme", () =>
+        withLangfuseCallbacks({ metadata: { effort_tier: "medium" } }),
+      ),
+    ) as { metadata: Record<string, unknown> };
+
+    expect(merged.metadata).toEqual({
+      effort_tier: "medium",
+      langfuseUserId: "user-1",
+      workspace_slug: "acme",
+    });
+  });
+
+  it("lets an explicit workspace_slug from the call site win", () => {
+    stubKeys();
+
+    const merged = runWithLangfuseWorkspace("ambient", () =>
+      withLangfuseCallbacks({ metadata: { workspace_slug: "explicit" } }),
+    ) as { metadata: Record<string, unknown> };
+
+    expect(merged.metadata.workspace_slug).toBe("explicit");
   });
 });

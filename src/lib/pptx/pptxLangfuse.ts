@@ -1,6 +1,6 @@
 import { Langfuse } from 'langfuse';
 import { isLangfuseEnabled, langfuseEnvironment } from '@/lib/langfuse';
-import { getLangfuseUserId } from '@/lib/langfuseUser';
+import { getLangfuseUserId, getLangfuseWorkspaceSlug } from '@/lib/langfuseUser';
 
 /**
  * Best-effort Langfuse tracing for the raw Anthropic SDK presentation jobs —
@@ -71,11 +71,13 @@ export function createPptxTrace(name: string, meta: PptxTraceMeta): PptxTrace {
     // The raw SDK takes `userId` on the trace directly — there is no
     // RunnableConfig here for `withLangfuseCallbacks` to stamp it onto. Read
     // from the ambient context so a deck generated inside a Workforce run or a
-    // chat turn lands under the same Langfuse user as the rest of that run.
+    // chat turn lands under the same Langfuse user (and workspace) as the rest
+    // of that run.
+    const workspaceSlug = getLangfuseWorkspaceSlug();
     const trace = langfuse.trace({
       name,
       userId: getLangfuseUserId(),
-      metadata: { ...meta },
+      metadata: { ...meta, ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}) },
       tags: ['presentation', meta.mode],
     });
 

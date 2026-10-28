@@ -22,6 +22,13 @@ vi.mock('@/lib/workspace', () => ({
   runWithWorkforceWorkspaceId: (_ws: string, fn: () => unknown) => fn(),
 }));
 
+const { runWithLangfuseWorkspaceId } = vi.hoisted(() => ({
+  runWithLangfuseWorkspaceId: vi.fn((_db: unknown, _ws: string, fn: () => unknown) => fn()),
+}));
+
+vi.mock('@/lib/langfuseWorkspace', () => ({ runWithLangfuseWorkspaceId }));
+vi.mock('@/lib/server/db', () => ({ createDb: () => ({}) }));
+
 import { buildDailyPulsePrompt, generateDailyPulse, stripThinking } from './dailyPulseNarrator';
 
 const NOW = new Date('2026-07-20T12:00:00.000Z');
@@ -128,6 +135,16 @@ describe('generateDailyPulse', () => {
     expect(messages[0].content).toContain('senior management');
     expect(messages[0].content).toContain('Recommended actions');
     expect(messages[0].content).toBe(buildDailyPulsePrompt(NOW));
+  });
+
+  it('names the trace and files it under the workspace', async () => {
+    invoke.mockResolvedValueOnce({ messages: [] });
+    extractFirstTurn.mockReturnValueOnce({ userText: '', assistantText: 'x' });
+
+    await generateDailyPulse(NOW, 'ws-1');
+
+    expect(invoke.mock.calls[0][1]).toEqual({ runName: 'dashboard.daily_pulse' });
+    expect(runWithLangfuseWorkspaceId).toHaveBeenCalledWith({}, 'ws-1', expect.any(Function));
   });
 
   it('passes a system-context override that bans reasoning narration and preamble', async () => {

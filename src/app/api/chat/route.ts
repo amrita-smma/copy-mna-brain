@@ -40,7 +40,8 @@ import {
 import { turnToolNames } from '@/lib/bots/runBotTurn';
 import { isCopilotAgentType } from '@/lib/agents/analysis/flavors/keys';
 import { flushLangfuse, recordTurnTiming } from '@/lib/langfuse';
-import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseUser, runWithLangfuseWorkspace } from '@/lib/langfuseUser';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 import { sanitizePageContext } from '@/lib/chat/pageContext';
 import { stripComposerMarkup } from '@/lib/chat/composerMarkup';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
@@ -158,16 +159,30 @@ export async function POST(req: NextRequest) {
     // routing, turn wrap-up), none of which take a user parameter. The
     // wrapper has to be out here, around the whole handler, because the
     // streaming branch builds its config deep inside it.
+    // The workspace slug rides the same way, read from the session's own
+    // claims (no DB call); `getActiveWorkspaceId` is request-memoized, so the
+    // handler's own call below reuses this resolution.
     const userId = session.user.id;
+    const workspaceSlug = workspaceSlugFromClaims(
+      session.user.workspaces,
+      await getActiveWorkspaceId(),
+    );
     return await runWithLangfuseUser(userId, () =>
-      handleChatTurn(req, session, userId),
+      runWithLangfuseWorkspace(workspaceSlug, () =>
+        handleChatTurn(req, session, userId, workspaceSlug),
+      ),
     );
   } catch (e: unknown) {
     return chatErrorResponse(e);
   }
 }
 
-async function handleChatTurn(req: NextRequest, session: Session, userId: string) {
+async function handleChatTurn(
+  req: NextRequest,
+  session: Session,
+  userId: string,
+  workspaceSlug: string | null,
+) {
   // Live state for the bot icons in every open tab (`@/lib/bots/presence`):
   // set once the lock is ours, cleared after it is released. The turn id
   // lets the sending tab tell its own turn's events from a background one.
@@ -932,6 +947,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
             // trace, and the id the turn timeline is filed under either way
             // (see `traceRunId`).
             runId: traceRunId,
+            runName: TRACE_NAMES.copilotChat,
             recursionLimit: 50,
             configurable: {
               thread_id: chat.id,
@@ -992,7 +1008,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
         // skill) and the budget wrap-up's own LLM call both read the ambient
         // store, so it has to still be set here.
         execute: async ({ writer }) =>
-          runWithLangfuseUser(userId, async () => {
+          runWithLangfuseUser(userId, () => runWithLangfuseWorkspace(workspaceSlug, async () => {
             // The reply's timestamp, the same field history pages carry, so
             // the bubble shows it while streaming and after a reload alike.
             // `questionId` keys the reply's feedback (MB-693) — the same id a
@@ -1031,7 +1047,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
                 },
               }),
             );
-          }),
+          })),
       });
 
       // Delete the per-turn Anthropic uploads once the turn has finished.
@@ -1066,6 +1082,7 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
           {
             // As on the streamed path: the trace id (see `traceRunId`).
             runId: traceRunId,
+            runName: TRACE_NAMES.copilotChat,
             recursionLimit: 50,
             configurable: {
               thread_id: chat.id,

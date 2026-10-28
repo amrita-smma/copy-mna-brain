@@ -33,6 +33,7 @@ import {
   type FxRow,
   type RawFxRow,
 } from "./fxBackfill";
+import { TRACE_NAMES } from "@/lib/langfuseTraceNames";
 
 export type FileTypeOverride =
   | 'mom'
@@ -392,7 +393,7 @@ async function streamAgentMessages(
   let finalMessages: BaseMessage[] = [];
   const stream = await agent.stream(
     { messages } as any,
-    withLangfuseCallbacks({ streamMode: "values" }) as any,
+    withLangfuseCallbacks({ streamMode: "values", runName: TRACE_NAMES.fileProcessing }) as any,
   );
   for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
     if (chunk?.messages) {

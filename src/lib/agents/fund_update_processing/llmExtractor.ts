@@ -7,6 +7,7 @@ import { withLangfuseCallbacks } from '@/lib/langfuse';
 import { logger } from '../logger';
 import type { ParsedAsset, TxnTypeEnum, ValuationMethodEnum } from '@/lib/fund_updates/parsers/startech_quarterly';
 import { normalizeParsedAssets } from '@/lib/fund_updates/normalizeParsedAsset';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 
 const FILES_API_BETA = 'files-api-2025-04-14' as const;
 
@@ -121,7 +122,7 @@ async function streamAgentMessages(
   let finalMessages: BaseMessage[] = [];
   const stream = await agent.stream(
     { messages } as any,
-    withLangfuseCallbacks({ streamMode: 'values' }) as any,
+    withLangfuseCallbacks({ streamMode: 'values', runName: TRACE_NAMES.fundUpdateExtraction }) as any,
   );
   for await (const chunk of stream as AsyncIterable<{ messages?: BaseMessage[] }>) {
     if (chunk?.messages) {

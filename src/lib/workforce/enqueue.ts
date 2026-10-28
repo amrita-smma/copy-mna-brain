@@ -6,6 +6,7 @@ import { createDb } from '@/lib/server/db';
 import { dispatcherTick } from './dispatcher';
 import { generateWorkforceTitle, persistWorkforceTitle, TITLE_MAX_CHARS } from './title';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
 
 export type TriggerSource = 'chat' | 'cron' | 'webhook' | 'api';
 
@@ -74,7 +75,7 @@ export async function enqueueAgentRun(
 
   if (created) {
     await scheduleDispatch();
-    scheduleTitleGeneration(row.id, input.input, input.triggeredByUserId);
+    scheduleTitleGeneration(row.id, workspaceId, input.input, input.triggeredByUserId);
   }
 
   return { runId: row.id, created };
@@ -91,6 +92,7 @@ export async function enqueueAgentRun(
  */
 function scheduleTitleGeneration(
   runId: string,
+  workspaceId: string,
   input: Record<string, unknown>,
   triggeredByUserId?: string | null,
 ): void {
@@ -111,7 +113,9 @@ function scheduleTitleGeneration(
     // callback the platform invokes later is not on this request's async
     // chain. A cron or webhook enqueue has no user, and is a no-op here.
     await runWithLangfuseUser(triggeredByUserId, () =>
-      generateWorkforceTitle(runId, prompt),
+      runWithLangfuseWorkspaceId(createDb(), workspaceId, () =>
+        generateWorkforceTitle(runId, prompt),
+      ),
     );
   });
 }

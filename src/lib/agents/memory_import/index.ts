@@ -27,6 +27,7 @@ import { buildAgentGraph, type AgentGraph } from '@/lib/agents/analysis';
 import { HumanMessage } from '@langchain/core/messages';
 import { MEMORY_IMPORT_SYSTEM_PROMPT, buildImportPrompt } from './prompt';
 import { MEMORY_IMPORT_TOOLS } from './tools';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 
 /** Cached per process — the graph holds no per-user state. */
 let memoryImportGraph: AgentGraph | null = null;
@@ -100,6 +101,7 @@ export async function runMemoryImport({
     { messages: [new HumanMessage(buildImportPrompt(dump, origin))] },
     {
       version: 'v2',
+      runName: TRACE_NAMES.memoryImport,
       recursionLimit: RECURSION_LIMIT,
       configurable: {
         memory_proposal: statements,

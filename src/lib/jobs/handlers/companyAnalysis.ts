@@ -29,6 +29,7 @@ import { z } from "zod";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 import { clipCompanyContext } from '@/lib/companyContextPrompt';
 import { companyDisplayName } from "@/lib/companyDisplay";
+import { TRACE_NAMES } from "@/lib/langfuseTraceNames";
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -375,7 +376,7 @@ export async function generateCompanyCard(
   try {
     agentResult = await agent.invoke(
       { messages: [new HumanMessage(prompt)] },
-      { configurable: { thread_id: threadId } },
+      { runName: TRACE_NAMES.companyAnalysisJob, configurable: { thread_id: threadId } },
     );
   } catch (err) {
     const message = (err as Error).message || "Unknown error";

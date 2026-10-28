@@ -7,6 +7,7 @@ import { CompanyRepository, InvestmentThesisRepository } from '@/lib/repositorie
 import type { DbClient } from '@/lib/repositories';
 import { suggestTrackIds, type TrackLike } from '@/lib/tracks/matchTracks';
 import { getActiveWorkspaceId } from '@/lib/workspace';
+import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 
 export const TRACK_MATCHING_TIMEOUT_SECONDS = 120;
 
@@ -115,9 +116,10 @@ export async function runTrackMatching(
   const agent = await getStatelessAgentGraph();
   if (agent) {
     try {
-      const result = await agent.invoke({
-        messages: [new HumanMessage(buildPrompt(company, tracks))],
-      });
+      const result = await agent.invoke(
+        { messages: [new HumanMessage(buildPrompt(company, tracks))] },
+        { runName: TRACE_NAMES.trackMatchingJob },
+      );
       const parsed = parseTrackIds(lastAiText(result.messages));
       // Only trust the agent when it returned a parseable id list (even an
       // empty one — that's a deliberate "no fit"). An unparseable reply leaves

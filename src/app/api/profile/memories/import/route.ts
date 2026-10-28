@@ -10,6 +10,7 @@ import { MAX_IMPORT_CHARS } from '@/lib/memory/limits';
 import { describeMemoryFailure } from '@/lib/memory/failures';
 import { flushLangfuse } from '@/lib/langfuse';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
+import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
 
 /** Long enough for the agent to read a big paste or document. */
 export const maxDuration = 300;
@@ -96,12 +97,14 @@ export async function POST(req: NextRequest) {
       // are the same person, but `extractForReview` passes its own id to the
       // store, not to Langfuse.
       const { statements, summary } = await runWithLangfuseUser(userId, () =>
-        memory.extractForReview({
-          userId,
-          text,
-          origin,
-          signal: req.signal,
-        }),
+        runWithLangfuseWorkspaceId(db, workspaceId, () =>
+          memory.extractForReview({
+            userId,
+            text,
+            origin,
+            signal: req.signal,
+          }),
+        ),
       );
       return NextResponse.json({ data: { statements, summary, origin: origin ?? null } });
     } finally {
