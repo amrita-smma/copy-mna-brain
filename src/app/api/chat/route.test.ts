@@ -29,9 +29,13 @@ const {
   buildBotTurnOverrideMock,
   summarizeThreadAheadMock,
   readThreadSnapshotMock,
+  beginCheckpointStatsMock,
+  recordTurnWritesMock,
 } = vi.hoisted(() => ({
   summarizeThreadAheadMock: vi.fn(),
   readThreadSnapshotMock: vi.fn(),
+  beginCheckpointStatsMock: vi.fn(),
+  recordTurnWritesMock: vi.fn(),
   openThreadMock: vi.fn(),
   openDefaultThreadMock: vi.fn(),
   mentionContextMock: vi.fn(),
@@ -87,6 +91,7 @@ vi.mock('@/lib/agents/analysis', () => ({
   },
   extractLastTurn: extractLastTurnMock,
   readThreadSnapshot: readThreadSnapshotMock,
+  beginCheckpointStats: beginCheckpointStatsMock,
   asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
   EFFORT_TIERS: {
     low: { turnBudgetMs: 30_000, model: 'claude-haiku-5-5' },
@@ -106,6 +111,7 @@ vi.mock('@/lib/langfuse', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   flushLangfuse: vi.fn(),
   recordTurnTiming: recordTurnTimingMock,
+  recordTurnWrites: recordTurnWritesMock,
 }));
 // The real tier resolution (escalate-only, the open-insight floor); only the
 // routing call is stubbed.
@@ -229,6 +235,10 @@ describe('POST /api/chat', () => {
     });
     routeEffortMock.mockReset();
     recordTurnTimingMock.mockReset();
+    recordTurnWritesMock.mockReset();
+    beginCheckpointStatsMock.mockReset().mockReturnValue({
+      end: () => ({ checkpoints: 2, writeBatches: 1, totalMs: 40, maxMs: 25, lastCheckpointMessages: 5 }),
+    });
     claimTurnMock.mockReset().mockResolvedValue(true);
     streamEventsMock.mockReset().mockResolvedValue({});
     releaseTurnMock.mockReset().mockResolvedValue(undefined);
@@ -1474,6 +1484,62 @@ describe('POST /api/chat', () => {
 
       expect(routeEffortMock).not.toHaveBeenCalled();
       expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
+    });
+
+    it('files how the tier was decided on the trace: skipped, requested, routed or unanswered', async () => {
+      resolve();
+      const routingOf = (call: number) => recordTurnTimingMock.mock.calls[call][0].routing;
+
+      // The stub says "do not route": the fallback placed the turn.
+      await POST(chatRequest({}));
+      expect(routingOf(0)).toEqual({
+        decision: 'skipped',
+        routed: null,
+        effort: 'low',
+        turnChars: 'How is this developer doing?'.length,
+        floor: false,
+      });
+
+      await POST(chatRequest({ effort: 'medium' }));
+      expect(routingOf(1)).toMatchObject({ decision: 'requested', routed: null, effort: 'medium' });
+
+      shouldRouteMock.mockReturnValue(true);
+      routeEffortMock.mockResolvedValue('medium');
+      await POST(chatRequest({}));
+      expect(routingOf(2)).toMatchObject({ decision: 'routed', routed: 'medium', effort: 'medium' });
+
+      routeEffortMock.mockResolvedValue(null);
+      await POST(chatRequest({ page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID } }));
+      expect(routingOf(3)).toMatchObject({ decision: 'unanswered', routed: null, effort: 'medium', floor: true });
+    });
+
+    it("files the run's checkpoint writes on the trace once the turn has finished", async () => {
+      resolve();
+      getMessagesMock.mockResolvedValue([new HumanMessage({ id: 'h-1', content: 'earlier' })]);
+
+      await POST(chatRequest({}));
+      expect(beginCheckpointStatsMock).toHaveBeenCalledWith(CHAT_ID);
+      expect(recordTurnWritesMock).not.toHaveBeenCalled();
+      for (const [fn] of vi.mocked(after).mock.calls) {
+        await (fn as () => unknown)();
+      }
+
+      const runId = invokeMock.mock.calls[0][1].runId as string;
+      expect(recordTurnWritesMock).toHaveBeenCalledTimes(1);
+      expect(recordTurnWritesMock).toHaveBeenCalledWith({
+        traceId: runId,
+        checkpoints: 2,
+        writeBatches: 1,
+        totalMs: 40,
+        maxMs: 25,
+        lastCheckpointMessages: 5,
+        messagesAtStart: 1,
+        // The timeline rides again on the turn's last trace update.
+        timeline: {
+          stages: expect.objectContaining({ history_read: expect.any(Number) }),
+          routing: expect.objectContaining({ decision: 'skipped' }),
+        },
+      });
     });
 
     it('routes the effort tier per turn, raised to the open-insight floor', async () => {

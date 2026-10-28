@@ -69,6 +69,9 @@ export {
   PAUSE_TURN_WARNING,
 } from "./runtime";
 
+// --- Checkpoint write stats -------------------------------------------------
+export { beginCheckpointStats, type CheckpointWriteStats } from "./checkpointStats";
+
 // --- Graphs -----------------------------------------------------------------
 export {
   buildAgentGraph,

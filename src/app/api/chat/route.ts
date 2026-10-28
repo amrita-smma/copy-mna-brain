@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import {
   AIMessage,
   EFFORT_TIERS,
+  beginCheckpointStats,
   readThreadSnapshot,
   type EffortChoice,
   type InvokeConfig,
@@ -33,7 +34,7 @@ import {
   type TurnPresence,
 } from '@/lib/bots/presence';
 import { isCopilotAgentType } from '@/lib/agents/analysis/flavors/keys';
-import { flushLangfuse, recordTurnTiming } from '@/lib/langfuse';
+import { flushLangfuse, recordTurnTiming, recordTurnWrites, type TurnRouting } from '@/lib/langfuse';
 import { runWithLangfuseUser, runWithLangfuseWorkspace } from '@/lib/langfuseUser';
 import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
 import { stripComposerMarkup } from '@/lib/chat/composerMarkup';
@@ -141,6 +142,8 @@ async function handleChatTurn(
   // knows it before the run starts, which is what lets the timeline be filed
   // on the right trace after the run (`recordTurnTiming`).
   let traceRunId: string = randomUUID();
+  // How the tier was decided, filed with the timeline (set once the tier is).
+  let routing: TurnRouting | undefined;
   let timelineRecorded = false;
   const recordTimeline = () => {
     if (timelineRecorded) return;
@@ -151,6 +154,7 @@ async function handleChatTurn(
       stages: timer.stages(),
       firstTokenMs: timer.at('first_token'),
       firstTextMs: timer.at('first_text'),
+      routing,
     });
   };
   try {
@@ -227,8 +231,8 @@ async function handleChatTurn(
     // longest pre-stream stage once it is the only thing left to wait for —
     // is off that turn's critical path.
     const storedEffort = null;
-    const routedEffortPromise: Promise<EffortChoice | null> =
-      requestedEffort === null && shouldRoute(storedEffort, hasAttachments, turnText)
+    const askRouter = requestedEffort === null && shouldRoute(storedEffort, hasAttachments, turnText);
+    const routedEffortPromise: Promise<EffortChoice | null> = askRouter
         ? routeEffort(
             {
               message: turnText,
@@ -371,6 +375,15 @@ async function handleChatTurn(
       floor: openInsightId ? OPEN_INSIGHT_EFFORT_FLOOR : null,
       fallback: fallbackEffort({ message: turnText, hasAttachments }),
     });
+    // Filed on the trace with the timeline: what the skip and the router's
+    // tiers can be tuned against (`effort_routing` in Langfuse).
+    routing = {
+      decision: requestedEffort ? 'requested' : !askRouter ? 'skipped' : routed ? 'routed' : 'unanswered',
+      routed,
+      effort,
+      turnChars: turnText.trim().length,
+      floor: Boolean(openInsightId),
+    };
 
     // Which agent this thread runs on. Bot threads are created pinned to the
     // general agent, so this resolves to the flavor graph with no lookup.
@@ -484,12 +497,30 @@ async function handleChatTurn(
     // `watchStop`) ends it early. Resolved now for the paths that never stream.
     let turnFinished: Promise<void> = Promise.resolve();
     let stopWatch: StopWatch | undefined;
+    // The thread's checkpoint writes from here to the end of the run — the
+    // run's own, plus the repairs below on the rare thread that needs them —
+    // counted and timed for the trace (`checkpoint_writes`).
+    const checkpointStats = beginCheckpointStats(chat.id);
     after(async () => {
       await turnFinished;
       stopWatch?.dispose();
       // A turn that produced no visible text (stopped, budget, error) still
       // files what it has; before the Langfuse drain.
       recordTimeline();
+      const writes = checkpointStats.end();
+      console.log(
+        `[chat] turn ${turnId.slice(0, 8)} checkpoint writes checkpoints=${writes.checkpoints} ` +
+          `batches=${writes.writeBatches} total=${Math.round(writes.totalMs)}ms max=${Math.round(writes.maxMs)}ms ` +
+          `messages=${writes.lastCheckpointMessages ?? '-'} (started at ${priorMessages.length})`,
+      );
+      // The timeline rides again on this, the turn's last trace update, so
+      // it survives an ingestion that replaces metadata instead of merging.
+      recordTurnWrites({
+        traceId: traceRunId,
+        ...writes,
+        messagesAtStart: priorMessages.length,
+        timeline: { stages: timer.stages(), routing },
+      });
       // The question's insert was started under the lock and not awaited;
       // whether it landed decides what is stored and what is taken back.
       const questionWritten = await questionStored;

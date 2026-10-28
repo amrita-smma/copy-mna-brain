@@ -26,9 +26,13 @@ export {
   isLangfuseEnabled,
   langfuseEnvironment,
   recordTurnTiming,
+  recordTurnWrites,
   resetLangfuseHandlerForTests,
+  CHECKPOINT_WRITE_SCORE_NAME,
   TTFT_SCORE_NAMES,
+  type TurnRouting,
   type TurnTiming,
+  type TurnWrites,
 } from "./langfuseClient";
 
 /**

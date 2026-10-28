@@ -104,6 +104,29 @@ export interface TurnTiming {
   firstTokenMs: number | null;
   /** Ms from the request to the first visible text, when any arrived. */
   firstTextMs: number | null;
+  /** How the turn's effort tier was decided, when the route knows (`src/lib/chat/effortRouter.ts`). */
+  routing?: TurnRouting;
+}
+
+/**
+ * How one turn's tier was chosen — what `ROUTER_SKIP_CHARS` and the router's
+ * tiers can be tuned against once enough turns have been filed.
+ */
+export interface TurnRouting {
+  /**
+   * `requested`: the user picked the tier; `skipped`: too short to route,
+   * the fallback applied; `routed`: the router answered; `unanswered`: the
+   * router was asked and gave nothing (timeout, error), the fallback applied.
+   */
+  decision: "requested" | "skipped" | "routed" | "unanswered";
+  /** The router's answer, when it gave one. */
+  routed: string | null;
+  /** The tier the turn ran at, after the fallback and any floor. */
+  effort: string;
+  /** The turn's text length, the only input the skip reads. */
+  turnChars: number;
+  /** Whether the open-insight floor applied. */
+  floor: boolean;
 }
 
 /** Score names a Langfuse dashboard can chart TTFT by. */
@@ -111,6 +134,33 @@ export const TTFT_SCORE_NAMES = {
   firstToken: "time_to_first_token_ms",
   firstText: "time_to_first_text_ms",
 } as const;
+
+/** The checkpoint writes one turn made (`src/lib/agents/analysis/checkpointStats.ts`), for its trace. */
+export interface TurnWrites {
+  traceId: string;
+  /** Checkpoints written during the run. */
+  checkpoints: number;
+  /** Pending-write batches during the run. */
+  writeBatches: number;
+  /** Ms inside the saver, all writes together. */
+  totalMs: number;
+  /** The slowest single write, ms. */
+  maxMs: number;
+  /** Messages in the last checkpoint written, when one was. */
+  lastCheckpointMessages: number | null;
+  /** Messages in the thread when the turn started. */
+  messagesAtStart: number;
+  /**
+   * The timeline and routing already filed by `recordTurnTiming`, repeated
+   * here so the turn's LAST trace update carries everything: Langfuse merges
+   * metadata on the versions this app has run against, but an ingestion that
+   * replaced it would otherwise drop the timeline for the writes.
+   */
+  timeline?: Pick<TurnTiming, "stages" | "routing">;
+}
+
+/** Score name a Langfuse dashboard can chart the checkpoint writes' share by. */
+export const CHECKPOINT_WRITE_SCORE_NAME = "checkpoint_write_ms";
 
 /**
  * File a turn's timeline on its trace: the stage timings as trace metadata
@@ -127,7 +177,13 @@ export function recordTurnTiming(timing: TurnTiming): void {
   if (!langfuseHandler) return;
   try {
     const client = langfuseHandler.langfuse;
-    client.trace({ id: timing.traceId, metadata: { turn_timeline: timing.stages } });
+    client.trace({
+      id: timing.traceId,
+      metadata: {
+        turn_timeline: timing.stages,
+        ...(timing.routing ? { effort_routing: timing.routing } : {}),
+      },
+    });
     if (timing.firstTokenMs !== null) {
       client.score({ traceId: timing.traceId, name: TTFT_SCORE_NAMES.firstToken, value: timing.firstTokenMs });
     }
@@ -136,6 +192,32 @@ export function recordTurnTiming(timing: TurnTiming): void {
     }
   } catch (err) {
     console.warn("[langfuse] failed to record the turn timing", err);
+  }
+}
+
+/**
+ * File a turn's checkpoint writes on its trace once the run has ended: the
+ * counts and times as trace metadata (`checkpoint_writes`) and the total ms
+ * as a numeric score, so a dashboard can chart the writes' share of a turn
+ * by thread length. Same merge-into-the-existing-trace, fire-and-forget
+ * shape as `recordTurnTiming`.
+ */
+export function recordTurnWrites(writes: TurnWrites): void {
+  if (!langfuseHandler) return;
+  try {
+    const { traceId, timeline, ...rest } = writes;
+    const client = langfuseHandler.langfuse;
+    client.trace({
+      id: traceId,
+      metadata: {
+        ...(timeline ? { turn_timeline: timeline.stages } : {}),
+        ...(timeline?.routing ? { effort_routing: timeline.routing } : {}),
+        checkpoint_writes: rest,
+      },
+    });
+    client.score({ traceId, name: CHECKPOINT_WRITE_SCORE_NAME, value: Math.round(writes.totalMs) });
+  } catch (err) {
+    console.warn("[langfuse] failed to record the turn's checkpoint writes", err);
   }
 }
 

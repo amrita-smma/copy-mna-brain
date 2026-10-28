@@ -663,17 +663,28 @@ Still on the table, in the order worth trying:
    the tier per thread and re-routing only on attachments, which trades the
    router on every turn for a thread stuck on its heaviest tier; and
    tuning `ROUTER_SKIP_CHARS` once Langfuse shows the routed tier by turn
-   length (`chat.effort_router` traces carry the turn text). Bounding the
-   wait to the setup time plus a grace, as first suggested, would with
-   these numbers drop most routed answers, so it is withdrawn.
+   length. Since 2026-10-28 every turn's trace carries
+   `metadata.effort_routing` — the decision (`requested` / `skipped` /
+   `routed` / `unanswered`), the router's answer, the tier run, the turn's
+   length, the floor — so the question "what did turns of N characters
+   route to" is a Langfuse filter, including for the turns that are now
+   skipped and have no `chat.effort_router` trace. Bounding the wait to the
+   setup time plus a grace, as first suggested, would with these numbers
+   drop most routed answers, so it is withdrawn.
 2. **Every checkpoint write carries the whole thread.** One write per model
    call and per tool call, each serialising the full message list — up to
    ~48k tokens of history on a long thread now that the background summary
    keeps it under the in-line trigger. Only a different checkpointer layout,
    or Anthropic's server-side compaction (`compact_20260112`, which the
    installed library already knows) in place of the client-side summariser
-   at a lower mark, would change that. Needs the production timeline to
-   show the writes before it is worth it.
+   at a lower mark, would change that. Since 2026-10-28 the writes are
+   measured: every turn's trace carries `metadata.checkpoint_writes` and the
+   score `checkpoint_write_ms` (`checkpointStats.ts` wraps the shared
+   saver's `put` / `putWrites` per thread for the turn; `recordTurnWrites`
+   files the totals once the run has ended). Chart `checkpoint_write_ms`
+   against `messagesAtStart`: a turn on a long thread whose writes add up
+   to a noticeable share of its duration is the trigger; a few hundred ms
+   across a dozen writes is not worth a checkpointer change.
 3. **The checkpoint is read twice per turn.** The route's snapshot
    (`readThreadSnapshot`, for the repairs and the zero-work check) and
    LangGraph's own load inside `streamEvents`. Unavoidable with the

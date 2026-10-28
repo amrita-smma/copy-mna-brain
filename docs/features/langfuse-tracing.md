@@ -96,6 +96,27 @@ can chart per tier, user or release. Langfuse merges a second `trace` event
 with the same id, so this adds to the trace the handler created rather than
 replacing it. The same timeline is also logged (`[chat] turn … timeline`).
 
+Two more pieces of the turn ride on the same trace:
+
+- `metadata.effort_routing` (with the timeline): how the tier was decided —
+  `decision` (`requested` by the user, `skipped` as too short to route,
+  `routed` by the router, or `unanswered` when the router timed out or
+  failed), the router's answer, the tier the turn ran at, the turn's text
+  length and whether the open-insight floor applied. This is the data
+  `ROUTER_SKIP_CHARS` and the router's tier definitions are tuned against
+  (`src/lib/chat/effortRouter.ts`); a skipped turn has no `chat.effort_router`
+  trace of its own, so this is the only place it appears.
+- `metadata.checkpoint_writes` and the score `checkpoint_write_ms`, filed by
+  `recordTurnWrites` once the run has ended: how many checkpoints and
+  pending-write batches the run wrote, the ms spent in the saver in total
+  and for the slowest write, the message count of the last checkpoint and
+  of the thread at the start. Every write serialises the whole thread
+  (`src/lib/agents/analysis/checkpointStats.ts`), so this is what shows
+  whether the writes are where a long thread's time goes. Also logged as
+  `[chat] turn … checkpoint writes`. This update, the turn's last, repeats
+  `turn_timeline` and `effort_routing`, so the trace is complete even on an
+  ingestion that replaces metadata instead of merging it.
+
 ## How a call site gets traced
 
 LangChain and LangGraph call sites merge the handler into their config:

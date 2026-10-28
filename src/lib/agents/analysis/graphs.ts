@@ -22,6 +22,7 @@ import {
   type AgentMiddlewareList,
   type ThreadSnapshot,
 } from "./runtime";
+import { withCheckpointStats } from "./checkpointStats";
 import { type EffortChoice } from "./effort";
 import {
   CHAT_SYSTEM_PROMPT,
@@ -96,9 +97,13 @@ function getCheckpointer(): Promise<PostgresSaver> | null {
         : explicitDb.password!,
       ssl: isLocal ? false : { rejectUnauthorized: false },
     });
-    const saver = new PostgresSaver(pool, undefined, {
-      schema: CHECKPOINT_SCHEMA,
-    });
+    // Writes are counted and timed per turn for the turn's trace
+    // (`checkpointStats.ts`); a thread with no turn open costs a map lookup.
+    const saver = withCheckpointStats(
+      new PostgresSaver(pool, undefined, {
+        schema: CHECKPOINT_SCHEMA,
+      }),
+    );
     await saver.setup();
     logger.info(
       `✓ PostgresSaver ready (schema: ${CHECKPOINT_SCHEMA}, ssl: ${!isLocal}, iam: ${useIam})`,
