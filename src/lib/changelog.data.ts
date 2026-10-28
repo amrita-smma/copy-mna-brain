@@ -218,6 +218,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "3ab5b177511360653ccb728a9290221d8dabc148",
+    "date": "2026-10-28",
+    "subject": "drop the numbered tool enumerations from the other seven chat flavors",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "1f32dc15ff7cb349fead879265c8a7a26fa0cef3",
+    "date": "2026-10-28",
+    "subject": "Deal and bid updates now stream in real time without requiring a page refresh",
+    "category": "improvement"
+  },
+  {
+    "hash": "4b8298a00bdf5150044d00e8f8068c801ef1a60c",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
