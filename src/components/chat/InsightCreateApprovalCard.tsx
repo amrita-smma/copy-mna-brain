@@ -35,9 +35,7 @@ export function InsightCreateApprovalCard({
     isResolved,
     isSubmitting,
     resolve,
-  } = useApprovalResolution(
-    payload.approval_id ? `insight_create_resolved_${payload.approval_id}` : null,
-  );
+  } = useApprovalResolution({ cardId: payload.approval_id, toolName: 'propose_insight_create' });
 
   const handleApprove = async () => {
     if (status !== 'idle') return;
@@ -55,7 +53,7 @@ export function InsightCreateApprovalCard({
       });
 
       const text = `Created "${payload.name}".`;
-      resolve(text);
+      resolve(text, 'accepted', { insight_id: detail.id });
       toast.success(`Insight "${payload.name}" created`);
 
       push(`/insight/${detail.id}`);
@@ -70,7 +68,7 @@ export function InsightCreateApprovalCard({
 
   const handleReject = () => {
     if (status !== 'idle') return;
-    resolve('Rejected — insight not created.');
+    resolve('Rejected — insight not created.', 'declined');
   };
 
   return (

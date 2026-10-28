@@ -43,11 +43,12 @@ export function InsightRefreshApprovalCard({
     isResolved,
     isSubmitting,
     resolve,
-  } = useApprovalResolution(
-    payload.approval_id ? `insight_refresh_resolved_${payload.approval_id}` : null,
-  );
-  // The run just queued (or found live), for the "View task" link.
-  const [runId, setRunId] = useState<string | null>(null);
+    decisionData,
+  } = useApprovalResolution({ cardId: payload.approval_id, toolName: 'propose_insight_refresh' });
+  // The run just queued (or found live), for the "View task" link; on a
+  // reload, the run the stored decision recorded.
+  const [queuedRunId, setRunId] = useState<string | null>(null);
+  const runId = queuedRunId ?? (typeof decisionData?.run_id === 'string' ? decisionData.run_id : null);
 
   const handleAccept = async () => {
     if (status !== 'idle') return;
@@ -56,7 +57,7 @@ export function InsightRefreshApprovalCard({
     try {
       const result = await refreshInsightNow(payload.insight_id);
       setRunId(result.runId);
-      resolve(refreshResolutionText(result.created));
+      resolve(refreshResolutionText(result.created), 'accepted', { run_id: result.runId });
       toast.success(result.created ? 'Insight refresh queued' : 'A refresh is already running');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to refresh the insight';
@@ -68,7 +69,7 @@ export function InsightRefreshApprovalCard({
 
   const handleDismiss = () => {
     if (status !== 'idle') return;
-    resolve('Dismissed — the insight was not refreshed.');
+    resolve('Dismissed — the insight was not refreshed.', 'declined');
   };
 
   return (

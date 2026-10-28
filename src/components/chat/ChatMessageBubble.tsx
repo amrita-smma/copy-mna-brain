@@ -41,6 +41,7 @@ import {
 import { BotChangeApprovalCard } from "./BotChangeApprovalCard";
 import { BotRoutineApprovalCard } from "./BotRoutineApprovalCard";
 import { OptionCard } from "./OptionCard";
+import { ActionCardDecisionsProvider } from "./ActionCardDecisions";
 import { OPTION_CARD_MARKER, isOptionCardPayload, type OptionCardPayload } from "@/lib/chat/optionCards";
 import { STALE_SOURCE_MONTHS, inlineCitationsOf, isStaleSource, readPublishedDate } from "@/lib/chat/citations";
 import FileKindIcon from "@/components/Files/FileKindIcon";
@@ -1198,55 +1199,59 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
           </div>
         )}
 
-        {/* Workforce handoff card */}
-        {workforceHandoff && (
-          <WorkforceHandoffCard
-            payload={workforceHandoff}
-            onJustAnswerHere={handleJustAnswerHere}
-          />
-        )}
+        {/* The action cards: each reads its stored decision from the reply's
+            metadata (history pages lay them on), and writes the user's. */}
+        <ActionCardDecisionsProvider value={replyMetadata?.cardDecisions ?? null}>
+          {/* Workforce handoff card */}
+          {workforceHandoff && (
+            <WorkforceHandoffCard
+              payload={workforceHandoff}
+              onJustAnswerHere={handleJustAnswerHere}
+            />
+          )}
 
-        {/* Bulk drop approval card */}
-        {bulkDropApproval && (
-          <BulkDropCompaniesCard payload={bulkDropApproval} />
-        )}
+          {/* Bulk drop approval card */}
+          {bulkDropApproval && (
+            <BulkDropCompaniesCard payload={bulkDropApproval} />
+          )}
 
-        {/* Bulk promote approval card */}
-        {bulkPromoteApproval && (
-          <BulkPromoteCompaniesCard payload={bulkPromoteApproval} />
-        )}
+          {/* Bulk promote approval card */}
+          {bulkPromoteApproval && (
+            <BulkPromoteCompaniesCard payload={bulkPromoteApproval} />
+          )}
 
-        {/* Insight edit approval card */}
-        {insightEditApproval && (
-          <InsightEditApprovalCard payload={insightEditApproval} />
-        )}
+          {/* Insight edit approval card */}
+          {insightEditApproval && (
+            <InsightEditApprovalCard payload={insightEditApproval} />
+          )}
 
-        {/* New insight approval card */}
-        {insightCreateApproval && (
-          <InsightCreateApprovalCard payload={insightCreateApproval} />
-        )}
+          {/* New insight approval card */}
+          {insightCreateApproval && (
+            <InsightCreateApprovalCard payload={insightCreateApproval} />
+          )}
 
-        {/* Report plan approval card */}
-        {reportPlanApproval && (
-          <ReportPlanCard payload={reportPlanApproval} />
-        )}
+          {/* Report plan approval card */}
+          {reportPlanApproval && (
+            <ReportPlanCard payload={reportPlanApproval} />
+          )}
 
-        {/* Insight refresh offer (MB-552) */}
-        {insightRefreshApproval && (
-          <InsightRefreshApprovalCard payload={insightRefreshApproval} />
-        )}
+          {/* Insight refresh offer (MB-552) */}
+          {insightRefreshApproval && (
+            <InsightRefreshApprovalCard payload={insightRefreshApproval} />
+          )}
 
-        {/* Bot tools (RFC 02): proposed bot changes, and messages sent to other bots */}
-        {botChangeApprovals.map((p) => (
-          <BotChangeApprovalCard key={p.approval_id} payload={p} />
-        ))}
-        {botRoutineApprovals.map((p) => (
-          <BotRoutineApprovalCard key={p.approval_id} payload={p} />
-        ))}
-        {/* Clickable choices (offer_options); the pick is the user's next message. */}
-        {optionCards.map((p) => (
-          <OptionCard key={p.card_id} payload={p} />
-        ))}
+          {/* Bot tools (RFC 02): proposed bot changes, and messages sent to other bots */}
+          {botChangeApprovals.map((p) => (
+            <BotChangeApprovalCard key={p.approval_id} payload={p} />
+          ))}
+          {botRoutineApprovals.map((p) => (
+            <BotRoutineApprovalCard key={p.approval_id} payload={p} />
+          ))}
+          {/* Clickable choices (offer_options); the pick is the user's next message. */}
+          {optionCards.map((p) => (
+            <OptionCard key={p.card_id} payload={p} />
+          ))}
+        </ActionCardDecisionsProvider>
         {botMessages.map((p, i) => (
           <BotMessageCard key={`${p.bot_id}-${i}`} payload={p} />
         ))}

@@ -423,6 +423,14 @@ export function useChatThread(): ChatThreadState {
   return useNarrowChatContext(ChatThreadContext, 'useChatThread');
 }
 
+/**
+ * The active thread, or null outside a ChatProvider — for a component that
+ * also renders on its own (a card in a static render or a test).
+ */
+export function useOptionalChatThread(): ChatThreadState | null {
+  return useContext(ChatThreadContext);
+}
+
 /** Composer state. Re-renders on user input, not on tokens. */
 export function useChatComposer(): ChatComposerState {
   return useNarrowChatContext(ChatComposerContext, 'useChatComposer');

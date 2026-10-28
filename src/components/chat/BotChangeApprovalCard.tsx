@@ -156,7 +156,10 @@ function RoutineRow({ routine }: { routine: ProposedBotRoutine }) {
 export function BotChangeApprovalCard({ payload, className }: BotChangeApprovalCardProps) {
   const { refreshBots } = useChatActions();
   const { status, setStatus, resolutionText, error, setError, isResolved, isSubmitting, resolve } =
-    useApprovalResolution(`bot_change_resolved_${payload.approval_id}`);
+    useApprovalResolution({
+      cardId: payload.approval_id,
+      toolName: payload.action === 'create' ? 'propose_create_bot' : 'update_bot',
+    });
   const isCreate = payload.action === 'create';
   const routines = isCreate ? (payload.routines ?? []) : [];
   const persona = isCreate
@@ -200,7 +203,9 @@ export function BotChangeApprovalCard({ payload, className }: BotChangeApprovalC
         routines.length === 0
           ? ''
           : ` Scheduled ${scheduled}${failed.length > 0 ? ` of ${routines.length}` : ''} routine${routines.length === 1 ? '' : 's'}.`;
-      resolve(isCreate ? `Created ${saved.name}.${routineNote}` : `Updated ${saved.name}.`);
+      resolve(isCreate ? `Created ${saved.name}.${routineNote}` : `Updated ${saved.name}.`, 'accepted', {
+        bot_id: saved.id,
+      });
       if (failed.length > 0) {
         // The bot stands, so the card resolves — but a routine that was not
         // scheduled is an alert on it, not a footnote.
@@ -289,7 +294,7 @@ export function BotChangeApprovalCard({ payload, className }: BotChangeApprovalC
           <Button
             data-testid="bot-change-reject"
             variant="outline"
-            onClick={() => status === 'idle' && resolve('Cancelled — nothing was changed.')}
+            onClick={() => status === 'idle' && resolve('Cancelled — nothing was changed.', 'declined')}
             disabled={isSubmitting}
             className="bg-card"
           >

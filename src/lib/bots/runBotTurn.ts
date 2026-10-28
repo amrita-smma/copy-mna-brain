@@ -139,6 +139,12 @@ export interface BotTurnDeps {
    * the same block an interactive turn gets. Optional and best-effort.
    */
   botMemoryContext?(): Promise<string | null>;
+  /**
+   * The chat's recent action cards and the user's decisions on them
+   * (`CopilotChatCardService.promptContext`), the same block an interactive
+   * turn gets. Optional and best-effort.
+   */
+  cardContext?(): Promise<string | null>;
   sleep?(ms: number): Promise<void>;
   /** The live-state hooks (`./presence`); injectable so tests need no Redis. */
   startPresence?(input: TurnPresenceInput): TurnPresence;
@@ -303,7 +309,7 @@ export async function runBotTurn(input: BotTurnInput, deps: BotTurnDeps): Promis
       });
     };
 
-    const [context, memoryContext, botMemoryContext] = await Promise.all([
+    const [context, memoryContext, botMemoryContext, cardContext] = await Promise.all([
       deps.buildContext(),
       deps.recallMemory
         ? deps.recallMemory(text).catch((err: unknown) => {
@@ -317,13 +323,19 @@ export async function runBotTurn(input: BotTurnInput, deps: BotTurnDeps): Promis
             return null;
           })
         : Promise.resolve(null),
+      deps.cardContext
+        ? deps.cardContext().catch((err: unknown) => {
+            console.error('[bots] card decision lookup failed; the turn runs without it:', err);
+            return null;
+          })
+        : Promise.resolve(null),
     ]);
     let finalMessages: BaseMessage[];
     try {
       await agent.invoke(
       {
         messages: [question],
-        additionalSystemContext: [context, memoryContext, botMemoryContext, input.extraContext, originContext(origin)]
+        additionalSystemContext: [context, memoryContext, botMemoryContext, cardContext, input.extraContext, originContext(origin)]
           .filter(Boolean)
           .join('\n\n'),
         withheldTools: [...BACKGROUND_WITHHELD_TOOLS],

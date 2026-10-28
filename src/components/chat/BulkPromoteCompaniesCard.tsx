@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ArrowUp, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useApprovalResolution } from "./ApprovalCardShell";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { CompanyNavigateButton } from "./CompanyChip";
 
@@ -40,8 +41,6 @@ interface BulkPromoteCompaniesCardProps {
   className?: string;
 }
 
-type Status = "idle" | "submitting" | "resolved";
-
 function renderInlineReason(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((segment, i) => {
@@ -72,20 +71,12 @@ export function BulkPromoteCompaniesCard({
     [payload.candidates],
   );
   const [selected, setSelected] = useState<Set<string>>(() => new Set(allIds));
-  const [status, setStatus] = useState<Status>("idle");
-  const [resolutionText, setResolutionText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Restore resolved state from localStorage across page reloads
-  useEffect(() => {
-    if (payload.approval_id) {
-      const saved = localStorage.getItem(`bulk_promote_resolved_${payload.approval_id}`);
-      if (saved) {
-        setResolutionText(saved);
-        setStatus("resolved");
-      }
-    }
-  }, [payload.approval_id]);
+  // The decision is stored with the chat (copilot_chat_cards), so it follows
+  // the user across devices and reaches the agent's next turn.
+  const { status, setStatus, resolutionText, error, setError, resolve } = useApprovalResolution({
+    cardId: payload.approval_id,
+    toolName: "propose_bulk_promote_companies",
+  });
 
   const total = payload.candidates.length;
   const selectedCount = selected.size;
@@ -129,11 +120,7 @@ export function BulkPromoteCompaniesCard({
       const text = `Approved — promoted ${selectedCount} ${noun} to ${targetLabel}${
         held > 0 ? ` (held ${held})` : ""
       }.`;
-      setResolutionText(text);
-      setStatus("resolved");
-      if (payload.approval_id) {
-        localStorage.setItem(`bulk_promote_resolved_${payload.approval_id}`, text);
-      }
+      resolve(text, "accepted", { company_ids: deals.map((d) => d.id) });
       toast.success(`Promoted ${selectedCount} ${noun} to ${targetLabel}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to promote";
@@ -145,11 +132,7 @@ export function BulkPromoteCompaniesCard({
 
   const handleHoldAll = () => {
     const text = `Held all ${total} candidates at current stage for next review.`;
-    setResolutionText(text);
-    setStatus("resolved");
-    if (payload.approval_id) {
-      localStorage.setItem(`bulk_promote_resolved_${payload.approval_id}`, text);
-    }
+    resolve(text, "declined");
   };
 
   return (

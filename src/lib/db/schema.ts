@@ -3908,6 +3908,63 @@ export const copilotResponseFeedback = pgTable(
   }),
 );
 
+// A card in a Copilot reply that waits on the user (an approval, a set of
+// options, a Workforce hand-off) and what the user decided on it. Registered
+// as 'pending' when the turn that offered it is stored, and decided through
+// `POST /api/copilot/chats/[id]/cards/[cardId]/decision`. `card_id` is the
+// payload's own id (approval_id / card_id / handoff_id), unique per chat. The
+// history pages lay each decision onto its card, and the chat's next turns
+// are told the recent decisions, so a decision survives reloads, follows the
+// user across devices and reaches the agent. Read/written via
+// CopilotChatCardRepository.
+export const copilotChatCards = pgTable(
+  "copilot_chat_cards",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    workspace_id: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    chat_id: uuid()
+      .notNull()
+      .references(() => copilotChats.id, { onDelete: "cascade" }),
+    // The assistant row that offered the card; NULL when the decision landed
+    // before the turn was stored (the card is decided mid-stream).
+    message_id: uuid().references(() => copilotMessages.id, { onDelete: "set null" }),
+    card_id: text().notNull(),
+    // The tool that rendered the card (propose_bulk_drop_companies, offer_options, …).
+    tool_name: text().notNull(),
+    // One line naming what the card asked, for the agent's context.
+    summary: text().default("").notNull(),
+    status: text().$type<"pending" | "accepted" | "declined">().default("pending").notNull(),
+    // What the card shows once decided ("Dropped 3 companies.").
+    resolution_text: text(),
+    // Structured detail of the decision (the options picked, the queue row created, …).
+    decision_data: jsonb().$type<Record<string, unknown>>(),
+    decided_by_user_id: uuid().references(() => users.id, { onDelete: "set null" }),
+    decided_at: timestamp({ withTimezone: true, mode: "string" }),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqCopilotChatCardsChatCard: uniqueIndex("uq_copilot_chat_cards_chat_card").on(
+      table.chat_id,
+      table.card_id,
+    ),
+    idxCopilotChatCardsChatCreated: index("idx_copilot_chat_cards_chat_created").on(
+      table.chat_id,
+      table.created_at.desc(),
+    ),
+    copilotChatCardsStatusCheck: check(
+      "copilot_chat_cards_status_check",
+      sql`status IN ('pending', 'accepted', 'declined')`,
+    ),
+  }),
+);
+
 // API keys for external authorized applications (machine-to-machine access to
 // the chat API). The raw token is never stored — only a scrypt hash and a
 // short non-secret prefix used to look the row up before verifying the hash.

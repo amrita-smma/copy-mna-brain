@@ -33,9 +33,7 @@ export function ReportPlanCard({
     isResolved,
     isSubmitting,
     resolve,
-  } = useApprovalResolution(
-    payload.approval_id ? `report_plan_resolved_${payload.approval_id}` : null,
-  );
+  } = useApprovalResolution({ cardId: payload.approval_id, toolName: 'propose_report_plan' });
 
   // Pre-select recommended option where one exists
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>(() => {
@@ -75,7 +73,7 @@ export function ReportPlanCard({
       const text = lines.join('\n');
       await sendMessage({ text });
 
-      resolve('Plan confirmed.');
+      resolve('Plan confirmed.', 'accepted', { answers: selectedAnswers });
       toast.success('Report plan confirmed');
     } catch (err: unknown) {
       const message =
@@ -88,7 +86,7 @@ export function ReportPlanCard({
 
   const handleCancel = () => {
     if (status !== 'idle') return;
-    resolve('Plan declined.');
+    resolve('Plan declined.', 'declined');
     toast.info('Report plan declined');
   };
 

@@ -7,6 +7,7 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import { SUMMARIZATION_SOURCE, SUMMARY_MARKER_TEXT } from '@/lib/bots/summary';
 import type { ResponseFeedbackValue } from '@/lib/chat/responseFeedback';
+import type { ActionCardDecision } from '@/lib/chat/actionCards';
 import {
   INSIGHT_TEMPLATE_PART_TYPE,
   parseInsightTemplateBlock,
@@ -129,6 +130,12 @@ export interface UIMessageMetadata {
   questionId?: string;
   /** On a reply read from history: the user's feedback on it, if any. */
   feedback?: ResponseFeedbackValue;
+  /**
+   * On a reply read from history: the user's decisions on the action cards it
+   * offered (approvals, options, hand-offs), by card id. A card absent here is
+   * still pending.
+   */
+  cardDecisions?: Record<string, ActionCardDecision>;
 }
 
 function extractText(content: unknown): string {

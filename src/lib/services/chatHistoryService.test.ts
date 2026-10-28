@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { ChatHistoryService } from './chatHistoryService';
 import { FROM_BOT_KWARG, FROM_ROUTINE_KWARG } from '@/lib/chat/uiMessages';
+import { OPTION_CARD_MARKER } from '@/lib/chat/optionCards';
+import { encodeApprovalMarker } from '@/lib/insights/approvalMarker';
 
 const messages = vi.hoisted(() => ({ insertMany: vi.fn(), listPage: vi.fn(), listTurnsPage: vi.fn(), deleteById: vi.fn() }));
 const chats = vi.hoisted(() => ({
@@ -12,6 +14,20 @@ const chats = vi.hoisted(() => ({
 }));
 const dispatchEmbedding = vi.hoisted(() => vi.fn());
 const feedback = vi.hoisted(() => ({ findByMessageIds: vi.fn() }));
+const cards = vi.hoisted(() => ({ registerMany: vi.fn(), findByCardIds: vi.fn() }));
+
+/** A stored offer_options tool part whose card has the given id. */
+function optionCardPart(cardId: string) {
+  const payload = { card_id: cardId, question: 'Which?', mode: 'single', options: [], allow_custom: false };
+  return {
+    type: 'dynamic-tool',
+    toolCallId: `call-${cardId}`,
+    toolName: 'offer_options',
+    state: 'output-available',
+    input: {},
+    output: { kwargs: { content: `Options offered.\n${encodeApprovalMarker(OPTION_CARD_MARKER, payload)}` } },
+  };
+}
 
 const chat = { id: 'chat-1', user_id: 'u1', bot_id: 'bot-1', history_imported_at: '2026-10-14T00:00:00Z' };
 
@@ -20,6 +36,7 @@ function service() {
     messages: messages as never,
     chats: chats as never,
     feedback: feedback as never,
+    cards: cards as never,
     dispatchEmbedding,
   });
 }
@@ -30,11 +47,14 @@ describe('ChatHistoryService', () => {
       ...Object.values(messages),
       ...Object.values(chats),
       ...Object.values(feedback),
+      ...Object.values(cards),
       dispatchEmbedding,
     ]) {
       fn.mockReset();
     }
     feedback.findByMessageIds.mockResolvedValue([]);
+    cards.registerMany.mockResolvedValue(undefined);
+    cards.findByCardIds.mockResolvedValue([]);
     chats.claimHistoryImport.mockResolvedValue(false);
     chats.getById.mockResolvedValue({ history_imported_at: '2026-10-14T00:00:00Z' });
     chats.clearHistoryImport.mockResolvedValue(undefined);
@@ -66,6 +86,40 @@ describe('ChatHistoryService', () => {
         expect.objectContaining({ role: 'assistant', text: 'Q: How many deals?\n\nA: Twelve.' }),
       ]);
       expect(dispatchEmbedding).toHaveBeenCalledWith(['m1']);
+    });
+
+    it('registers the action cards the stored reply offered, against its row', async () => {
+      const withCard = [
+        new HumanMessage({ id: 'h1', content: 'Pick one' }),
+        new AIMessage({
+          id: 'a1',
+          content: '',
+          tool_calls: [{ id: 'call-1', name: 'offer_options', args: {} }],
+        }),
+        new ToolMessage({
+          content: optionCardPart('card-1').output.kwargs.content,
+          tool_call_id: 'call-1',
+          name: 'offer_options',
+        }),
+        new AIMessage({ id: 'a2', content: 'Pick from the card.' }),
+      ];
+
+      await service().persistTurn({ chat, finalMessages: withCard, interactive: true });
+
+      expect(cards.registerMany).toHaveBeenCalledWith([
+        { chatId: 'chat-1', messageId: 'm1', cardId: 'card-1', toolName: 'offer_options', summary: 'Options: Which?' },
+      ]);
+    });
+
+    it('still stores the turn when registering its cards fails', async () => {
+      cards.registerMany.mockRejectedValue(new Error('db down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await service().persistTurn({ chat, finalMessages, interactive: true });
+
+      expect(dispatchEmbedding).toHaveBeenCalledWith(['m1']);
+      expect(chats.stampMessage).toHaveBeenCalled();
+      spy.mockRestore();
     });
 
     it('marks an interactive turn read, and leaves a background reply unread', async () => {
@@ -353,6 +407,43 @@ describe('ChatHistoryService', () => {
         questionId: 'r4',
         feedback: { rating: -1, reasons: ['shallow'], comment: 'too thin' },
       });
+    });
+
+    it("lays the user's card decisions onto the replies that offered them, in one query", async () => {
+      messages.listTurnsPage.mockResolvedValue({
+        rows: [
+          row(1, 'user', [{ type: 'text', text: 'q1' }]),
+          row(2, 'assistant', [optionCardPart('card-a')]),
+          row(3, 'user', [{ type: 'text', text: 'q2' }]),
+          row(4, 'assistant', [optionCardPart('card-b')]),
+        ],
+        hasMore: false,
+      });
+      cards.findByCardIds.mockResolvedValue([
+        {
+          card_id: 'card-a',
+          status: 'accepted',
+          resolution_text: 'Option A',
+          decision_data: { picked: ['Option A'] },
+          decided_at: '2026-10-14T10:00:00Z',
+        },
+        { card_id: 'card-b', status: 'pending', resolution_text: null, decision_data: null, decided_at: null },
+      ]);
+
+      const page = await service().page(chat, {}, vi.fn());
+
+      expect(cards.findByCardIds).toHaveBeenCalledTimes(1);
+      expect(cards.findByCardIds).toHaveBeenCalledWith('chat-1', ['card-a', 'card-b']);
+      expect(page.messages[1].metadata?.cardDecisions).toEqual({
+        'card-a': {
+          status: 'accepted',
+          resolutionText: 'Option A',
+          data: { picked: ['Option A'] },
+          decidedAt: '2026-10-14T10:00:00Z',
+        },
+      });
+      // A pending card carries no decision.
+      expect(page.messages[3].metadata).not.toHaveProperty('cardDecisions');
     });
 
     it('imports a thread that predates the table once, from its checkpoint', async () => {

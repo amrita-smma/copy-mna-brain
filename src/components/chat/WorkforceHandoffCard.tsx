@@ -14,6 +14,7 @@ import { CHAT_NAVIGATION_CLICKED, chatNavigationProperties } from "@/lib/posthog
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
 import type { ManualEffortChoice } from "@/lib/chat/effortTiers";
 import type { ChatAttachmentRef } from "@/lib/services/chatAttachmentService";
+import { useApprovalResolution } from "./ApprovalCardShell";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,8 +60,23 @@ export function WorkforceHandoffCard({
   className,
 }: WorkforceHandoffCardProps) {
   const handoffId = payload.handoff_id;
-  const [status, setStatus] = useState<Status>("idle");
-  const [queueId, setQueueId] = useState<string | null>(null);
+  // The decision is stored with the chat (copilot_chat_cards): it restores the
+  // card on any device and tells the agent's next turn what the user chose.
+  const decision = useApprovalResolution({
+    cardId: handoffId,
+    toolName: "propose_workforce_handoff",
+  });
+  const storedQueueId =
+    typeof decision.decisionData?.queue_id === "string" ? decision.decisionData.queue_id : null;
+  const storedStatus: Status | null = decision.isResolved
+    ? decision.decisionData?.declined === true
+      ? "declined"
+      : "assigned"
+    : null;
+  const [localStatus, setStatus] = useState<Status>("idle");
+  const status: Status = localStatus === "idle" && storedStatus ? storedStatus : localStatus;
+  const [localQueueId, setQueueId] = useState<string | null>(null);
+  const queueId = localQueueId ?? storedQueueId;
   const [error, setError] = useState<string | null>(null);
   const [overridden, setOverridden] = useState(false);
   // Bot threads pick their tier per turn and store none, so a handoff runs on
@@ -78,8 +94,10 @@ export function WorkforceHandoffCard({
   // server-side tool and embedded in the marker JSON). It survives chat
   // reload because the JSON is part of the persisted tool output content —
   // unlike the AI SDK's toolCallId, which is regenerated on each reload.
+  // A handoff decided before decisions were stored has none: look it up.
+  const hasStoredDecision = decision.isResolved;
   useEffect(() => {
-    if (!handoffId) return;
+    if (!handoffId || hasStoredDecision) return;
     let cancelled = false;
     (async () => {
       try {
@@ -98,7 +116,7 @@ export function WorkforceHandoffCard({
     return () => {
       cancelled = true;
     };
-  }, [handoffId]);
+  }, [handoffId, hasStoredDecision]);
 
   const handleAssign = async () => {
     setStatus("submitting");
@@ -118,6 +136,10 @@ export function WorkforceHandoffCard({
       });
       setQueueId(body?.id ?? null);
       setStatus("assigned");
+      decision.resolve("Assigned to the Workforce.", "accepted", {
+        ...(body?.id ? { queue_id: body.id } : {}),
+        effort: submittedEffort,
+      });
       toast.success("Assigned to Workforce");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to assign";
@@ -129,6 +151,7 @@ export function WorkforceHandoffCard({
 
   const handleDecline = () => {
     setStatus("declined");
+    decision.resolve("Declined — answer in chat instead.", "declined", { declined: true });
     onJustAnswerHere();
   };
 

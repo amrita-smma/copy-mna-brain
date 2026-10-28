@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 242 | `src/app/api/**/route.ts` |
-| Services | 100 | `src/lib/services/` |
-| Repositories | 87 | `src/lib/repositories/` |
+| API routes | 243 | `src/app/api/**/route.ts` |
+| Services | 101 | `src/lib/services/` |
+| Repositories | 88 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 193 | `drizzle/migrations/` |
+| Migrations (app) | 194 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -130,7 +130,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/bots/[id]/thread` | POST | `botService` |
 | `/api/bots/events` | GET | `botService` |
 | `/api/bots/pins` | PUT | `botService` |
-| `/api/chat` | POST | `botMemoryService`, `botService`, `chatAttachmentService`, `chatHistoryService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
+| `/api/chat` | POST | `botMemoryService`, `botService`, `chatAttachmentService`, `chatHistoryService`, `chatService`, `copilotChatCardService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
 | `/api/chat/attachments` | DELETE | `chatAttachmentService` |
 | `/api/chat/attachments/upload-url` | GET | `chatAttachmentService` |
 | `/api/chat/improve-prompt` | POST | — |
@@ -157,6 +157,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/company-analysis/cancel` | POST | `companyAnalysisService` |
 | `/api/company-slides` | GET, POST, PUT, DELETE | `slideService` |
 | `/api/consent` | POST | `consentService` |
+| `/api/copilot/chats/[id]/cards/[cardId]/decision` | POST | `copilotChatCardService` |
 | `/api/copilot/chats/[id]/feedback` | PUT | `copilotResponseFeedbackService` |
 | `/api/copilot/chats/[id]/messages` | GET | `chatHistoryService`, `copilotChatsService` |
 | `/api/copilot/chats/[id]/stop` | POST | `copilotChatsService` |
@@ -347,7 +348,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 85 keys. Wire new services in
+`Container` exposes 86 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -382,6 +383,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `contactConversationService.ts` | `InvalidOverviewRefreshSinceError`, `ContactConversationService` | ✅ |
 | `contactInsightsService.ts` | `ContactInsightsService` | ✅ |
 | `container.ts` | — | ✅ |
+| `copilotChatCardService.ts` | `InvalidCardDecisionError`, `CardDecisionConflictError`, `CopilotChatCardService` | ✅ |
 | `copilotChatsService.ts` | `CopilotChatNotFoundError`, `CopilotChatForbiddenError`, `CopilotChatsService` | ✅ |
 | `copilotResponseFeedbackService.ts` | `InvalidResponseFeedbackError`, `ResponseFeedbackTurnNotFoundError`, `CopilotResponseFeedbackService` | ✅ |
 | `criteriaService.ts` | `CriteriaService` | ✅ |
@@ -483,6 +485,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `companyVoteRepository.ts` | `CompanyVoteRepository` | ✅ |
 | `contactConversationRepository.ts` | `ContactConversationRepository` | ✅ |
 | `contactInteractionRepository.ts` | `ContactInteractionRepository` | ✅ |
+| `copilotChatCardRepository.ts` | `CopilotChatCardRepository` | ✅ |
 | `copilotChatsRepository.ts` | `CopilotChatsRepository` | ✅ |
 | `copilotMessageRepository.ts` | `CopilotMessageRepository` | ✅ |
 | `copilotResponseFeedbackRepository.ts` | `CopilotResponseFeedbackRepository` | ✅ |

@@ -31,7 +31,7 @@ export function BotRoutineApprovalCard({
   className?: string;
 }) {
   const { status, setStatus, resolutionText, error, setError, isResolved, isSubmitting, resolve } =
-    useApprovalResolution(`bot_routine_resolved_${payload.approval_id}`);
+    useApprovalResolution({ cardId: payload.approval_id, toolName: 'propose_create_routine' });
   const timezone = payload.input.timezone || browserTimezone();
   const scheduleLabel = describeSchedule(payload.input.schedule_kind, payload.input.schedule_spec, timezone);
 
@@ -41,7 +41,9 @@ export function BotRoutineApprovalCard({
     setError(null);
     try {
       const saved = await createBotRoutine(payload.bot_id, { ...payload.input, timezone });
-      resolve(`Scheduled “${saved.title}” — ${saved.schedule_label}.`);
+      resolve(`Scheduled “${saved.title}” — ${saved.schedule_label}.`, 'accepted', {
+        routine_id: saved.id,
+      });
       toast.success(`Routine scheduled on ${payload.bot_name}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not schedule the routine');
@@ -65,7 +67,7 @@ export function BotRoutineApprovalCard({
       approveTestId="bot-routine-approve"
       approveLabel="Schedule"
       submittingLabel="Scheduling…"
-      onReject={() => status === 'idle' && resolve('Cancelled — nothing was scheduled.')}
+      onReject={() => status === 'idle' && resolve('Cancelled — nothing was scheduled.', 'declined')}
       onApprove={handleApprove}
     >
       <p className="text-base font-semibold">{payload.input.title}</p>

@@ -15,6 +15,7 @@ const {
   rememberTurnMock,
   userMemoryServiceMock,
   botMemoryPromptContextMock,
+  cardPromptContextMock,
   withBackgroundDbMock,
   openThreadMock,
   openDefaultThreadMock,
@@ -54,6 +55,7 @@ const {
   rememberTurnMock: vi.fn(),
   userMemoryServiceMock: vi.fn(),
   botMemoryPromptContextMock: vi.fn(),
+  cardPromptContextMock: vi.fn(),
   // Runs the callback against the same container double the request used, so a
   // background write can be asserted the way a foreground one is.
   withBackgroundDbMock: vi.fn(async (fn: (db: unknown) => Promise<unknown>) => fn({})),
@@ -245,6 +247,7 @@ describe('POST /api/chat', () => {
       .mockReset()
       .mockReturnValue({ recallForTurn: recallForTurnMock, rememberTurn: rememberTurnMock });
     botMemoryPromptContextMock.mockReset().mockResolvedValue(null);
+    cardPromptContextMock.mockReset().mockResolvedValue(null);
     withBackgroundDbMock.mockClear();
     vi.mocked(after).mockClear();
     presence.handle.setPhase.mockClear();
@@ -283,6 +286,7 @@ describe('POST /api/chat', () => {
       workspaceService: { getCopilotAgent: getCopilotAgentMock },
       userMemoryService: userMemoryServiceMock,
       botMemoryService: { promptContext: botMemoryPromptContextMock },
+      copilotChatCardService: { promptContext: cardPromptContextMock },
       botService: {
         openThread: openThreadMock,
         openDefaultThread: openDefaultThreadMock,
@@ -789,6 +793,27 @@ describe('POST /api/chat', () => {
 
     it('runs the turn without the notes when their lookup fails', async () => {
       botMemoryPromptContextMock.mockRejectedValue(new Error('db down'));
+      resolve();
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(200);
+      expect(systemContext()).toBe('WORKSPACE CONTEXT');
+    });
+
+    it("tells the turn the user's decisions on the chat's cards, after the bot's notes", async () => {
+      botMemoryPromptContextMock.mockResolvedValue('BOT NOTES');
+      cardPromptContextMock.mockResolvedValue('CARD DECISIONS');
+      resolve();
+
+      await POST(chatRequest({}));
+
+      expect(cardPromptContextMock).toHaveBeenCalledWith(expect.any(String));
+      expect(systemContext()).toBe('WORKSPACE CONTEXT\n\nBOT NOTES\n\nCARD DECISIONS');
+    });
+
+    it('runs the turn without the card decisions when their lookup fails', async () => {
+      cardPromptContextMock.mockRejectedValue(new Error('db down'));
       resolve();
 
       const res = await POST(chatRequest({}));

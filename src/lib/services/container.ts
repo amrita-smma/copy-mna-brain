@@ -46,6 +46,7 @@ import {
   CopilotChatsRepository,
   CopilotMessageRepository,
   CopilotResponseFeedbackRepository,
+  CopilotChatCardRepository,
   AlphasenseToolCallRepository,
   DashboardActivityRepository,
   DashboardInsightsRepository,
@@ -146,6 +147,7 @@ import { BotTaskLogService } from './botTaskLogService';
 import { BotRequestService } from './botRequestService';
 import { ChatHistoryService } from './chatHistoryService';
 import { CopilotResponseFeedbackService } from './copilotResponseFeedbackService';
+import { CopilotChatCardService } from './copilotChatCardService';
 import { CheckpointCompactionService } from './checkpointCompactionService';
 import { AlphasenseToolCallService } from './alphasenseToolCallService';
 import { DashboardActivityService } from './dashboardActivityService';
@@ -221,6 +223,7 @@ export interface Container {
   copilotChatsService: CopilotChatsService;
   chatHistoryService: ChatHistoryService;
   copilotResponseFeedbackService: CopilotResponseFeedbackService;
+  copilotChatCardService: CopilotChatCardService;
   checkpointCompactionService: CheckpointCompactionService;
   botService: BotService;
   botMemoryService: BotMemoryService;
@@ -739,12 +742,21 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         chats: copilotChatsRepo(),
       }),
   );
+  const copilotChatCardRepo = lazy(() => new CopilotChatCardRepository(db, workspaceId));
+  const copilotChatCardService = lazy(
+    () =>
+      new CopilotChatCardService({
+        cards: copilotChatCardRepo(),
+        chats: copilotChatsRepo(),
+      }),
+  );
   const chatHistoryService = lazy(
     () =>
       new ChatHistoryService({
         messages: copilotMessageRepo(),
         chats: copilotChatsRepo(),
         feedback: copilotResponseFeedbackRepo(),
+        cards: copilotChatCardRepo(),
         dispatchEmbedding: async (messageIds) => {
           // Lazy: the handler pulls in the Bedrock SDK.
           const { CHAT_MESSAGE_EMBEDDING_TIMEOUT_SECONDS, runChatMessageEmbedding } = await import(
@@ -1096,6 +1108,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get copilotChatsService() { return copilotChatsService(); },
     get chatHistoryService() { return chatHistoryService(); },
     get copilotResponseFeedbackService() { return copilotResponseFeedbackService(); },
+    get copilotChatCardService() { return copilotChatCardService(); },
     get checkpointCompactionService() { return checkpointCompactionService(); },
     get botService() { return botService(); },
     get botMemoryService() { return botMemoryService(); },

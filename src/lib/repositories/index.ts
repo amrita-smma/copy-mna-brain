@@ -45,6 +45,7 @@ export {
 export * from './copilotChatsRepository';
 export * from './copilotMessageRepository';
 export * from './copilotResponseFeedbackRepository';
+export * from './copilotChatCardRepository';
 export * from './apiKeyRepository';
 export * from './apiChatConversationRepository';
 export * from './alphasenseToolCallRepository';

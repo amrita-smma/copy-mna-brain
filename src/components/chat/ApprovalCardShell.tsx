@@ -1,7 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Loader2, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { saveCardDecision } from '@/lib/api/chatCards';
+import type { ActionCardDecisionStatus } from '@/lib/chat/actionCards';
+import { useActionCardDecision } from './ActionCardDecisions';
+import { useOptionalChatThread } from './ChatProvider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -16,38 +21,103 @@ export interface UseApprovalResolutionReturn {
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   isResolved: boolean;
   isSubmitting: boolean;
-  resolve: (text: string) => void;
+  /** The stored decision's detail (what was picked, the row created, …), once decided. */
+  decisionData: Record<string, unknown> | null;
+  /**
+   * Show the card as decided and record the decision in the database, where
+   * it follows the user to other devices and reaches the agent's next turns.
+   */
+  resolve: (
+    text: string,
+    status: ActionCardDecisionStatus,
+    data?: Record<string, unknown> | null,
+  ) => void;
 }
 
-function getStoredResolution(storageKey: string | null | undefined): string | null {
-  if (!storageKey || typeof window === 'undefined') return null;
+/**
+ * Where each card kept its resolution text before decisions were stored in
+ * the database. Read only, so a card resolved back then does not offer its
+ * buttons again; never written.
+ */
+const LEGACY_STORAGE_PREFIX: Readonly<Record<string, string>> = {
+  propose_bulk_drop_companies: 'bulk_drop_resolved_',
+  propose_bulk_promote_companies: 'bulk_promote_resolved_',
+  propose_create_bot: 'bot_change_resolved_',
+  update_bot: 'bot_change_resolved_',
+  propose_create_routine: 'bot_routine_resolved_',
+  propose_insight_create: 'insight_create_resolved_',
+  propose_insight_edit: 'insight_edit_resolved_',
+  propose_insight_refresh: 'insight_refresh_resolved_',
+  propose_report_plan: 'report_plan_resolved_',
+  offer_options: 'option_card_',
+};
+
+function legacyResolution(card: { cardId: string | null | undefined; toolName: string } | null): string | null {
+  const prefix = card ? LEGACY_STORAGE_PREFIX[card.toolName] : undefined;
+  if (!prefix || !card?.cardId || typeof window === 'undefined') return null;
   try {
-    return localStorage.getItem(storageKey);
+    return localStorage.getItem(`${prefix}${card.cardId}`);
   } catch {
     return null;
   }
 }
 
+/**
+ * A card's decision state, stored in `copilot_chat_cards` (not the browser):
+ * starts from the decision the history page laid onto the card, and `resolve`
+ * writes the user's decision. `card` is null for a card with no id to key it
+ * on; it then resolves on screen only.
+ */
 export function useApprovalResolution(
-  storageKey: string | null | undefined,
+  card: { cardId: string | null | undefined; toolName: string } | null,
 ): UseApprovalResolutionReturn {
-  const [stored] = useState(() => getStoredResolution(storageKey));
+  const cardId = card?.cardId ?? null;
+  const stored = useActionCardDecision(cardId);
+  const chatId = useOptionalChatThread()?.chatId ?? null;
+  const [legacy] = useState(() => (stored ? null : legacyResolution(card)));
   const [status, setStatus] = useState<ApprovalStatus>(() =>
-    stored ? 'resolved' : 'idle',
+    stored || legacy ? 'resolved' : 'idle',
   );
-  const [resolutionText, setResolutionText] = useState<string | null>(stored);
+  const [resolutionText, setResolutionText] = useState<string | null>(
+    stored?.resolutionText ?? legacy,
+  );
+  const [decisionData, setDecisionData] = useState<Record<string, unknown> | null>(
+    stored?.data ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const resolve = (text: string) => {
+  // A decision that arrives after mount (the history page reloaded with it).
+  useEffect(() => {
+    if (!stored) return;
+    setStatus((prev) => (prev === 'idle' ? 'resolved' : prev));
+    setResolutionText((prev) => prev ?? stored.resolutionText);
+    setDecisionData((prev) => prev ?? stored.data);
+  }, [stored]);
+
+  const resolve: UseApprovalResolutionReturn['resolve'] = (text, decision, data = null) => {
     setResolutionText(text);
+    setDecisionData(data);
     setStatus('resolved');
-    if (storageKey && typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(storageKey, text);
-      } catch {
-        // ignore
-      }
-    }
+    if (!cardId || !card || !chatId) return;
+    saveCardDecision(chatId, cardId, {
+      toolName: card.toolName,
+      status: decision,
+      resolutionText: text,
+      data,
+    })
+      .then((saved) => {
+        // Decided first elsewhere: show the decision that stands.
+        if (saved.alreadyDecided) {
+          setResolutionText(saved.decision.resolutionText);
+          setDecisionData(saved.decision.data);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('[chat] failed to save the card decision:', err);
+        toast.warning('Your decision was applied but could not be saved', {
+          description: 'Other devices and the assistant may not see it.',
+        });
+      });
   };
 
   return {
@@ -59,6 +129,7 @@ export function useApprovalResolution(
     setError,
     isResolved: status === 'resolved',
     isSubmitting: status === 'submitting',
+    decisionData,
     resolve,
   };
 }

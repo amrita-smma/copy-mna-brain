@@ -14,15 +14,14 @@ import { useChatActions, useChatStatus } from './ChatProvider';
  * Clickable choices a bot offered (`offer_options`). Single choice sends on
  * click; multi choice sends the ticked options; a custom answer sends what the
  * user typed (alongside any ticks). The pick goes back as the user's next
- * message, and the card then shows what was chosen — remembered across
- * reloads, like the approval cards.
+ * message, and the card then shows what was chosen — stored with the chat
+ * (`copilot_chat_cards`), like the approval cards, so it survives reloads and
+ * follows the user to other devices.
  */
 export function OptionCard({ payload, className }: { payload: OptionCardPayload; className?: string }) {
   const { sendMessage } = useChatActions();
   const { status: chatStatus } = useChatStatus();
-  const { resolutionText, isResolved, isSubmitting, setStatus, resolve, error, setError } = useApprovalResolution(
-    `option_card_${payload.card_id}`,
-  );
+  const { resolutionText, isResolved, isSubmitting, setStatus, resolve, error, setError } = useApprovalResolution({ cardId: payload.card_id, toolName: 'offer_options' });
   const [ticked, setTicked] = useState<string[]>([]);
   const [custom, setCustom] = useState('');
   const submittingRef = useRef(false);
@@ -39,7 +38,10 @@ export function OptionCard({ payload, className }: { payload: OptionCardPayload;
     setError(null);
     try {
       await sendMessage({ text });
-      resolve([...picked, own?.trim()].filter(Boolean).join(', '));
+      resolve([...picked, own?.trim()].filter(Boolean).join(', '), 'accepted', {
+        picked,
+        ...(own?.trim() ? { custom: own.trim() } : {}),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send your answer');
       setStatus('idle');

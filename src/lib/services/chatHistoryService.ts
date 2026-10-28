@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import type {
+  CopilotChatCardRepository,
   CopilotChatRow,
   CopilotChatsRepository,
   CopilotMessageRepository,
@@ -8,6 +9,8 @@ import type {
   NewCopilotMessage,
 } from '@/lib/repositories';
 import { toResponseFeedbackValue } from '@/lib/chat/responseFeedback';
+import { findActionCards, type ActionCardDecision } from '@/lib/chat/actionCards';
+import { toActionCardDecision } from './copilotChatCardService';
 import {
   lastTurnUIMessages,
   toUIMessages,
@@ -44,6 +47,12 @@ export interface ChatHistoryDeps {
   chats: CopilotChatsRepository;
   /** The user's feedback on replies, laid onto each page (MB-693). */
   feedback: CopilotResponseFeedbackRepository;
+  /**
+   * The action cards replies offer and the user's decisions on them: each
+   * stored reply registers its cards, and each page lays the decisions back
+   * onto them.
+   */
+  cards: CopilotChatCardRepository;
   /** Queue embedding of stored exchanges (assistant rows) for history search. */
   dispatchEmbedding: (messageIds: string[]) => Promise<unknown>;
 }
@@ -165,6 +174,7 @@ export class ChatHistoryService {
             : r,
         );
       const inserted = await this.deps.messages.insertMany(rows);
+      await this.registerCards(chat.id, rows, inserted);
       await this.embed(inserted);
     }
     await this.deps.chats.stampMessage(chat.id, { read: input.interactive });
@@ -199,7 +209,7 @@ export class ChatHistoryService {
    * feedback, whatever its size.
    */
   private async withFeedback(
-    chat: Pick<CopilotChatRow, 'user_id'>,
+    chat: Pick<CopilotChatRow, 'id' | 'user_id'>,
     rows: CopilotMessageRow[],
   ): Promise<UIMessageOut[]> {
     const questionIds: (string | null)[] = [];
@@ -209,16 +219,38 @@ export class ChatHistoryService {
       questionIds.push(row.role === 'assistant' ? question : null);
     }
     const asked = [...new Set(questionIds.filter((id): id is string => id !== null))];
-    const votes = await this.deps.feedback.findByMessageIds(chat.user_id, asked);
+    // The page's cards, found in its replies' tool parts, and their decisions.
+    const cardIdsByRow = rows.map((row) =>
+      row.role === 'assistant' ? findActionCards(row.parts).map((c) => c.cardId) : [],
+    );
+    const cardIds = [...new Set(cardIdsByRow.flat())];
+    const [votes, cards] = await Promise.all([
+      this.deps.feedback.findByMessageIds(chat.user_id, asked),
+      this.deps.cards.findByCardIds(chat.id, cardIds),
+    ]);
     const voteByQuestion = new Map(votes.map((v) => [v.message_id, toResponseFeedbackValue(v)]));
+    const decisionByCard = new Map<string, ActionCardDecision>();
+    for (const card of cards) {
+      const decision = toActionCardDecision(card);
+      if (decision) decisionByCard.set(card.card_id, decision);
+    }
     return rows.map((row, i) => {
       const message = this.toUIMessage(row);
+      const decided = cardIdsByRow[i].filter((id) => decisionByCard.has(id));
+      const cardDecisions = decided.length > 0
+        ? Object.fromEntries(decided.map((id) => [id, decisionByCard.get(id)!]))
+        : null;
       const questionId = questionIds[i];
-      if (!questionId) return message;
-      const feedback = voteByQuestion.get(questionId);
+      if (!questionId && !cardDecisions) return message;
+      const feedback = questionId ? voteByQuestion.get(questionId) : undefined;
       return {
         ...message,
-        metadata: { ...message.metadata, questionId, ...(feedback ? { feedback } : {}) },
+        metadata: {
+          ...message.metadata,
+          ...(questionId ? { questionId } : {}),
+          ...(feedback ? { feedback } : {}),
+          ...(cardDecisions ? { cardDecisions } : {}),
+        },
       };
     });
   }
@@ -234,7 +266,9 @@ export class ChatHistoryService {
     }
     try {
       const ui = toUIMessages(await load());
-      const inserted = await this.deps.messages.insertMany(this.toRows(chat, ui, null));
+      const rows = this.toRows(chat, ui, null);
+      const inserted = await this.deps.messages.insertMany(rows);
+      await this.registerCards(chat.id, rows, inserted);
       await this.embed(inserted);
       return true;
     } catch (err) {
@@ -258,6 +292,35 @@ export class ChatHistoryService {
       if (rows.length > 0) return;
       await new Promise((r) => setTimeout(r, 100));
       if (i >= 2) return;
+    }
+  }
+
+  /**
+   * Register the action cards the stored replies offered, as pending, so the
+   * chat's next turns know they are waiting on the user. Best-effort: a card
+   * that is not registered is still created when the user decides it.
+   * `inserted` is in `rows`' order (one INSERT … RETURNING).
+   */
+  private async registerCards(
+    chatId: string,
+    rows: Pick<NewCopilotMessage, 'role' | 'parts'>[],
+    inserted: Pick<CopilotMessageRow, 'id' | 'role'>[],
+  ): Promise<void> {
+    const cards = rows.flatMap((row, i) =>
+      row.role === 'assistant'
+        ? findActionCards(row.parts ?? []).map((c) => ({
+            chatId,
+            messageId: inserted[i]?.id ?? null,
+            cardId: c.cardId,
+            toolName: c.toolName,
+            summary: c.summary,
+          }))
+        : [],
+    );
+    try {
+      await this.deps.cards.registerMany(cards);
+    } catch (err) {
+      console.error('[chat-history] failed to register action cards:', err);
     }
   }
 

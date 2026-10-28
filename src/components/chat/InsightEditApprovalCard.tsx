@@ -57,11 +57,7 @@ export function InsightEditApprovalCard({
     isResolved,
     isSubmitting,
     resolve,
-  } = useApprovalResolution(
-    payload.approval_id
-      ? `insight_edit_resolved_${payload.approval_id}`
-      : null,
-  );
+  } = useApprovalResolution({ cardId: payload.approval_id, toolName: 'propose_insight_edit' });
 
   const [isStale, setIsStale] = useState(false);
   // The current version the diff is against — replaced when the base moves.
@@ -189,7 +185,7 @@ export function InsightEditApprovalCard({
       });
 
       const versionNo = updated.version_no;
-      resolve(`Approved — published as version ${versionNo}.`);
+      resolve(`Approved — published as version ${versionNo}.`, 'accepted', { version_no: versionNo });
 
       toast.success(`Insight updated to version ${versionNo}`);
 
@@ -230,7 +226,7 @@ export function InsightEditApprovalCard({
   const handleReject = () => {
     if (status !== 'idle') return;
     // Writes nothing: no version, no draft row, no request.
-    resolve(actions.reject());
+    resolve(actions.reject(), 'declined');
   };
 
   const caption =

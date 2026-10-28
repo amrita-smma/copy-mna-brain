@@ -47,6 +47,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [In-app Copilot chat attachments](copilot-chat-attachments.md) — 6KB
 - [CoPilot memory (mem0, pgvector)](copilot-memory.md) — 20KB
 - [Feedback on Copilot replies (thumbs, reasons, Copy/Retry, Langfuse score) — MB-693](copilot-response-feedback.md) — 4KB
+- [Copilot action cards (approvals, options, hand-offs): decisions stored per chat and told to the agent](copilot-action-cards.md) — 4KB
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB
 - [Async jobs](async-jobs.md) — 38KB
 - [AI Workforce: stage moves, company chips, failure signals](ai-workforce-stages-and-signals.md) — 4KB

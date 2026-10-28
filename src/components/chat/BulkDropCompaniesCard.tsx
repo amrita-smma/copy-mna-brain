@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Check, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useApprovalResolution } from "./ApprovalCardShell";
 import { CompanyNavigateButton } from "./CompanyChip";
 
 export interface BulkDropCandidate {
@@ -28,8 +29,6 @@ interface BulkDropCompaniesCardProps {
   payload: BulkDropApprovalPayload;
   className?: string;
 }
-
-type Status = "idle" | "submitting" | "resolved";
 
 // Render a single-line reason string with inline **bold** segments. The agent
 // uses these to highlight the killer signal (e.g. "-$4M EBITDA"). Plain text
@@ -57,20 +56,12 @@ export function BulkDropCompaniesCard({
     [payload.candidates],
   );
   const [selected, setSelected] = useState<Set<string>>(() => new Set(allIds));
-  const [status, setStatus] = useState<Status>("idle");
-  const [resolutionText, setResolutionText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Restore resolved state from localStorage across page reloads
-  useEffect(() => {
-    if (payload.approval_id) {
-      const saved = localStorage.getItem(`bulk_drop_resolved_${payload.approval_id}`);
-      if (saved) {
-        setResolutionText(saved);
-        setStatus("resolved");
-      }
-    }
-  }, [payload.approval_id]);
+  // The decision is stored with the chat (copilot_chat_cards), so it follows
+  // the user across devices and reaches the agent's next turn.
+  const { status, setStatus, resolutionText, error, setError, resolve } = useApprovalResolution({
+    cardId: payload.approval_id,
+    toolName: "propose_bulk_drop_companies",
+  });
 
   const total = payload.candidates.length;
   const selectedCount = selected.size;
@@ -109,11 +100,7 @@ export function BulkDropCompaniesCard({
       const text = `Approved — dropped ${selectedCount} ${noun}${
         kept > 0 ? ` (kept ${kept})` : ""
       }.`;
-      setResolutionText(text);
-      setStatus("resolved");
-      if (payload.approval_id) {
-        localStorage.setItem(`bulk_drop_resolved_${payload.approval_id}`, text);
-      }
+      resolve(text, "accepted", { company_ids: deals.map((d) => d.id) });
       toast.success(`Dropped ${selectedCount} ${noun}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to drop";
@@ -125,11 +112,7 @@ export function BulkDropCompaniesCard({
 
   const handleKeepAll = () => {
     const text = `Kept all ${total} candidates on the watchlist.`;
-    setResolutionText(text);
-    setStatus("resolved");
-    if (payload.approval_id) {
-      localStorage.setItem(`bulk_drop_resolved_${payload.approval_id}`, text);
-    }
+    resolve(text, "declined");
   };
 
   return (

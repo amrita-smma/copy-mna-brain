@@ -177,6 +177,7 @@ async function handleChatTurn(
       botService,
       botMemoryService,
       chatHistoryService,
+      copilotChatCardService,
     } = createContainer(db, workspaceId);
 
     // The insight open on screen (MB-550): a compact outline of its current
@@ -286,7 +287,10 @@ async function handleChatTurn(
     // keep (explicit requests, so not behind the mem0 switch; best-effort
     // like the recall), and the flavor the bot runs on ('mna' — M&A — or
     // 'investment' — funds & investing, …; falling back to the workspace's).
-    const [contextData, mentionContext, botMemoryContext, copilotAgent, claimed] = await Promise.all([
+    // The chat's recent action cards (approvals, options, hand-offs) and what
+    // the user decided on each — a decision on a card that sends no message
+    // reaches the agent only this way. Best-effort, like the bot memory.
+    const [contextData, mentionContext, botMemoryContext, cardContext, copilotAgent, claimed] = await Promise.all([
       contextDataPromise,
       mentionContextFor(bot.id).catch((err: unknown) => {
         console.error('[chat] failed to list the bots to mention:', err);
@@ -294,6 +298,10 @@ async function handleChatTurn(
       }),
       botMemoryService.promptContext(userId, bot.id).catch((err: unknown) => {
         console.error('[chat] bot memory lookup failed:', err);
+        return null;
+      }),
+      copilotChatCardService.promptContext(chat.id).catch((err: unknown) => {
+        console.error('[chat] card decision lookup failed:', err);
         return null;
       }),
       isCopilotAgentType(bot.base_flavor)
@@ -547,6 +555,7 @@ async function handleChatTurn(
         mentionContext,
         memoryContext,
         botMemoryContext,
+        cardContext,
         agentNotice,
         insightContext,
         timeoutFollowUpContext(previousTimeout),

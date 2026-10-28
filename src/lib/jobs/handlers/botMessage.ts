@@ -40,6 +40,7 @@ export async function runBotMessage(
         chatHistoryService,
         userMemoryService,
         botMemoryService,
+        copilotChatCardService,
       } = createContainer(db, workspaceId);
       const { bot, chat } = await botService.openThread(userId, deps.toBotId);
       const user = await new UserRepository(db).findById(userId);
@@ -84,6 +85,8 @@ export async function runBotMessage(
             // The notes this user keeps on this bot: not gated by the mem0
             // switch, they are explicit requests, not inferred memory.
             botMemoryContext: () => botMemoryService.promptContext(userId, bot.id),
+            // The user's decisions on this chat's cards, as an interactive turn sees them.
+            cardContext: () => copilotChatCardService.promptContext(chat.id),
           },
           );
         } catch (err) {

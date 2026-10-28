@@ -617,7 +617,8 @@ shape.
   then Send), and a custom free-text answer unless `allow_custom: false`. 2–6
   options, at most one recommended (`src/lib/chat/optionCards.ts`). The pick
   is sent as the user's next message (`optionAnswerText`), and the card then
-  shows what was chosen (kept across reloads).
+  shows what was chosen, stored with the chat like every action card's
+  decision ([Copilot action cards](copilot-action-cards.md)).
 - Inline charts are not part of this (parked, MB-787).
 
 ## Unread dots

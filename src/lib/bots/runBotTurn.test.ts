@@ -74,6 +74,7 @@ describe('runBotTurn', () => {
       discardQuestion: vi.fn(async () => undefined),
       recallMemory: vi.fn(async () => null),
       botMemoryContext: vi.fn(async () => null),
+      cardContext: vi.fn(async () => null),
       sleep: vi.fn(async () => undefined),
       startPresence: vi.fn(() => presence),
       watchStop: vi.fn(() => stop),
@@ -137,6 +138,23 @@ describe('runBotTurn', () => {
     const context = invoke.mock.calls[0][0].additionalSystemContext as string;
     expect(context.indexOf('WORKSPACE')).toBeLessThan(context.indexOf('- Covers coal'));
     expect(context.indexOf('- Covers coal')).toBeLessThan(context.indexOf('<other_bots>'));
+  });
+
+  it("tells the turn the user's decisions on the chat's cards, and runs without them when the lookup fails", async () => {
+    deps.cardContext = vi.fn(async () => 'CARD DECISIONS');
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+    expect(invoke.mock.calls[0][0].additionalSystemContext).toContain('CARD DECISIONS');
+
+    invoke.mockClear();
+    getMessages.mockReset().mockResolvedValueOnce(priorMessages).mockResolvedValue(finalMessages);
+    deps.cardContext = vi.fn(async () => {
+      throw new Error('db down');
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await runBotTurn(input, deps as unknown as BotTurnDeps);
+    expect(invoke.mock.calls[0][0].additionalSystemContext).toContain('WORKSPACE');
+    expect(invoke.mock.calls[0][0].additionalSystemContext).not.toContain('CARD DECISIONS');
+    spy.mockRestore();
   });
 
   it('runs the turn without memory when recall fails or is not wired', async () => {
