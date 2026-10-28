@@ -10,6 +10,8 @@ import {
   buildResumeDecision,
   type ApiDecision,
 } from '@/lib/agents/analysis/hitl';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 interface DecisionRequestBody {
   tool_call_id?: unknown;
@@ -168,6 +170,7 @@ export async function POST(
       );
     }
     await repo.appendDecision(item.id, auditEntry);
+    await publishLiveEvent(item.workspace_id, LIVE_TOPICS.workforce, [item.id]);
 
     // Fire-and-forget dispatcher kick so the resume claims the slot
     // immediately when free. The cron tick remains the liveness fallback.

@@ -26,6 +26,8 @@ const posthogMocks = vi.hoisted(() => ({ captureWorkspaceEvent: vi.fn() }));
 vi.mock("@/lib/posthog-server", () => ({
   captureWorkspaceEvent: posthogMocks.captureWorkspaceEvent,
 }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock("@/lib/server/liveEvents", () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 import { deleteFile } from "@/lib/s3";
 
@@ -449,6 +451,29 @@ describe("CompanyService — moving into Pending Confirmation", () => {
     });
 
     expect(handler).toHaveBeenCalledWith(["c-1"], "user-7");
+  });
+
+  it("tells Sourcing's live badge about a Current Stage dropdown move into or out of Pending Confirmation", async () => {
+    liveMocks.publishLiveEvent.mockClear();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+    await service.updateFromDTO("c-1", { pipeline_stage: "unreviewed" } as never);
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(TEST_WORKSPACE_ID, "sourcing", ["c-1"]);
+
+    liveMocks.publishLiveEvent.mockClear();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "unreviewed" }),
+    );
+    await service.updateFromDTO("c-1", { pipeline_stage: "discovered" } as never);
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(TEST_WORKSPACE_ID, "sourcing", ["c-1"]);
+
+    liveMocks.publishLiveEvent.mockClear();
+    vi.mocked(repos.companyRepo.findById).mockResolvedValue(
+      makeCompany({ id: "c-1", pipeline_stage: "discovered" }),
+    );
+    await service.updateFromDTO("c-1", { target: "Renamed", pipeline_stage: "discovered" } as never);
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 });
 
@@ -890,6 +915,16 @@ describe("CompanyService.dropDeal", () => {
       action: "DROPPED_FROM_L2",
     });
     expect(repos.dealNoteRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it("tells Sourcing's live badge only when the drop leaves Pending Confirmation", async () => {
+    liveMocks.publishLiveEvent.mockClear();
+
+    await service.dropDeal("company-1", "L2");
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
+
+    await service.dropDeal("company-2", "unreviewed");
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(TEST_WORKSPACE_ID, "sourcing", ["company-2"]);
   });
 
   it("falls back to a stageless log action when current stage is missing", async () => {

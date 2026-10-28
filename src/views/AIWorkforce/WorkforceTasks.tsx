@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import {
   AlertCircle,
   Ban,
@@ -365,10 +367,20 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     draggingIdRef.current = draggingId;
   }, [draggingId]);
 
+  // The queue changes while this page is open (runs start, finish, fail,
+  // get reordered): the `workforce` live topic refetches it as that happens.
+  // The interval below is the fallback while the stream is down (5s, the old
+  // cadence) and a slow safety net while it is up.
+  const pollIntervalMs = useLiveRefetchInterval(5_000);
+  useLiveTopic(LIVE_TOPICS.workforce, () => {
+    if (document.visibilityState !== 'visible' || draggingIdRef.current !== null) return;
+    void fetchQueue();
+  });
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const POLL_INTERVAL_MS = 5_000;
+    const POLL_INTERVAL_MS = pollIntervalMs;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const start = () => {
@@ -407,7 +419,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fetchQueue, fetchRoutines]);
+  }, [fetchQueue, fetchRoutines, pollIntervalMs]);
 
   const inProgressItems = useMemo(
     () =>

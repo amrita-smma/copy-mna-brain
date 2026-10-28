@@ -105,7 +105,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/agents` | GET | — |
 | `/api/ai-opinion` | POST | `aiOpinionService` |
 | `/api/ai-screening` | GET, POST | `aiScreeningService` |
-| `/api/ai-screening/tasks/stream` | GET | `aiScreeningService` |
+| `/api/ai-screening/tasks` | GET | `aiScreeningService` |
 | `/api/auth/[...nextauth]` | — | — |
 | `/api/auth/api-keys` | GET, POST | `apiKeyService` |
 | `/api/auth/api-keys/[id]` | GET, PATCH, DELETE | `apiKeyService` |
@@ -148,10 +148,10 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/companies/[id]/run-l1-filters` | POST | `companyService` |
 | `/api/companies/[id]/vote` | GET, POST, PATCH | `companyVoteService` |
 | `/api/companies/[id]/vote/ballot` | PUT | `companyVoteService` |
+| `/api/companies/ai-opinions` | GET | `companyService` |
 | `/api/companies/contacts` | GET, POST | `companyContactDiscoveryService` |
 | `/api/companies/drop-bulk` | POST | `companyService` |
 | `/api/companies/promote-bulk` | POST | `companyService` |
-| `/api/companies/stream` | GET | `companyService` |
 | `/api/companies/triage` | GET, POST | `companyService` |
 | `/api/company-analysis` | GET, POST, DELETE | `companyAnalysisService` |
 | `/api/company-analysis/cancel` | POST | `companyAnalysisService` |
@@ -223,6 +223,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/deal-links/[id]` | DELETE | `dealLinkService` |
 | `/api/deal-links/feature` | POST | `dealLinkService` |
 | `/api/deal-notes/[id]` | PATCH, DELETE | `dealNoteService` |
+| `/api/events` | GET | — |
 | `/api/feedback` | POST | `feedbackService` |
 | `/api/fund-ledger/ai-opinion` | POST, DELETE | `fundAiOpinionService` |
 | `/api/fund-ledger/assets` | GET, POST | `flMasterDataService` |
@@ -305,7 +306,6 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/screenings` | GET, POST | `screeningService` |
 | `/api/screenings/[id]` | PATCH | `screeningService` |
 | `/api/screenings/prepare` | POST | `screeningService` |
-| `/api/screenings/stream` | GET | `screeningService` |
 | `/api/slide-generate` | POST | `slideService` |
 | `/api/slides/export-pptx` | GET | `slideService` |
 | `/api/smart-files` | GET, POST, PATCH | `fileService` |

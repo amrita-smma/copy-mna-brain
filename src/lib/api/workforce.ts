@@ -10,7 +10,7 @@ export interface WorkforceNavSummary {
   running: number;
 }
 
-export async function getWorkforceNavSummary(): Promise<WorkforceNavSummary> {
-  const { data } = await apiRequest<{ data: WorkforceNavSummary }>('/api/workforce-queue/summary');
-  return data;
+export function getWorkforceNavSummary(): Promise<WorkforceNavSummary> {
+  // `apiRequest` already unwraps the `{ data }` envelope.
+  return apiRequest<WorkforceNavSummary>('/api/workforce-queue/summary');
 }

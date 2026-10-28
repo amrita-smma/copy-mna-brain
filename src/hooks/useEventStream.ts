@@ -28,10 +28,20 @@ export const EVENT_STREAM_RETRY_MAX_MS = 30_000;
 export function useEventStream<T>(
   url: string | null,
   onMessage: (data: T) => void,
+  opts: {
+    /** The stream opened (or reopened). */
+    onOpen?: () => void;
+    /** The stream dropped: the browser or this hook is retrying, or `url` went null. */
+    onClose?: () => void;
+  } = {},
 ): void {
-  // Keep the latest handler in a ref so re-renders don't reopen the connection.
+  // Keep the latest handlers in refs so re-renders don't reopen the connection.
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
+  const openRef = useRef(opts.onOpen);
+  openRef.current = opts.onOpen;
+  const closeRef = useRef(opts.onClose);
+  closeRef.current = opts.onClose;
 
   useEffect(() => {
     if (!url) return;
@@ -55,6 +65,7 @@ export function useEventStream<T>(
       es.onopen = () => {
         if (source !== es) return;
         retryMs = EVENT_STREAM_RETRY_MIN_MS;
+        openRef.current?.();
       };
       es.onmessage = (event) => {
         if (!event.data) return;
@@ -67,6 +78,7 @@ export function useEventStream<T>(
       es.onerror = () => {
         // A late error from an instance already replaced is not ours to act on.
         if (stopped || source !== es) return;
+        closeRef.current?.();
         // CONNECTING: the browser is retrying by itself; leave it alone.
         if (es.readyState !== EventSource.CLOSED) return;
         es.close();
@@ -85,6 +97,7 @@ export function useEventStream<T>(
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
       source?.close();
+      closeRef.current?.();
     };
   }, [url]);
 }

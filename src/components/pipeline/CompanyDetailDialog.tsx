@@ -5,7 +5,11 @@ import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { CompanyContextCard } from "@/components/pipeline/CompanyContextCard";
 import { CollapsibleSection } from "@/components/pipeline/CollapsibleSection";
 import { CompanyTimeline } from "@/components/pipeline/CompanyTimeline";
-import { useEventStream } from "@/hooks/useEventStream";
+import { useQuery } from "@tanstack/react-query";
+import { getWorkspaceSlugFromUrl } from "@/lib/api/client";
+import { getScreenings } from "@/lib/api/pipeline";
+import { useLiveRefetchInterval } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 import {
   Dialog,
   DialogContent,
@@ -657,16 +661,21 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     void fetchDetails({ silent: true });
   });
 
-  // Live screening progress over SSE (replaces a 3s poll): connect only while
-  // the dialog is open and a screening is pending; the stream pushes the full
-  // list on every state change.
+  // Live screening progress: only while the dialog is open and a screening is
+  // pending, re-read the company's screenings whenever the `screenings` live
+  // topic fires (with a slow fallback poll — 3s, the old cadence, only while
+  // the stream is down).
   const hasPendingScreening = screenings.some((s) => s.state === "pending");
-  useEventStream<Screening[]>(
-    open && company.id && hasPendingScreening
-      ? `/api/screenings/stream?companyId=${encodeURIComponent(company.id)}`
-      : null,
-    (rows) => setScreenings(rows),
-  );
+  const liveRefetchInterval = useLiveRefetchInterval(3_000);
+  const { data: liveScreenings } = useQuery({
+    queryKey: [LIVE_TOPICS.screenings, getWorkspaceSlugFromUrl(), company.id],
+    queryFn: () => getScreenings({ companyId: company.id }) as Promise<Screening[]>,
+    enabled: open && Boolean(company.id) && hasPendingScreening,
+    refetchInterval: liveRefetchInterval,
+  });
+  useEffect(() => {
+    if (liveScreenings) setScreenings(liveScreenings);
+  }, [liveScreenings]);
 
   const scrollToAICardAndRun = (forceRegenerate = false) => {
     setActiveTab("details");

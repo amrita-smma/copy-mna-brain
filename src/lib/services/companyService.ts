@@ -45,6 +45,8 @@ import {
 } from '@/lib/pipeline/stages';
 import { companyDisplayName } from '@/lib/companyDisplay';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 const L0_STAGE: DealStage = FIRST_STAGE_KEY;
 
@@ -642,6 +644,9 @@ export class CompanyService {
     if (inserted.pipeline_stage === L0_STAGE) {
       await this.dispatchTrackMatching(inserted.id);
     }
+    if (inserted.pipeline_stage === UNREVIEWED_STAGE) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, [inserted.id]);
+    }
     if (inserted.pipeline_stage === UNREVIEWED_STAGE && !opts?.deferPendingArrival) {
       await this.notifyPendingArrival([inserted.id], inserted.entered_by ?? null);
     }
@@ -711,6 +716,10 @@ export class CompanyService {
         priorCompany.pipeline_stage ?? undefined,
         nextStage,
       );
+      // A move into or out of Pending Confirmation changes Sourcing's count.
+      if (nextStage === UNREVIEWED_STAGE || priorCompany.pipeline_stage === UNREVIEWED_STAGE) {
+        await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, [id]);
+      }
       if (nextStage === UNREVIEWED_STAGE) {
         await this.notifyPendingArrival([id], opts?.triggeredByUserId ?? null);
       }
@@ -905,6 +914,10 @@ export class CompanyService {
       }
     }
     await this.companyRepo.update(id, companyUpdate);
+    // A move into or out of Pending Confirmation changes Sourcing's count.
+    if (nextStage === UNREVIEWED_STAGE || currentStage === UNREVIEWED_STAGE) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, [id]);
+    }
     await this.companyLogRepo.insert({
       company_id: id,
       action: currentStage
@@ -991,6 +1004,10 @@ export class CompanyService {
       resurface_at: resurfaceAt ? new Date(resurfaceAt).toISOString() : null,
       dropped_by: opts?.droppedBy ?? null,
     });
+    // Dropping from Pending Confirmation (or an unknown stage) changes Sourcing's count.
+    if (!currentStage || currentStage === UNREVIEWED_STAGE) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, [id]);
+    }
     await this.companyLogRepo.insert({
       company_id: id,
       action: currentStage ? `DROPPED_FROM_${currentStage}` : 'DROPPED',
@@ -1040,6 +1057,9 @@ export class CompanyService {
         action: currentStage ? `DROPPED_FROM_${currentStage}` : 'DROPPED',
       })),
     );
+    if (deals.some((d) => !d.currentStage || d.currentStage === UNREVIEWED_STAGE)) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, ids);
+    }
 
     const notesToInsert = deals
       .map((d) => {
@@ -1087,6 +1107,9 @@ export class CompanyService {
           : `PROMOTED_TO_${nextStage}`,
       })),
     );
+    if (nextStage === UNREVIEWED_STAGE || deals.some((d) => d.currentStage === UNREVIEWED_STAGE)) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, ids);
+    }
     await this.regenerateCompanyCardsForBulkStageMove(deals, nextStage);
     if (pendingArrivalIds && pendingArrivalIds.length > 0) {
       await this.notifyPendingArrival(pendingArrivalIds, triggeredByUserId ?? null);
@@ -1152,6 +1175,9 @@ export class CompanyService {
       company_id: id,
       action: restoreTo ? `RESTORED_TO_${restoreTo}` : 'RESTORED',
     });
+    if ((restoreTo ?? currentStage) === UNREVIEWED_STAGE) {
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.sourcing, [id]);
+    }
   }
 
   runL1Filters(id: string) {

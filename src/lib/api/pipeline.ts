@@ -1,4 +1,5 @@
 import { apiRequest, buildWorkspaceHeaders } from '@/lib/api/client';
+import type { ScreeningTaskStatus } from '@/lib/services/aiScreeningService';
 
 export async function getCompanies(params: {
   id?: string;
@@ -437,6 +438,28 @@ export async function getScreenings(params?: { companyId?: string; inScreening?:
   if (params?.companyId) search.set('companyId', params.companyId);
   if (params?.inScreening) search.set('inScreening', 'true');
   return apiRequest<any[]>(`/api/screenings${search.toString() ? `?${search.toString()}` : ''}`);
+}
+
+/**
+ * The newest AI Workforce screening task per active Pending Confirmation / L0
+ * company — see `GET /api/ai-screening/tasks`. Live through the `workforce`
+ * topic.
+ */
+export function getAiScreeningTasks(): Promise<ScreeningTaskStatus[]> {
+  return apiRequest<ScreeningTaskStatus[]>('/api/ai-screening/tasks');
+}
+
+/**
+ * The companies with an AI Opinion run in flight — see
+ * `GET /api/companies/ai-opinions`. Live through the `ai-opinion` topic.
+ */
+export function getProcessingAiOpinions(): Promise<ProcessingAiOpinion[]> {
+  return apiRequest<ProcessingAiOpinion[]>('/api/companies/ai-opinions');
+}
+
+export interface ProcessingAiOpinion {
+  id: string;
+  ai_opinion_status: string | null;
 }
 
 /**

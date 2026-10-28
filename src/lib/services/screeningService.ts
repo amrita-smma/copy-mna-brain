@@ -4,6 +4,8 @@ import type {
   TablesInsert,
 } from '@/lib/repositories';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export class ScreeningService {
   constructor(
@@ -15,12 +17,16 @@ export class ScreeningService {
     return this.screeningRepo.findAllWithRelations(opts);
   }
 
-  create(data: TablesInsert<'screenings'>) {
-    return this.screeningRepo.insert(data);
+  async create(data: TablesInsert<'screenings'>) {
+    const row = await this.screeningRepo.insert(data);
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.screenings, [row.id]);
+    return row;
   }
 
-  update(id: string, updates: Parameters<ScreeningRepository['update']>[1]) {
-    return this.screeningRepo.update(id, updates);
+  async update(id: string, updates: Parameters<ScreeningRepository['update']>[1]) {
+    const row = await this.screeningRepo.update(id, updates);
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.screenings, [id]);
+    return row;
   }
 
   /**
@@ -33,6 +39,11 @@ export class ScreeningService {
    */
   async prepare(groups: ScreeningGroupInput[], triggeredByUserId?: string | null) {
     const entries = await this.screeningRepo.upsertOrReset(groups);
+    await publishLiveEvent(
+      this.workspaceId,
+      LIVE_TOPICS.screenings,
+      entries.map((e) => e.id),
+    );
 
     captureWorkspaceEvent({
       workspaceId: this.workspaceId,

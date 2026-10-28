@@ -11,7 +11,11 @@ import posthog from 'posthog-js';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatActions } from '@/components/chat/ChatProvider';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useEventStream } from '@/hooks/useEventStream';
+import { useQuery } from '@tanstack/react-query';
+import { getWorkspaceSlugFromUrl } from '@/lib/api/client';
+import { getScreenings } from '@/lib/api/pipeline';
+import { useLiveRefetchInterval } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import { companyDisplayName, companyDisplayTitle, companyInitials } from '@/lib/companyDisplay';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -612,15 +616,20 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     void fetchDetails();
   });
 
-  // Live screening progress over SSE (replaces a 3s poll): connect only while a
-  // screening is pending; the stream pushes the full list on every state change.
+  // Live screening progress: only while a screening is pending, re-read the
+  // company's screenings whenever the `screenings` live topic fires (with a
+  // slow fallback poll — 3s, the old cadence, only while the stream is down).
   const hasPendingScreening = screenings.some((s) => s.state === 'pending');
-  useEventStream<Screening[]>(
-    companyId && hasPendingScreening
-      ? `/api/screenings/stream?companyId=${encodeURIComponent(companyId)}`
-      : null,
-    (rows) => setScreenings(rows),
-  );
+  const liveRefetchInterval = useLiveRefetchInterval(3_000);
+  const { data: liveScreenings } = useQuery({
+    queryKey: [LIVE_TOPICS.screenings, getWorkspaceSlugFromUrl(), companyId],
+    queryFn: () => getScreenings({ companyId }) as Promise<Screening[]>,
+    enabled: Boolean(companyId) && hasPendingScreening,
+    refetchInterval: liveRefetchInterval,
+  });
+  useEffect(() => {
+    if (liveScreenings) setScreenings(liveScreenings);
+  }, [liveScreenings]);
 
   const addNote = async (occurredAt?: string | null) => {
     if (!newNote.trim() || !company) return;

@@ -5,6 +5,8 @@ import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { triggerWorkflowForRun } from './workflowTrigger';
 import { notifyRunFailed } from './notifyFailure';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export type DispatchResult =
   | { outcome: 'lock_contended' }
@@ -55,6 +57,7 @@ export async function dispatcherTick(db: DbClient): Promise<DispatchResult> {
     return { outcome: 'empty' };
   }
 
+  await publishLiveEvent(claimed.workspace_id, LIVE_TOPICS.workforce, [claimed.id]);
   await triggerWorkflowForRun(claimed.id);
   return { outcome: 'claimed', runId: claimed.id };
 }
@@ -101,6 +104,7 @@ export async function reapStuckRuns(
         message,
         last_heartbeat_at: row.last_heartbeat_at,
       });
+      await publishLiveEvent(row.workspace_id, LIVE_TOPICS.workforce, [row.id]);
       await failAiOpinionIfStillProcessing(
         db,
         row.workspace_id,

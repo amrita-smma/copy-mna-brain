@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSetPageDetail } from "@/components/layout/PageContextProvider";
-import { useEventStream } from "@/hooks/useEventStream";
+import { useQuery } from "@tanstack/react-query";
+import { getWorkspaceSlugFromUrl } from "@/lib/api/client";
+import { getAiScreeningTasks, getProcessingAiOpinions, getScreenings } from "@/lib/api/pipeline";
+import { useLiveRefetchInterval } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import { useChatActions } from "@/components/chat/ChatProvider";
@@ -138,6 +142,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDealType } from "@/lib/companies/dealTypes";
+
+/** The old SSE snapshot cadence; now only the fallback while the live stream is down. */
+const LIVE_FALLBACK_POLL_MS = 5_000;
+const EMPTY_SCREENING_TASKS: ScreeningTaskStatus[] = [];
 
 /** Pipeline Status filter: every deal, live deals only, or dropped deals only. */
 export type PipelineViewMode = "all" | "active" | "dropped";
@@ -320,9 +328,20 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   >(new Set());
   const [startingScreeningCompanyIds, setStartingScreeningCompanyIds] =
     useState<Set<string>>(new Set());
-  const [screeningTasks, setScreeningTasks] = useState<ScreeningTaskStatus[]>(
-    [],
-  );
+  // Live queries (see `LiveEventsProvider`): keyed under their topic so the
+  // workspace stream invalidates them, with a slow fallback poll while it is
+  // down. `LIVE_FALLBACK_POLL_MS` is the cadence the old SSE snapshots ran at.
+  const workspaceSlug = getWorkspaceSlugFromUrl();
+  const liveRefetchInterval = useLiveRefetchInterval(LIVE_FALLBACK_POLL_MS);
+  // Active AI Workforce screening tasks — a pending_scan run can be queued or
+  // matching tracks before any screening row exists, so row spinners also need
+  // this (see mergeRunningScreeningCompanyIds).
+  const { data: screeningTasksData } = useQuery({
+    queryKey: [LIVE_TOPICS.workforce, workspaceSlug, "ai-screening-tasks"],
+    queryFn: getAiScreeningTasks,
+    refetchInterval: liveRefetchInterval,
+  });
+  const screeningTasks: ScreeningTaskStatus[] = screeningTasksData ?? EMPTY_SCREENING_TASKS;
   // Optimistic "AI Opinion is being analyzed" ids — set on click before the
   // companies refetch reflects ai_opinion_status='processing'.
   const [analyzingAiOpinionIds, setAnalyzingAiOpinionIds] = useState<
@@ -1076,37 +1095,37 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     setCurrentPage(1);
   }, [stageView, searchQuery, sectorFilter, l1StatusFilter]);
 
-  // Active AI Workforce screening tasks — a pending_scan run can be queued or
-  // matching tracks before any screening row exists, so row spinners also need
-  // this stream (see mergeRunningScreeningCompanyIds).
-  useEventStream<ScreeningTaskStatus[]>(
-    "/api/ai-screening/tasks/stream",
-    setScreeningTasks,
-  );
-
-  // Live pending-screening set over SSE (replaces a 5s poll). One
-  // connection pushes the Pending Confirmation + L0 screenings list whenever any state changes; we
-  // derive the pending company ids and reconcile the optimistic "starting" set.
-  useEventStream<Array<{ state: string; company_id: string }>>(
-    "/api/screenings/stream?inScreening=true",
-    (data) => {
-      const pendingIds = new Set(
-        data
-          .filter((screening) => screening.state === "pending")
-          .map((screening) => screening.company_id),
-      );
-      setPendingScreeningCompanyIds(pendingIds);
-      setStartingScreeningCompanyIds((prev) => {
-        const next = new Set(prev);
-        pendingIds.forEach((id) => next.delete(id));
-        return next.size === prev.size ? prev : next;
-      });
-      // Drive the progress panel off this same stream. It used to poll every
-      // 5s on its own, forever, even with nothing running — this refetches it
-      // exactly when a screening actually changed state.
-      setScreeningProgressRefresh((n) => n + 1);
-    },
-  );
+  // Live pending-screening set: the Pending Confirmation + L0 screenings list,
+  // refetched whenever a screening changes state; we derive the pending
+  // company ids and reconcile the optimistic "starting" set.
+  const { data: inScreeningRows } = useQuery({
+    queryKey: [LIVE_TOPICS.screenings, workspaceSlug, "in-screening"],
+    queryFn: () =>
+      getScreenings({ inScreening: true }) as Promise<
+        Array<{ state: string; company_id: string }>
+      >,
+    refetchInterval: liveRefetchInterval,
+  });
+  useEffect(() => {
+    // react-query keeps the reference when the rows are unchanged, so this
+    // runs only when a screening actually changed state.
+    if (!inScreeningRows) return;
+    const pendingIds = new Set(
+      inScreeningRows
+        .filter((screening) => screening.state === "pending")
+        .map((screening) => screening.company_id),
+    );
+    setPendingScreeningCompanyIds(pendingIds);
+    setStartingScreeningCompanyIds((prev) => {
+      const next = new Set(prev);
+      pendingIds.forEach((id) => next.delete(id));
+      return next.size === prev.size ? prev : next;
+    });
+    // Drive the progress panel off this same query. It used to poll every
+    // 5s on its own, forever, even with nothing running — this refetches it
+    // exactly when a screening actually changed state.
+    setScreeningProgressRefresh((n) => n + 1);
+  }, [inScreeningRows]);
 
   const runningScreeningCompanyIds = mergeRunningScreeningCompanyIds(
     pendingScreeningCompanyIds,
@@ -1114,18 +1133,29 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
     screeningTasks,
   );
 
-  // While any company has an in-flight AI Opinion run, subscribe over SSE
-  // (replaces a 5s poll). The stream fires when the set of processing companies
-  // changes; we then refresh the list once so the spinner swaps for the verdict.
+  // While any company has an in-flight AI Opinion run, watch the compact
+  // set of processing companies; when it changes (a run finished) refresh the
+  // list once so the spinner swaps for the verdict.
   const hasProcessingAiOpinion = companies.some(
     (c) => c.ai_opinion_status === "processing",
   );
-  useEventStream<Array<{ id: string; ai_opinion_status: string | null }>>(
-    hasProcessingAiOpinion ? "/api/companies/stream" : null,
-    () => {
-      fetchCompanies({ silent: true });
-    },
-  );
+  const { data: processingAiOpinions } = useQuery({
+    queryKey: [LIVE_TOPICS.aiOpinion, workspaceSlug, "processing"],
+    queryFn: getProcessingAiOpinions,
+    enabled: hasProcessingAiOpinion,
+    refetchInterval: liveRefetchInterval,
+  });
+  const processingAiOpinionSignature = processingAiOpinions
+    ?.map((r) => `${r.id}:${r.ai_opinion_status ?? ""}`)
+    .sort()
+    .join("|");
+  const lastProcessingAiOpinionSignature = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!hasProcessingAiOpinion || processingAiOpinionSignature === undefined) return;
+    if (lastProcessingAiOpinionSignature.current === processingAiOpinionSignature) return;
+    lastProcessingAiOpinionSignature.current = processingAiOpinionSignature;
+    void fetchCompanies({ silent: true });
+  }, [hasProcessingAiOpinion, processingAiOpinionSignature]);
 
   const runScreeningForCompany = async (company: PipelineCompany) => {
     if (runningScreeningCompanyIds.has(company.id)) return;

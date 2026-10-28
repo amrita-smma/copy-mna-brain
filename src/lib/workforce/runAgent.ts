@@ -51,6 +51,8 @@ import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
 import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
 import { notifyRunFailed } from './notifyFailure';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 function isRateLimitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -698,6 +700,7 @@ async function finalize(
     message_count: result.messageCount,
     tool_call_count: result.toolCallCount,
   });
+  await publishLiveEvent(workspaceId, LIVE_TOPICS.workforce, [runId]);
   // AI Opinion runs that finish without calling save_*_ai_opinion would
   // otherwise leave the entity spinner stuck on 'processing' forever.
   // agentName/triggerMeta come from loadAndHeartbeat — no extra findById.
@@ -769,6 +772,7 @@ async function markWaitingStep(
     asked_user_id: askedUserId,
     asked_at: new Date().toISOString(),
   });
+  await publishLiveEvent(workspaceId, LIVE_TOPICS.workforce, [runId]);
   await kickDispatcher(db);
   // The reason is the human-readable fallback; toolName/toolArgs let the email
   // render the structured proposal card (e.g. a gated move_stage → from/to stage).
@@ -793,6 +797,7 @@ async function markFailedStep(
   const repo = new AiWorkforceQueueRepository(db, workspaceId);
   await repo.clearResumeToken(runId);
   await repo.markFailed(runId, errorPayload);
+  await publishLiveEvent(workspaceId, LIVE_TOPICS.workforce, [runId]);
   await failAiOpinionIfStillProcessing(db, workspaceId, triggerMeta, agentName);
   await failScreeningsIfStillPending(db, workspaceId, triggerMeta, agentName, queueInput);
   await kickDispatcher(db);
@@ -870,6 +875,7 @@ async function markFailedPreload(
   // would corrupt a healthy run. Only fail a row still sitting in 'running'.
   if (!row || row.status !== 'running') return;
   await repo.markFailed(runId, errorPayload);
+  await publishLiveEvent(row.workspace_id, LIVE_TOPICS.workforce, [runId]);
   await kickDispatcher(db);
   const reason =
     typeof errorPayload.message === 'string' ? errorPayload.message : undefined;

@@ -13,6 +13,8 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import type { PendingUserMessage } from '@/lib/db/schema';
 import type { ChatAttachmentRef } from './chatAttachmentService';
 import type { InsightFailedRefreshRun } from '@/lib/insights/types';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 function readText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -171,7 +173,9 @@ export class AiWorkforceService {
   async markFailureSeen(run: WorkforceQueueRow): Promise<boolean> {
     if (run.failure_seen_at) return false;
     if (run.status !== 'failed' && run.status !== 'timed_out') return false;
-    return this.queueRepo.markFailureSeen(run.id);
+    const marked = await this.queueRepo.markFailureSeen(run.id);
+    if (marked) await publishLiveEvent(run.workspace_id, LIVE_TOPICS.workforce, [run.id]);
+    return marked;
   }
 
   /**
@@ -307,6 +311,7 @@ export class AiWorkforceService {
       const isTerminal = TERMINAL_STATUSES.includes(row.status);
       const { row: updated, queue_position } =
         await this.queueRepo.appendPendingUserMessage(input.runId, message, isTerminal ? 'pending' : undefined);
+      await publishLiveEvent(updated.workspace_id, LIVE_TOPICS.workforce, [updated.id]);
       return {
         kind: 'attached',
         message_id: message.id,

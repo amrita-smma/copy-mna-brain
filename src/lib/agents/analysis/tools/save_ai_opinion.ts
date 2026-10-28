@@ -9,6 +9,8 @@ import {
   CompanyRepository,
 } from "@/lib/repositories";
 import type { TablesUpdate } from "@/lib/repositories";
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /** LangGraph `thread_id` === `ai_workforce_queue.id` for the owning run. */
 function extractRunId(config: RunnableConfig | undefined): string | null {
@@ -94,6 +96,7 @@ export const saveAiOpinion = tool(
 
       // Conditional on still-processing so cancel → failed wins the race.
       const updated = await repo.completeAiOpinionIfProcessing(id, updates);
+      if (updated) await publishLiveEvent(workspaceId, LIVE_TOPICS.aiOpinion, [id]);
       if (!updated) {
         const existing = await repo.findById(id);
         if (!existing) {

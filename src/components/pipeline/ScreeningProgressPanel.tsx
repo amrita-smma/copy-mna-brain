@@ -157,9 +157,10 @@ interface ScreeningProgressPanelProps {
   onScreeningComplete?: () => void;
   onCompanyClick?: (companyId: string) => void;
   /**
-   * Each company's newest AI Workforce screening task, live from the parent's
-   * `/api/ai-screening/tasks/stream` subscription (Pipeline already holds one
-   * for its row spinners, so the panel doesn't open a second).
+   * Each company's newest AI Workforce screening task, from the parent's
+   * `GET /api/ai-screening/tasks` query under the `workforce` live topic
+   * (Pipeline already holds it for its row spinners, so the panel doesn't
+   * fetch a second copy).
    */
   tasks?: ScreeningTaskStatus[];
 }
@@ -212,7 +213,7 @@ export default function ScreeningProgressPanel({
   };
 
   // Refetch on mount and whenever the parent bumps `refreshTrigger`, which it
-  // does from the `/api/screenings/stream` SSE subscription. That stream is the
+  // does when its `screenings` live query changes. That query is the
   // live-update mechanism; this panel used to run its own unconditional 5s poll
   // alongside it.
   useEffect(() => {

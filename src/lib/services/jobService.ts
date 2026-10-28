@@ -1,6 +1,8 @@
 import { ScreeningRepository, type DbClient, type JobRepository, type Tables } from '@/lib/repositories';
 import { DEFAULT_STUCK_BUFFER_SECONDS, buildStuckReason } from '@/lib/jobs/stuck';
 import { getActiveWorkspaceId } from '@/lib/workspace';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export interface StuckJobCleanupResult {
   cleaned: number;
@@ -58,6 +60,7 @@ export class JobService {
         screeningId,
         `Job ${job.id} marked as timed out: ${reason}`,
       );
+      await publishLiveEvent(workspaceId, LIVE_TOPICS.screenings, [screeningId]);
     } catch (err) {
       console.error(`[jobs] failed to mirror screening for job ${job.id}:`, err);
     }

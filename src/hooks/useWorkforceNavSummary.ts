@@ -4,30 +4,36 @@ import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getWorkspaceSlugFromUrl } from "@/lib/api/client";
 import { getWorkforceNavSummary, type WorkforceNavSummary } from "@/lib/api/workforce";
+import { useLiveRefetchInterval } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
-const QUERY_ROOT = "workforce-nav-summary";
+/** Keyed under the `workforce` live topic: `GET /api/events` invalidates it on every queue write. */
+const QUERY_ROOT = LIVE_TOPICS.workforce;
+const QUERY_NAME = "nav-summary";
 
 const EMPTY: WorkforceNavSummary = { unseen_failures: 0, queue: 0, running: 0 };
 
-/** How often the chip re-reads the queue while the app is open. */
-const POLL_MS = 5_000;
+/** The polling cadence while the live stream is down. */
+const FALLBACK_POLL_MS = 5_000;
 
 /**
  * The Workforce nav item's badges: the workspace's unseen failures (red cross)
  * and its queue (yellow, blinking while work is in it). Shared through the
  * react-query cache, so the expanded and icon-rail sidebars (both mounted at
  * once) issue a single request. Runs start, finish and fail while the user is
- * elsewhere, so it refetches on focus and every few seconds — the same cadence
- * the task view polls at, so the chip tracks what the page would show.
+ * elsewhere: the live stream invalidates the query as they do, and it refetches
+ * on focus and on a slow interval (every few seconds only while the stream is
+ * down).
  */
 export function useWorkforceNavSummary(enabled = true): WorkforceNavSummary {
   const slug = getWorkspaceSlugFromUrl();
+  const refetchInterval = useLiveRefetchInterval(FALLBACK_POLL_MS);
   const { data } = useQuery({
-    queryKey: [QUERY_ROOT, slug],
+    queryKey: [QUERY_ROOT, slug, QUERY_NAME],
     queryFn: getWorkforceNavSummary,
     enabled,
-    staleTime: POLL_MS - 1_000,
-    refetchInterval: POLL_MS,
+    staleTime: FALLBACK_POLL_MS - 1_000,
+    refetchInterval,
   });
   return enabled ? (data ?? EMPTY) : EMPTY;
 }
@@ -39,6 +45,6 @@ export function useWorkforceNavSummary(enabled = true): WorkforceNavSummary {
 export function useRefreshWorkforceNavSummary(): () => void {
   const queryClient = useQueryClient();
   return useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: [QUERY_ROOT] });
+    void queryClient.invalidateQueries({ queryKey: [QUERY_ROOT, getWorkspaceSlugFromUrl(), QUERY_NAME] });
   }, [queryClient]);
 }

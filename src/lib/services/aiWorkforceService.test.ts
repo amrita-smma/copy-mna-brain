@@ -7,6 +7,9 @@ const { enqueueAgentRun, captureMock } = vi.hoisted(() => ({
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 vi.mock('@/lib/posthog-server', () => ({
   captureWorkspaceEvent: captureMock,
 }));
@@ -486,11 +489,21 @@ describe('AiWorkforceService.markFailureSeen', () => {
   const run = (extra: Record<string, unknown>) =>
     ({ id: 'r1', status: 'failed', failure_seen_at: null, ...extra }) as never;
 
-  it('marks an unseen failure seen', async () => {
+  it('marks an unseen failure seen and tells the workforce live topic', async () => {
+    liveMocks.publishLiveEvent.mockClear();
     const markFailureSeen = vi.fn().mockResolvedValue(true);
     const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({}))).resolves.toBe(true);
+    await expect(service.markFailureSeen(run({ workspace_id: 'ws-1' }))).resolves.toBe(true);
     expect(markFailureSeen).toHaveBeenCalledWith('r1');
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-1', 'workforce', ['r1']);
+  });
+
+  it('does not publish when the row was already seen by the time of the write', async () => {
+    liveMocks.publishLiveEvent.mockClear();
+    const markFailureSeen = vi.fn().mockResolvedValue(false);
+    const service = makeServiceWith({ markFailureSeen });
+    await expect(service.markFailureSeen(run({ workspace_id: 'ws-1' }))).resolves.toBe(false);
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 
   it('skips the write for a run that did not fail or was already seen', async () => {

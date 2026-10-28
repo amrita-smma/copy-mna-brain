@@ -10,6 +10,9 @@ const { enqueueAgentRun, findActiveByCompanyId, captureMock } = vi.hoisted(
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun }));
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 vi.mock('@/lib/posthog-server', () => ({
   captureWorkspaceEvent: captureMock,
 }));
@@ -313,5 +316,31 @@ describe('AiOpinionService.dispatch', () => {
     const { input } = enqueueAgentRun.mock.calls[0][1];
     expect(input.instruction).not.toContain('AI SCREENING RESULTS');
     errSpy.mockRestore();
+  });
+});
+
+describe('AiOpinionService.dispatch live events', () => {
+  beforeEach(() => {
+    liveMocks.publishLiveEvent.mockClear();
+    enqueueAgentRun.mockReset().mockResolvedValue({ runId: 'run-1', created: true });
+    findActiveByCompanyId.mockReset().mockResolvedValue(null);
+  });
+
+  it('publishes the company on the ai-opinion topic once it is marked processing', async () => {
+    const service = makeService(makeCompanyRepo());
+
+    await service.dispatch('co-1', 'user-1');
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('workspace-1', 'ai-opinion', ['co-1']);
+  });
+
+  it('publishes again when the enqueue fails and the status is reset to failed', async () => {
+    enqueueAgentRun.mockRejectedValue(new Error('queue down'));
+    const service = makeService(makeCompanyRepo());
+
+    await expect(service.dispatch('co-1', 'user-1')).rejects.toThrow('queue down');
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(2);
+    expect(liveMocks.publishLiveEvent).toHaveBeenLastCalledWith('workspace-1', 'ai-opinion', ['co-1']);
   });
 });

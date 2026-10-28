@@ -5,6 +5,8 @@ const posthogMocks = vi.hoisted(() => ({ captureWorkspaceEvent: vi.fn() }));
 vi.mock('@/lib/posthog-server', () => ({
   captureWorkspaceEvent: posthogMocks.captureWorkspaceEvent,
 }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 import { ScreeningService } from './screeningService';
 
@@ -26,8 +28,25 @@ describe('ScreeningService.prepare', () => {
 
   beforeEach(() => {
     posthogMocks.captureWorkspaceEvent.mockReset();
+    liveMocks.publishLiveEvent.mockClear();
     repo = makeRepoStub();
     service = new ScreeningService(repo, WORKSPACE_ID);
+  });
+
+  it('publishes the prepared rows on the screenings live topic after the upsert', async () => {
+    (repo.upsertOrReset as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 's-1' }, { id: 's-2' }]);
+
+    await service.prepare([{ companyId: 'co-1', trackId: 't-1', criteriaIds: ['c1'] }]);
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(WORKSPACE_ID, 'screenings', ['s-1', 's-2']);
+  });
+
+  it('does not publish when the upsert fails', async () => {
+    (repo.upsertOrReset as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('db down'));
+
+    await expect(service.prepare([{ companyId: 'co-1', trackId: 't-1', criteriaIds: ['c1'] }])).rejects.toThrow('db down');
+
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 
   it('delegates per-track groups to the repository upsertOrReset', async () => {
@@ -114,5 +133,23 @@ describe('ScreeningService.findAll', () => {
     await service.findAll({ inScreening: true });
 
     expect(repo.findAllWithRelations).toHaveBeenCalledWith({ inScreening: true });
+  });
+});
+
+describe('ScreeningService.create / update', () => {
+  it('publish the written row on the screenings live topic', async () => {
+    liveMocks.publishLiveEvent.mockClear();
+    const repo = makeRepoStub();
+    (repo.insert as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 's-new' });
+    (repo.update as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 's-1', state: 'completed' });
+    const service = new ScreeningService(repo, WORKSPACE_ID);
+
+    await expect(service.create({ company_id: 'co-1' } as never)).resolves.toEqual({ id: 's-new' });
+    await expect(service.update('s-1', { state: 'completed' })).resolves.toEqual({ id: 's-1', state: 'completed' });
+
+    expect(liveMocks.publishLiveEvent.mock.calls).toEqual([
+      [WORKSPACE_ID, 'screenings', ['s-new']],
+      [WORKSPACE_ID, 'screenings', ['s-1']],
+    ]);
   });
 });

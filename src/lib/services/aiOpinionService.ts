@@ -5,6 +5,8 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { enqueueAgentRun } from '@/lib/workforce';
 import { clipCompanyContext } from '@/lib/companyContextPrompt';
 import type { AIScreeningService } from './aiScreeningService';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /** agent_name recorded on the AI Workforce queue row for AI Opinion runs. */
 export const AI_OPINION_AGENT_NAME = 'ai_opinion';
@@ -89,6 +91,7 @@ export class AiOpinionService {
       // A run is already in flight — make sure the row reflects 'processing'
       // and reuse it rather than enqueueing a duplicate.
       await this.companyRepo.update(id, { ai_opinion_status: 'processing' });
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.aiOpinion, [id]);
       return { runId: active.id };
     }
 
@@ -102,6 +105,7 @@ export class AiOpinionService {
       ai_opinion_verdict: null,
       ai_opinion_summary: null,
     });
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.aiOpinion, [id]);
 
     // The deal team's free-form Context is inlined rather than left for the
     // agent to fetch: it is the one input with no structured column behind it,
@@ -175,6 +179,7 @@ export class AiOpinionService {
       // Don't leave the company stuck on 'processing' if enqueue fails after
       // the optimistic status flip above.
       await this.companyRepo.update(id, { ai_opinion_status: 'failed' });
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.aiOpinion, [id]);
       throw err;
     }
 

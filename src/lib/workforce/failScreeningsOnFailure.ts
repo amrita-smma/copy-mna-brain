@@ -1,5 +1,7 @@
 import type { DbClient } from '@/lib/repositories';
 import { ScreeningRepository } from '@/lib/repositories';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /**
  * Queue `agent_name` of the per-company AI screening task. Must stay in sync
@@ -44,10 +46,11 @@ export async function failScreeningsIfStillPending(
   const companyId = companyIdFromAiScreeningRow(triggerMeta, queueInput);
   if (!companyId) return;
   try {
-    await new ScreeningRepository(db, workspaceId).markPendingFailedForCompany(
+    const failed = await new ScreeningRepository(db, workspaceId).markPendingFailedForCompany(
       companyId,
       'The AI screening task ended before this criterion was screened',
     );
+    if (failed > 0) await publishLiveEvent(workspaceId, LIVE_TOPICS.screenings);
   } catch (err) {
     console.error(`[failScreeningsIfStillPending] company ${companyId}:`, err);
   }

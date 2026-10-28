@@ -51,6 +51,7 @@ import { LayoutControlProvider, useLayoutControl } from './LayoutControlContext'
 import { MobileShell } from './MobileShell';
 import { MobileBotApp, MOBILE_BOT_QUERY_PARAM } from '@/components/mobile/MobileBotApp';
 import { PageContextProvider } from './PageContextProvider';
+import { LiveEventsProvider } from '@/components/live/LiveEventsProvider';
 import { SidebarPagesNav } from './SidebarPagesNav';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { ChangelogWidget } from './ChangelogWidget';
@@ -238,6 +239,7 @@ export function AppShell({
     return (
       <ProtectedRoute initialUser={initialUser}>
         <PageContextProvider>
+        <LiveEventsProvider enabled>
           {/* Fires the in-app alert when a personal task's reminder passes. */}
           <TaskReminderAlerts />
           {/* Mobile has no docked pane to uncover — the destination route just
@@ -247,6 +249,7 @@ export function AppShell({
           <MobileShell isChatRoute={isLandingRoute}>
             {isLandingRoute ? <MobileBotApp /> : children}
           </MobileShell>
+        </LiveEventsProvider>
         </PageContextProvider>
       </ProtectedRoute>
     );
@@ -255,6 +258,9 @@ export function AppShell({
   return (
     <ProtectedRoute initialUser={initialUser}>
       <PageContextProvider>
+        {/* The one `GET /api/events` connection: every live view's react-query
+            key is invalidated from here, so navigation never reopens it. */}
+        <LiveEventsProvider enabled>
         <TaskReminderAlerts />
         <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
           <NavigationActionHandler onNavigate={handleAgentNavigate} />
@@ -426,6 +432,7 @@ export function AppShell({
           </div>
           </LayoutControlProvider>
         </SidebarProvider>
+        </LiveEventsProvider>
       </PageContextProvider>
     </ProtectedRoute>
   );

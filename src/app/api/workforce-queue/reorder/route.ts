@@ -3,6 +3,8 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { auth } from '@/auth';
 import { createDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 const MAX_ROWS = 200;
 
@@ -85,8 +87,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const db = createDb();
-    const repo = new AiWorkforceQueueRepository(db, await getActiveWorkspaceId());
+    const workspaceId = await getActiveWorkspaceId();
+    const repo = new AiWorkforceQueueRepository(db, workspaceId);
     await repo.setPriorities(parsed.order);
+    await publishLiveEvent(workspaceId, LIVE_TOPICS.workforce, parsed.order.map((o) => o.id));
     return NextResponse.json({ ok: true, updated: parsed.order.length });
   } catch (error: unknown) {
     const message =

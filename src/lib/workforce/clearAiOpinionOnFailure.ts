@@ -1,5 +1,7 @@
 import type { DbClient } from '@/lib/repositories';
 import { CompanyRepository, FlAssetRepository } from '@/lib/repositories';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /**
  * Queue `agent_name` values that own an entity's `ai_opinion_status` spinner.
@@ -71,6 +73,7 @@ export async function failAiOpinionIfStillProcessing(
     try {
       const repo = new CompanyRepository(db, workspaceId);
       await repo.markAiOpinionFailedIfProcessing(companyId);
+      await publishLiveEvent(workspaceId, LIVE_TOPICS.aiOpinion, [companyId]);
     } catch (err) {
       console.error(
         `[failAiOpinionIfStillProcessing] company ${companyId}:`,

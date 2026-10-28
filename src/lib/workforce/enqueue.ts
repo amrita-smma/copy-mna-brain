@@ -7,6 +7,8 @@ import { dispatcherTick } from './dispatcher';
 import { generateWorkforceTitle, persistWorkforceTitle, TITLE_MAX_CHARS } from './title';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { runWithLangfuseWorkspaceId } from '@/lib/langfuseWorkspace';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export type TriggerSource = 'chat' | 'cron' | 'webhook' | 'api';
 
@@ -74,6 +76,7 @@ export async function enqueueAgentRun(
   });
 
   if (created) {
+    await publishLiveEvent(workspaceId, LIVE_TOPICS.workforce, [row.id]);
     await scheduleDispatch();
     scheduleTitleGeneration(row.id, workspaceId, input.input, input.triggeredByUserId);
   }

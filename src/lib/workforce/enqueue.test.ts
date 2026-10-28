@@ -40,6 +40,9 @@ vi.mock('next/server', () => ({ after }));
 
 vi.mock('./dispatcher', () => ({ dispatcherTick }));
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 vi.mock('./title', () => ({
   generateWorkforceTitle,
   persistWorkforceTitle,
@@ -130,6 +133,18 @@ describe('enqueueAgentRun', () => {
 
     const [insertArg] = createOrGetByIdempotencyKey.mock.calls[0];
     expect(insertArg.workspace_id).toBe('ws-b');
+  });
+
+  it('publishes the new run on the workforce live topic, but not an existing row', async () => {
+    liveMocks.publishLiveEvent.mockClear();
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-new' }, created: true });
+    await enqueueAgentRun(fakeDb, { agentName: 'research', triggerSource: 'webhook', input: {}, workspaceId: 'ws-a' });
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-a', 'workforce', ['r-new']);
+
+    liveMocks.publishLiveEvent.mockClear();
+    createOrGetByIdempotencyKey.mockResolvedValueOnce({ row: { id: 'r-existing' }, created: false });
+    await enqueueAgentRun(fakeDb, { agentName: 'research', triggerSource: 'webhook', input: {}, workspaceId: 'ws-a' });
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 
   it('does not schedule dispatch when idempotency-key returned an existing row', async () => {

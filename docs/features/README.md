@@ -60,7 +60,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [App shell (chat-first landing + center console)](app-shell.md) — 21KB
 - [Personal tasks (to-dos with reminders)](personal-tasks.md) — 2KB
 - [Record-scoped dialogs (`CompanyDetailDialog` and friends)](record-scoped-dialogs.md) — 5KB
-- [Live updates (Server-Sent Events)](live-updates-sse.md) — 1KB
+- [Live updates (Server-Sent Events)](live-updates-sse.md) — 4KB
 - [Workspace table layouts (column order / hidden / groups)](workspace-table-layouts.md) — 3KB
 - [In-app feedback (MB-480)](in-app-feedback.md) — 2KB
 

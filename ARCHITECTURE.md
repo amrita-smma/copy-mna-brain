@@ -122,7 +122,11 @@ check for N+1 queries before you finish — see below.
 `terraform/redis`) holds what expires on its own: which bot is thinking, Stop
 signals, pub/sub to the browsers' SSE streams. Never make correctness depend on
 it — the turn lock, history and checkpoints stay in Postgres, and every Redis
-write is wrapped so an outage degrades the live indicators, not chat.
+write is wrapped so an outage degrades the live indicators, not chat. Live
+views follow the same rule: a service publishes `{ topic, ids }` after its
+write (`publishLiveEvent`), `GET /api/events` forwards it, and each view is a
+react-query hook keyed under its topic with a slow polling fallback
+(`docs/features/live-updates-sse.md`). Never poll the database from a stream.
 
 **Two migration folders, one fixed order.** `pnpm db:migrate` applies every
 pending app migration, then every pending pipeline migration, so on a database

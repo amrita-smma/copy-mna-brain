@@ -139,11 +139,11 @@ Each company also shows its newest `ai_screening` task — Queued, Running, Done
 Failed… — as a **View task** link to `/ai-workforce/tasks/<runId>`. A company
 whose task is queued but hasn't written screening rows yet (an Auto-scan
 arrival) sits under "Queued in AI Workforce". The task status comes from its own
-live stream, `GET /api/ai-screening/tasks/stream`
-(`AIScreeningService.listCompanyTasks` → one `DISTINCT ON` query,
-`idx_ai_workforce_queue_ai_screening_company`), because a task queuing or
-starting doesn't touch its screening rows. Pipeline holds the one subscription
-and feeds both the panel and the row "AI Screening Running" spinners from it.
+query, `GET /api/ai-screening/tasks`, kept live by the `workforce` topic of
+`GET /api/events` (`AIScreeningService.listCompanyTasks` → one `DISTINCT ON`
+query, `idx_ai_workforce_queue_ai_screening_company`), because a task queuing
+or starting doesn't touch its screening rows. Pipeline holds the one query and
+feeds both the panel and the row "AI Screening Running" spinners from it.
 
 Clicking a card opens the company dialog on its **Pre-pipeline Filters** tab —
 the screening results per track (formerly "L1 Filters").

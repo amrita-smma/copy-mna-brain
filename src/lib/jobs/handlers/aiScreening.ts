@@ -15,6 +15,8 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { z } from 'zod';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { TRACE_NAMES } from '@/lib/langfuseTraceNames';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export const AI_SCREENING_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -182,6 +184,7 @@ function buildCompanyContext(
 
 async function writeScreeningResult(
   screeningRepo: ScreeningRepository,
+  workspaceId: string,
   screeningId: string,
   jobId: string | null,
   result: ScreeningResult,
@@ -193,6 +196,7 @@ async function writeScreeningResult(
     remarks: result.remarks,
     job_id: jobId,
   } as Tables<'screenings'>);
+  await publishLiveEvent(workspaceId, LIVE_TOPICS.screenings, [screeningId]);
 }
 
 /**
@@ -264,7 +268,7 @@ export async function runAIScreening(
         ? 'Rate limit exceeded. Request will be retried automatically.'
         : `Agent error: ${errorMsg}`;
       const screeningResult: ScreeningResult = { result: 'error', remarks };
-      await writeScreeningResult(screeningRepo, screeningId, jobId, screeningResult);
+      await writeScreeningResult(screeningRepo, workspaceId, screeningId, jobId, screeningResult);
       resultWritten = true;
       throw new Error(remarks);
     }
@@ -298,7 +302,7 @@ export async function runAIScreening(
       }
     }
 
-    await writeScreeningResult(screeningRepo, screeningId, jobId, screeningResult);
+    await writeScreeningResult(screeningRepo, workspaceId, screeningId, jobId, screeningResult);
     resultWritten = true;
 
     captureWorkspaceEvent({
@@ -324,6 +328,7 @@ export async function runAIScreening(
           screeningId,
           `AI screening did not produce a result${jobId ? ` for job ${jobId}` : ''}`,
         );
+        await publishLiveEvent(workspaceId, LIVE_TOPICS.screenings, [screeningId]);
       } catch (mirrorErr) {
         console.error(
           `[ai_screening] failed to mirror failed state for screening ${screeningId}:`,

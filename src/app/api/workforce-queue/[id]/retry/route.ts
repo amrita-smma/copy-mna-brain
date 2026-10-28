@@ -4,6 +4,8 @@ import { auth } from '@/auth';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { AiWorkforceQueueRepository } from '@/lib/repositories';
 import { dispatcherTick } from '@/lib/workforce';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /**
  * Retry a terminal-failure workforce queue row.
@@ -60,6 +62,7 @@ export async function POST(
     }
 
     const fresh = await repo.retryById(id, { userId: session.user.id });
+    await publishLiveEvent(original.workspace_id, LIVE_TOPICS.workforce, [id]);
 
     after(async () => {
       try {

@@ -12,6 +12,8 @@ import { EmailNotificationService } from '@/lib/services/emailNotificationServic
 import { dispatcherTick } from '@/lib/workforce';
 import { failAiOpinionIfStillProcessing } from '@/lib/workforce/clearAiOpinionOnFailure';
 import { failScreeningsIfStillPending } from '@/lib/workforce/failScreeningsOnFailure';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 interface CancelBody {
   reason?: unknown;
@@ -87,6 +89,7 @@ export async function POST(
     // active workspace can differ (cross-workspace queue browse); using it
     // would miss the entity or write against the wrong tenant.
     const entityWorkspaceId = item.workspace_id ?? workspaceId;
+    await publishLiveEvent(entityWorkspaceId, LIVE_TOPICS.workforce, [id]);
 
     // Release any AI Opinion spinner left on the target entity.
     await failAiOpinionIfStillProcessing(

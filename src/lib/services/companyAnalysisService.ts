@@ -4,6 +4,8 @@ import type { DbClient } from '@/lib/repositories';
 import { AiWorkforceQueueRepository, isTerminalWorkforceStatus } from '@/lib/repositories';
 import type { CompanyAnalysisPayload, RelatedCompany } from '@/lib/jobs/handlers/companyAnalysis';
 import { enqueueAgentRun } from '@/lib/workforce';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /** agent_name recorded on the AI Workforce queue row for card-generation runs. */
 export const COMPANY_CARD_AGENT_NAME = 'company_card';
@@ -338,6 +340,7 @@ export class CompanyAnalysisService {
       await queueRepo.cancelById(active.id, {
         reason: 'Superseded: the Pending Confirmation scan generated the Company Card first',
       });
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.workforce, [active.id]);
     }
 
     // Resolved lazily to keep this service off the agent/tool import cycle
@@ -378,6 +381,7 @@ export class CompanyAnalysisService {
         reason: 'Company Card generation cancelled by user',
       });
       cancelled = row != null;
+      if (cancelled) await publishLiveEvent(this.workspaceId, LIVE_TOPICS.workforce, [active.id]);
     }
 
     // Drop any in-progress analysis row so the UI returns to the pre-generation
