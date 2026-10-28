@@ -118,6 +118,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "7532776d7c6a4de2b5c09c9bf81f47ba852eaff8",
+    "date": "2026-10-28",
+    "subject": "Deal pages now redirect to the deal list when the link points to a deal outside your workspace",
+    "category": "improvement"
+  },
+  {
+    "hash": "874a23d312f03436fae84912c56d2f55296ae5e7",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
