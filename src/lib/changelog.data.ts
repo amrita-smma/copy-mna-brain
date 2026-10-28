@@ -240,6 +240,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "48c5fb7bd5c283e38840e4141672f6646418d6f5",
+    "date": "2026-10-28",
+    "subject": "Assistant replies no longer time out mid-stream and recall past context faster",
+    "category": "fix"
+  },
+  {
+    "hash": "c99aa20c5999acb1321c4a0340eab0547e02bd7c",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
