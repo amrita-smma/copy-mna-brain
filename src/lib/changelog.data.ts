@@ -68,6 +68,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "a722cfe20370d698d757bc5dcf561a7170a093da",
+    "date": "2026-10-28",
+    "subject": "Add to timeline now lives behind a + button in the rail, with the composer in the reading pane",
+    "category": "feature"
+  },
+  {
+    "hash": "9ae2a64b9c4a251fa1ef51a719aa82340e123983",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
