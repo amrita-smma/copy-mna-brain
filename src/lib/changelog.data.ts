@@ -82,6 +82,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "5881e496dd6125cf74908d1e89973683ccc8cbff",
+    "date": "2026-10-28",
+    "subject": "start the thread history read behind the router",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "da5fc31c346d0be9d36b0560aee7a59e40d814bb",
+    "date": "2026-10-28",
+    "subject": "Chat replies now show steps separately and display bot @mentions as chips",
+    "category": "improvement"
+  },
+  {
+    "hash": "845d34eaa97c7c1d9b138e1db163406ec5f8e610",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
