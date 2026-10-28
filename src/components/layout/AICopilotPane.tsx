@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
-import { ChevronLeft, Maximize2, Minimize2, Send, Square, Loader2 } from 'lucide-react';
+import { ChevronLeft, ListPlus, Maximize2, Minimize2, Send, Square, Loader2 } from 'lucide-react';
 import posthog from 'posthog-js';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -31,6 +31,7 @@ import { retryQuestionTexts } from '@/lib/chat/responseFeedback';
 import { ChatSuggestionsCarousel } from '@/components/chat/ChatSuggestions';
 import { InsightTemplatePopup } from '@/components/chat/InsightTemplatePopup';
 import { BotMentionPopup } from '@/components/chat/BotMentionPopup';
+import { QueuedMessageList, useMessageQueue } from '@/components/chat/QueuedMessages';
 import {
   filterMentionCandidates,
   isCompletedMention,
@@ -168,13 +169,27 @@ function ChatInput({
     setInsightTemplate,
   } = useChatActions();
   const { attachments, composerDraft, insightTemplate } = useChatComposer();
-  const { bots, activeBot } = useChatThread();
+  const { bots, activeBot, isLoadingMessages } = useChatThread();
   const { status } = useChatStatus();
   const { onPaste } = useAttachmentPaste();
-  // Only a turn in progress locks the composer: this tab's own, or one the
-  // bot is running elsewhere (`busy` is its live phase).
+  // A turn in progress — this tab's own, or one the bot is running elsewhere
+  // (`busy` is its live phase). The composer stays open; what the user sends
+  // meanwhile is queued and goes out once the bot is free.
   const isBusy = status === 'streaming' || status === 'submitted' || (status === 'ready' && !!activeBot?.busy);
   const hasReadyAttachment = attachments.some((a) => a.status === 'ready');
+
+  // After a failed reply the queue holds (`status` is 'error') rather than
+  // firing every queued message into the same failure; the user's next own
+  // send resumes it.
+  const {
+    queue,
+    enqueue,
+    remove: removeQueued,
+  } = useMessageQueue({
+    botId: activeBot?.id,
+    canSend: status === 'ready' && !activeBot?.busy && !isLoadingMessages,
+    send: (m) => sendText(m.text, m.insightTemplate, { withAttachments: false }),
+  });
 
   // When an external trigger (e.g. "New insight") stages a draft, prefill the
   // input and put the caret at the end. Keyed on nonce so identical prompts
@@ -379,12 +394,18 @@ function ChatInput({
   };
 
   const handleSubmit = () => {
-    if (isBusy) return;
-    if (!input.trim() && !hasReadyAttachment) return;
-    // Attachment-only send still needs a real user turn — fall back to a
-    // default prompt so the model has an instruction to act on.
-    const rawText = input.trim() ? input : 'Please review the attached file(s).';
-    sendText(rawText, insightTemplate ?? undefined);
+    if (isBusy) {
+      // Files can't wait in the queue (they live in the composer), so a queued
+      // message is text only and any attachments stay put for the next send.
+      if (!input.trim()) return;
+      enqueue(input, insightTemplate ?? undefined);
+    } else {
+      if (!input.trim() && !hasReadyAttachment) return;
+      // Attachment-only send still needs a real user turn — fall back to a
+      // default prompt so the model has an instruction to act on.
+      const rawText = input.trim() ? input : 'Please review the attached file(s).';
+      sendText(rawText, insightTemplate ?? undefined);
+    }
     setInput('');
     setMention(null);
     setPickedMention(null);
@@ -472,6 +493,12 @@ function ChatInput({
               1.5rem in from the edge; a 1.75rem × with 0.625rem to its right
               is centred on the same line. */}
           {showSuggestions && <ChatSuggestionsCarousel className={cn('mb-2', floating ? 'pr-2.5' : 'pr-3')} />}
+          <QueuedMessageList
+            queue={queue}
+            onRemove={removeQueued}
+            paused={status === 'error'}
+            className="mb-2"
+          />
           <AttachmentChips className="mb-2" />
           {insightTemplate && (
             <div className="mb-2 flex">
@@ -593,14 +620,16 @@ function ChatInput({
                 placeholder={
                   insightTemplate
                     ? `Add instructions for the "${insightTemplate.name}" insight…`
-                    : 'Ask anything...'
+                    : isBusy
+                      ? 'Queue a follow-up...'
+                      : 'Ask anything...'
                 }
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
                 enterKeyHint="send"
                 className="absolute inset-x-0 top-0 w-full text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-                disabled={isBusy || isEnhancing}
+                disabled={isEnhancing}
               />
               <div
                 aria-hidden={!showEnhance}
@@ -626,16 +655,29 @@ function ChatInput({
               </div>
             </div>
             {isBusy ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => stop()}
-                aria-label="Stop generating"
-                title="Stop generating"
-                className={cn('bg-red-600 hover:bg-red-700 shrink-0 rounded-xl', floating && 'h-9 w-9 rounded-full p-0')}
-              >
-                <Square className="h-4 w-4 fill-current" />
-              </Button>
+              <>
+                {input.trim() && (
+                  <Button
+                    type="submit"
+                    size="sm"
+                    aria-label="Queue message"
+                    title="Queue message — sends when the bot is free"
+                    className={cn('bg-blue-600 hover:bg-blue-700 shrink-0 rounded-xl', floating && 'h-9 w-9 rounded-full p-0')}
+                  >
+                    <ListPlus className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => stop()}
+                  aria-label="Stop generating"
+                  title="Stop generating"
+                  className={cn('bg-red-600 hover:bg-red-700 shrink-0 rounded-xl', floating && 'h-9 w-9 rounded-full p-0')}
+                >
+                  <Square className="h-4 w-4 fill-current" />
+                </Button>
+              </>
             ) : (
               <Button
                 type="submit"

@@ -44,6 +44,11 @@ export interface AnalyzeOptions {
   insightSelection?: InsightSelectionAttachment;
 }
 
+export interface SendTextOptions {
+  /** Attach the composer's ready files to this message. Defaults to true. */
+  withAttachments?: boolean;
+}
+
 // Manual tiers only. The Auto-only `deep` tier is decided and stored server
 // side; the client never names it, so it must not be representable here.
 export type ChatEffortChoice = 'auto' | ManualEffortChoice;
@@ -262,8 +267,12 @@ interface ChatContextValue extends ReturnType<typeof useChat> {
   prefillComposer: (text: string) => void;
   /** The pending prefill, consumed by the composer. */
   composerDraft: { text: string; nonce: number } | null;
-  /** Send what the user typed (plus composer attachments) to the active bot. */
-  sendText: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
+  /**
+   * Send what the user typed (plus composer attachments) to the active bot.
+   * A queued message passes `withAttachments: false`: it was typed earlier, so
+   * whatever files sit in the composer when it goes out are not its own.
+   */
+  sendText: (text: string, insightTemplate?: InsightTemplateAttachment, options?: SendTextOptions) => void;
   /** Ref the active chat input registers so we can focus it programmatically. */
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
   /**
@@ -354,7 +363,7 @@ function stampSent<M extends { metadata?: unknown } | undefined>(message: M): M 
 export interface ChatActions {
   analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
   prefillComposer: (text: string) => void;
-  sendText: (text: string, insightTemplate?: InsightTemplateAttachment) => void;
+  sendText: (text: string, insightTemplate?: InsightTemplateAttachment, options?: SendTextOptions) => void;
   focusComposer: () => void;
   addFiles: (files: File[]) => void;
   removeAttachment: (localId: string) => void;
@@ -1226,8 +1235,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     text: string,
     insightTemplate?: InsightTemplateAttachment,
     insightSelection?: InsightSelectionAttachment,
+    withAttachments = true,
   ) => {
-    const readyAttachments = attachmentsRef.current.filter((a) => a.status === 'ready' && a.key);
+    const readyAttachments = withAttachments
+      ? attachmentsRef.current.filter((a) => a.status === 'ready' && a.key)
+      : [];
     let payloadText = text;
     
     if (readyAttachments.length > 0) {
@@ -1254,12 +1266,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       ],
       metadata: sentNow(),
     });
-    resetComposerAttachments();
+    if (withAttachments) resetComposerAttachments();
   }, [resetComposerAttachments]);
 
   const sendText = useCallback(
-    (text: string, insightTemplate?: InsightTemplateAttachment) => {
-      sendWithAttachments(text, insightTemplate);
+    (text: string, insightTemplate?: InsightTemplateAttachment, options?: SendTextOptions) => {
+      sendWithAttachments(text, insightTemplate, undefined, options?.withAttachments ?? true);
     },
     [sendWithAttachments],
   );

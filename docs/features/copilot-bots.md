@@ -775,6 +775,19 @@ reloads the server's order.
     `ghost`) were migrated to their closest new one, and `resolveBotAvatar`
     maps any old name it still meets (`LEGACY_BOT_SHAPES`).
 
+### Queued messages
+
+While the bot is responding (this tab's turn, or `bot.busy`), the composer
+stays open: sending **queues** the message instead of blocking the box. The
+queue (`useMessageQueue` in `src/components/chat/QueuedMessages.tsx`, pure
+helpers in `src/lib/chat/messageQueue.ts`) is per bot, in `localStorage`, and
+listed above the composer, where each message can be deleted until it is sent.
+Once the bot is free the oldest one goes out, one per turn. Queued messages are
+text (plus an insight template) only: attached files stay in the composer for
+the next send. After a failed reply the queue pauses until the user sends
+again. Another tab on the same bot sees the same queue; a 5 s claim in storage
+(`claimDispatch`) keeps two tabs from both sending the next one.
+
 ### Timestamps and days
 
 Every message carries `metadata.createdAt` (ISO): a history page stamps each
