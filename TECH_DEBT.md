@@ -641,23 +641,31 @@ Done so far:
 
 Still on the table, in the order worth trying:
 
-1. **The router's share.** `routeEffort` (Haiku, 1.5 s cap) starts at body
-   time and, with the reads above now behind it, is the pre-stream stage on
-   every Auto turn. Measured from a developer machine (36 calls, three
-   message shapes): median ~0.7–0.9 s, p90 ~1.4 s, and the 1.5 s cap was hit
-   on a run of calls — a turn that then falls back to `low` for a short
-   question that needed `medium`. From Vercel's region expect less, but the
-   same shape. Two things make it hard to shrink: `temperature` is rejected
-   by Haiku 5.5 (400), so a borderline question ("compare three targets and
-   tell me which to promote") flips between `medium` and `high` — a
-   different model — from one run to the next; and the per-turn design is
-   deliberate (a stored tier can only escalate). What is left is product:
-   skip the router for very short attachment-free turns (they route `low`
-   almost always), or persist the tier per thread and re-route only on
-   attachments. Either is one line in the route; both change which tier a
-   turn lands on, so they are not made here. Bounding the wait to the setup
-   time plus a grace, as first suggested, would with these numbers drop most
-   routed answers, so it is withdrawn.
+1. **The router's share, on the turns that still route.** `routeEffort`
+   (Haiku, 1.5 s cap) starts at body time and, with the reads above now
+   behind it, is the pre-stream stage on every routed Auto turn. Measured
+   from a developer machine (36 calls, three message shapes): median
+   ~0.7–0.9 s, p90 ~1.4 s, and the 1.5 s cap was hit on a run of calls — a
+   turn that then falls back to `low` for a short question that needed
+   `medium`. From Vercel's region expect less, but the same shape. Two
+   things make it hard to shrink: `temperature` is rejected by Haiku 5.5
+   (400), so a borderline question ("compare three targets and tell me
+   which to promote") flips between `medium` and `high` — a different model
+   — from one run to the next; and the per-turn design is deliberate (a
+   stored tier can only escalate). Done (2026-10-28): very short
+   attachment-free turns (`ROUTER_SKIP_CHARS`, 60 characters) are not
+   routed and run at `low` — the same place the router's own timeout
+   already put them. The signal given up with the call is the page in
+   view (`pageSummary`): a short "any red flags?" on a company view used
+   to be able to route `medium`; it now runs at `low` unless an insight is
+   open (the floor) or the tier is picked by hand. What remains is the
+   other product option, persisting
+   the tier per thread and re-routing only on attachments, which trades the
+   router on every turn for a thread stuck on its heaviest tier; and
+   tuning `ROUTER_SKIP_CHARS` once Langfuse shows the routed tier by turn
+   length (`chat.effort_router` traces carry the turn text). Bounding the
+   wait to the setup time plus a grace, as first suggested, would with
+   these numbers drop most routed answers, so it is withdrawn.
 2. **Every checkpoint write carries the whole thread.** One write per model
    call and per tool call, each serialising the full message list — up to
    ~48k tokens of history on a long thread now that the background summary

@@ -126,18 +126,48 @@ export function parseRoutedEffort(raw: string): EffortChoice | null {
 }
 
 /**
+ * A turn at most this long, with nothing attached, is not routed at all: it
+ * runs at `low` (see `shouldRoute`). Distinct from `SHORT_TURN_CHARS`, which
+ * only decides where a turn the router could not place lands.
+ *
+ * Why: the router is the longest pre-stream stage on an Auto turn (median
+ * ~0.7–0.9 s, p90 ~1.4 s measured from a developer machine) and, with every
+ * database read now hidden behind it, the one the user actually waits for.
+ * A greeting, an acknowledgement, a "continue", one lookup or one follow-up
+ * is under this length and routes `low` almost every time, so the call buys
+ * nothing there. What it costs: a short *work* request — "write a memo
+ * section on Acme's risks" — runs at `low` (Sonnet at medium effort) instead
+ * of the tier the router would have picked; and the page in view, which the
+ * router is told about (`pageSummary`), no longer lifts a short question
+ * asked on a company or pipeline view. The open-insight floor still applies,
+ * and a tier picked by hand is never routed anyway.
+ */
+export const ROUTER_SKIP_CHARS = 60;
+
+/** Whether a turn is short enough to run at `low` without asking the router. */
+export function isVeryShortTurn(message: string): boolean {
+  return message.trim().length <= ROUTER_SKIP_CHARS;
+}
+
+/**
  * Whether Auto should spend a routing call on this turn.
  *
- * Turn 1 always routes (nothing is stored yet). After that a thread reuses its
- * tier, so the router costs one call per conversation — except when the turn
- * brings a new attachment, which is the one cheap, reliable signal that the
- * work just got heavier.
+ * - A turn with an attachment always routes: that is the one cheap, reliable
+ *   signal that the work just got heavier.
+ * - A thread that stores a tier reuses it otherwise, so the router costs one
+ *   call per conversation for such callers.
+ * - A very short turn (`ROUTER_SKIP_CHARS`) is not routed; the caller's
+ *   fallback (`fallbackEffort`) places it at `low`. Only when the message is
+ *   given — a caller without the text keeps routing.
  */
 export function shouldRoute(
   storedTier: EffortChoice | null,
   hasAttachments: boolean,
+  message?: string,
 ): boolean {
-  return storedTier === null || hasAttachments;
+  if (hasAttachments) return true;
+  if (storedTier !== null) return false;
+  return message === undefined || !isVeryShortTurn(message);
 }
 
 /**

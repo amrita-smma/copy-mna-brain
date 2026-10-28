@@ -1418,6 +1418,39 @@ describe('POST /api/chat', () => {
       expect(res.headers.get('X-Chat-Id')).toBe(CHAT_ID);
     });
 
+    it("asks shouldRoute with the turn's text, so a very short turn skips the router and runs at low", async () => {
+      // The real `shouldRoute` for this test: the stub is what the other tests use.
+      const { shouldRoute: realShouldRoute } =
+        await vi.importActual<typeof import('@/lib/chat/effortRouter')>('@/lib/chat/effortRouter');
+      shouldRouteMock.mockImplementation(realShouldRoute);
+      resolve();
+
+      await POST(
+        chatRequest({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'thanks, continue' }] }] }),
+      );
+
+      expect(shouldRouteMock).toHaveBeenCalledWith(null, false, 'thanks, continue');
+      expect(routeEffortMock).not.toHaveBeenCalled();
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('low');
+    });
+
+    it('still raises a very short unrouted turn on an open insight to the floor', async () => {
+      const { shouldRoute: realShouldRoute } =
+        await vi.importActual<typeof import('@/lib/chat/effortRouter')>('@/lib/chat/effortRouter');
+      shouldRouteMock.mockImplementation(realShouldRoute);
+      resolve();
+
+      await POST(
+        chatRequest({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'remove this sidebar' }] }],
+          page_context: { tabSlug: 'insight', path: '/insight', insightId: INSIGHT_ID },
+        }),
+      );
+
+      expect(routeEffortMock).not.toHaveBeenCalled();
+      expect(resolveChatAgentGraphMock.mock.calls[0][0].effort).toBe('medium');
+    });
+
     it('routes the effort tier per turn, raised to the open-insight floor', async () => {
       shouldRouteMock.mockReturnValue(true);
       routeEffortMock.mockResolvedValue('low');

@@ -220,10 +220,14 @@ async function handleChatTurn(
     // adding its latency on top of them.
     //
     // A permanent bot thread picks its tier per turn: a stored, only-escalating
-    // tier would leave every later turn on the most expensive one.
+    // tier would leave every later turn on the most expensive one. A very
+    // short, attachment-free turn is not routed at all (`ROUTER_SKIP_CHARS`):
+    // it runs at `low` through `fallbackEffort` below, and the router — the
+    // longest pre-stream stage once it is the only thing left to wait for —
+    // is off that turn's critical path.
     const storedEffort = null;
     const routedEffortPromise: Promise<EffortChoice | null> =
-      requestedEffort === null && shouldRoute(storedEffort, hasAttachments)
+      requestedEffort === null && shouldRoute(storedEffort, hasAttachments, turnText)
         ? routeEffort(
             {
               message: turnText,

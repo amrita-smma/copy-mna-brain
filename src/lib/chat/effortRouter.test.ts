@@ -19,7 +19,9 @@ import {
   OPEN_INSIGHT_EFFORT_FLOOR,
   resolveTurnEffort,
   fallbackEffort,
+  isVeryShortTurn,
   ROUTER_FALLBACK,
+  ROUTER_SKIP_CHARS,
   ROUTER_TIMEOUT_MS,
   SHORT_TURN_CHARS,
 } from './effortRouter';
@@ -57,6 +59,30 @@ describe('shouldRoute', () => {
     expect(shouldRoute(null, false)).toBe(true);
     expect(shouldRoute('low', true)).toBe(true);
     expect(shouldRoute('low', false)).toBe(false);
+  });
+
+  it('skips the router for a very short, attachment-free turn, which then falls back to low', () => {
+    const short = 'thanks, continue';
+    expect(isVeryShortTurn(short)).toBe(true);
+    expect(shouldRoute(null, false, short)).toBe(false);
+    expect(fallbackEffort({ message: short, hasAttachments: false })).toBe('low');
+  });
+
+  it('still routes a very short turn that carries an attachment', () => {
+    expect(shouldRoute(null, true, 'summarise this')).toBe(true);
+  });
+
+  it('routes a turn just over the skip length, and ignores surrounding whitespace', () => {
+    expect(shouldRoute(null, false, `  ${'x'.repeat(ROUTER_SKIP_CHARS)}  `)).toBe(false);
+    expect(shouldRoute(null, false, 'x'.repeat(ROUTER_SKIP_CHARS + 1))).toBe(true);
+  });
+
+  it('keeps routing when the caller does not pass the message', () => {
+    expect(shouldRoute(null, false, undefined)).toBe(true);
+  });
+
+  it('skips only turns short enough to be lookups, well under the fallback length', () => {
+    expect(ROUTER_SKIP_CHARS).toBeLessThan(SHORT_TURN_CHARS);
   });
 });
 

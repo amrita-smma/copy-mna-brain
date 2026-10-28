@@ -195,7 +195,11 @@ message from the attachments, template and selection, and `finishTurn`
    `ROUTER_TIMEOUT_MS` (1.5 s), started as soon as the turn's text is known
    so it overlaps the thread open and the context reads. A turn it cannot
    place runs at `low` when short and attachment-free, `medium` otherwise
-   (`fallbackEffort`). The thread's persisted history is read through
+   (`fallbackEffort`). A *very* short attachment-free turn — at most
+   `ROUTER_SKIP_CHARS` (60) characters: a greeting, a "continue", one
+   lookup — is not routed at all and runs at `low` (`shouldRoute`), so the
+   router is off that turn's critical path; the open-insight floor and a
+   hand-picked tier are unaffected. The thread's persisted history is read through
    `readThreadSnapshot` (`src/lib/agents/analysis/graphs.ts` — whichever
    Copilot flavor graph the process has built, or the default one; every
    chat graph shares the checkpointer and carries no middleware, so a sector
