@@ -142,6 +142,12 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
 
 ## A chat turn (`POST /api/chat`)
 
+The route reads top to bottom as the turn's stages; the pure parts live in
+`src/lib/chat/`: `readTurnRequest` (`turnRequest.ts`) reads the body once,
+with no I/O, `buildTurnMessage` (`turnMessage.ts`) assembles the human
+message from the attachments, template and selection, and `finishTurn`
+(`finishTurn.ts`) is the `after()` hook of step 5.
+
 1. `BotService.openThread` (or `openDefaultThread` when no `bot_id` is sent)
    resolves the visible bot and the user's thread with it. The user's name
    (which titles their primary bot) and the thread are read together; the
@@ -208,7 +214,8 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
    picks the row's id itself and does not wait for the insert: the run, its
    Langfuse trace and the reply's feedback key all use that id while the
    write is in flight alongside the stream start. After the
-   response (`after()`): the insert is awaited, the reply is stored
+   response (`after()`, the body of which is `finishTurn` in
+   `src/lib/chat/finishTurn.ts`): the insert is awaited, the reply is stored
    (`persistTurn` with `questionStored`, marked read; when the up-front
    write failed the question is stored here under the same id, so the id
    the reply was given never dangles; a turn that never reached the thread

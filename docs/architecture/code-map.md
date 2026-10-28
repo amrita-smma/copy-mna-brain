@@ -128,7 +128,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/bots/[id]/thread` | POST | `botService` |
 | `/api/bots/events` | GET | `botService` |
 | `/api/bots/pins` | PUT | `botService` |
-| `/api/chat` | POST | `botMemoryService`, `botService`, `botTaskLogService`, `chatAttachmentService`, `chatHistoryService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
+| `/api/chat` | POST | `botMemoryService`, `botService`, `chatAttachmentService`, `chatHistoryService`, `chatService`, `copilotChatsService`, `insightService`, `insightTemplateService`, `userMemoryService`, `workspaceService` |
 | `/api/chat/attachments` | DELETE | `chatAttachmentService` |
 | `/api/chat/attachments/upload-url` | GET | `chatAttachmentService` |
 | `/api/chat/improve-prompt` | POST | — |
