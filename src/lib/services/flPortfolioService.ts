@@ -16,6 +16,7 @@ import {
   computeFundCashSummary,
   type FundCashSummary,
 } from '@/lib/fundLedger/fundCashSummary';
+import { queryAll } from '@/lib/server/queryAll';
 
 export interface FlPortfolioPosition {
   id: string;
@@ -130,16 +131,16 @@ export class FlPortfolioService {
       ledgerEntries,
       allocations,
       valuations,
-    ] = await Promise.all([
-      this.fundRepo.findByWorkspaceId(workspaceId, executor),
-      this.assetRepo.findByWorkspaceId(workspaceId, executor),
-      this.positionRepo.findByWorkspaceId(workspaceId, executor),
-      this.investorRepo.findByWorkspaceId(workspaceId, executor),
-      this.fundingSourceRepo.findByWorkspaceId(workspaceId, executor),
-      this.businessEventRepo.findByWorkspaceId(workspaceId, executor),
-      this.ledgerEntryRepo.findByWorkspaceId(workspaceId, executor),
-      this.allocationRepo.findByWorkspaceId(workspaceId, executor),
-      this.valuationRepo.findByWorkspaceId(workspaceId, executor),
+    ] = await queryAll(executor, [
+      () => this.fundRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.assetRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.positionRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.investorRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.fundingSourceRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.businessEventRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.ledgerEntryRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.allocationRepo.findByWorkspaceId(workspaceId, executor),
+      () => this.valuationRepo.findByWorkspaceId(workspaceId, executor),
     ]);
 
     // The API read model is used directly by reporting/UI. Do not expose
@@ -163,14 +164,14 @@ export class FlPortfolioService {
     const positionIds = visiblePositions.map((p) => p.id);
 
     // Fixed Query Round 2: Batched position balances and position valuations
-    const [balances, positionValues] = await Promise.all([
-      this.balanceService.getPositionBalances(
+    const [balances, positionValues] = await queryAll(executor, [
+      () => this.balanceService.getPositionBalances(
         workspaceId,
         positionIds,
         effectiveAsOf,
         executor,
       ),
-      this.balanceService.getPositionValues(
+      () => this.balanceService.getPositionValues(
         workspaceId,
         positions,
         effectiveAsOf,

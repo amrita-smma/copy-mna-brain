@@ -25,6 +25,7 @@ import {
   computeFundCashSummary,
   type FundCashSummary,
 } from '@/lib/fundLedger/fundCashSummary';
+import { queryAll } from '@/lib/server/queryAll';
 
 export interface PositionBalances {
   position_id: string;
@@ -228,15 +229,15 @@ export class FlBalanceService {
       allTargetLpPositions,
       allAssetPositions,
       assetList,
-    ] = await Promise.all([
-      this.getPositionBalances(workspaceId, positionIds, asOfDate, executor),
-      this.valuationRepo.findLatestByPositionIds(
+    ] = await queryAll(executor, [
+      () => this.getPositionBalances(workspaceId, positionIds, asOfDate, executor),
+      () => this.valuationRepo.findLatestByPositionIds(
         workspaceId,
         positionIds,
         asOfDate,
         executor,
       ),
-      assetIds.length > 0
+      () => assetIds.length > 0
         ? this.valuationRepo.findLatestByAssetIds(
             workspaceId,
             assetIds,
@@ -244,7 +245,7 @@ export class FlBalanceService {
             executor,
           )
         : Promise.resolve([]),
-      targetFundIds.length > 0
+      () => targetFundIds.length > 0
         ? this.valuationRepo.findLatestByFundIds(
             workspaceId,
             targetFundIds,
@@ -252,20 +253,20 @@ export class FlBalanceService {
             executor,
           )
         : Promise.resolve([]),
-      targetFundIds.length > 0
+      () => targetFundIds.length > 0
         ? this.fundRepo.findByIds(workspaceId, targetFundIds, executor)
         : Promise.resolve([]),
-      targetFundIds.length > 0
+      () => targetFundIds.length > 0
         ? this.positionRepo.findByFundIds(
             workspaceId,
             targetFundIds,
             executor,
           )
         : Promise.resolve([]),
-      assetIds.length > 0
+      () => assetIds.length > 0
         ? this.positionRepo.findByAssetIds(workspaceId, assetIds, executor)
         : Promise.resolve([]),
-      assetIds.length > 0 && typeof (this.assetRepo as any).findByIds === 'function'
+      () => assetIds.length > 0 && typeof (this.assetRepo as any).findByIds === 'function'
         ? this.assetRepo.findByIds(workspaceId, assetIds, executor)
         : Promise.resolve([]),
     ]);
@@ -275,8 +276,8 @@ export class FlBalanceService {
     const allAssetPositionIds = allAssetPositions.map((p) => p.id);
     const allTargetLpPositionIds = allTargetLpPositions.map((p) => p.id);
 
-    const [targetLpBalances, allAssetBalances] = await Promise.all([
-      allTargetLpPositionIds.length > 0
+    const [targetLpBalances, allAssetBalances] = await queryAll(executor, [
+      () => allTargetLpPositionIds.length > 0
         ? this.getPositionBalances(
             workspaceId,
             allTargetLpPositionIds,
@@ -284,7 +285,7 @@ export class FlBalanceService {
             executor,
           )
         : Promise.resolve([]),
-      allAssetPositionIds.length > 0
+      () => allAssetPositionIds.length > 0
         ? this.getPositionBalances(
             workspaceId,
             allAssetPositionIds,
@@ -632,9 +633,9 @@ export class FlBalanceService {
     }
 
     // 1. Fetch LP positions and portfolio positions in parallel
-    const [rawLpPositions, rawPortfolioPositions] = await Promise.all([
-      this.positionRepo.findByFundIds(workspaceId, [fundId], executor),
-      this.positionRepo.findByHolderFundIds(workspaceId, [fundId], executor),
+    const [rawLpPositions, rawPortfolioPositions] = await queryAll(executor, [
+      () => this.positionRepo.findByFundIds(workspaceId, [fundId], executor),
+      () => this.positionRepo.findByHolderFundIds(workspaceId, [fundId], executor),
     ]);
     const lpPositions = asOfDate
       ? rawLpPositions.filter((p) => !p.opened_at || p.opened_at <= asOfDate)
@@ -735,7 +736,10 @@ export class FlBalanceService {
       rawAssets = await (this.assetRepo as any).findByIds(workspaceId, assetIds, executor);
     }
     if (rawAssets.length === 0 && assetIds.length > 0 && typeof this.assetRepo.findById === 'function') {
-      const fetched = await Promise.all(assetIds.map((id) => this.assetRepo.findById(workspaceId, id, executor)));
+      const fetched = await queryAll(
+        executor,
+        assetIds.map((id) => () => this.assetRepo.findById(workspaceId, id, executor)),
+      );
       rawAssets = fetched.filter((a): a is Tables<'fl_assets'> => Boolean(a));
     }
     if (rawAssets.length === 0 && typeof this.assetRepo.findByWorkspaceId === 'function') {

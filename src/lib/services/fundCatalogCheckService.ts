@@ -17,6 +17,7 @@ import { computeFundCashSummary } from '@/lib/fundLedger/fundCashSummary';
 import { isFundLpPosition } from '@/lib/fundLedger/lpPositions';
 import { normalizeCanonicalName } from '@/lib/fundLedger/normalizeIdentity';
 import type { FlBalanceService, PositionBalances } from './flBalanceService';
+import { queryAll } from '@/lib/server/queryAll';
 
 // The Nanjing summary sheet is stated in CNY.
 const CATALOG_CURRENCY = 'CNY';
@@ -49,17 +50,17 @@ export class FundCatalogCheckService {
     );
     const fundIds = funds.map((f) => f.id);
 
-    const [lpCandidates, holdings] = await Promise.all([
-      this.positionRepo.findByFundIds(this.workspaceId, fundIds, executor),
-      this.positionRepo.findByHolderFundIds(this.workspaceId, fundIds, executor),
+    const [lpCandidates, holdings] = await queryAll(executor, [
+      () => this.positionRepo.findByFundIds(this.workspaceId, fundIds, executor),
+      () => this.positionRepo.findByHolderFundIds(this.workspaceId, fundIds, executor),
     ]);
     const positionIds = [...new Set([...lpCandidates, ...holdings].map((p) => p.id))];
     const assetIds = [
       ...new Set(holdings.map((p) => p.asset_id).filter((id): id is string => Boolean(id))),
     ];
-    const [balances, assets] = await Promise.all([
-      this.balanceService.getPositionBalances(this.workspaceId, positionIds, null, executor),
-      this.assetRepo.findByIds(this.workspaceId, assetIds, executor),
+    const [balances, assets] = await queryAll(executor, [
+      () => this.balanceService.getPositionBalances(this.workspaceId, positionIds, null, executor),
+      () => this.assetRepo.findByIds(this.workspaceId, assetIds, executor),
     ]);
 
     const balanceById = new Map(balances.map((b) => [b.position_id, b]));

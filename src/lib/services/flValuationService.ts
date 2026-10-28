@@ -16,6 +16,7 @@ import {
   InvalidValuationTargetError,
   WorkspaceMismatchError,
 } from './flErrors';
+import { queryAll } from '@/lib/server/queryAll';
 
 export type FlValuationMethod =
   | 'at_cost'
@@ -273,8 +274,8 @@ export class FlValuationService {
     funds: Tables<'fl_valuations'>[];
     positions: Tables<'fl_valuations'>[];
   }> {
-    const [assets, funds, positions] = await Promise.all([
-      targets.assetIds && targets.assetIds.length > 0
+    const [assets, funds, positions] = await queryAll(executor, [
+      () => targets.assetIds && targets.assetIds.length > 0
         ? this.valuationRepo.findLatestByAssetIds(
             workspaceId,
             targets.assetIds,
@@ -282,7 +283,7 @@ export class FlValuationService {
             executor,
           )
         : Promise.resolve([]),
-      targets.fundIds && targets.fundIds.length > 0
+      () => targets.fundIds && targets.fundIds.length > 0
         ? this.valuationRepo.findLatestByFundIds(
             workspaceId,
             targets.fundIds,
@@ -290,7 +291,7 @@ export class FlValuationService {
             executor,
           )
         : Promise.resolve([]),
-      targets.positionIds && targets.positionIds.length > 0
+      () => targets.positionIds && targets.positionIds.length > 0
         ? this.valuationRepo.findLatestByPositionIds(
             workspaceId,
             targets.positionIds,

@@ -31,6 +31,7 @@ import {
   CorporateActionValidationError,
   WorkspaceMismatchError,
 } from './flErrors';
+import { queryAll } from '@/lib/server/queryAll';
 
 /** Only direct company holdings take corporate actions (not cash, loans, listed shares or fund stakes). */
 const COMPANY_ASSET_KIND = 'equity';
@@ -209,26 +210,26 @@ export class FlCorporateActionService {
       throw new EntityNotFoundError(`Asset ${assetId} not found in workspace ${workspaceId}`);
     }
 
-    const [positions, rounds, assetMarks] = await Promise.all([
-      this.positionRepo.findByAssetIds(workspaceId, [assetId], executor),
-      this.actionRepo.findActionsByAssetIds(workspaceId, [assetId], executor),
-      this.valuationRepo.findLatestByAssetIds(workspaceId, [assetId], null, executor),
+    const [positions, rounds, assetMarks] = await queryAll(executor, [
+      () => this.positionRepo.findByAssetIds(workspaceId, [assetId], executor),
+      () => this.actionRepo.findActionsByAssetIds(workspaceId, [assetId], executor),
+      () => this.valuationRepo.findLatestByAssetIds(workspaceId, [assetId], null, executor),
     ]);
     const openPositions = positions.filter((p) => p.status !== 'closed');
 
-    const [changes, positionMarks, holderNames] = await Promise.all([
-      this.actionRepo.findChangesByActionIds(
+    const [changes, positionMarks, holderNames] = await queryAll(executor, [
+      () => this.actionRepo.findChangesByActionIds(
         workspaceId,
         rounds.map((r) => r.id),
         executor,
       ),
-      this.valuationRepo.findLatestByPositionIds(
+      () => this.valuationRepo.findLatestByPositionIds(
         workspaceId,
         openPositions.map((p) => p.id),
         null,
         executor,
       ),
-      this.loadHolderNames(workspaceId, positions, executor),
+      () => this.loadHolderNames(workspaceId, positions, executor),
     ]);
 
     const history = this.toViews(rounds, changes, holderNames);
@@ -564,22 +565,22 @@ export class FlCorporateActionService {
     changes: Tables<'fl_ownership_changes'>[],
     exec: DbClient,
   ): Promise<CorporateActionView> {
-    const [siblings, positions] = await Promise.all([
-      this.actionRepo.findActionsByAssetIds(workspaceId, [round.asset_id], exec),
-      this.positionRepo.findByIds(
+    const [siblings, positions] = await queryAll(exec, [
+      () => this.actionRepo.findActionsByAssetIds(workspaceId, [round.asset_id], exec),
+      () => this.positionRepo.findByIds(
         workspaceId,
         changes.map((p) => p.position_id),
         exec,
       ),
     ]);
     const others = siblings.filter((r) => r.id !== round.id);
-    const [otherParticipations, holderNames] = await Promise.all([
-      this.actionRepo.findChangesByActionIds(
+    const [otherParticipations, holderNames] = await queryAll(exec, [
+      () => this.actionRepo.findChangesByActionIds(
         workspaceId,
         others.map((r) => r.id),
         exec,
       ),
-      this.loadHolderNames(workspaceId, positions, exec),
+      () => this.loadHolderNames(workspaceId, positions, exec),
     ]);
     const views = this.toViews(
       [...others, round],
@@ -674,9 +675,9 @@ export class FlCorporateActionService {
     const investorIds = Array.from(
       new Set(positions.map((p) => p.holder_investor_id).filter((id): id is string => id != null)),
     );
-    const [funds, investors] = await Promise.all([
-      fundIds.length > 0 ? this.fundRepo.findByIds(workspaceId, fundIds, exec) : Promise.resolve([]),
-      investorIds.length > 0
+    const [funds, investors] = await queryAll(exec, [
+      () => fundIds.length > 0 ? this.fundRepo.findByIds(workspaceId, fundIds, exec) : Promise.resolve([]),
+      () => investorIds.length > 0
         ? this.investorRepo.findByIds(workspaceId, investorIds, exec)
         : Promise.resolve([]),
     ]);
