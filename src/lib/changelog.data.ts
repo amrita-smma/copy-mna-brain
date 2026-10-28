@@ -104,6 +104,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b51fbb9744b245f72b01e6eea9f2fd2eee8bbe94",
+    "date": "2026-10-28",
+    "subject": "Faster chat replies for short messages without attachments",
+    "category": "improvement"
+  },
+  {
+    "hash": "4eee591e2e44de930defd0f375a5e5e31dd0d474",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
