@@ -51,25 +51,61 @@ export function findBotMentions<T extends MentionableBot>(
   opts: { excludeId?: string | null; limit?: number } = {},
 ): T[] {
   const limit = opts.limit ?? MAX_MENTION_PINGS;
-  const candidates = bots
-    .filter((b) => b.name.trim().length > 0)
-    .sort((a, b) => b.name.length - a.name.length);
+  const candidates = mentionCandidates(bots);
   const found: T[] = [];
   for (let i = 0; i < text.length && found.length < limit; i++) {
-    if (!startsMention(text, i)) continue;
-    const rest = text.slice(i + 1).toLowerCase();
-    const bot = candidates.find((b) => {
-      const name = b.name.toLowerCase();
-      if (!rest.startsWith(name)) return false;
-      const after = rest.charAt(name.length);
-      return after === '' || !WORD_CHAR.test(after);
-    });
+    const bot = mentionAt(text, i, candidates);
     if (!bot) continue;
     i += bot.name.length;
     if (bot.id === opts.excludeId || found.some((f) => f.id === bot.id)) continue;
     found.push(bot);
   }
   return found;
+}
+
+/** Bots with a name, longest name first, so "@Deal Scout" beats a bot called "Deal". */
+function mentionCandidates<T extends MentionableBot>(bots: readonly T[]): T[] {
+  return bots.filter((b) => b.name.trim().length > 0).sort((a, b) => b.name.length - a.name.length);
+}
+
+/** The bot whose `@Name` starts at `at`, if any (`candidates` from `mentionCandidates`). */
+function mentionAt<T extends MentionableBot>(text: string, at: number, candidates: readonly T[]): T | undefined {
+  if (!startsMention(text, at)) return undefined;
+  const rest = text.slice(at + 1).toLowerCase();
+  return candidates.find((b) => {
+    const name = b.name.toLowerCase();
+    if (!rest.startsWith(name)) return false;
+    const after = rest.charAt(name.length);
+    return after === '' || !WORD_CHAR.test(after);
+  });
+}
+
+/** A piece of text: plain, or one `@Name` mention of `bot` (`text` as written). */
+export type MentionSegment<T extends MentionableBot> =
+  | { text: string; bot?: undefined }
+  | { text: string; bot: T };
+
+/**
+ * A text cut into plain runs and bot mentions, by the same matching as
+ * `findBotMentions` but with every mention kept (no cap, no exclusion), so the
+ * transcript can draw each `@Name` as a chip. Concatenating the segments'
+ * `text` gives back the input.
+ */
+export function splitBotMentions<T extends MentionableBot>(text: string, bots: readonly T[]): MentionSegment<T>[] {
+  const candidates = mentionCandidates(bots);
+  const out: MentionSegment<T>[] = [];
+  let plainStart = 0;
+  for (let i = 0; i < text.length; i++) {
+    const bot = mentionAt(text, i, candidates);
+    if (!bot) continue;
+    if (i > plainStart) out.push({ text: text.slice(plainStart, i) });
+    const end = i + 1 + bot.name.length;
+    out.push({ text: text.slice(i, end), bot });
+    plainStart = end;
+    i = end - 1;
+  }
+  if (plainStart < text.length) out.push({ text: text.slice(plainStart) });
+  return out;
 }
 
 /** The longest partial mention the composer completes. */

@@ -8,6 +8,7 @@ import {
   mentionQueryAt,
   mentionableBotsContext,
   mayMentionBot,
+  splitBotMentions,
 } from './mentions';
 
 const bots = [
@@ -135,5 +136,30 @@ describe('mayMentionBot', () => {
     expect(mayMentionBot('mail a@b.com and nico.alimin@example.co')).toBe(false);
     expect(mayMentionBot('what does @ mean')).toBe(false);
     expect(mayMentionBot('no mention here')).toBe(false);
+  });
+});
+
+describe('splitBotMentions', () => {
+  it('cuts each @mention out as its own segment, longest name first', () => {
+    expect(splitBotMentions("I'll look up the right bot first.@Deal Scout, what's new?", bots)).toEqual([
+      { text: "I'll look up the right bot first." },
+      { text: '@Deal Scout', bot: bots[1] },
+      { text: ", what's new?" },
+    ]);
+  });
+
+  it('keeps the name as written and every repeat of a mention', () => {
+    const segments = splitBotMentions('@deal scout and @Deal Scout', bots);
+    expect(segments.filter((s) => s.bot).map((s) => s.text)).toEqual(['@deal scout', '@Deal Scout']);
+  });
+
+  it('leaves email addresses, unknown names and partial words as plain text', () => {
+    const text = 'mail a@Deal.com, ask @Nobody or @Dealmaker';
+    expect(splitBotMentions(text, bots)).toEqual([{ text }]);
+  });
+
+  it('round-trips: the segments concatenate back to the input', () => {
+    const text = '@Deal hi @Deal Scout.';
+    expect(splitBotMentions(text, bots).map((s) => s.text).join('')).toBe(text);
   });
 });

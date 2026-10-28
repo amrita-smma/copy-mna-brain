@@ -1,9 +1,11 @@
 import { type UIMessage } from "@ai-sdk/react";
 import { formatMessageTime, messageCreatedAt } from '@/lib/chat/messageTime';
+import { joinTextParts } from '@/lib/chat/textParts';
 import { memo, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Wrench, Loader2, FileText, Sparkles, FileSearch, Brain, AlertTriangle, CalendarClock, File as FileIcon, LibraryBig } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { BotMentionMarkdown } from "./BotMentionMarkdown";
 import {
   Dialog,
   DialogContent,
@@ -491,7 +493,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
           </span>
           {textContent && (
             <div className="w-full min-w-0 overflow-auto break-words text-sm">
-              <MarkdownRenderer content={textContent} linkSurface="copilot" citationPills />
+              <BotMentionMarkdown content={textContent} linkSurface="copilot" citationPills />
             </div>
           )}
           {textContent.includes('@') && <MentionPings text={textContent} fromUser />}
@@ -565,7 +567,7 @@ function UserMessageBubble({ message }: { message: UIMessage }) {
         
         {textContent && (
           <div className="rounded-2xl px-4 py-2.5 max-w-full min-w-0 overflow-auto break-words bg-primary text-primary-foreground text-sm">
-            <MarkdownRenderer
+            <BotMentionMarkdown
               content={textContent}
               linkSurface="copilot"
               className="prose-invert [&_*]:text-primary-foreground"
@@ -644,7 +646,7 @@ export function parseAssistantTurn(parts: UIMessage["parts"]): ParsedAssistantTu
 
   const isPptxRunning = toolParts.some((part) => isRunningPptxSendEmail(part as never));
 
-  const fullText = textParts.map((part) => (part as any).text || "").join("");
+  const fullText = joinTextParts(textParts.map((part) => (part as any).text || ""));
 
   let thinkingText = "";
   let responseText = "";
@@ -1192,7 +1194,7 @@ function AssistantMessageBubble(props: ChatMessageBubbleProps) {
             with no card/bubble, flat against the background. */}
         {hasResponseContent && (
           <div className="w-full min-w-0 overflow-auto break-words text-sm">
-            <MarkdownRenderer content={responseText} linkSurface="copilot" evidenceMarkers citationPills />
+            <BotMentionMarkdown content={responseText} linkSurface="copilot" evidenceMarkers citationPills />
           </div>
         )}
 

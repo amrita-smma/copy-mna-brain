@@ -13,10 +13,11 @@ import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatContext } from '@/components/chat/ChatProvider';
 import { EffortSelector } from '@/components/chat/EffortSelector';
+import { joinTextParts } from '@/lib/chat/textParts';
 
 function getTextFromUIMessage(m: UIMessage): string {
   const parts = (m as { parts?: Array<{ type: string; text?: string }> }).parts ?? [];
-  return parts.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('');
+  return joinTextParts(parts.filter((p) => p.type === 'text').map((p) => p.text ?? ''));
 }
 
 function scrubThinkingMarkers(text: string): string {

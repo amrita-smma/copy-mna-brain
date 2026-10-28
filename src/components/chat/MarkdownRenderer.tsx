@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, type ComponentType, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import posthog from 'posthog-js';
@@ -16,8 +16,11 @@ import { evidenceLabelOf, isDataLimitBlock } from '@/lib/chat/evidenceLabels';
 import { htmlAnchorsToMarkdown } from '@/lib/chat/htmlLinks';
 import { CITATION_GROUP_PROP, readCitationGroup, remarkCitationGroups } from '@/lib/chat/citations';
 import { CitationGroup } from './CitationGroup';
+import { BOT_MENTION_PROP, remarkBotMentions } from '@/lib/chat/botMentionChips';
+import type { MentionableBot } from '@/lib/bots/mentions';
 import type { ChatEvidenceLabel } from '@/lib/agents/sector/evidenceMarkers';
 import type { Components } from 'react-markdown';
+import type { Options as MarkdownOptions } from 'react-markdown';
 
 interface MarkdownRendererProps {
   content: string;
@@ -45,6 +48,13 @@ interface MarkdownRendererProps {
    * links render as plain links.
    */
   citationPills?: boolean;
+  /**
+   * Draw each `@Name` of one of these bots with `BotMention` (a chip) instead
+   * of as text. Pass both, with a stable array identity: a new array rebuilds
+   * the markdown processor.
+   */
+  mentionBots?: readonly MentionableBot[];
+  BotMention?: ComponentType<{ botId: string; children?: ReactNode }>;
 }
 
 const DATA_LIMIT_CALLOUT =
@@ -73,8 +83,19 @@ function buildComponents(
   linkSurface: ChatSurface | undefined,
   evidenceMarkers: boolean,
   citationPills: boolean,
+  BotMention: MarkdownRendererProps['BotMention'],
 ): Components {
   return {
+          // A bot @mention, tagged by `remarkBotMentions` (only with `mentionBots`).
+          span: ({ node, children, ...props }) => {
+            const botId = node?.properties?.[BOT_MENTION_PROP];
+            return BotMention && typeof botId === 'string' ? (
+              <BotMention botId={botId}>{children}</BotMention>
+            ) : (
+              <span {...props}>{children}</span>
+            );
+          },
+
           // Headers
           h1: ({ children }) => (
             <h1 className={cn("font-bold mt-4 mb-2 first:mt-0 text-foreground", isCard ? "text-2xl tracking-tight" : "text-xl")}>{children}</h1>
@@ -243,6 +264,8 @@ function MarkdownRendererImpl({
   linkSurface,
   evidenceMarkers = false,
   citationPills = false,
+  mentionBots,
+  BotMention,
 }: MarkdownRendererProps) {
   const isCard = variant === 'card';
 
@@ -251,9 +274,16 @@ function MarkdownRendererImpl({
   // used to be an inline literal, which made react-markdown re-parse the
   // whole document each time the bubble re-rendered.
   const components = useMemo(
-    () => buildComponents(isCard, linkSurface, evidenceMarkers, citationPills),
-    [isCard, linkSurface, evidenceMarkers, citationPills],
+    () => buildComponents(isCard, linkSurface, evidenceMarkers, citationPills, BotMention),
+    [isCard, linkSurface, evidenceMarkers, citationPills, BotMention],
   );
+
+  const remarkPlugins = useMemo((): NonNullable<MarkdownOptions['remarkPlugins']> => {
+    const base = citationPills ? REMARK_PLUGINS_WITH_CITATIONS : REMARK_PLUGINS;
+    return mentionBots && mentionBots.length > 0 && BotMention
+      ? [...base, [remarkBotMentions, { bots: mentionBots }]]
+      : base;
+  }, [citationPills, mentionBots, BotMention]);
 
   // Raw HTML is disabled in react-markdown, so a model-written
   // `<a href="…">…</a>` would print as literal text. Rewrite those anchors
@@ -263,7 +293,7 @@ function MarkdownRendererImpl({
   return (
     <div className={cn("prose max-w-none break-words dark:prose-invert", isCard ? "prose-base" : "prose-sm", className)}>
       <ReactMarkdown
-        remarkPlugins={citationPills ? REMARK_PLUGINS_WITH_CITATIONS : REMARK_PLUGINS}
+        remarkPlugins={remarkPlugins}
         components={components}
       >
         {markdown}
@@ -275,7 +305,8 @@ function MarkdownRendererImpl({
 /**
  * Memoized: a chat transcript renders one of these per message (plus one per
  * warning and one for the thinking trace), and markdown parsing is the most
- * expensive thing on the copilot's render path. Every prop is a primitive, so
- * the default shallow compare is exactly right.
+ * expensive thing on the copilot's render path. Every prop is a primitive or
+ * a stable reference (`mentionBots`, `BotMention`), so the default shallow
+ * compare is exactly right.
  */
 export const MarkdownRenderer = memo(MarkdownRendererImpl);
