@@ -54,6 +54,7 @@ function makeAnalysis(overrides: Partial<Analysis> = {}): Analysis {
 }
 
 const findCompletedByCompanyId = vi.fn();
+const findAnalysisByCompanyId = vi.fn();
 const findById = vi.fn();
 const deleteByCompanyId = vi.fn();
 const findIdAndNameByIds = vi.fn();
@@ -61,7 +62,12 @@ const findCompletedCompanyIds = vi.fn();
 
 function makeService(): CompanyAnalysisService {
   return new CompanyAnalysisService(
-    { findCompletedByCompanyId, findCompletedCompanyIds, deleteByCompanyId } as unknown as CompanyAnalysisRepository,
+    {
+      findByCompanyId: findAnalysisByCompanyId,
+      findCompletedByCompanyId,
+      findCompletedCompanyIds,
+      deleteByCompanyId,
+    } as unknown as CompanyAnalysisRepository,
     { findById, findIdAndNameByIds } as unknown as CompanyRepository,
     {} as never,
     'workspace-1',
@@ -499,5 +505,42 @@ describe('CompanyAnalysisService.regenerate — never collapses onto a dead run'
 
     expect(findQueueRowById).not.toHaveBeenCalled();
     expect(enqueueAgentRun).toHaveBeenCalledOnce();
+  });
+});
+
+describe('CompanyAnalysisService.getGenerationState', () => {
+  beforeEach(() => {
+    findAnalysisByCompanyId.mockReset();
+    findActiveByCompanyId.mockReset();
+  });
+
+  it('reports a queued run before the card row exists', async () => {
+    findAnalysisByCompanyId.mockResolvedValue(null);
+    findActiveByCompanyId.mockResolvedValue({ id: 'run-1', status: 'pending' });
+
+    const state = await makeService().getGenerationState('company-1');
+
+    expect(state).toEqual({ analysis: null, run: { id: 'run-1', status: 'pending' } });
+    expect(findActiveByCompanyId).toHaveBeenCalledWith(COMPANY_CARD_AGENT_NAME, 'company-1');
+  });
+
+  it('returns the card with a null run when nothing is in flight', async () => {
+    const analysis = makeAnalysis();
+    findAnalysisByCompanyId.mockResolvedValue(analysis);
+    findActiveByCompanyId.mockResolvedValue(null);
+
+    const state = await makeService().getGenerationState('company-1');
+
+    expect(state).toEqual({ analysis, run: null });
+  });
+
+  it('returns nulls for a company that was never generated', async () => {
+    findAnalysisByCompanyId.mockResolvedValue(null);
+    findActiveByCompanyId.mockResolvedValue(null);
+
+    expect(await makeService().getGenerationState('company-1')).toEqual({
+      analysis: null,
+      run: null,
+    });
   });
 });

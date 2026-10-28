@@ -46,7 +46,11 @@ import {
   BookOpen,
   X,
 } from "lucide-react";
-import { AICompanyCardLoading } from "@/components/pipeline/AICompanyCardLoading";
+import { CompanyCardNotGenerated } from "@/components/pipeline/CompanyCardNotGenerated";
+import {
+  hasCompanyCard,
+  useCompanyCardGeneration,
+} from "@/components/pipeline/useCompanyCardGeneration";
 import DropDealDialog from "@/components/pipeline/DropDealDialog";
 import CompanyOverviewSlide, {
   type AnalysisSectionKey,
@@ -55,10 +59,7 @@ import CompanyOverviewSlide, {
 import FeaturedSlideSection from "@/components/pipeline/featured/FeaturedSlideSection";
 import { useFeaturedSlide } from "@/components/pipeline/featured/useFeaturedSlide";
 import { useDealDocumentProcessingPoll } from "@/components/Files/DocumentInsightsPanel";
-import {
-  isAnalysisInProgress,
-  type AnalysisJobStatus,
-} from "@/lib/constants";
+import type { AnalysisJobStatus } from "@/lib/constants";
 import { format } from "date-fns";
 import {
   addCompanyLink,
@@ -480,22 +481,23 @@ export default function CompanyDetailDialog({
   };
 
   // Analysis states
-  const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
-  const [analysisGenerating, setAnalysisGenerating] = useState(false);
-  const [analysisCancelling, setAnalysisCancelling] = useState(false);
-  const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const card = useCompanyCardGeneration<CompanyAnalysis>(company.id, {
+    enabled: open,
+  });
+  const {
+    analysis,
+    setAnalysis,
+    generating: analysisGenerating,
+    cancelling: analysisCancelling,
+    generate: generateAnalysis,
+    regenerate: regenerateAnalysis,
+    cancel: cancelAnalysis,
+  } = card;
   // The card section the copilot is currently rewriting (drives the slide's
   // busy overlay). Cleared when the new content lands or the wait times out.
   const [editingSectionKey, setEditingSectionKey] =
     useState<AnalysisSectionKey | null>(null);
   const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopAnalysisPoll = () => {
-    if (analysisPollRef.current) {
-      clearInterval(analysisPollRef.current);
-      analysisPollRef.current = null;
-    }
-  };
 
   const stopSectionEditPoll = () => {
     if (sectionEditPollRef.current) {
@@ -591,7 +593,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     if (open) {
       refreshCompany();
       fetchDetails();
-      fetchAnalysis();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, company.id]);
@@ -629,7 +630,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   useEffect(() => {
     return () => {
-      stopAnalysisPoll();
       stopSectionEditPoll();
     };
   }, []);
@@ -668,119 +668,12 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     (rows) => setScreenings(rows),
   );
 
-  const fetchAnalysis = async () => {
-    try {
-      const data = await apiRequest<CompanyAnalysis | null>(
-        `/api/company-analysis?companyId=${company.id}`,
-      );
-      if (data && data.status) {
-        setAnalysis(data);
-        if (isAnalysisInProgress(data.status)) {
-          setAnalysisGenerating(true);
-          pollAnalysis();
-        }
-        return;
-      }
-      // No analysis exists yet → leave it empty. Generation is triggered
-      // manually via the "Generate AI Company Card" button.
-    } catch (error) {
-      // A 404 just means no analysis has been generated yet — not an error.
-      if ((error as Error).message !== "No analysis found for this company") {
-        console.error("Error fetching analysis:", error);
-      }
-    }
-  };
-
-  const pollAnalysis = () => {
-    stopAnalysisPoll();
-    const interval = setInterval(async () => {
-      try {
-        const data = await apiRequest<CompanyAnalysis>(
-          `/api/company-analysis?companyId=${company.id}`,
-        );
-        setAnalysis(data);
-        if (!isAnalysisInProgress(data.status)) {
-          setAnalysisGenerating(false);
-          stopAnalysisPoll();
-        }
-      } catch {
-        stopAnalysisPoll();
-        setAnalysisGenerating(false);
-      }
-    }, 2500);
-    analysisPollRef.current = interval;
-    setTimeout(() => {
-      if (analysisPollRef.current === interval) {
-        stopAnalysisPoll();
-        setAnalysisGenerating(false);
-      }
-    }, 300000);
-  };
-
-  const generateAnalysis = async (force = false) => {
-    setAnalysisGenerating(true);
-    let dispatched = false;
-    try {
-      const data = await apiRequest<CompanyAnalysis & { runId?: string }>(
-        "/api/company-analysis",
-        {
-          method: "POST",
-          body: JSON.stringify({ companyId: company.id, force }),
-        },
-      );
-
-      if (data.runId) {
-        dispatched = true;
-        pollAnalysis();
-        return;
-      }
-      setAnalysis(data);
-      toast.success("AI Company Card generated successfully");
-    } catch (error) {
-      console.error("Error generating analysis:", error);
-      toast.error(
-        (error as Error).message || "Failed to generate AI Company Card",
-      );
-      fetchAnalysis();
-    } finally {
-      if (!dispatched) setAnalysisGenerating(false);
-    }
-  };
-
-  const regenerateAnalysis = async () => {
-    // Deliberately does NOT delete the existing card first: the run reads its
-    // `created_at` and content to date-rank it against the company's
-    // documents, so on a conflict the later-dated source wins.
-    await generateAnalysis(true);
-  };
-
   const scrollToAICardAndRun = (forceRegenerate = false) => {
     setActiveTab("details");
     if (forceRegenerate || analysis?.status === "completed") {
       regenerateAnalysis();
     } else {
       generateAnalysis();
-    }
-  };
-
-  const cancelAnalysis = async () => {
-    setAnalysisCancelling(true);
-    try {
-      await apiRequest("/api/company-analysis/cancel", {
-        method: "POST",
-        body: JSON.stringify({ companyId: company.id }),
-      });
-      stopAnalysisPoll();
-      setAnalysis(null);
-      setAnalysisGenerating(false);
-      toast.success("Company Card generation cancelled");
-    } catch (error) {
-      console.error("Error cancelling analysis:", error);
-      toast.error(
-        (error as Error).message || "Failed to cancel Company Card generation",
-      );
-    } finally {
-      setAnalysisCancelling(false);
     }
   };
 
@@ -1248,11 +1141,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
               <div className="h-2 shrink-0" />
 
             {/* Overview — read-only L0→L1 submission slide, powered by the AI
-                Company Card. Auto-generates on first open; shows the generating
-                state until ready. */}
+                Company Card. Without a card it is a blank screen with one
+                "generate" button, which turns into "Generating…" + a link to
+                the AI Workforce task for as long as the run is in flight. */}
             <TabsContent value="overview" className="space-y-4 pb-4">
-              {analysisGenerating && !analysis?.business_overview ? (
-                <AICompanyCardLoading
+              {!card.loaded ? null : !hasCompanyCard(analysis) &&
+                (analysisGenerating || analysis?.status !== "failed") ? (
+                <CompanyCardNotGenerated
+                  generating={analysisGenerating}
+                  taskHref={card.taskHref}
+                  onGenerate={() => generateAnalysis()}
                   onCancel={cancelAnalysis}
                   cancelling={analysisCancelling}
                 />
@@ -1271,7 +1169,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => scrollToAICardAndRun(true)}
+                    onClick={() => regenerateAnalysis()}
                     disabled={analysisGenerating}
                   >
                     <Sparkles className="h-4 w-4 mr-2" />

@@ -50,7 +50,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AICompanyCardLoading } from '@/components/pipeline/AICompanyCardLoading';
+import { CompanyCardNotGenerated } from '@/components/pipeline/CompanyCardNotGenerated';
+import {
+  hasCompanyCard,
+  useCompanyCardGeneration,
+} from '@/components/pipeline/useCompanyCardGeneration';
 import CompanyOverviewSlide, {
   type AnalysisSectionKey,
   type EditSectionRequest,
@@ -59,7 +63,6 @@ import { useLayoutControl } from '@/components/layout/LayoutControlContext';
 import FeaturedSlideSection from '@/components/pipeline/featured/FeaturedSlideSection';
 import { useFeaturedSlide } from '@/components/pipeline/featured/useFeaturedSlide';
 import { useDealDocumentProcessingPoll } from '@/components/Files/DocumentInsightsPanel';
-import { isAnalysisInProgress } from '@/lib/constants';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
 import { format } from 'date-fns';
 import {
@@ -401,20 +404,19 @@ export default function CompanyDetail() {
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
-  const [analysis, setAnalysis] = useState<CompanyAnalysis | null>(null);
-  const [analysisGenerating, setAnalysisGenerating] = useState(false);
-  const [analysisCancelling, setAnalysisCancelling] = useState(false);
-  const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const card = useCompanyCardGeneration<CompanyAnalysis>(companyId);
+  const {
+    analysis,
+    setAnalysis,
+    generating: analysisGenerating,
+    cancelling: analysisCancelling,
+    regenerate: regenerateAnalysis,
+    cancel: cancelAnalysis,
+  } = card;
+  const generateAnalysis = () => card.generate();
   const [editingSectionKey, setEditingSectionKey] =
     useState<AnalysisSectionKey | null>(null);
   const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopAnalysisPoll = () => {
-    if (analysisPollRef.current) {
-      clearInterval(analysisPollRef.current);
-      analysisPollRef.current = null;
-    }
-  };
 
   const stopSectionEditPoll = () => {
     if (sectionEditPollRef.current) {
@@ -569,7 +571,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
 
   useEffect(() => {
     return () => {
-      stopAnalysisPoll();
       stopSectionEditPoll();
     };
   }, []);
@@ -582,7 +583,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         setCompany(data as CompanyData);
         if (!opts.silent) {
           fetchDetails((data as CompanyData).target?.trim() || null);
-          fetchAnalysis();
         }
       }
     } catch (error) {
@@ -621,128 +621,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       : null,
     (rows) => setScreenings(rows),
   );
-
-  const fetchAnalysis = async () => {
-    if (!companyId) return;
-    try {
-      const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.status) {
-          setAnalysis(data);
-          // If still processing, poll until complete
-          if (isAnalysisInProgress(data.status)) {
-            setAnalysisGenerating(true);
-            pollAnalysis();
-          }
-          return;
-        }
-      }
-      // No analysis exists yet → leave it empty. Generation is triggered manually
-      // via the "Generate AI Company Card" button.
-    } catch (error) {
-      console.error('Error fetching analysis:', error);
-    }
-  };
-
-  const pollAnalysis = () => {
-    stopAnalysisPoll();
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setAnalysis(data);
-          if (!isAnalysisInProgress(data.status)) {
-            setAnalysisGenerating(false);
-            stopAnalysisPoll();
-          }
-        }
-      } catch {
-        stopAnalysisPoll();
-        setAnalysisGenerating(false);
-      }
-    }, 5000);
-    analysisPollRef.current = interval;
-    // Clean up after 5 minutes max
-    setTimeout(() => {
-      if (analysisPollRef.current === interval) {
-        stopAnalysisPoll();
-        setAnalysisGenerating(false);
-      }
-    }, 300000);
-  };
-
-  const generateAnalysis = async (force = false) => {
-    if (!companyId) return;
-    setAnalysisGenerating(true);
-
-    let dispatched = false;
-    try {
-      const res = await fetch('/api/company-analysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, force }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to generate analysis');
-      }
-
-      const data = await res.json();
-      // 202 → job dispatched; pollAnalysis watches the company_analyses row.
-      if (res.status === 202 || data.jobId) {
-        dispatched = true;
-        pollAnalysis();
-        return;
-      }
-      setAnalysis(data);
-      toast.success('AI Company Card generated successfully');
-    } catch (error) {
-      console.error('Error generating analysis:', error);
-      toast.error((error as Error).message || 'Failed to generate AI Company Card');
-      // Re-fetch to get the latest status (might be 'failed')
-      fetchAnalysis();
-    } finally {
-      if (!dispatched) setAnalysisGenerating(false);
-    }
-  };
-
-  const regenerateAnalysis = async () => {
-    if (!companyId) return;
-    // Deliberately does NOT delete the existing card first: the run reads its
-    // `created_at` and content to date-rank it against the company's
-    // documents, so on a conflict the later-dated source wins.
-    await generateAnalysis(true);
-  };
-
-  const cancelAnalysis = async () => {
-    if (!companyId) return;
-    setAnalysisCancelling(true);
-    try {
-      const res = await fetch('/api/company-analysis/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to cancel generation');
-      }
-      stopAnalysisPoll();
-      setAnalysis(null);
-      setAnalysisGenerating(false);
-      toast.success('Company Card generation cancelled');
-    } catch (error) {
-      console.error('Error cancelling analysis:', error);
-      toast.error(
-        (error as Error).message || 'Failed to cancel Company Card generation',
-      );
-    } finally {
-      setAnalysisCancelling(false);
-    }
-  };
 
   const addNote = async (occurredAt?: string | null) => {
     if (!newNote.trim() || !company) return;
@@ -1185,11 +1063,16 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
           </TabsList>
 
           {/* Overview — read-only L0→L1 submission slide, powered by the AI
-              Company Card. Generated manually via the "Generate AI Company Card"
-              button; shows the generating state until ready. */}
+              Company Card. Without a card it is a blank screen with one
+              "generate" button, which turns into "Generating…" + a link to the
+              AI Workforce task for as long as the run is in flight. */}
           <TabsContent value="overview" className="space-y-6 mt-6">
-            {analysisGenerating && !analysis?.business_overview ? (
-              <AICompanyCardLoading
+            {!card.loaded ? null : !hasCompanyCard(analysis) &&
+              (analysisGenerating || analysis?.status !== 'failed') ? (
+              <CompanyCardNotGenerated
+                generating={analysisGenerating}
+                taskHref={card.taskHref}
+                onGenerate={generateAnalysis}
                 onCancel={cancelAnalysis}
                 cancelling={analysisCancelling}
               />

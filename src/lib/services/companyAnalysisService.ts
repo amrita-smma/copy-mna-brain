@@ -24,6 +24,31 @@ export class CompanyAnalysisService {
   }
 
   /**
+   * The company's card together with its in-flight AI Workforce card run, if
+   * any — what the Overview tab reads to choose between the slide, the
+   * "not generated" prompt and "Generating…".
+   *
+   * The run is the source of truth for "generating": a queued run has no
+   * `company_analyses` row yet (the tool writes one only once it starts), and
+   * the Workforce runs one task at a time, so a run can sit queued for a while.
+   * Reading it on load is what keeps "Generating…" across a reload.
+   */
+  async getGenerationState(companyId: string): Promise<{
+    analysis: Tables<'company_analyses'> | null;
+    run: { id: string; status: string } | null;
+  }> {
+    const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
+    const [analysis, active] = await Promise.all([
+      this.companyAnalysisRepo.findByCompanyId(companyId),
+      queueRepo.findActiveByCompanyId(COMPANY_CARD_AGENT_NAME, companyId),
+    ]);
+    return {
+      analysis: analysis ?? null,
+      run: active ? { id: active.id, status: active.status } : null,
+    };
+  }
+
+  /**
    * Enqueue an AI Workforce run that drives `generate_company_card`.
    *
    * Shared by first-time generation and regeneration; `extraInstruction` is

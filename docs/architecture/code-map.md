@@ -12,7 +12,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 243 | `src/app/api/**/route.ts` |
+| API routes | 244 | `src/app/api/**/route.ts` |
 | Services | 101 | `src/lib/services/` |
 | Repositories | 88 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
@@ -155,6 +155,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/companies/triage` | GET, POST | `companyService` |
 | `/api/company-analysis` | GET, POST, DELETE | `companyAnalysisService` |
 | `/api/company-analysis/cancel` | POST | `companyAnalysisService` |
+| `/api/company-analysis/state` | GET | `companyAnalysisService` |
 | `/api/company-slides` | GET, POST, PUT, DELETE | `slideService` |
 | `/api/consent` | POST | `consentService` |
 | `/api/copilot/chats/[id]/cards/[cardId]/decision` | POST | `copilotChatCardService` |

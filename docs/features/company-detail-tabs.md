@@ -6,7 +6,7 @@ A company is read in two places: the full page `CompanyDetail.tsx`
 
 | Tab | What it holds |
 |---|---|
-| Overview | The read-only L0→L1 submission slide, from the AI Company Card. |
+| Overview | The read-only L0→L1 submission slide, from the AI Company Card. With no card yet it is a blank screen with one generate button (see [Overview before a card exists](#overview-before-a-card-exists)). |
 | Additional Context | Context and Featured Slide, each in a collapsible section. |
 | Timeline | Every dated event on the deal, plus all manual entry. |
 | Details | Market Scanning Remarks (outbound), financials, Company Information, contact details ([company-contacts](company-contacts.md)), relationship graph, track variables, stage history, AI card. |
@@ -18,6 +18,23 @@ returns to the tab you came from. `resolveTab()` in `CompanyDetail.tsx` also map
 the three retired values — `context` and `featured-slide` → `additional-context`,
 `attachments` → `timeline` — so old links and bookmarks still land on the content
 they were aimed at.
+
+## Overview before a card exists
+
+Until a company has an AI Company Card, the Overview is not an empty slide but
+a blank screen with one button: **Company card not generated, press here to
+generate** (`CompanyCardNotGenerated`). Pressing it queues a card run on the AI
+Workforce (`POST /api/company-analysis`) and the button becomes a disabled
+**Generating…** with a **View task in AI Workforce** link to that run.
+
+The state lives on the server, not in the component. `useCompanyCardGeneration`
+(shared by the page and the dialog) reads `GET /api/company-analysis/state`,
+which returns the card row *and* the company's in-flight card run
+(`CompanyAnalysisService.getGenerationState`). A queued run has no
+`company_analyses` row yet, so the run is what keeps "Generating…" across a
+reload, a reopened dialog, or a run someone else started. The hook polls that
+endpoint for as long as the run is alive — no fixed timeout — and the slide
+replaces the prompt once the card lands.
 
 ## Details
 
