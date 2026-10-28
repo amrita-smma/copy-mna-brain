@@ -447,6 +447,28 @@ describe('InsightService', () => {
     });
   });
 
+  describe('InsightService.exists', () => {
+    it('returns true for a live insight in the workspace', async () => {
+      const created = await create();
+      await expect(service.exists(WS, created.id)).resolves.toBe(true);
+    });
+
+    it('returns false for a missing insight', async () => {
+      await expect(service.exists(WS, 'nonexistent')).resolves.toBe(false);
+    });
+
+    it('returns false for an insight in another workspace', async () => {
+      const created = await create();
+      await expect(service.exists('other-workspace', created.id)).resolves.toBe(false);
+    });
+
+    it('returns false for an archived insight, matching get()', async () => {
+      const created = await create();
+      row(created.id).archived_at = new Date().toISOString() as never;
+      await expect(service.exists(WS, created.id)).resolves.toBe(false);
+    });
+  });
+
   describe('InsightService.createFromDocument', () => {
     it('creates an insight and version 1 in one transaction', async () => {
       const detail = await create({

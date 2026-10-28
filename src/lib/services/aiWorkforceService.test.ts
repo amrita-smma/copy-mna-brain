@@ -503,3 +503,13 @@ describe('AiWorkforceService.markFailureSeen', () => {
     expect(markFailureSeen).not.toHaveBeenCalled();
   });
 });
+
+describe('AiWorkforceService.taskExists', () => {
+  it('delegates to the workspace-scoped existence check', async () => {
+    const existsInWorkspace = vi.fn().mockResolvedValue(false);
+    const service = makeServiceWith({ existsInWorkspace });
+
+    await expect(service.taskExists('run-1')).resolves.toBe(false);
+    expect(existsInWorkspace).toHaveBeenCalledWith('run-1');
+  });
+});

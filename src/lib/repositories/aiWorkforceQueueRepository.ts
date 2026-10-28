@@ -550,6 +550,20 @@ export class AiWorkforceQueueRepository {
       .orderBy(asc(companyId), desc(aiWorkforceQueue.created_at));
   }
 
+  /**
+   * Whether a run with this id exists in this workspace. The workspace-scoped
+   * counterpart to {@link findById}, which the worker uses across workspaces —
+   * a deeplink to another workspace's run must read as missing here.
+   */
+  async existsInWorkspace(id: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: aiWorkforceQueue.id })
+      .from(aiWorkforceQueue)
+      .where(and(eq(aiWorkforceQueue.id, id), eq(aiWorkforceQueue.workspace_id, this.workspaceId)))
+      .limit(1);
+    return !!row;
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // MB-147 surface — queue mechanics: idempotency, atomic claim, reaper.
   // Deliberately NOT workspace-scoped — see the constructor doc comment.

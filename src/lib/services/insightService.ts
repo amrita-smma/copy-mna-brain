@@ -722,6 +722,16 @@ export class InsightService {
   }
 
   /**
+   * Whether the insight can be opened in this workspace — the same missing /
+   * archived / other-workspace rule as {@link get}, without loading a version.
+   * Gates the `/insight/<id>` deeplink.
+   */
+  async exists(workspaceId: string, insightId: string): Promise<boolean> {
+    const insight = await this.insightRepo.findById(insightId, workspaceId);
+    return !!insight && insight.archived_at === null;
+  }
+
+  /**
    * Retrieves an insight detail by id and optional versionNo (defaults to latest).
    * Throws InsightNotFoundError when not found.
    */

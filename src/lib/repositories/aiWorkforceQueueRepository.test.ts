@@ -1458,3 +1458,27 @@ describe('AiWorkforceQueueRepository.findLatestByCompanyIds', () => {
     expect(dialect.sqlToQuery(newestFirst).sql).toContain('desc');
   });
 });
+
+describe('AiWorkforceQueueRepository.existsInWorkspace', () => {
+  it('returns true when the run is in this workspace, scoping the lookup by workspace', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.limit.mockResolvedValueOnce([{ id: 'run-1' }]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.existsInWorkspace('run-1')).resolves.toBe(true);
+
+    const { sql: whereText, params } = new PgDialect().sqlToQuery(
+      selectChain.where.mock.calls[0][0] as SQL,
+    );
+    expect(whereText).toContain('"workspace_id"');
+    expect(params).toEqual(['run-1', 'workspace-1']);
+  });
+
+  it('returns false when no row matches (missing, or another workspace\'s run)', async () => {
+    const { db, selectChain } = makeMockDb();
+    selectChain.limit.mockResolvedValueOnce([]);
+
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+    await expect(repo.existsInWorkspace('run-x')).resolves.toBe(false);
+  });
+});

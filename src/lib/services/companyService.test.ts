@@ -2801,3 +2801,21 @@ describe("CompanyService — workspace pipeline stages", () => {
     expect(repos.companyRepo.updateMany).toHaveBeenCalled();
   });
 });
+
+describe("CompanyService.exists", () => {
+  it("returns true when the company is in the workspace", async () => {
+    const repos = makeRepos();
+    (repos.companyRepo as unknown as { findByIdOrNull: unknown }).findByIdOrNull = vi
+      .fn()
+      .mockResolvedValue(makeCompany());
+    await expect(buildService(repos).exists("company-1")).resolves.toBe(true);
+  });
+
+  it("returns false when the lookup finds no row", async () => {
+    const repos = makeRepos();
+    (repos.companyRepo as unknown as { findByIdOrNull: unknown }).findByIdOrNull = vi
+      .fn()
+      .mockResolvedValue(null);
+    await expect(buildService(repos).exists("company-x")).resolves.toBe(false);
+  });
+});

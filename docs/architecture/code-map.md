@@ -18,7 +18,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
-| Pages | 46 | `src/app/**/page.tsx` |
+| Pages | 48 | `src/app/**/page.tsx` |
 | Migrations (app) | 193 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
@@ -70,10 +70,12 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `/w/[workspaceSlug]/ai-workforce/[[...taskSlug]]` | `src/views/AIWorkforce.tsx` |
 | `/w/[workspaceSlug]/bots` | `src/views/Bots.tsx` |
 | `/w/[workspaceSlug]/chat` | _inline — see `src/app/w/[workspaceSlug]/chat/page.tsx`_ |
+| `/w/[workspaceSlug]/companies` | _inline — see `src/app/w/[workspaceSlug]/companies/page.tsx`_ |
 | `/w/[workspaceSlug]/companies/[id]` | `src/views/CompanyDetail.tsx` |
 | `/w/[workspaceSlug]/crm` | `src/views/CRM.tsx` |
 | `/w/[workspaceSlug]/dashboard` | `src/views/Dashboard.tsx` |
 | `/w/[workspaceSlug]/data-navigator` | `src/views/DataNavigator.tsx` |
+| `/w/[workspaceSlug]/files` | _inline — see `src/app/w/[workspaceSlug]/files/page.tsx`_ |
 | `/w/[workspaceSlug]/files/[id]` | `src/views/FileDetail.tsx` |
 | `/w/[workspaceSlug]/fund-management` | `src/views/FundManagement.tsx` |
 | `/w/[workspaceSlug]/graph` | `src/views/CompanyGraph.tsx` |

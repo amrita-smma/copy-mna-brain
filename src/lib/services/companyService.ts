@@ -488,6 +488,11 @@ export class CompanyService {
     return this.companyRepo.findDetails(id);
   }
 
+  /** Whether the company is in the current workspace — gates the company page deeplinks. */
+  async exists(id: string): Promise<boolean> {
+    return (await this.companyRepo.findByIdOrNull(id)) !== null;
+  }
+
   // --------- DTO (flat, backward-compatible) read path ---------
   async findByIdDTO(id: string): Promise<CompanyDTO> {
     const [company, financials, fx, screening, assignees] = await Promise.all([

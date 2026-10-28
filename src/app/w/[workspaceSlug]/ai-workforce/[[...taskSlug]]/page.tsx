@@ -1,5 +1,9 @@
 import { notFound, redirect } from 'next/navigation';
 import AIWorkforce from '@/views/AIWorkforce';
+import { createDb } from '@/lib/server/db';
+import { createContainer } from '@/lib/services/container';
+import { getActiveWorkspaceId } from '@/lib/workspace';
+import { redirectUnlessRecordExists } from '@/lib/recordRedirect';
 
 type ParsedSlug =
   | { kind: 'ok'; initialTaskId: string | null }
@@ -43,6 +47,17 @@ export default async function AIWorkforcePage({
   if (parsed.kind === 'redirect-to-root') {
     redirect(`/w/${workspaceSlug}/ai-workforce`);
   }
+  // A run from another workspace (e.g. after a workspace switch) falls back to
+  // the queue rather than preselecting a row that isn't there.
+  const { initialTaskId } = parsed;
+  if (initialTaskId) {
+    const { aiWorkforceService } = createContainer(createDb(), await getActiveWorkspaceId());
+    await redirectUnlessRecordExists(
+      initialTaskId,
+      (id) => aiWorkforceService.taskExists(id),
+      `/w/${workspaceSlug}/ai-workforce`,
+    );
+  }
 
-  return <AIWorkforce initialTaskId={parsed.initialTaskId} />;
+  return <AIWorkforce initialTaskId={initialTaskId} />;
 }

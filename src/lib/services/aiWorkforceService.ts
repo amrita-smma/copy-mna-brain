@@ -145,6 +145,11 @@ export class AiWorkforceService {
     return this.queueRepo.findById(id);
   }
 
+  /** Whether the run is in the current workspace — gates the `/ai-workforce/tasks/<id>` deeplink. */
+  taskExists(id: string): Promise<boolean> {
+    return this.queueRepo.existsInWorkspace(id);
+  }
+
   /**
    * The Workforce nav item's badges: the workspace's unseen failures (red)
    * and its queue (yellow) — `queue` counts runs waiting to start or resume
