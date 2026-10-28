@@ -532,6 +532,17 @@ before → after: `mna` 51.2k → 26.7k chars; `minority` 57.5k → 36.4k;
 `capital_markets` 61.7k → 40.6k (roughly 6k tokens each). See
 `docs/features/copilot-flavors.md` §"Pipeline operations are read on demand".
 
+**Done (2026-10-27):** the other seven chat prompts dropped their numbered tool
+enumerations too. Each kept its desk-specific framing — a short "The firm's own
+data" paragraph (`investment_banking`, `capital_markets`), a "Two tool sets"
+paragraph (`combined`), or lines folded into "How to Help Users" / the
+principles (`minority`, `crowdfunding`, `investment`, `vc`) — and lost the
+restated descriptions. Assembled prompt text, before → after: `investment`
+27.0k → 22.5k chars; `combined` 27.4k → 23.0k; `vc` 27.9k → 24.6k; `minority`
+36.4k → 32.3k; `crowdfunding` 40.7k → 37.4k; `investment_banking` 39.9k →
+35.3k; `capital_markets` 40.6k → 36.2k (roughly 0.8–1.1k tokens each).
+`index.test.ts` now asserts that no chat flavor enumerates its tools.
+
 **Done (2026-10-27), tool search:** `send_email` (every chat list and the
 workforce) and `add_company` (workforce) are sent with `defer_loading: true`
 and found through Anthropic's tool-search server tool (`TOOL_SEARCH_TOOL` in

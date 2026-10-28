@@ -440,19 +440,26 @@ describe('getAgentGraph flavor selection', () => {
 
     const prompt = mocks.createAgent.mock.calls[0][0].systemPrompt as string;
 
-    // Available tools list numbering
-    expect(prompt).toMatch(/16\.\s+\*\*web_search\*\*/);
-    expect(prompt).toMatch(/17\.\s+\*\*valyu_search\*\*/);
-    expect(prompt).toMatch(/18\.\s+\*\*valyu_extract_content\*\*/);
-    expect(prompt).toMatch(/19\.\s+\*\*get_company_profile\*\*/);
-    expect(prompt).toMatch(/20\.\s+\*\*get_sector_context\*\*/);
-    expect(prompt).toMatch(/21\.\s+\*\*get_competitor_landscape\*\*/);
-    expect(prompt).toMatch(/22\.\s+\*\*get_regulatory_context\*\*/);
-    expect(prompt).toMatch(/23\.\s+\*\*get_market_signals\*\*/);
-    expect(prompt).toMatch(/24\.\s+\*\*calculate_investment_returns\*\*/);
-    expect(prompt).toMatch(/25\.\s+\*\*lookup_user\*\*/);
-    expect(prompt).toMatch(/26\.\s+\*\*send_email\*\*/);
-    expect(prompt).toMatch(/27\.\s+\*\*propose_workforce_handoff\*\*/);
+    // No "Available Tools" enumeration: the tool schemas carry the descriptions,
+    // and the principles below name each research tool by its role.
+    expect(prompt).not.toContain('## Available Tools');
+    expect(prompt).not.toMatch(/^\d+\.\s+\*\*web_search\*\*/m);
+    for (const name of [
+      'web_search',
+      'valyu_search',
+      'valyu_extract_content',
+      'get_company_profile',
+      'get_sector_context',
+      'get_competitor_landscape',
+      'get_regulatory_context',
+      'get_market_signals',
+      'calculate_investment_returns',
+      'lookup_user',
+      'send_email',
+      'propose_workforce_handoff',
+    ]) {
+      expect(prompt, name).toContain(`\`${name}\``);
+    }
 
     // Valyu search vs topic tools vs content extraction roles and web_search fallback
     expect(prompt).toMatch(/prefer focused topic tools/i);
@@ -937,6 +944,52 @@ describe('shared chat guidance (chat flavors)', () => {
     // The workforce defers add_company as well.
     expect(WORKFORCE_SYSTEM_PROMPT).toMatch(/`add_company`, `send_email`, `analyze_stalled_deals`, `get_task_progress`, `read_relationship_graph` are not in your tool list until you look them up/);
     expect(WORKFORCE_SYSTEM_PROMPT).toContain('`tool_search_tool_regex`');
+  });
+
+  it('no chat flavor enumerates its tools; each keeps its own framing of them', async () => {
+    const flavors: CopilotAgentType[] = [
+      'mna',
+      'investment',
+      'combined',
+      'vc',
+      'minority',
+      'crowdfunding',
+      'investment_banking',
+      'capital_markets',
+    ];
+    for (const flavor of flavors) {
+      resetAgent();
+      mocks.createAgent.mockClear();
+      const prompt = await promptFor(flavor);
+      // The tool schemas carry every description; a numbered restatement only
+      // costs tokens and drifts from the real tool list.
+      expect(prompt, flavor).not.toContain('You have access to the following tools:');
+      expect(prompt, flavor).not.toContain('## Available Tools');
+      expect(prompt, flavor).not.toMatch(/^\d+\.\s+\*\*[a-z_]+\*\*\s+-\s/m);
+    }
+
+    // What the enumerations carried that a shared description cannot: how
+    // this desk uses the tool. That framing moved, it did not disappear.
+    resetAgent();
+    mocks.createAgent.mockClear();
+    expect(await promptFor('investment_banking')).toMatch(/strategic-buyer or target list out of what the firm already tracks/);
+    resetAgent();
+    mocks.createAgent.mockClear();
+    expect(await promptFor('capital_markets')).toMatch(/issuer and peer-issuer starting point/);
+    resetAgent();
+    mocks.createAgent.mockClear();
+    expect(await promptFor('crowdfunding')).toMatch(/owner-operator IS the credit/);
+    resetAgent();
+    mocks.createAgent.mockClear();
+    const minority = await promptFor('minority');
+    expect(minority).toMatch(/data_request_already_made: true/);
+    expect(minority).toMatch(/how crowded a thesis already is/);
+    resetAgent();
+    mocks.createAgent.mockClear();
+    expect(await promptFor('combined')).toContain('## Two tool sets');
+    resetAgent();
+    mocks.createAgent.mockClear();
+    expect(await promptFor('vc')).toMatch(/resolve a named recipient with `lookup_user` first/);
   });
 
   const FLAVORS = [

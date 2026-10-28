@@ -214,12 +214,20 @@ that never writes. So `flavors/pipelineOperations.ts` splits it in two:
 The trade: one extra tool round trip on a turn that writes, against ~6k fewer
 fixed tokens on every turn — the fixed prefix is prompt-cached, but the cache
 is rewritten whenever a thread sits idle past the cache TTL, and the model
-reads the whole prefix on every cache miss. The `mna` prompt also dropped its
-numbered tool enumeration (the tool schemas already carry every description;
-the when-to-use guidance is in "How to Help Users"). The other flavors keep
-theirs because their entries carry flavor-specific framing ("your issuer and
-peer-issuer starting point", "at this size the owner-operator IS the credit")
-that a shared tool description cannot.
+reads the whole prefix on every cache miss.
+
+No chat prompt enumerates its tools any more: the tool schemas already carry
+every description, and a numbered restatement only costs tokens and drifts
+from the real tool list (`index.test.ts` asserts the absence for every
+flavor). What those lists carried that a shared description cannot — how the
+desk uses a tool ("your issuer and peer-issuer starting point", "at this size
+the owner-operator IS the credit") — stayed, in a form sized to the flavor:
+`investment_banking` and `capital_markets` open their tool guidance with a
+short "The firm's own data" paragraph ahead of "Routing the research tools";
+`combined` has a "Two tool sets" paragraph naming the domain split; `mna`,
+`minority`, `crowdfunding`, `investment` and `vc` fold the framing into "How
+to Help Users" or the principles list. When adding a tool to a flavor, say
+when to use it in those sections; do not add a numbered entry.
 
 ## Tools loaded on demand
 

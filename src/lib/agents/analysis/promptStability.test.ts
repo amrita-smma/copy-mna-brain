@@ -161,31 +161,35 @@ function lastSystemPrompt(): string {
 // The five M&A-family prompts then changed with the pipeline-operations
 // summary: the promotion topic's one-line summary now says the EBITDA
 // warning banner comes first in the reply after the handoff card.
+// The other seven chat prompts then dropped their numbered tool enumerations
+// the same way: each keeps its desk-specific framing (a "The firm's own data"
+// or "Two tool sets" paragraph, or a line folded into "How to Help Users")
+// and loses the restated descriptions.
 const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   mna: '95b85c314923b2b075ca40169b561d4785dff76b6ef1eb53cbdb1ac54f3895d2',
-  investment: 'bed13307c88aef648a33997d32af450f8e54827c3cd43d3c9f090aca9a3caebe',
-  combined: '8f91828ae56a7b62aa9841b90fadbc3318f5c629fd360b17c54f0207e086cf7f',
-  vc: '1e0eacdf382e6fed0983c02d55862b96285d2885d9856afdc249a8705f79ceae',
+  investment: '1382fdf8bbe7ce0ba190bed17da40038576958287886a9f33a032935c81a4a80',
+  combined: 'b2f301a2abdcb478688ffd6c20440e03ddf90c8931c7cb6f310c84e3825aeaff',
+  vc: 'b34ea5d180c7dee19a537ad32875e824b798f2be2be70214aeafc0adf3b4ab89',
   // The Minority Stakes Portfolio Manager — a portfolio-construction prompt
   // (sizing, concentration, minority protections, exit paths) over the M&A
   // chat tool set plus `financial_equity_analysis`.
-  minority: '9b57a6d2e7b941f367a1129b6db47532108fd9142694ff64ad27173502fdd3cb',
+  minority: '5fdff867e2963b5b2c9de222bd5ac2e3f952273643cf617728c3747d83f626c9',
   // The Crowdfunding Agent — the M&A chat tool set plus the returns
   // calculator, regulatory/sector context, company profile and Valyu
   // extraction, under a small-ticket MSME and project-raise prompt (mandate
   // gate, carve-out perimeter, Verified/Sponsor-stated/Modelled, the OJK
   // crowdfunding regime, and the employee-raise conduct rule).
-  crowdfunding: '3fc584913efdd9bdfa4e169800a44b8906f82d1309135d2d5ca1bcb1ff7ebfcb',
+  crowdfunding: 'd4d3d548533f964763720f0db59b6a3a65964203345357da9b35ba63a682a098',
   // The Investment Banking Advisory Agent — the M&A chat tool set plus the
   // returns calculator, all five topic-research tools and Valyu extraction,
   // under an advisory prompt that compares exit routes (control sale, IPO,
   // bond issuance, recap, partnership, carve-out, do-nothing) rather than
   // underwriting one position.
-  investment_banking: 'ffc330f92e245f02bee136aacd3ca91d87b0aa0abff3fa0e1f67b29fce60a28a',
+  investment_banking: '0a2e88280feaa2dded8b886f0e377d1f3932f03a8922cb23745282bcf9ef50d4',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
   // base, regime and window.
-  capital_markets: '0214f784b80a604a854d7cbb36cb96ea7a59ec25909d8f1e690bd44863aef657',
+  capital_markets: '138b77869135b30b0ffec9dfefa6123536aee26979ca2059150a63a61fe4e3e0',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which
