@@ -16,7 +16,12 @@ import {
   rdsIamAuthToken,
   rdsIamDbAuthFromEnv,
 } from "@/lib/server/db";
-import { AgentGraph, createLocalAgent, type AgentMiddlewareList } from "./runtime";
+import {
+  AgentGraph,
+  createLocalAgent,
+  type AgentMiddlewareList,
+  type ThreadSnapshot,
+} from "./runtime";
 import { type EffortChoice } from "./effort";
 import {
   CHAT_SYSTEM_PROMPT,
@@ -180,6 +185,31 @@ export async function getAgentGraph(
   const graph = await buildAgentGraph(toolList, flavor.systemPrompt, [], true, effort);
   if (graph) chatAgentGraphs.set(key, graph);
   return chatAgentGraphs.get(key) ?? null;
+}
+
+/**
+ * A thread's persisted history (`AgentGraph.getThreadSnapshot`) read before
+ * the graph it will run on is known.
+ *
+ * The chat route picks its tier from the effort router's answer, and the
+ * graph from the tier; reading the history through that graph put the
+ * checkpoint read — the longest of the turn's reads on a long thread — behind
+ * the router as well. Every chat graph (the Copilot flavors here, the sector
+ * agents' chat graphs in `sector/graph.ts`) shares the one checkpointer and
+ * is compiled with no middleware, so they all read a thread identically —
+ * a sector thread's history read here matches what its own graph would
+ * read. The pool this picks from is this module's Copilot flavor cache: the
+ * read goes through whichever flavor graph the process has already built,
+ * or the default one. Not for workforce threads — those graphs carry the
+ * HITL middleware, whose node the chat graphs lack, and their callers hold
+ * their own graph.
+ */
+export async function readThreadSnapshot(threadId: string): Promise<ThreadSnapshot> {
+  const reader = chatAgentGraphs.values().next().value ?? (await getAgentGraph());
+  if (!reader) {
+    throw new Error("No chat agent graph is available to read the thread (see the errors logged above)");
+  }
+  return reader.getThreadSnapshot(threadId);
 }
 
 /** @deprecated Use getAgentGraph('mna', effort) */

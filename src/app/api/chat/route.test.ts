@@ -27,8 +27,10 @@ const {
   shouldRouteMock,
   buildBotTurnOverrideMock,
   summarizeThreadAheadMock,
+  readThreadSnapshotMock,
 } = vi.hoisted(() => ({
   summarizeThreadAheadMock: vi.fn(),
+  readThreadSnapshotMock: vi.fn(),
   openThreadMock: vi.fn(),
   openDefaultThreadMock: vi.fn(),
   mentionContextMock: vi.fn(),
@@ -82,6 +84,7 @@ vi.mock('@/lib/agents/analysis', () => ({
     }
   },
   extractLastTurn: extractLastTurnMock,
+  readThreadSnapshot: readThreadSnapshotMock,
   asManualEffort: (v: unknown) => (v === 'low' || v === 'medium' || v === 'high' ? v : null),
   EFFORT_TIERS: {
     low: { turnBudgetMs: 30_000, model: 'claude-haiku-5-5' },
@@ -255,6 +258,10 @@ describe('POST /api/chat', () => {
     resolveChatAgentGraphMock.mockReset();
     getChatContextMock.mockReset().mockResolvedValue(null);
     getMessagesMock.mockReset().mockResolvedValue([]);
+    // The route's pre-turn read goes through the tier-independent reader, not
+    // the tier's graph; in tests it answers from the same history double.
+    readThreadSnapshotMock.mockReset().mockImplementation((id: string) => graph.getThreadSnapshot(id));
+    graph.getThreadSnapshot.mockClear();
     graph.rewriteFileReferences.mockReset();
     graph.repairCorruptServerToolCalls.mockReset();
     graph.repairOrphanedToolCalls.mockReset();
@@ -401,6 +408,63 @@ describe('POST /api/chat', () => {
     // The lock was already held: given back, since the hook that would release it never registered.
     expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
     expect(presence.handle.done).toHaveBeenCalledTimes(1);
+  });
+
+  describe("the thread's history read", () => {
+    it('starts once the lock is held, through the tier-independent reader, while the router is still out', async () => {
+      resolve();
+      shouldRouteMock.mockReturnValue(true);
+      let answerRouter!: (tier: string) => void;
+      routeEffortMock.mockImplementation(
+        () =>
+          new Promise<string>((r) => {
+            answerRouter = r;
+          }),
+      );
+      const prior = [new HumanMessage({ id: 'h-1', content: 'earlier' })];
+      const snapshot = { messages: prior, hasInterrupt: false, checkpointId: 'cp-1' };
+      readThreadSnapshotMock.mockResolvedValue(snapshot);
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+
+      const pending = POST(chatRequest({}));
+      await vi.waitFor(() => expect(readThreadSnapshotMock).toHaveBeenCalledWith(CHAT_ID));
+      // The tier is unknown while the router is out, so no graph has been
+      // resolved yet — the read did not wait for one.
+      expect(resolveChatAgentGraphMock).not.toHaveBeenCalled();
+      expect(claimTurnMock).toHaveBeenCalledWith(CHAT_ID, expect.any(Number));
+
+      answerRouter('low');
+      const res = await pending;
+
+      expect(res.status).toBe(200);
+      // That one read is the history the turn ran on; the tier's graph is
+      // never asked for it again.
+      expect(graph.getThreadSnapshot).not.toHaveBeenCalled();
+      expect(graph.repairOrphanedToolCalls).toHaveBeenCalledWith(CHAT_ID, snapshot);
+      expect(persistQuestionMock.mock.calls[0][0].prior).toBe(prior);
+    });
+
+    it('is not started for a turn that does not get the lock', async () => {
+      resolve();
+      claimTurnMock.mockResolvedValue(false);
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(409);
+      expect(readThreadSnapshotMock).not.toHaveBeenCalled();
+    });
+
+    it('fails the turn, giving the lock back, when the read fails', async () => {
+      resolve();
+      readThreadSnapshotMock.mockRejectedValue(new Error('checkpoint unavailable'));
+
+      const res = await POST(chatRequest({}));
+
+      expect(res.status).toBe(500);
+      expect(invokeMock).not.toHaveBeenCalled();
+      expect(releaseTurnMock).toHaveBeenCalledWith(CHAT_ID);
+    });
   });
 
   describe('the open insight as context (MB-550)', () => {

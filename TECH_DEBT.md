@@ -626,6 +626,18 @@ Done so far:
   (`AgentGraph.replaceMessagesIfAt`); a turn that started in between keeps
   the lock or moves the checkpoint and the write is dropped, to be tried
   again after that turn. The in-line trigger stays as the safety net.
+- The checkpoint read's place in the chain. The thread's history
+  (`getThreadSnapshot`, for the repairs and the zero-work check) was read
+  through the tier's graph, so it could not start until the router had
+  answered and the graph was resolved — the longest of the turn's reads on a
+  long thread, serial after the longest pre-stream stage. Now
+  `readThreadSnapshot` (`graphs.ts`) reads through whichever chat graph the
+  process has already built — every chat graph shares the checkpointer and
+  is compiled with no middleware, so they all read a thread identically —
+  and the route starts it the moment the turn lock is held, so it rides
+  behind the attachment upload, the router and the graph build. It is
+  started under the lock on purpose: a turn that just released it is then
+  fully written. The read itself is unchanged, and still one per turn.
 
 Still on the table, in the order worth trying:
 
@@ -654,12 +666,11 @@ Still on the table, in the order worth trying:
    installed library already knows) in place of the client-side summariser
    at a lower mark, would change that. Needs the production timeline to
    show the writes before it is worth it.
-3. **The checkpoint is read twice per turn.** `getThreadSnapshot` (for the
-   repairs and the zero-work check) and LangGraph's own load inside
-   `streamEvents`. Unavoidable with the checkpointer as used; only matters on
-   long threads. The snapshot read also waits for the router today, because
-   it goes through the tier's graph; a tier-independent reader on the shared
-   checkpointer would let it ride behind the router with the other reads.
+3. **The checkpoint is read twice per turn.** The route's snapshot
+   (`readThreadSnapshot`, for the repairs and the zero-work check) and
+   LangGraph's own load inside `streamEvents`. Unavoidable with the
+   checkpointer as used; only matters on long threads, and the first read
+   now overlaps the router rather than following it.
 
 **Trigger to revisit:** a production timeline showing the router as the
 longest pre-stream stage on most turns (it will be), or the summariser

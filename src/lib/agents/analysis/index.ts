@@ -54,7 +54,13 @@ export {
 } from "./workforce";
 
 // --- Runtime ----------------------------------------------------------------
-export type { AgentConfig, InvokeOptions, InvokeConfig, InvokeResult } from "./runtime";
+export type {
+  AgentConfig,
+  InvokeOptions,
+  InvokeConfig,
+  InvokeResult,
+  ThreadSnapshot,
+} from "./runtime";
 export {
   AgentGraph,
   createLocalAgent,
@@ -72,6 +78,7 @@ export {
   getWorkforceAgentGraphForEffort,
   getWorkforceAgentGraph,
   onResetAgent,
+  readThreadSnapshot,
   resetAgent,
 } from "./graphs";
 

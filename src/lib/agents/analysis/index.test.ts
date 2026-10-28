@@ -134,6 +134,7 @@ import {
   getAgentGraph,
   AgentGraph,
   getWorkforceAgentGraphForEffort,
+  readThreadSnapshot,
   resetAgent,
   EFFORT_TIERS,
   CHAT_TURN_BUDGET_CEILING_MS,
@@ -251,6 +252,47 @@ describe('getStatelessAgentGraph', () => {
       opts: Record<string, unknown>;
     };
     expect(model.opts.streaming).toBe(true);
+  });
+});
+
+describe('readThreadSnapshot', () => {
+  const snapshot = { messages: [], hasInterrupt: false, checkpointId: 'cp-1' };
+
+  beforeEach(() => {
+    resetAgent();
+    mocks.createAgent.mockClear();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads through a chat graph this process already built, without building another', async () => {
+    const built = await getAgentGraph('investment', 'high');
+    const read = vi.spyOn(AgentGraph.prototype, 'getThreadSnapshot').mockResolvedValue(snapshot);
+    mocks.createAgent.mockClear();
+
+    await expect(readThreadSnapshot('thread-1')).resolves.toBe(snapshot);
+
+    expect(read).toHaveBeenCalledWith('thread-1');
+    expect(read.mock.contexts[0]).toBe(built);
+    expect(mocks.createAgent).not.toHaveBeenCalled();
+  });
+
+  it('builds the default chat graph when none is built yet', async () => {
+    const read = vi.spyOn(AgentGraph.prototype, 'getThreadSnapshot').mockResolvedValue(snapshot);
+
+    await readThreadSnapshot('thread-1');
+
+    expect(mocks.createAgent).toHaveBeenCalledTimes(1);
+    expect(read.mock.contexts[0]).toBe(await getAgentGraph());
+  });
+
+  it('rejects when no chat graph can be built', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+
+    await expect(readThreadSnapshot('thread-1')).rejects.toThrow(/No chat agent graph/);
   });
 });
 

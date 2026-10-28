@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import {
   AIMessage,
   EFFORT_TIERS,
+  readThreadSnapshot,
   type EffortChoice,
   type InvokeConfig,
   type InvokeOptions,
@@ -103,10 +104,11 @@ export async function POST(req: NextRequest) {
  * One chat turn, start to finish. Reads top to bottom as the turn's stages:
  *
  * 1. the request, and the reads that only need it, started at once;
- * 2. the bot's thread, and its lock;
+ * 2. the bot's thread, and its lock — and, once the lock is held, the
+ *    thread's history read started;
  * 3. the human message (attachments uploaded);
  * 4. the tier and the graph;
- * 5. the thread's history and the question row;
+ * 5. the thread's history (awaited) and the question row;
  * 6. the `after()` hook that stores the turn and releases the lock;
  * 7. what the agent is given, and the run itself (`streamTurnResponse`, or
  *    `invokeTurnResponse` on the debug path).
@@ -306,6 +308,18 @@ async function handleChatTurn(
     timer.mark('turn_claimed');
     presence = startTurnPresence({ workspaceId, userId, chatId: chat.id, botId: bot.id, turnId });
 
+    // The thread's persisted history, read once for everything in stage 5:
+    // the zero-work check, the earlier attachments, the file-reference rewrite
+    // and the orphaned-call repair. Started HERE — under the lock, so a turn
+    // that just released it is fully written, and through the tier-independent
+    // reader rather than the tier's graph, so the checkpoint read (the longest
+    // of the turn's reads on a long thread) rides behind the attachment
+    // upload, the router and the graph build instead of waiting for them.
+    // Awaited in stage 5; marked handled so a path that returns before then
+    // cannot leave an unhandled rejection.
+    const snapshotPromise = readThreadSnapshot(chat.id);
+    snapshotPromise.catch(() => undefined);
+
     // ---- 3. The human message: the files uploaded, the template expanded.
     let turnMessage: TurnMessage;
     try {
@@ -403,10 +417,10 @@ async function handleChatTurn(
           })
       : Promise.resolve([]);
 
-    // The thread's persisted history, read once: the zero-work check, the
-    // earlier attachments, the file-reference rewrite and the orphaned-call
+    // The thread's persisted history, started in stage 2: the zero-work check,
+    // the earlier attachments, the file-reference rewrite and the orphaned-call
     // repair below all use this one read.
-    const [snapshot, userPinged] = await Promise.all([agent.getThreadSnapshot(chat.id), userPingedPromise]);
+    const [snapshot, userPinged] = await Promise.all([snapshotPromise, userPingedPromise]);
     const priorMessages = snapshot.messages;
     timer.mark('history_read');
     const priorLastHumanId = lastHumanMessageId(priorMessages);

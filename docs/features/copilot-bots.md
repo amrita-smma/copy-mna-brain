@@ -195,7 +195,14 @@ message from the attachments, template and selection, and `finishTurn`
    `ROUTER_TIMEOUT_MS` (1.5 s), started as soon as the turn's text is known
    so it overlaps the thread open and the context reads. A turn it cannot
    place runs at `low` when short and attachment-free, `medium` otherwise
-   (`fallbackEffort`). The per-turn context also names the other bots it can
+   (`fallbackEffort`). The thread's persisted history is read through
+   `readThreadSnapshot` (`src/lib/agents/analysis/graphs.ts` — whichever
+   Copilot flavor graph the process has built, or the default one; every
+   chat graph shares the checkpointer and carries no middleware, so a sector
+   thread reads the same through it) as soon as the turn lock is held, so
+   that read rides behind the router and the attachment upload instead of
+   waiting for the tier's graph.
+   The per-turn context also names the other bots it can
    **@mention** (`mentionableBotsContext`, sorted by name so the note is
    byte-identical between turns).
 
