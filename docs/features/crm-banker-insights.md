@@ -306,7 +306,11 @@ recomputed for the model.
     `ContactInsightsService.getContactInsights`: per-team-member emails each
     way and last email, last contact; deals with
     current stage, the scorecard's furthest-stage breakdown, reached L1 and
-    conversion; related companies.
+    conversion; related companies. Each conversation note shows who sent it
+    (`from Alice (us), also on it: Bob` / `from their side, to Alice`) so the
+    answer can say who reached whom; the notes carry an instruction to leave
+    out a meeting's time, place or link and not to guess whether someone
+    replied.
   - `mode: "ranking"`, `metric` ∈ `deals_brought | reached_l1 | recent_activity
     | team_members | emails`, `limit` (default 10, capped at 25),
     `active_within_days` (passed as the list's `custom` last-contact bound):
@@ -480,7 +484,10 @@ an `email_note`, and only that **paraphrased** text is kept — never a quote:
   relationship chat are not deal-related. On an explicit `false` the sanitizer
   stores the note blank: NULL summary, no key points, no next step. A missing
   flag keeps the note. The email itself is still ingested, and its role
-  signals are kept.
+  signals are kept. A deal note follows `MEETING_NOTE_RULE`: a meeting appears
+  only as proposed or held, never with its date, time, place or link, and a
+  next step is the next move on the deal, never confirming a slot. The rule
+  shapes the text only; it never decides `is_deal_related`.
 - `analytics.email_role_signals` — per external participant address:
   `label` (`funding`/`lending`/`finance`/`tax`/`advisory`/`legal`, plus
   `due_diligence` for third-party diligence providers, `principal` for the
@@ -510,13 +517,19 @@ blocks the offset or re-runs the CRM upsert.
 
 **Reclassifying stored notes.** `pnpm --filter data-pipeline reclassify-notes`
 (`emailNoteReclassify.ts`) has Haiku re-judge every kept note against the same
-`DEAL_NOTE_RUBRIC`, from the note's own text (the email is gone), and blanks
-the ones it calls not deal-related. It is a dry run unless given `--apply`. Each
-batch's dropped notes are appended to a JSONL backup before they are blanked,
-because that backup is the only copy left. A failed call or a missing verdict
-keeps the note. `--limit` and `--after <email_id>` page through and resume. Once a
-contact's notes change, their relationship overview reads as stale and is
-rebuilt the next time the panel opens. A contact left with no notes shows no
+`DEAL_NOTE_RUBRIC` and `MEETING_NOTE_RULE`, from the note's own text (the email
+is gone). It blanks the notes it calls not deal-related and rewrites the deal
+notes that give a meeting's date, time, place, link or a "confirm the slot"
+next step. It is a dry run unless given `--apply`. Each batch's changes are
+appended to a JSONL backup (`action`: `blanked`, or `rewritten` with the new
+text) before they are written, because that backup is the only copy of the
+original. A rewrite only lands while the row still holds the judged summary,
+and `--restore` only puts back a row that still holds what the run left. A
+failed call, a missing verdict or a malformed rewrite keeps the note. `--limit` and `--after <email_id>` page through and resume. Once a
+contact loses a note, their relationship overview reads as stale and is
+rebuilt the next time the panel opens. A rewrite keeps the note count and
+newest email that `overviewInputHash` is built from, so it does not make the
+overview stale. A contact left with no notes shows no
 overview, because generation needs at least one note.
 
 ### Reads

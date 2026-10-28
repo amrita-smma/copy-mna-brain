@@ -44,6 +44,8 @@ export interface ContactRoleSummary {
 export interface ConversationNoteMember {
   userId: string;
   name: string;
+  /** This member sent the email (the From); everyone else was To/Cc. */
+  sent: boolean;
 }
 
 export interface ConversationNote {
@@ -298,6 +300,8 @@ export class ContactConversationRepository {
         members.push({
           userId: m.userId,
           name: decodeHtmlEntities(m.name ?? ''),
+          // Rows are ordered From first, so a sender's first row is the From one.
+          sent: m.role === 'from',
         });
       }
     }

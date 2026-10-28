@@ -1,12 +1,18 @@
 /**
- * Re-judge every kept email note against DEAL_NOTE_RUBRIC with Haiku and blank
- * the ones that are not deal-related (MB-888). New notes are already gated at
- * extraction; this clears the notes written before that rule.
+ * Re-judge every kept email note with Haiku (MB-888): blank the ones that are
+ * not deal-related under DEAL_NOTE_RUBRIC, and rewrite the deal notes that give
+ * a meeting's date, time, place or link, or a "confirm the slot" next step, so
+ * they follow MEETING_NOTE_RULE. New notes are already held to both rules at
+ * extraction; this fixes the notes written before them.
  *
- * Dry run by default: classifies and writes the notes it WOULD blank to the
- * backup file, changes nothing. Review that file, then re-run with --apply.
- * --apply writes each page's dropped notes to the backup BEFORE blanking them —
- * the email body is not retained, so the backup is the only copy.
+ * Dry run by default: judges and writes the notes it WOULD change to the backup
+ * file, changes nothing. Review that file, then re-run with --apply. --apply
+ * writes each page's changes to the backup BEFORE making them — the email body
+ * is not retained, so the backup is the only copy of the original text.
+ *
+ * Backup lines are JSON: the original note plus `action` — "blanked", or
+ * "rewritten" with the new text under `rewritten`. Lines with no `action`
+ * (files written before rewrites existed) are blanked notes.
  *
  * Usage (from repo root; `--filter` cwd is data-pipeline/):
  *   pnpm --filter data-pipeline reclassify-notes                  # dry run, all notes
@@ -16,18 +22,21 @@
  *
  * Optional:
  *   --after <email_id>   resume after the cursor a previous run printed
- *   --backup <path>      JSONL file for dropped notes (default: the OS temp dir,
+ *   --backup <path>      JSONL file for changed notes (default: the OS temp dir,
  *                        never the repo — it holds private note text)
  *
- * --restore writes the notes in a backup file back, only where they are still
- * blank, so it undoes an --apply without overwriting a note re-extracted since.
+ * --restore writes the original notes in a backup file back, only where the
+ * row still holds what --apply left (blank, or the rewritten summary), so it
+ * undoes an --apply without overwriting a note re-extracted since.
  *
  * Env (loaded from .env.local then .env):
  *   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (or RDS_IAM_DB_AUTH=true)
  *   ANTHROPIC_API_KEY
  *
  * Relationship overviews built from a blanked note read as stale afterwards
- * (their note-input hash changes) and regenerate on their next request.
+ * (their note count changes) and regenerate on their next request. A rewrite
+ * leaves the count alone, so an overview that already repeats a meeting's
+ * details keeps them until it is rebuilt for another reason.
  */
 import { config } from 'dotenv';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -64,7 +73,7 @@ function parseArgs(argv: string[]): {
     after: get('--after') ?? null,
     backup: get('--backup')
       ? resolve(process.cwd(), get('--backup')!)
-      : join(tmpdir(), `email-notes-dropped-${stamp}.jsonl`),
+      : join(tmpdir(), `email-notes-reclassified-${stamp}.jsonl`),
     restore: get('--restore') ? resolve(process.cwd(), get('--restore')!) : null,
   };
 }
@@ -78,20 +87,26 @@ async function main(): Promise<void> {
   );
 
   if (restore) {
-    const notes = readFileSync(restore, 'utf8')
+    const entries = readFileSync(restore, 'utf8')
       .split('\n')
       .filter((line) => line.trim())
-      .map((line) => JSON.parse(line));
+      .map((line) => {
+        const { action, rewritten, ...note } = JSON.parse(line);
+        return {
+          note,
+          current_summary: action === 'rewritten' ? (rewritten.summary as string) : null,
+        };
+      });
     console.log(
-      `RESTORING ${notes.length} notes from ${restore} on ${process.env.DB_HOST}:${process.env.DB_PORT ?? '5432'}/${process.env.DB_NAME}`,
+      `RESTORING ${entries.length} notes from ${restore} on ${process.env.DB_HOST}:${process.env.DB_PORT ?? '5432'}/${process.env.DB_NAME}`,
     );
     const { pgClient, db } = await createLambdaDb();
     try {
       let restored = 0;
-      for (let i = 0; i < notes.length; i += 500) {
-        restored += await restoreEmailNotes(db as never, notes.slice(i, i + 500));
+      for (let i = 0; i < entries.length; i += 500) {
+        restored += await restoreEmailNotes(db as never, entries.slice(i, i + 500));
       }
-      console.log(`done — restored ${restored} (the rest were no longer blank)`);
+      console.log(`done — restored ${restored} (the rest have changed since)`);
     } finally {
       await pgClient.end();
     }
@@ -103,7 +118,12 @@ async function main(): Promise<void> {
   console.log(
     `${apply ? 'APPLYING' : 'DRY RUN'} on ${process.env.DB_HOST}:${process.env.DB_PORT ?? '5432'}/${process.env.DB_NAME}`,
   );
-  console.log(`dropped notes → ${backup}`);
+  console.log(`changed notes → ${backup}`);
+
+  const appendBackup = (lines: object[]): void => {
+    // Owner-only: the lines hold private note text.
+    appendFileSync(backup, lines.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
+  };
 
   const { pgClient, db } = await createLambdaDb();
   try {
@@ -112,11 +132,25 @@ async function main(): Promise<void> {
       limit,
       after,
       onDropped: (notes) => {
-        appendFileSync(backup, notes.map((n) => JSON.stringify(n)).join('\n') + '\n');
+        appendBackup(notes.map((n) => ({ ...n, action: 'blanked' })));
+      },
+      onRewritten: (rewrites) => {
+        appendBackup(
+          rewrites.map(({ original, rewritten }) => ({
+            ...original,
+            action: 'rewritten',
+            rewritten: {
+              summary: rewritten.summary,
+              key_points: rewritten.key_points,
+              next_step: rewritten.next_step,
+              next_step_status: rewritten.next_step_status,
+            },
+          })),
+        );
       },
       onProgress: (p) => {
         console.log(
-          `examined ${p.examined} · kept ${p.kept} · ${apply ? 'blanked' : 'would blank'} ${p.dropped} · no verdict ${p.unclassified} · cursor ${p.cursor}`,
+          `examined ${p.examined} · kept ${p.kept} · ${apply ? 'blanked' : 'would blank'} ${p.dropped} · ${apply ? 'rewrote' : 'would rewrite'} ${p.rewritten} · no verdict ${p.unclassified} · cursor ${p.cursor}`,
         );
       },
     });

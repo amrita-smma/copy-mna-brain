@@ -82,7 +82,7 @@ ${roleLines.length > 0 ? roleLines.join('\n') : '- none recorded'}${
 ### Notes, newest first
 ${noteLines.join('\n')}
 
-Cite a note by its date and side when you write a value, e.g. "email 2026-10-12 from their side". These notes are private: never quote or paraphrase them in narrate_step or anywhere but the final report's field values and citations.`;
+Cite a note by its date and side when you write a value, e.g. "email 2026-10-12 from their side". These notes are private: never quote or paraphrase them in narrate_step or anywhere but the final report's field values and citations. A meeting counts only as held or planned: never carry its date, time, place or link into the report.`;
     } catch (error) {
       if (error instanceof ContactNotFoundError) {
         return `**Error:** no CRM contact ${correspondent_id} in this workspace.`;

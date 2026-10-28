@@ -13,6 +13,7 @@ import {
   EMAIL_EXTRACTION_SCHEMA,
   EMAIL_NOTE_SCHEMA,
   DEAL_NOTE_RUBRIC,
+  MEETING_NOTE_RULE,
   SYSTEM_PROMPT,
   type LlmPerson,
   type QueueEntry,
@@ -571,6 +572,13 @@ describe('sanitizeEmailNote', () => {
   it('puts the deal rubric into the extraction prompt and requires the flag', () => {
     expect(SYSTEM_PROMPT).toContain(DEAL_NOTE_RUBRIC);
     expect(EMAIL_NOTE_SCHEMA.properties.email_note.required).toContain('is_deal_related');
+  });
+
+  it('keeps meeting time, place and link out of the note text', () => {
+    expect(SYSTEM_PROMPT).toContain(MEETING_NOTE_RULE);
+    const { summary, next_step } = EMAIL_NOTE_SCHEMA.properties.email_note.properties;
+    expect(summary.description).toContain('MEETING RULE');
+    expect(next_step.description).toContain('MEETING RULE');
   });
 
   it('returns null on garbage input', () => {

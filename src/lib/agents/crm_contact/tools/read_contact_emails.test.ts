@@ -118,6 +118,7 @@ describe('readContactEmails tool', () => {
     expect(out).toContain('Jane runs ASEAN TMT coverage.');
     expect(out).toContain('Across their emails: Jane mostly brings sell-side mandates in TMT.');
     expect(out).toContain('never quote or paraphrase them in narrate_step');
+    expect(out).toContain('never carry its date, time, place or link into the report');
   });
 
   it('falls back to the record and the web when there are no notes', async () => {

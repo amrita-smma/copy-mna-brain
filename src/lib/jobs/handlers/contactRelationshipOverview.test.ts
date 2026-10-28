@@ -81,7 +81,7 @@ describe('runContactRelationshipOverview', () => {
           emailId: 'e1',
           sentAt: '2026-10-15T00:00:00Z',
           direction: 'inbound',
-          teamMembers: [{ userId: 'u1', name: 'Alice Smith' }],
+          teamMembers: [{ userId: 'u1', name: 'Alice Smith', sent: true }],
           summary: 'Call regarding debt financing options',
           keyPoints: [],
           nextStep: 'Follow up next week',

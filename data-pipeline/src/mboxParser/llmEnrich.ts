@@ -142,6 +142,18 @@ It is NOT deal-related when it is only:
 - a newsletter, marketing, an event invitation, or market/sector commentary not tied to a specific transaction
 - relationship chat with no transaction in it`;
 
+/**
+ * How a note that is already deal-related may mention a meeting. Notes are read
+ * back to the deal team and fed into shared relationship overviews, so a
+ * meeting is named only as having been proposed or held — never when, where or
+ * how to join it. Shared by the extraction prompt's NOTE RULES and the stored
+ * note reclassification pass. It never decides is_deal_related.
+ */
+export const MEETING_NOTE_RULE = `This rule shapes the text of a note already judged deal-related; it never changes is_deal_related.
+- Mention a meeting or call only generically: "proposed a meeting to discuss the acquisition", "met management". Never state its date, day, time, time zone, venue, office, city, room, video link, dial-in or passcode.
+- A next step that is only booking, confirming, attending or rescheduling a meeting or call is not a next step. Write the next move on the deal instead (e.g. "await the firm's response on advising the deal"), or next_step = null and next_step_status = "none" when there is none.
+- Do not record who has or has not replied to a scheduling request.`;
+
 export const EMAIL_EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -242,7 +254,7 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         summary: {
           type: ['string', 'null'],
           description:
-            '1-2 sentence business substance summary. Paraphrase only, never quote verbatim. null if the email has no business or deal substance (e.g. acknowledgements, scheduling, "thanks").',
+            '1-2 sentence business substance summary. Paraphrase only, never quote verbatim. A meeting is mentioned only generically, never its date, time, place or link (MEETING RULE). null if the email has no business or deal substance (e.g. acknowledgements, scheduling, "thanks").',
         },
         key_points: {
           type: 'array',
@@ -253,7 +265,7 @@ export const EMAIL_EXTRACTION_SCHEMA = {
         next_step: {
           type: ['string', 'null'],
           description:
-            'Concrete next step or action item if mentioned; null otherwise. Paraphrase only.',
+            'Concrete next step on the deal if mentioned; null otherwise. Never booking, confirming or rescheduling a meeting (MEETING RULE). Paraphrase only.',
         },
         next_step_status: {
           type: 'string',
@@ -427,7 +439,9 @@ ${DEAL_NOTE_RUBRIC}
 - If the email is purely administrative, scheduling, an acknowledgement or "thanks", also set counterparty_roles = [].
 - summary: 1-2 sentences capturing the substantive business discussion; null if nothing substantive.
 - key_points: 0-4 short paraphrased bullet points.
-- next_step: next action item if any, or null.
+- next_step: next action on the deal if any, or null.
+- MEETING RULE:
+${MEETING_NOTE_RULE}
 - next_step_status: 'action' if action is pending, 'done' if completed, 'none' if no next step.
 - sentiment: 'positive', 'neutral', or 'negative'.
 - EARLIER IN THREAD, when present, is the quoted history under this email. Use it ONLY to understand what this email refers to (e.g. which option a reply agrees to). The note covers what THIS email adds; never summarise the earlier messages for their own sake.

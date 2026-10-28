@@ -128,10 +128,10 @@ describe('ContactConversationRepository', () => {
       // Note 1 team members: Alice was 'from' so Alice comes first
       const e1Members = result.notes[0].teamMembers;
       expect(e1Members.length).toBe(2);
-      expect(e1Members[0].name).toBe('Alice Sender');
-      expect(e1Members[1].name).toBe('Bob Recipient');
+      expect(e1Members[0]).toMatchObject({ name: 'Alice Sender', sent: true });
+      expect(e1Members[1]).toMatchObject({ name: 'Bob Recipient', sent: false });
       expect(result.notes[1].teamMembers.length).toBe(1);
-      expect(result.notes[1].teamMembers[0].name).toBe('Charlie');
+      expect(result.notes[1].teamMembers[0]).toMatchObject({ name: 'Charlie', sent: false });
     });
 
     it('pages with an opaque keyset cursor and ignores one it cannot read', async () => {

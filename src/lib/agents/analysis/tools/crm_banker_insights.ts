@@ -174,6 +174,25 @@ function renderRoles(conversation: ContactConversation | undefined): string[] {
   return lines;
 }
 
+/**
+ * Who reached whom is what the team wants from these notes; meeting logistics
+ * (when, where, how to join) are not, and a missing reply is not evidence of
+ * anything.
+ */
+const CONVERSATION_NOTES_GUIDANCE =
+  "_Use these to say who on our team has been in touch with this person, who reached out to whom, and what about. Mention a meeting or call only as held or planned — never its time, place or link — and don't comment on replies or confirmations these notes don't record._";
+
+/** "from Alice (us), also on it: Bob" / "from their side, to Alice". */
+function noteParties(n: ContactConversation["notes"][number]): string {
+  const sender = n.teamMembers.find((m) => m.sent);
+  const others = n.teamMembers.filter((m) => m !== sender).map((m) => m.name);
+  if (n.direction === "outbound") {
+    const from = sender ? `from ${sender.name} (us)` : "from us";
+    return others.length > 0 ? `${from}, also on it: ${others.join(", ")}` : from;
+  }
+  return others.length > 0 ? `from their side, to ${others.join(", ")}` : "from their side";
+}
+
 function renderConversationNotes(conversation: ContactConversation | undefined): string[] {
   const lines = ["### Conversation notes"];
   if (!conversation) {
@@ -185,11 +204,11 @@ function renderConversationNotes(conversation: ContactConversation | undefined):
     lines.push("- no conversation notes yet");
     return lines;
   }
+  lines.push(CONVERSATION_NOTES_GUIDANCE);
   for (const n of notes.slice(0, 10)) {
     const d = isoDay(n.sentAt) ?? n.sentAt.slice(0, 10);
-    const members = n.teamMembers.length > 0 ? ` (${n.teamMembers.map((m) => m.name).join(", ")})` : "";
     const next = n.nextStep ? ` — Next step: ${n.nextStep}` : "";
-    lines.push(`- ${d}${members}: ${n.summary}${next}`);
+    lines.push(`- ${d} · ${noteParties(n)}: ${n.summary}${next}`);
   }
   return lines;
 }
@@ -393,6 +412,9 @@ Rules for the answer:
 - Quote the tool's numbers. Where it says "no data (email sync may be off)",
   "none recorded" or "no deal links recorded", say you don't know — never
   turn that into 0 and never estimate.
+- From the conversation notes, say who on our team reached out to whom and
+  what about. Leave out meeting logistics (a meeting's time, place or link)
+  and never guess whether someone replied or a meeting is confirmed.
 
 Returns:
     Markdown.`,

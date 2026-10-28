@@ -4,12 +4,13 @@ import {
   parseReclassifyResponse,
   classifyStoredNotes,
   blankEmailNotes,
+  rewriteEmailNotes,
   restoreEmailNotes,
   reclassifyEmailNotes,
   RECLASSIFY_MODEL,
   type StoredEmailNote,
 } from './emailNoteReclassify';
-import { DEAL_NOTE_RUBRIC } from '../mboxParser/llmEnrich';
+import { DEAL_NOTE_RUBRIC, MEETING_NOTE_RULE } from '../mboxParser/llmEnrich';
 
 function note(overrides: Partial<StoredEmailNote> = {}): StoredEmailNote {
   return {
@@ -22,8 +23,11 @@ function note(overrides: Partial<StoredEmailNote> = {}): StoredEmailNote {
   };
 }
 
-/** A client whose reply marks the listed batch indices as not deal-related. */
-function clientDropping(...dropIndices: number[]) {
+/**
+ * A client whose reply marks the listed batch indices as not deal-related and
+ * attaches the given rewrites by index.
+ */
+function clientDropping(dropIndices: number[] = [], rewrites: Record<number, unknown> = {}) {
   return {
     messages: {
       create: vi.fn(async (req: { messages: { content: string }[] }) => {
@@ -31,12 +35,28 @@ function clientDropping(...dropIndices: number[]) {
         const verdicts = Array.from({ length: count }, (_, index) => ({
           index,
           is_deal_related: !dropIndices.includes(index),
+          ...(rewrites[index] ? { rewrite: rewrites[index] } : {}),
         }));
         return { content: [{ type: 'text', text: JSON.stringify(verdicts) }] };
       }),
     },
   };
 }
+
+const shanghaiMeeting = note({
+  email_id: '00000000-0000-0000-0000-00000000000c',
+  summary: 'Approached a law firm about counsel on a gases acquisition and proposed meeting at its Shanghai office tomorrow afternoon.',
+  key_points: ['Seeking the firm as counsel', 'Meeting at the Shanghai office tomorrow afternoon'],
+  next_step: 'Recipient to confirm whether the Shanghai meeting works',
+  next_step_status: 'action',
+});
+
+const shanghaiRewrite = {
+  summary: 'Approached a law firm about counsel on a gases acquisition and proposed meeting to discuss.',
+  key_points: ['Seeking the firm as counsel'],
+  next_step: "Await the firm's response on advising the deal",
+  next_step_status: 'action',
+};
 
 /** A db whose SELECTs hand out `pages` in order; records every statement. */
 function dbServing(pages: StoredEmailNote[][]) {
@@ -58,8 +78,11 @@ describe('buildReclassifyPrompt', () => {
     expect(prompt).toContain('[1] summary:');
   });
 
-  it('judges against the same rubric the extraction prompt uses', () => {
-    expect(buildReclassifyPrompt([note()])).toContain(DEAL_NOTE_RUBRIC);
+  it('judges against the same rubric and meeting rule the extraction prompt uses', () => {
+    const prompt = buildReclassifyPrompt([note()]);
+    expect(prompt).toContain(DEAL_NOTE_RUBRIC);
+    expect(prompt).toContain(MEETING_NOTE_RULE);
+    expect(prompt).toContain('"rewrite"');
   });
 
   it('fences note text as untrusted content', () => {
@@ -76,9 +99,53 @@ describe('parseReclassifyResponse', () => {
   it('reads verdicts from a fenced array', () => {
     const text = '```json\n[{"index":0,"is_deal_related":false},{"index":1,"is_deal_related":true}]\n```';
     expect([...parseReclassifyResponse(text, 2)]).toEqual([
-      [0, false],
-      [1, true],
+      [0, { dealRelated: false }],
+      [1, { dealRelated: true }],
     ]);
+  });
+
+  it('reads a rewrite on a deal-related note', () => {
+    const text = JSON.stringify([{ index: 0, is_deal_related: true, rewrite: shanghaiRewrite }]);
+    expect(parseReclassifyResponse(text, 1).get(0)).toEqual({
+      dealRelated: true,
+      rewrite: shanghaiRewrite,
+    });
+  });
+
+  it('ignores a rewrite on a note judged not deal-related, so the drop wins', () => {
+    const text = JSON.stringify([{ index: 0, is_deal_related: false, rewrite: shanghaiRewrite }]);
+    expect(parseReclassifyResponse(text, 1).get(0)).toEqual({ dealRelated: false });
+  });
+
+  it('keeps the note as it is when the rewrite has no summary', () => {
+    const text = JSON.stringify([
+      { index: 0, is_deal_related: true, rewrite: { summary: null, key_points: [] } },
+      { index: 1, is_deal_related: true, rewrite: 'drop the meeting' },
+    ]);
+    const verdicts = parseReclassifyResponse(text, 2);
+    expect(verdicts.get(0)).toEqual({ dealRelated: true });
+    expect(verdicts.get(1)).toEqual({ dealRelated: true });
+  });
+
+  it('normalises a rewrite like an extracted note', () => {
+    const text = JSON.stringify([
+      {
+        index: 0,
+        is_deal_related: true,
+        rewrite: {
+          summary: '  Gave terms.  ',
+          key_points: ['a', 'b', 'c', 'd', 'e'],
+          next_step: null,
+          next_step_status: 'action',
+        },
+      },
+    ]);
+    expect(parseReclassifyResponse(text, 1).get(0)?.rewrite).toEqual({
+      summary: 'Gave terms.',
+      key_points: ['a', 'b', 'c', 'd'],
+      next_step: null,
+      next_step_status: 'none',
+    });
   });
 
   it('ignores out-of-range indices and non-boolean verdicts', () => {
@@ -89,7 +156,7 @@ describe('parseReclassifyResponse', () => {
 
   it('keeps the first verdict when an index repeats', () => {
     const text = '[{"index":0,"is_deal_related":true},{"index":0,"is_deal_related":false}]';
-    expect(parseReclassifyResponse(text, 1).get(0)).toBe(true);
+    expect(parseReclassifyResponse(text, 1).get(0)).toEqual({ dealRelated: true });
   });
 
   it('returns no verdicts for prose or broken JSON', () => {
@@ -105,6 +172,21 @@ describe('classifyStoredNotes', () => {
     expect(client.messages.create).toHaveBeenCalledWith(
       expect.objectContaining({ model: RECLASSIFY_MODEL, output_config: { effort: 'low' } }),
     );
+  });
+
+  it('logs a reply cut off at max_tokens', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          stop_reason: 'max_tokens',
+          content: [{ type: 'text', text: '[{"index":0,"is_deal_related":true,"rewrite":{"summary":"Ga' }],
+        }),
+      },
+    };
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await classifyStoredNotes([note()], { client: client as never })).size).toBe(0);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('max_tokens'));
+    errSpy.mockRestore();
   });
 
   it('returns no verdicts when the call fails, so the batch is kept', async () => {
@@ -139,6 +221,30 @@ describe('blankEmailNotes', () => {
   });
 });
 
+describe('rewriteEmailNotes', () => {
+  it('returns 0 without hitting the DB when there is nothing to rewrite', async () => {
+    const execute = vi.fn();
+    expect(await rewriteEmailNotes({ execute } as never, [])).toBe(0);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rewrites in one statement, only where the judged summary is still there', async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [{ email_id: 'c' }] });
+    const rewritten = await rewriteEmailNotes({ execute } as never, [
+      {
+        original: shanghaiMeeting,
+        rewritten: { email_id: shanghaiMeeting.email_id, ...shanghaiRewrite } as StoredEmailNote,
+      },
+    ]);
+    expect(rewritten).toBe(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const text = JSON.stringify(execute.mock.calls[0][0]);
+    expect(text).toContain(shanghaiRewrite.summary);
+    expect(text).toContain(shanghaiMeeting.summary);
+    expect(text).toContain('AND n.summary = v.judged_summary');
+  });
+});
+
 describe('restoreEmailNotes', () => {
   it('returns 0 without hitting the DB when there is nothing to restore', async () => {
     const execute = vi.fn();
@@ -146,17 +252,22 @@ describe('restoreEmailNotes', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('restores every backed-up note in one statement, only where still blank', async () => {
-    const execute = vi.fn().mockResolvedValue({ rows: [{ email_id: 'a' }] });
+  it('restores blanked and rewritten notes in one statement, only where unchanged since', async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [{ email_id: 'a' }, { email_id: 'c' }] });
     const restored = await restoreEmailNotes({ execute } as never, [
-      note({ key_points: ['Bids due Friday'], next_step: 'Sign the NDA', next_step_status: 'action' }),
+      {
+        note: note({ key_points: ['Bids due Friday'], next_step: 'Sign the NDA', next_step_status: 'action' }),
+        current_summary: null,
+      },
+      { note: shanghaiMeeting, current_summary: shanghaiRewrite.summary },
     ]);
-    expect(restored).toBe(1);
+    expect(restored).toBe(2);
     expect(execute).toHaveBeenCalledTimes(1);
     const text = JSON.stringify(execute.mock.calls[0][0]);
     expect(text).toContain('Banker shared the Project Titan teaser.');
     expect(text).toContain('Bids due Friday');
-    expect(text).toContain('AND n.summary IS NULL');
+    expect(text).toContain(shanghaiRewrite.summary);
+    expect(text).toContain('AND n.summary IS NOT DISTINCT FROM v.current_summary');
   });
 });
 
@@ -173,10 +284,62 @@ describe('reclassifyEmailNotes', () => {
     const result = await reclassifyEmailNotes(
       db,
       { apply: false, onDropped },
-      { client: clientDropping(1) as never },
+      { client: clientDropping([1]) as never },
     );
-    expect(result).toMatchObject({ examined: 2, kept: 1, dropped: 1, unclassified: 0 });
+    expect(result).toMatchObject({ examined: 2, kept: 1, dropped: 1, rewritten: 0, unclassified: 0 });
     expect(onDropped).toHaveBeenCalledWith([meeting]);
+    expect(executed.some((q) => q.includes('UPDATE'))).toBe(false);
+  });
+
+  it('rewrites meeting logistics out of a kept deal note, after handing it to onRewritten', async () => {
+    const { db, executed } = dbServing([[titan, shanghaiMeeting]]);
+    const order: string[] = [];
+    const onRewritten = vi.fn(() => {
+      order.push(`rewritten:${executed.length}`);
+    });
+    const result = await reclassifyEmailNotes(
+      db,
+      { apply: true, onRewritten },
+      { client: clientDropping([], { 1: shanghaiRewrite }) as never },
+    );
+    expect(result).toMatchObject({ examined: 2, kept: 2, dropped: 0, rewritten: 1 });
+    expect(onRewritten).toHaveBeenCalledWith([
+      { original: shanghaiMeeting, rewritten: { email_id: shanghaiMeeting.email_id, ...shanghaiRewrite } },
+    ]);
+    const updates = executed.filter((q) => q.includes('UPDATE analytics.email_notes'));
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toContain(shanghaiRewrite.summary);
+    expect(updates[0]).not.toContain(titan.email_id);
+    expect(order).toEqual(['rewritten:1']);
+  });
+
+  it('reports would-rewrite notes on a dry run without writing them', async () => {
+    const { db, executed } = dbServing([[shanghaiMeeting]]);
+    const onRewritten = vi.fn();
+    const result = await reclassifyEmailNotes(
+      db,
+      { apply: false, onRewritten },
+      { client: clientDropping([], { 0: shanghaiRewrite }) as never },
+    );
+    expect(result).toMatchObject({ rewritten: 1 });
+    expect(onRewritten).toHaveBeenCalledTimes(1);
+    expect(executed.some((q) => q.includes('UPDATE'))).toBe(false);
+  });
+
+  it('skips a rewrite that changes nothing', async () => {
+    const { db, executed } = dbServing([[titan]]);
+    const same = {
+      summary: titan.summary,
+      key_points: titan.key_points,
+      next_step: titan.next_step,
+      next_step_status: titan.next_step_status,
+    };
+    const result = await reclassifyEmailNotes(
+      db,
+      { apply: true },
+      { client: clientDropping([], { 0: same }) as never },
+    );
+    expect(result).toMatchObject({ kept: 1, rewritten: 0 });
     expect(executed.some((q) => q.includes('UPDATE'))).toBe(false);
   });
 
@@ -189,7 +352,7 @@ describe('reclassifyEmailNotes', () => {
     const result = await reclassifyEmailNotes(
       db,
       { apply: true, onDropped },
-      { client: clientDropping(1) as never },
+      { client: clientDropping([1]) as never },
     );
     const updates = executed.filter((q) => q.includes('UPDATE analytics.email_notes'));
     expect(updates).toHaveLength(1);

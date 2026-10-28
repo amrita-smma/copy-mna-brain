@@ -320,7 +320,7 @@ describe('crmBankerInsights contact mode', () => {
           emailId: 'e1',
           sentAt: '2026-10-15T12:00:00Z',
           direction: 'inbound',
-          teamMembers: [{ userId: 'u1', name: 'Alice' }],
+          teamMembers: [{ userId: 'u1', name: 'Alice', sent: false }],
           summary: 'Discussed equity syndicate participation',
           keyPoints: [],
           nextStep: 'Send syndicate deck',
@@ -339,7 +339,43 @@ describe('crmBankerInsights contact mode', () => {
     );
     expect(result).toContain('Evidence: Advised on capital raising rounds.');
     expect(result).toContain('### Conversation notes');
-    expect(result).toContain('2026-10-15 (Alice): Discussed equity syndicate participation — Next step: Send syndicate deck');
+    expect(result).toContain(
+      '2026-10-15 · from their side, to Alice: Discussed equity syndicate participation — Next step: Send syndicate deck',
+    );
+  });
+
+  it('shows who reached whom and tells the model to leave meeting logistics out', async () => {
+    mocks.listBankers.mockResolvedValue(listResult([bankerRow()]));
+    mocks.getContactInsights.mockResolvedValue(insights());
+    mocks.getConversation.mockResolvedValue({
+      roles: { roles: [], emailCount: 1, evidence: null },
+      overview: { roleSummary: null },
+      notes: [
+        {
+          emailId: 'e1',
+          sentAt: '2026-10-26T02:18:00Z',
+          direction: 'outbound',
+          teamMembers: [
+            { userId: 'u2', name: 'Bob', sent: false },
+            { userId: 'u1', name: 'CP Tei', sent: true },
+          ],
+          summary: 'Approached the firm about acting as counsel on an acquisition.',
+          keyPoints: [],
+          nextStep: null,
+          nextStepStatus: 'none',
+          sentiment: 'neutral',
+        },
+      ],
+    });
+
+    const result = (await crmBankerInsights.invoke({ mode: 'contact', contact: 'Jimmy' })) as string;
+    const notes = result.slice(result.indexOf('### Conversation notes'));
+    expect(notes).toMatch(/^### Conversation notes\n_Use these to say who on our team/);
+    expect(notes).toContain('never its time, place or link');
+    expect(notes).toContain(
+      '2026-10-26 · from CP Tei (us), also on it: Bob: Approached the firm about acting as counsel on an acquisition.',
+    );
+    expect(crmBankerInsights.description).toContain('say who on our team reached out to whom');
   });
 
   it('says the roles and notes are unknown, not none, when the conversation read fails', async () => {

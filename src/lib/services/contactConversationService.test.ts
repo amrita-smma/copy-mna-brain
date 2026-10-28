@@ -156,7 +156,7 @@ describe('ContactConversationService', () => {
           emailId: 'e1',
           sentAt: '2026-10-10T00:00:00Z',
           direction: 'inbound' as const,
-          teamMembers: [{ userId: 'u1', name: 'Alice' }],
+          teamMembers: [{ userId: 'u1', name: 'Alice', sent: true }],
           summary: 'Summary 1',
           keyPoints: ['point 1'],
           nextStep: 'Action',
