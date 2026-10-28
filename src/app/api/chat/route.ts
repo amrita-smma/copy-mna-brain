@@ -7,6 +7,7 @@ import {
   type EffortChoice,
 } from '@/lib/agents/analysis';
 import { lastHumanMessageId } from '@/lib/agents/analysis/messages';
+import type { ThreadSnapshot } from '@/lib/agents/analysis/runtime';
 import { createDb, withBackgroundDb } from '@/lib/server/db';
 import { getActiveWorkspaceId, workspaceSlugFromClaims } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
@@ -24,6 +25,7 @@ import {
 import { copilotMemoryEnabled, sourceOfFundsEnabled } from '@/lib/flags';
 import { BotNotFoundError } from '@/lib/services/botService';
 import { buildBotTurnOverride } from '@/lib/bots/threadMiddleware';
+import { summarizeThreadAhead } from '@/lib/bots/summarizeAhead';
 import { mayMentionBot } from '@/lib/bots/mentions';
 import { TurnTimer } from '@/lib/chat/turnTimer';
 import { hasTextContent } from '@/lib/chat/thinkingStream';
@@ -687,9 +689,11 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
       // whether it landed decides what is stored and what is taken back.
       const questionWritten = await questionStored;
       let finalMessages: BaseMessage[] | undefined;
+      let finished: ThreadSnapshot | undefined;
       try {
         try {
-          finalMessages = await agent.getMessages(chat.id);
+          finished = await agent.getThreadSnapshot(chat.id);
+          finalMessages = finished.messages;
         } catch (err) {
           console.error('[chat] failed to read the finished turn:', err);
           return;
@@ -777,20 +781,38 @@ async function handleChatTurn(req: NextRequest, session: Session, userId: string
       } catch (err) {
         console.error('[chat] failed to queue the task log entry:', err);
       }
-      if (!memoryAllowed) return;
+      if (memoryAllowed && turnReplyText.trim()) {
+        try {
+          await withBackgroundDb(async (bgDb) => {
+            const { userMemoryService: bgMemoryService } = createContainer(bgDb, workspaceId);
+            await bgMemoryService(userId).rememberTurn({
+              userId,
+              chatId: chat.id,
+              userText: turnUserText,
+              assistantText: turnReplyText,
+            });
+          });
+        } catch (err) {
+          console.error('[chat] failed to record the turn to memory:', err);
+        }
+      }
+      // Last, being the slowest: once the thread passes the ahead mark, its
+      // older turns are summarized now, from the read above and off the
+      // lock, rather than in line before the next turn's first model call
+      // (`summarizeThreadAhead`). Best-effort: the in-line trigger remains.
       try {
-        if (!turnReplyText.trim()) return;
         await withBackgroundDb(async (bgDb) => {
-          const { userMemoryService: bgMemoryService } = createContainer(bgDb, workspaceId);
-          await bgMemoryService(userId).rememberTurn({
-            userId,
+          const { copilotChatsService: bgChats } = createContainer(bgDb, workspaceId);
+          await summarizeThreadAhead({
+            agent,
             chatId: chat.id,
-            userText: turnUserText,
-            assistantText: turnReplyText,
+            known: finished,
+            claimTurn: (id, ttl) => bgChats.claimTurn(id, ttl),
+            releaseTurn: (id) => bgChats.releaseTurn(id),
           });
         });
       } catch (err) {
-        console.error('[chat] failed to record the turn to memory:', err);
+        console.error('[chat] failed to summarize the thread ahead of need:', err);
       }
     });
     // From here the hook above releases the lock on every path.

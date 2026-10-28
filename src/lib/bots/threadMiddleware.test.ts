@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  summarizationMiddleware: vi.fn((config: unknown) => ({ __summarization: config })),
-}));
+const mocks = vi.hoisted(() => {
+  const beforeModel = vi.fn();
+  return {
+    beforeModel,
+    summarizationMiddleware: vi.fn((config: unknown) => ({ __summarization: config, beforeModel })),
+  };
+});
 
 vi.mock('langchain', () => ({ summarizationMiddleware: mocks.summarizationMiddleware }));
+vi.mock('@/lib/langfuse', () => ({
+  withLangfuseCallbacks: (config: Record<string, unknown>) => ({ ...config, callbacks: ['langfuse'] }),
+}));
 vi.mock('@langchain/anthropic', () => ({
   ChatAnthropic: class {
     constructor(public opts: Record<string, unknown>) {}
@@ -46,11 +53,14 @@ vi.mock('@/lib/agents/analysis/tools', () => {
   };
 });
 
+import { HumanMessage } from '@langchain/core/messages';
 import {
+  BOT_SUMMARY_AHEAD_TOKENS,
   BOT_SUMMARY_KEEP_MESSAGES,
   BOT_SUMMARY_TRIGGER_TOKENS,
   botThreadMiddleware,
   buildBotTurnOverride,
+  summarizeAheadUpdate,
 } from './threadMiddleware';
 import { BOT_GUARDRAILS } from './prompt';
 
@@ -75,6 +85,34 @@ describe('botThreadMiddleware', () => {
     const config = (botThreadMiddleware()[0] as unknown as { __summarization: { model: { opts: Record<string, unknown> } } })
       .__summarization;
     expect(config.model.opts.thinking).toEqual({ type: 'between_tools' });
+  });
+});
+
+describe('summarizeAheadUpdate', () => {
+  beforeEach(() => mocks.beforeModel.mockReset());
+
+  it('runs the same middleware at the lower mark, under the Langfuse callbacks, and returns its rewrite', async () => {
+    const messages = [new HumanMessage({ id: 'h1', content: 'q' })];
+    const rewritten = [new HumanMessage({ id: 's1', content: 'summary' })];
+    mocks.beforeModel.mockResolvedValue({ messages: rewritten });
+
+    await expect(summarizeAheadUpdate(messages)).resolves.toBe(rewritten);
+
+    const [state, runtime] = mocks.beforeModel.mock.calls[0];
+    expect(state).toEqual({ messages });
+    expect(runtime.context).toEqual({ trigger: { tokens: BOT_SUMMARY_AHEAD_TOKENS } });
+    expect(runtime).toMatchObject({ runName: 'chat.summarize_ahead', callbacks: ['langfuse'] });
+  });
+
+  it('returns null when the thread is under the mark', async () => {
+    mocks.beforeModel.mockResolvedValue(undefined);
+
+    await expect(summarizeAheadUpdate([])).resolves.toBeNull();
+  });
+
+  it('sits at four fifths of the in-line trigger', () => {
+    expect(BOT_SUMMARY_AHEAD_TOKENS).toBe(48_000);
+    expect(BOT_SUMMARY_AHEAD_TOKENS).toBeLessThan(BOT_SUMMARY_TRIGGER_TOKENS);
   });
 });
 

@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { createAgent, createMiddleware } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
 import { FakeListChatModel, FakeStreamingChatModel } from '@langchain/core/utils/testing';
-import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, RemoveMessage, type BaseMessage } from '@langchain/core/messages';
+import { REMOVE_ALL_MESSAGES } from '@langchain/langgraph';
 import { MODEL_NODE } from './runtime';
 
 // updateState/getState are typed `never` on createAgent's graph in LangChain v1.
 type Graph = {
   invoke: (input: { messages: BaseMessage[] }, config: object) => Promise<unknown>;
-  getState: (config: object) => Promise<{ values: { messages: BaseMessage[] } }>;
+  getState: (config: object) => Promise<{ values: { messages: BaseMessage[] }; config: { configurable: { checkpoint_id?: string } } }>;
   updateState: (config: object, values: { messages: BaseMessage[] }, asNode?: string) => Promise<unknown>;
 };
 
@@ -64,5 +65,22 @@ describe('AgentGraph.overwriteMessages', () => {
 
     const messages = (await defaultGraph.getState(config)).values.messages;
     expect(messages.map((m) => m.content)).toEqual(['q1', 'repaired', 'q2']);
+  });
+
+  it("replaces the whole thread through a remove-all update, moving the checkpoint id (the background summary's write)", async () => {
+    const { defaultGraph, config } = await setup();
+    const before = (await defaultGraph.getState(config)).config.configurable.checkpoint_id;
+    const summary = new HumanMessage({ id: 's1', content: 'summary', additional_kwargs: { lc_source: 'summarization' } });
+    const kept = new HumanMessage({ id: 'h2', content: 'q2' });
+
+    await defaultGraph.updateState(
+      config,
+      { messages: [new RemoveMessage({ id: REMOVE_ALL_MESSAGES }), summary, kept] },
+      MODEL_NODE,
+    );
+
+    const after = await defaultGraph.getState(config);
+    expect(after.values.messages.map((m) => m.content)).toEqual(['summary', 'q2']);
+    expect(after.config.configurable.checkpoint_id).not.toBe(before);
   });
 });

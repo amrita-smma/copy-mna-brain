@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   findUser: vi.fn(),
   getAgentGraph: vi.fn(),
   runBotTurn: vi.fn(),
+  summarizeThreadAhead: vi.fn(async () => 'nothing_to_do'),
   flushLangfuse: vi.fn(),
   copilotMemoryEnabled: vi.fn(async () => true),
   recallForTurn: vi.fn(async () => '## What you remember about this user\n\n- Covers coal'),
@@ -21,6 +22,7 @@ vi.mock('@/lib/agents/analysis/graphs', () => ({ getAgentGraph: m.getAgentGraph 
 vi.mock('@/lib/flags', () => ({ sourceOfFundsEnabled: vi.fn(async () => true), copilotMemoryEnabled: m.copilotMemoryEnabled }));
 vi.mock('@/lib/langfuse', () => ({ flushLangfuse: m.flushLangfuse }));
 vi.mock('@/lib/bots/runBotTurn', () => ({ runBotTurn: m.runBotTurn }));
+vi.mock('@/lib/bots/summarizeAhead', () => ({ summarizeThreadAhead: m.summarizeThreadAhead }));
 
 import { runBotMessage } from './botMessage';
 import { getActiveWorkspaceId } from '@/lib/workspace';
@@ -49,6 +51,53 @@ describe('runBotMessage', () => {
       m.workspaceDuring.push(await getActiveWorkspaceId());
       return { userText: 'q', answerText: 'Ask @Atlas.', toolNames: [] };
     });
+  });
+
+  it('summarizes the thread ahead of need once the turn is done and the lock is released', async () => {
+    const graph = { getThreadSnapshot: vi.fn(), replaceMessagesIfAt: vi.fn() };
+    m.getAgentGraph.mockResolvedValue(graph);
+
+    await runBotMessage({
+      db: {} as never,
+      workspaceId: 'ws-9',
+      userId: 'u1',
+      origin: { kind: 'bot_mention', fromBot: { id: 'copilot', name: 'Copilot' } },
+      toBotId: 'scout',
+      text: 'Find targets',
+    });
+
+    expect(m.summarizeThreadAhead).toHaveBeenCalledTimes(1);
+    const [call] = m.summarizeThreadAhead.mock.calls[0] as unknown as [
+      { agent: unknown; chatId: string; claimTurn: (id: string, ttl: number) => Promise<boolean>; releaseTurn: (id: string) => Promise<void> },
+    ];
+    expect(call).toMatchObject({ agent: graph, chatId: 'chat-1' });
+    expect(m.summarizeThreadAhead.mock.invocationCallOrder[0]).toBeGreaterThan(m.runBotTurn.mock.invocationCallOrder[0]);
+    await call.claimTurn('chat-1', 60);
+    await call.releaseTurn('chat-1');
+    expect(services.copilotChatsService.claimTurn).toHaveBeenCalledWith('chat-1', 60);
+    expect(services.copilotChatsService.releaseTurn).toHaveBeenCalledWith('chat-1');
+  });
+
+  it('does not summarize after a turn that failed, and survives a summarizer failure', async () => {
+    const graph = { getThreadSnapshot: vi.fn(), replaceMessagesIfAt: vi.fn() };
+    m.getAgentGraph.mockResolvedValue(graph);
+    const job = {
+      db: {} as never,
+      workspaceId: 'ws-9',
+      userId: 'u1',
+      origin: { kind: 'bot_mention' as const, fromBot: { id: 'copilot', name: 'Copilot' } },
+      toBotId: 'scout',
+      text: 'Find targets',
+    };
+    m.runBotTurn.mockRejectedValueOnce(new Error('anthropic 529'));
+    await expect(runBotMessage(job)).rejects.toThrow('529');
+    expect(m.summarizeThreadAhead).not.toHaveBeenCalled();
+
+    m.summarizeThreadAhead.mockRejectedValueOnce(new Error('summarizer down'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(runBotMessage(job)).resolves.toEqual({ chatId: 'chat-1' });
+    expect(spy).toHaveBeenCalledWith('[bot-message] failed to summarize the thread ahead of need:', expect.any(Error));
+    spy.mockRestore();
   });
 
   it("runs the target bot's turn on the user's thread, inside the job's workspace", async () => {

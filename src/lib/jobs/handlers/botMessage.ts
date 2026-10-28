@@ -7,6 +7,7 @@ import { runWithWorkforceWorkspaceId } from '@/lib/workspace';
 import { runWithLangfuseUser } from '@/lib/langfuseUser';
 import { flushLangfuse } from '@/lib/langfuse';
 import { runBotTurn } from '@/lib/bots/runBotTurn';
+import { summarizeThreadAhead } from '@/lib/bots/summarizeAhead';
 import type { BotMessageJob } from '@/lib/services/botService';
 
 import { BOT_MESSAGE_TIMEOUT_SECONDS } from '@/lib/bots/botMessageTimeout';
@@ -42,6 +43,8 @@ export async function runBotMessage(
       const { bot, chat } = await botService.openThread(userId, deps.toBotId);
       const user = await new UserRepository(db).findById(userId);
       const [sof, memoryAllowed] = await Promise.all([sourceOfFundsEnabled(), copilotMemoryEnabled()]);
+      const getGraph = (flavor: string) =>
+        getAgentGraph(isCopilotAgentType(flavor) ? flavor : 'mna', 'medium', Boolean(sof));
       // The request behind this message (a bot_mention) is closed whatever
       // happens, so the asker hears back: the answer, or why there is none.
       const closeRequest = async (outcome: { answer: string } | { failure: string }) => {
@@ -67,8 +70,7 @@ export async function runBotMessage(
               deps.origin.kind === 'routine' ? await botService.mentionContext(userId, bot.id) : '',
           },
           {
-            getGraph: (flavor) =>
-              getAgentGraph(isCopilotAgentType(flavor) ? flavor : 'mna', 'medium', Boolean(sof)),
+            getGraph,
             buildContext: () => chatService.buildContext(),
             claimTurn: (id, ttl) => copilotChatsService.claimTurn(id, ttl),
             releaseTurn: (id) => copilotChatsService.releaseTurn(id),
@@ -109,6 +111,22 @@ export async function runBotMessage(
               turnId: result.turnId,
             })
             .catch((err: unknown) => console.error('[bot-message] failed to hand on @mentions:', err));
+        }
+        // Off the lock, as the chat route does after its turn: once the
+        // thread passes the ahead mark, summarize it now rather than in line
+        // before the next turn's first model call. Best-effort.
+        try {
+          const agent = await getGraph(bot.base_flavor);
+          if (agent) {
+            await summarizeThreadAhead({
+              agent,
+              chatId: chat.id,
+              claimTurn: (id, ttl) => copilotChatsService.claimTurn(id, ttl),
+              releaseTurn: (id) => copilotChatsService.releaseTurn(id),
+            });
+          }
+        } catch (err) {
+          console.error('[bot-message] failed to summarize the thread ahead of need:', err);
         }
       } finally {
         await flushLangfuse();

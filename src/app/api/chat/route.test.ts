@@ -26,7 +26,9 @@ const {
   recordTurnTimingMock,
   shouldRouteMock,
   buildBotTurnOverrideMock,
+  summarizeThreadAheadMock,
 } = vi.hoisted(() => ({
+  summarizeThreadAheadMock: vi.fn(),
   openThreadMock: vi.fn(),
   openDefaultThreadMock: vi.fn(),
   mentionContextMock: vi.fn(),
@@ -92,6 +94,7 @@ vi.mock('@/lib/flags', () => ({
   sourceOfFundsEnabled: vi.fn(async () => true),
 }));
 vi.mock('@/lib/bots/threadMiddleware', () => ({ buildBotTurnOverride: buildBotTurnOverrideMock }));
+vi.mock('@/lib/bots/summarizeAhead', () => ({ summarizeThreadAhead: summarizeThreadAheadMock }));
 // Partial: only the network-touching drain is stubbed. `runWithLangfuseUser`
 // stays real so the attribution assertion below exercises the actual store.
 vi.mock('@/lib/langfuse', async (importOriginal) => ({
@@ -294,6 +297,7 @@ describe('POST /api/chat', () => {
     dispatchMentionsMock.mockReset().mockResolvedValue([]);
     recordTaskMock.mockReset().mockResolvedValue(undefined);
     buildBotTurnOverrideMock.mockReset().mockReturnValue({ systemPrompt: 'BOT', toolList: [] });
+    summarizeThreadAheadMock.mockReset().mockResolvedValue('nothing_to_do');
   });
 
   const resolve = (over: { agentKey?: string; notice?: string | null; firstTurn?: boolean } = {}) =>
@@ -1030,6 +1034,47 @@ describe('POST /api/chat', () => {
 
       expect(res.status).toBe(200);
       expect(persistTurnMock.mock.calls[0][0].questionStored).toBe(false);
+      spy.mockRestore();
+    });
+
+    it('summarizes the thread ahead of need after the turn, off the lock, from the read it already made', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      const finalMessages = [new HumanMessage({ id: 'h-new', content: 'q' }), new AIMessage('a')];
+      getMessagesMock.mockResolvedValueOnce([]).mockResolvedValue(finalMessages);
+      resolve();
+
+      await POST(chatRequest({}));
+      await runAfter();
+
+      expect(summarizeThreadAheadMock).toHaveBeenCalledTimes(1);
+      const [call] = summarizeThreadAheadMock.mock.calls[0];
+      expect(call).toMatchObject({ agent: graph, chatId: CHAT_ID, known: { messages: finalMessages } });
+      expect(summarizeThreadAheadMock.mock.invocationCallOrder[0]).toBeGreaterThan(releaseTurnMock.mock.invocationCallOrder[0]);
+      // Its lock is the thread's own, through the background connection.
+      await call.claimTurn(CHAT_ID, 60);
+      await call.releaseTurn(CHAT_ID);
+      expect(claimTurnMock).toHaveBeenLastCalledWith(CHAT_ID, 60);
+      expect(releaseTurnMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not summarize a turn that never reached the thread, and survives a summarizer failure', async () => {
+      const { toBaseMessages } = await import('@ai-sdk/langchain');
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      getMessagesMock.mockResolvedValue([new HumanMessage({ id: 'h-old', content: 'old' })]);
+      resolve();
+      await POST(chatRequest({}));
+      await runAfter();
+      expect(summarizeThreadAheadMock).not.toHaveBeenCalled();
+
+      vi.mocked(after).mockClear();
+      vi.mocked(toBaseMessages).mockResolvedValueOnce([new HumanMessage('q')]);
+      getMessagesMock.mockReset().mockResolvedValueOnce([]).mockResolvedValue([new HumanMessage({ id: 'h-new', content: 'q' }), new AIMessage('a')]);
+      summarizeThreadAheadMock.mockRejectedValue(new Error('summarizer down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await POST(chatRequest({}));
+      await expect(runAfter()).resolves.toBeUndefined();
+      expect(spy).toHaveBeenCalledWith('[chat] failed to summarize the thread ahead of need:', expect.any(Error));
       spy.mockRestore();
     });
 

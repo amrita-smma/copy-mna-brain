@@ -161,8 +161,16 @@ bot except the last section: guardrails → flavor prompt → `BOT_REPLY_STYLE` 
    - **Tools**: the flavor's tools, `search_chat_history` and `offer_options`,
      then every skill's tools not already there (`mergeBotTools`).
    - **Middleware**: `summarizationMiddleware` (past 60k tokens, keeps the last
-     20 messages). Context editing is **off** for chat: clearing tool results
-     rewrites the history and invalidates the cached prompt prefix.
+     20 messages). That in-line trigger is the safety net: after a turn, once
+     the thread passes 48k tokens (`BOT_SUMMARY_AHEAD_TOKENS`), the same
+     summarizer runs in the `after()` hook instead (`summarizeThreadAhead`,
+     `src/lib/bots/summarizeAhead.ts`; background bot turns do the same from
+     their job) — the summary is computed off the lock from the thread as the
+     hook read it, then written under the lock only if the checkpoint has not
+     moved (`AgentGraph.replaceMessagesIfAt`), so the summary call is never
+     paid before a turn's first model call. Context editing is **off** for
+     chat: clearing tool results rewrites the history and invalidates the
+     cached prompt prefix.
    The compiled agent for a bot's prompt + tools is memoised on the flavor
    graph (`AgentGraph.getAgent`), so a turn does not rebuild it.
 4. The effort tier is chosen **per turn**; nothing is stored on the thread.

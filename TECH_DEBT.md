@@ -615,6 +615,17 @@ Done so far:
   round trips remain (the snapshot and the run's own checkpoint load). On a
   turn with a hand-picked tier the serial chain is six round trips instead
   of nine or ten.
+- The summariser spike. A permanent bot thread that crossed
+  `BOT_SUMMARY_TRIGGER_TOKENS` (60k) paid the summary call — one Sonnet call
+  over tens of thousands of tokens, ten seconds or more — in line, before
+  that turn's first model call. Now the turn's `after()` hook (and a
+  background bot turn's job) runs the same summarizer once the thread passes
+  `BOT_SUMMARY_AHEAD_TOKENS` (48k), off the critical path and off the lock:
+  the summary is computed from the thread as the hook read it and written
+  under the lock only if the checkpoint has not moved
+  (`AgentGraph.replaceMessagesIfAt`); a turn that started in between keeps
+  the lock or moves the checkpoint and the write is dropped, to be tried
+  again after that turn. The in-line trigger stays as the safety net.
 
 Still on the table, in the order worth trying:
 
@@ -635,15 +646,14 @@ Still on the table, in the order worth trying:
    turn lands on, so they are not made here. Bounding the wait to the setup
    time plus a grace, as first suggested, would with these numbers drop most
    routed answers, so it is withdrawn.
-2. **Long threads cost every step.** A permanent bot thread carries up to
-   `BOT_SUMMARY_TRIGGER_TOKENS` (60k) of history. Two costs scale with it:
-   every checkpoint write (one per model call and per tool call) serialises
-   the whole message list, and the turn that crosses the trigger pays the
-   summariser call in line before its first model call — a one-turn spike.
-   Candidates: summarise ahead of need in `after()` once a thread passes a
-   lower mark, so the in-line trigger is rarely hit; or Anthropic's
-   server-side compaction (`compact_20260112`), which the installed library
-   already knows, in place of the client-side summariser.
+2. **Every checkpoint write carries the whole thread.** One write per model
+   call and per tool call, each serialising the full message list — up to
+   ~48k tokens of history on a long thread now that the background summary
+   keeps it under the in-line trigger. Only a different checkpointer layout,
+   or Anthropic's server-side compaction (`compact_20260112`, which the
+   installed library already knows) in place of the client-side summariser
+   at a lower mark, would change that. Needs the production timeline to
+   show the writes before it is worth it.
 3. **The checkpoint is read twice per turn.** `getThreadSnapshot` (for the
    repairs and the zero-work check) and LangGraph's own load inside
    `streamEvents`. Unavoidable with the checkpointer as used; only matters on

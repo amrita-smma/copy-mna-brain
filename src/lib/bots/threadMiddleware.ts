@@ -4,8 +4,10 @@
  * thread never ends, so without summarization its history would eventually
  * overflow the context window.
  */
+import type { BaseMessage } from '@langchain/core/messages';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { summarizationMiddleware } from 'langchain';
+import { withLangfuseCallbacks } from '@/lib/langfuse';
 import type { AgentGraph, AgentMiddlewareList, AgentTurnOverride } from '@/lib/agents/analysis/runtime';
 import { EFFORT_TIERS } from '@/lib/agents/analysis/effort';
 import { BETWEEN_TOOLS_THINKING } from '@/lib/ai/thinking';
@@ -24,6 +26,15 @@ import { mergeBotTools } from './skills';
 export const BOT_SUMMARY_TRIGGER_TOKENS = 60_000;
 /** Recent messages kept verbatim after a summary. */
 export const BOT_SUMMARY_KEEP_MESSAGES = 20;
+/**
+ * The mark past which a finished turn summarizes the thread in the
+ * background (`summarizeThreadAhead`, `@/lib/bots/summarizeAhead`), so the
+ * in-line trigger above — a summary call paid before the next turn's first
+ * model call, a one-turn spike of ten seconds or more — is rarely reached:
+ * a single turn would have to add a fifth of the ceiling for the thread to
+ * cross it in line. The in-line trigger stays as the safety net.
+ */
+export const BOT_SUMMARY_AHEAD_TOKENS = Math.floor(BOT_SUMMARY_TRIGGER_TOKENS * 0.8);
 
 let cachedMiddleware: AgentMiddlewareList | null = null;
 
@@ -48,6 +59,34 @@ export function botThreadMiddleware(): AgentMiddlewareList {
     }),
   ];
   return cachedMiddleware;
+}
+
+/** What the middleware's `beforeModel` returns: the thread rewritten, or nothing to do. */
+type SummarizationHook = (
+  state: { messages: BaseMessage[] },
+  runtime: Record<string, unknown>,
+) => Promise<{ messages: BaseMessage[] } | undefined>;
+
+/**
+ * The thread's summary as the middleware would write it in line, computed
+ * now at the lower mark: the messages update to apply (a remove-all, the
+ * summary, the kept recent messages), or null when the thread is under it.
+ * The same middleware instance does the work — its trigger is overridden
+ * through the runtime context it reads, nothing else differs — so the
+ * summary is the one the next turn would otherwise have paid for.
+ */
+export async function summarizeAheadUpdate(messages: BaseMessage[]): Promise<BaseMessage[] | null> {
+  const [summarization] = botThreadMiddleware();
+  const beforeModel = (summarization as unknown as { beforeModel?: SummarizationHook }).beforeModel;
+  if (!beforeModel) return null;
+  const result = await beforeModel(
+    { messages },
+    {
+      context: { trigger: { tokens: BOT_SUMMARY_AHEAD_TOKENS } },
+      ...withLangfuseCallbacks({ runName: 'chat.summarize_ahead' }),
+    },
+  );
+  return result?.messages ?? null;
 }
 
 /**

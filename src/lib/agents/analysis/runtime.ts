@@ -202,6 +202,8 @@ export interface ThreadSnapshot {
   messages: BaseMessage[];
   /** The thread is paused on a HITL interrupt; its open tool_calls are waiting, not orphaned. */
   hasInterrupt: boolean;
+  /** The checkpoint this read saw (null on a thread with none yet); `replaceMessagesIfAt` keys on it. */
+  checkpointId: string | null;
 }
 
 export interface InvokeResult {
@@ -762,6 +764,7 @@ export class AgentGraph {
         | {
             values?: { messages?: BaseMessage[] };
             tasks?: ReadonlyArray<{ interrupts?: ReadonlyArray<unknown> }>;
+            config?: { configurable?: { checkpoint_id?: string } };
           }
         | undefined
       >;
@@ -772,7 +775,28 @@ export class AgentGraph {
     return {
       messages: state?.values?.messages ?? [],
       hasInterrupt: (state?.tasks ?? []).some((task) => (task.interrupts?.length ?? 0) > 0),
+      checkpointId: state?.config?.configurable?.checkpoint_id ?? null,
     };
+  }
+
+  /**
+   * Replace the thread's messages with `update` — applied by the messages
+   * reducer, so a leading `RemoveMessage(REMOVE_ALL_MESSAGES)` clears the
+   * thread first — only while the thread is still at `expectedCheckpointId`,
+   * the checkpoint the caller's read saw. Returns whether it wrote. For a
+   * caller that computed the update off the thread's lock (the background
+   * summary, `@/lib/bots/summarizeAhead`) and must not overwrite a turn that
+   * ran in between. The caller holds the lock around this call.
+   */
+  async replaceMessagesIfAt(
+    threadId: string,
+    expectedCheckpointId: string | null,
+    update: BaseMessage[],
+  ): Promise<boolean> {
+    const current = await this.getThreadSnapshot(threadId);
+    if (current.checkpointId !== expectedCheckpointId) return false;
+    await this.overwriteMessages(threadId, update);
+    return true;
   }
 
   /**
