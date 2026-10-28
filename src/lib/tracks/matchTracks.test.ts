@@ -3,6 +3,7 @@ import {
   suggestTrackIds,
   resolveTrackIds,
   persistedTrackIds,
+  persistedTrackNames,
   buildTrackScreeningGroups,
   trackDisplayName,
   matchedTrackPics,
@@ -97,6 +98,17 @@ describe('resolveTrackIds', () => {
       matched_track_ids: [],
     };
     expect(resolveTrackIds(company, TRACKS)).toEqual([]);
+  });
+});
+
+describe('persistedTrackNames', () => {
+  it("joins the persisted tracks' short names, skipping deleted tracks", () => {
+    const company: MatchableCompany = { matched_track_ids: ['semi', 'deleted', 'renew'] };
+    expect(persistedTrackNames(company, TRACKS)).toBe('Semiconductor & Materials, Renewables');
+  });
+
+  it('is empty when nothing is persisted', () => {
+    expect(persistedTrackNames({ matched_track_ids: [] }, TRACKS)).toBe('');
   });
 });
 

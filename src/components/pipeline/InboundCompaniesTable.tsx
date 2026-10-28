@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, type MutableRefObject } from "react";
 import {
   Table,
   TableBody,
@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useWorkspaceCurrency } from "@/components/layout/WorkspaceCurrencyContext";
 import { formatMoneyMn } from "@/lib/currency";
+import { latestFinancial } from "@/lib/pipeline/latestFinancial";
 import { isDealLive } from "@/lib/dealStatus";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/components/table";
 import { cn } from "@/lib/utils";
 import type { Tables } from "@/lib/repositories";
+import { INBOUND_DEFAULT_LAYOUT } from "@/lib/pipeline/inboundTableLayout";
 import type { DealStage } from "@/lib/types";
 import {
   demoteTargetForStage,
@@ -62,14 +64,16 @@ import {
 } from "@/components/pipeline/PipelineRowActions";
 import { useChatActions } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
-import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
+import { AiOpinionCell, aiOpinionText } from "@/components/pipeline/AiOpinionCell";
 import { DuplicatePopup } from "@/components/pipeline/DuplicatePopup";
 import { companyDisplayName } from "@/lib/companyDisplay";
-import { normalizeSourceType } from "@/lib/pipeline/sourceType";
+import { normalizeSourceType, sourceTypeLabel } from "@/lib/pipeline/sourceType";
 import {
   persistedTrackIds,
+  persistedTrackNames as trackNames,
   trackDisplayName,
   dealLeadLabel,
+  effectiveDealLead,
   type TrackLike,
 } from "@/lib/tracks/matchTracks";
 import { formatDealType } from "@/lib/companies/dealTypes";
@@ -119,26 +123,7 @@ const formatDate = (iso: string | null | undefined) => {
   });
 };
 
-/**
- * Current-year value for `key`, falling back to the nearest previous year when
- * the current year is missing. Forward (future) fiscal years are never shown.
- */
-const latestFin = (
-  rows: Tables<"company_financials">[] | undefined,
-  key: "revenue_usd_mn" | "ebitda_usd_mn",
-): { value: number | null; year: number | null } => {
-  if (!rows?.length) return { value: null, year: null };
-  const currentYear = new Date().getFullYear();
-  let best: { value: number; year: number } | null = null;
-  for (const r of rows) {
-    const v = r[key] as number | null;
-    if (v == null) continue;
-    if (r.fiscal_year > currentYear) continue;
-    if (!best || r.fiscal_year > best.year)
-      best = { value: v, year: r.fiscal_year };
-  }
-  return best ?? { value: null, year: null };
-};
+const latestFin = latestFinancial;
 
 interface InboundCompaniesTableProps {
   companies: PipelineCompany[];
@@ -187,6 +172,11 @@ interface InboundCompaniesTableProps {
   onAnalyzeAiOpinion?: (company: PipelineCompany) => void;
   /** Company ids with an optimistic in-flight AI Opinion request. */
   analyzingAiOpinionIds?: Set<string>;
+  /**
+   * Receives the table's open columns, in display order (hidden columns and
+   * collapsed groups excluded), for the Pipeline "Present" deck.
+   */
+  openColumnsRef?: MutableRefObject<ColumnDef<PipelineCompany>[]>;
 }
 
 export default function InboundCompaniesTable({
@@ -219,10 +209,20 @@ export default function InboundCompaniesTable({
   runningScreeningCompanyIds,
   onAnalyzeAiOpinion,
   analyzingAiOpinionIds,
+  openColumnsRef,
 }: InboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const currency = useWorkspaceCurrency();
   const formatCurrency = (value: number | null | undefined) => formatMoneyMn(value, currency);
+  // A Revenue / EBITDA cell as text: "$312.50M (2025)", or empty.
+  const finText = (
+    rows: Tables<"company_financials">[] | undefined,
+    key: "revenue_usd_mn" | "ebitda_usd_mn",
+  ) => {
+    const { value, year } = latestFin(rows, key);
+    if (value === null) return "";
+    return year ? `${formatCurrency(value)} (${year})` : formatCurrency(value);
+  };
   const { analyzeWithAI } = useChatActions();
   const { focusCopilot } = useLayoutControl();
   const pipelineStages = usePipelineStages();
@@ -274,6 +274,7 @@ export default function InboundCompaniesTable({
       {
         id: "stage",
         label: "Stage",
+        text: (c) => stageCellLabel(c.pipeline_stage, pipelineStages.code),
         sort: sortDesc("stage"), filter: filterDesc("stage"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">
@@ -284,6 +285,7 @@ export default function InboundCompaniesTable({
       {
         id: "pipeline_status",
         label: "Pipeline Status",
+        text: (c) => (c.status === "dropped" ? "Dropped" : "Active"),
         cellClassName: "whitespace-nowrap",
         cell: (c) => <PipelineStatusCell dropped={c.status === "dropped"} />,
       },
@@ -292,6 +294,7 @@ export default function InboundCompaniesTable({
             {
               id: "source_type",
               label: "Source Type",
+              text: (c: PipelineCompany) => sourceTypeLabel(c.source) ?? "",
               sort: sortDesc("source_type"),
               filter: filterDesc("source_type"),
               cell: (c: PipelineCompany) => <SourceTypeCell source={c.source} />,
@@ -301,6 +304,7 @@ export default function InboundCompaniesTable({
       {
         id: "created",
         label: "Created At",
+        text: (c) => formatCreatedAt(c.created_at),
         sort: sortDesc("created"),
         cellClassName: "text-sm whitespace-nowrap",
         cell: (c) => formatCreatedAt(c.created_at),
@@ -308,6 +312,7 @@ export default function InboundCompaniesTable({
       {
         id: "deal_lead",
         label: picColumnLabel,
+        text: (c) => effectiveDealLead(c, c.pipeline_stage, tracks, captainKeys) ?? "",
         sort: sortDesc("deal_lead"), filter: filterDesc("deal_lead"),
         cell: (c) => (
           <DealLeadCell
@@ -320,6 +325,7 @@ export default function InboundCompaniesTable({
       {
         id: "entered_by",
         label: "Entered by",
+        text: (c) => c.entered_by_name ?? "",
         sort: sortDesc("entered_by"), filter: filterDesc("entered_by"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">
@@ -330,6 +336,7 @@ export default function InboundCompaniesTable({
       {
         id: "banker",
         label: "Banker / Source",
+        text: (c) => c.banker ?? c.banker_source ?? "",
         sort: sortDesc("banker"), filter: filterDesc("banker"),
         headerClassName: "min-w-[160px]",
         cellClassName: "max-w-[220px]",
@@ -351,6 +358,7 @@ export default function InboundCompaniesTable({
       {
         id: "advisor",
         label: "Advisor",
+        text: (c) => c.advisor ?? "",
         sort: sortDesc("advisor"), filter: filterDesc("advisor"),
         headerClassName: "min-w-[170px]",
         cellClassName: "max-w-[220px]",
@@ -370,6 +378,7 @@ export default function InboundCompaniesTable({
       {
         id: "is_live",
         label: "Live",
+        text: (c) => (isDealLive(c) ? "Live" : "Not live"),
         sort: sortDesc("is_live"), filter: filterDesc("is_live"),
         headerClassName: "min-w-[90px]",
         cellClassName: "min-w-[90px]",
@@ -390,6 +399,7 @@ export default function InboundCompaniesTable({
       {
         id: "nbo_date",
         label: "NBO Date",
+        text: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
         sort: sortDesc("nbo_date"),
         cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
         cell: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
@@ -397,6 +407,7 @@ export default function InboundCompaniesTable({
       {
         id: "sector",
         label: "Sector",
+        text: (c) => c.segment ?? "",
         sort: sortDesc("sector"), filter: filterDesc("sector"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">{c.segment || "-"}</span>
@@ -405,6 +416,7 @@ export default function InboundCompaniesTable({
       {
         id: "geo",
         label: "Geo",
+        text: (c) => c.geo ?? "",
         sort: sortDesc("geo"), filter: filterDesc("geo"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">{c.geo || "-"}</span>
@@ -413,12 +425,14 @@ export default function InboundCompaniesTable({
       {
         id: "matched_tracks",
         label: "Matched Tracks",
+        text: (c) => trackNames(c, tracks),
         headerClassName: "min-w-[150px]",
         cell: (c) => <MatchedTracksCell company={c} tracks={tracks} />,
       },
       {
         id: "deal_type",
         label: "Deal Type",
+        text: (c) => (c.deal_type ? formatDealType(c.deal_type) : ""),
         filter: filterDesc("deal_type"),
         cell: (c) =>
           c.deal_type ? (
@@ -432,6 +446,7 @@ export default function InboundCompaniesTable({
       {
         id: "revenue",
         label: "Revenue",
+        text: (c) => finText(c.financials_raw, "revenue_usd_mn"),
         sort: sortDesc("revenue"),
         cellClassName: numeric,
         cell: (c) => {
@@ -451,6 +466,7 @@ export default function InboundCompaniesTable({
       {
         id: "ebitda",
         label: "EBITDA",
+        text: (c) => finText(c.financials_raw, "ebitda_usd_mn"),
         sort: sortDesc("ebitda"),
         cellClassName: numeric,
         cell: (c) => {
@@ -472,6 +488,7 @@ export default function InboundCompaniesTable({
       {
         id: "valuation",
         label: "Valuation",
+        text: (c) => (c.ev_2024 == null ? "" : formatCurrency(c.ev_2024)),
         sort: sortDesc("valuation"),
         cellClassName: numeric,
         cell: (c) => formatCurrency(c.ev_2024),
@@ -479,6 +496,7 @@ export default function InboundCompaniesTable({
       {
         id: "stake",
         label: "% Stake",
+        text: (c) => c.stake ?? "",
         sort: sortDesc("stake"), filter: filterDesc("stake"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">{c.stake || "-"}</span>
@@ -491,6 +509,7 @@ export default function InboundCompaniesTable({
         {
           id: "dropped_reason",
           label: "Drop Reason",
+          text: (c) => c.dropped_reason ?? "",
           headerClassName: "min-w-[200px] max-w-[280px]",
           cellClassName: "min-w-[200px] max-w-[280px] align-top",
           cell: (c) =>
@@ -510,6 +529,7 @@ export default function InboundCompaniesTable({
       cols.push({
         id: "status",
         label: "Status",
+        text: (c) => c.workflow_status ?? (normalizeSourceType(c.source) === "outbound" ? "" : "Unreviewed"),
         sort: sortDesc("status"), filter: filterDesc("status"),
         headerClassName: "min-w-[160px]",
         cell: (c) => {
@@ -533,6 +553,7 @@ export default function InboundCompaniesTable({
       {
         id: "remarks",
         label: "Additional Remarks",
+        text: (c) => c.remarks ?? "",
         headerClassName: "min-w-[320px] max-w-[400px]",
         cellClassName: "min-w-[320px] max-w-[400px] align-top",
         cell: (c) =>
@@ -550,6 +571,7 @@ export default function InboundCompaniesTable({
       {
         id: "last_activity",
         label: isDropped ? "Dropped On" : "Last Activity",
+        text: (c) => formatDate(isDropped ? c.dropped_at : c.last_activity_at),
         sort: sortDesc(isDropped ? "dropped_on" : "last_activity"),
         cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
         cell: (c) => formatDate(isDropped ? c.dropped_at : c.last_activity_at),
@@ -557,6 +579,7 @@ export default function InboundCompaniesTable({
       {
         id: "ai_opinion",
         label: "AI Opinion",
+        text: (c) => aiOpinionText(c),
         headerClassName: "min-w-[300px] max-w-[390px]",
         cellClassName: "h-px min-w-[300px] max-w-[390px] align-top",
         cell: (c) =>
@@ -595,7 +618,11 @@ export default function InboundCompaniesTable({
     // "All" shares the Active layout, so saved column layouts carry over.
     `${layoutId}:${isDropped ? "dropped" : "active"}`,
     columns,
+    INBOUND_DEFAULT_LAYOUT,
   );
+  useEffect(() => {
+    if (openColumnsRef) openColumnsRef.current = mgr.visibleColumns;
+  });
 
   // colSpan for the section header / gap / empty rows: 1 pinned leading
   // (Company) + visible managed columns + 1 pinned trailing (Actions).

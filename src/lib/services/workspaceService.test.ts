@@ -461,6 +461,43 @@ describe('WorkspaceService.updateDefaultCurrency', () => {
   });
 });
 
+describe('WorkspaceService.getPptxTemplate', () => {
+  it('returns the stored template', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'w1',
+      pptx_template: 'starcapital',
+    });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getPptxTemplate('w1')).toBe('starcapital');
+    expect(repos.workspaceRepo.findById).toHaveBeenCalledWith('w1');
+  });
+
+  it('reads back the default template for a missing workspace or an unknown value', async () => {
+    const repos = makeRepoStubs();
+    (repos.workspaceRepo.findById as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 'w1', pptx_template: 'retired-template' });
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.getPptxTemplate('missing')).toBe('default');
+    expect(await service.getPptxTemplate('w1')).toBe('default');
+  });
+});
+
+describe('WorkspaceService.updatePptxTemplate', () => {
+  it('delegates to the repository update with the pptx_template column', async () => {
+    const repos = makeRepoStubs();
+    const row = { id: 'w1', name: 'MnA', slug: 'mna', pptx_template: 'starcapital' };
+    (repos.workspaceRepo.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce(row);
+    const service = new WorkspaceService(repos.workspaceRepo, repos.userWorkspaceRepo, repos.roleRepo, repos.userRepo);
+
+    expect(await service.updatePptxTemplate('w1', 'starcapital')).toEqual(row);
+    expect(repos.workspaceRepo.update).toHaveBeenCalledWith('w1', { pptx_template: 'starcapital' });
+  });
+});
+
 describe('WorkspaceService.getPipelineHeading', () => {
   it('returns the workspace\u2019s stored title and subtitle', async () => {
     const repos = makeRepoStubs();

@@ -91,10 +91,16 @@ export interface ColumnManager<T> {
  * shared by every member of the workspace and follows them across devices.
  * Reconciles the stored layout against the live column set once the workspace's
  * layouts have loaded, and whenever the column ids change.
+ *
+ * `defaultLayout` is the arrangement a table opens with until the workspace
+ * saves its own (and returns to on Reset): an order, columns hidden, and
+ * groups, possibly collapsed. Ids it names that the table doesn't have are
+ * ignored, and columns it doesn't name follow in declared order.
  */
 export function useColumnLayout<T>(
   tableId: string,
   columns: ColumnDef<T>[],
+  defaultLayout?: Partial<ColumnLayoutState>,
 ): ColumnManager<T> {
   const store = useTableLayoutStore();
   const { loaded, getLayout, saveLayout, resetLayout } = store;
@@ -110,13 +116,15 @@ export function useColumnLayout<T>(
   // Initialise from declared order first (stable for SSR), then reconcile
   // against the workspace's saved layout once it has loaded.
   const [state, setState] = useState<ColumnLayoutState>(() =>
-    initLayout(allIds),
+    initLayout(allIds, defaultLayout),
   );
 
+  // A stable key, so callers may pass the default as an inline literal.
+  const defaultKey = JSON.stringify(defaultLayout ?? null);
   useEffect(() => {
-    setState(initLayout(allIds, loaded ? getLayout(tableId) : null));
+    setState(initLayout(allIds, (loaded ? getLayout(tableId) : null) ?? defaultLayout));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId, allIdsKey, loaded, getLayout]);
+  }, [tableId, allIdsKey, loaded, getLayout, defaultKey]);
 
   // Always-current state, for callbacks that must read it without re-creating.
   const stateRef = useRef(state);
@@ -253,13 +261,13 @@ export function useColumnLayout<T>(
 
   // Reset clears the workspace's saved layout outright rather than saving the
   // defaults back, so the table follows any future change to its declared
-  // column set instead of freezing today's order.
+  // column set (and its `defaultLayout`) instead of freezing today's order.
   const reset = useCallback(() => {
-    setState(initLayout(allIds));
+    setState(initLayout(allIds, defaultLayout));
     resetLayout(tableId);
     clearSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId, allIdsKey, resetLayout, clearSelection]);
+  }, [tableId, allIdsKey, resetLayout, clearSelection, defaultKey]);
 
   const visibleIds = visibleOrderedIds(state);
   const visibleColumns = useMemo(

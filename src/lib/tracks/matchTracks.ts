@@ -111,6 +111,15 @@ export function persistedTrackIds(
   return (company.matched_track_ids ?? []).filter((id) => known.has(id));
 }
 
+/** The "Matched Tracks" cell as text: the persisted tracks' short names, comma-separated. */
+export function persistedTrackNames(company: MatchableCompany, tracks: TrackLike[]): string {
+  return persistedTrackIds(company, tracks)
+    .map((id) => tracks.find((t) => t.id === id))
+    .filter((t): t is TrackLike => Boolean(t))
+    .map((t) => trackDisplayName(t))
+    .join(", ");
+}
+
 /** A screening criterion as far as track matching cares: its owning Track. */
 export interface CriterionLike {
   id: string;

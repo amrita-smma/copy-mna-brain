@@ -360,6 +360,10 @@ export const workspaces = pgTable(
     // does NOT convert stored values. Read into the client via
     // WorkspaceCurrencyProvider in the /w/[slug] layout.
     default_currency: text().default("USD").notNull(),
+    // PowerPoint template every generated deck adheres to ("default" |
+    // "starcapital"; see src/lib/pptx/templates/catalog.ts). Picked by a
+    // superadmin in the admin portal; "default" means the untemplated output.
+    pptx_template: text().default("default").notNull(),
     // Heading shown at the top of the Deal Pipeline page, editable in place by
     // any member. NULL (the default) means "use the product default" —
     // "Deal Pipeline" / "Track companies through all stages" — so an untouched

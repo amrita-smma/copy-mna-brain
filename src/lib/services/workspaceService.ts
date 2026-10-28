@@ -21,6 +21,11 @@ import {
 } from '@/lib/agents/analysis/flavors/keys';
 import { CURRENCIES, normalizeCurrency, type Currency } from '@/lib/currency';
 import {
+  normalizePptxTemplate,
+  PPTX_TEMPLATE_IDS,
+  type PptxTemplateId,
+} from '@/lib/pptx/templates/catalog';
+import {
   isDefaultPipelineRequiredFieldConfiguration,
   normalizePipelineRequiredFieldKeys,
   type PipelineFieldKey,
@@ -40,6 +45,9 @@ export const COPILOT_AGENTS: readonly CopilotAgentType[] = COPILOT_AGENT_KEYS;
 /** The display currencies a workspace can be set to. Source of truth for
  *  validating the `default_currency` column and the PATCH payload. */
 export const WORKSPACE_CURRENCIES: readonly Currency[] = CURRENCIES;
+
+/** The PowerPoint templates a workspace can pick, for validating the PATCH payload. */
+export const WORKSPACE_PPTX_TEMPLATES: readonly PptxTemplateId[] = PPTX_TEMPLATE_IDS;
 
 /** Narrow an arbitrary string to a valid CopilotAgentType, defaulting to 'mna'. */
 export function normalizeCopilotAgent(value: string | null | undefined): CopilotAgentType {
@@ -276,6 +284,23 @@ export class WorkspaceService {
     currency: Currency,
   ): Promise<Tables<'workspaces'> | undefined> {
     return this.workspaceRepo.update(id, { default_currency: currency });
+  }
+
+  /**
+   * The workspace's PowerPoint template, which the Pipeline "Present"
+   * download is branded with. Unset or unknown values read back as 'default'
+   * (plain slides).
+   */
+  async getPptxTemplate(id: string): Promise<PptxTemplateId> {
+    const ws = await this.workspaceRepo.findById(id);
+    return normalizePptxTemplate(ws?.pptx_template);
+  }
+
+  updatePptxTemplate(
+    id: string,
+    template: PptxTemplateId,
+  ): Promise<Tables<'workspaces'> | undefined> {
+    return this.workspaceRepo.update(id, { pptx_template: template });
   }
 
   /**

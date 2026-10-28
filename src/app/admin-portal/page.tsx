@@ -66,6 +66,11 @@ import {
   Archive,
 } from 'lucide-react';
 import { COPILOT_AGENT_KEYS, COPILOT_AGENT_LABELS } from '@/lib/agents/analysis/flavors/keys';
+import {
+  DEFAULT_PPTX_TEMPLATE,
+  PPTX_TEMPLATE_IDS,
+  PPTX_TEMPLATE_LABELS,
+} from '@/lib/pptx/templates/catalog';
 
 function initialsFor(name: string) {
   return name
@@ -97,6 +102,8 @@ interface Workspace {
   copilot_agent?: string;
   /** Workspace-wide display currency (USD | IDR | CNY). */
   default_currency?: string;
+  /** PowerPoint template every generated deck adheres to. */
+  pptx_template?: string;
   /** Non-null once the workspace has been soft-deleted (archived). Only ever
    *  populated here — `GET /api/workspaces?all=true` is the one listing that
    *  returns archived rows, and only to a superadmin. */
@@ -115,6 +122,12 @@ const CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'IDR', label: 'IDR (Rp)' },
   { value: 'CNY', label: 'CNY (RMB)' },
 ];
+
+/** The PowerPoint templates, mirrored from the server's WORKSPACE_PPTX_TEMPLATES. */
+const PPTX_TEMPLATE_OPTIONS: { value: string; label: string }[] = PPTX_TEMPLATE_IDS.map((value) => ({
+  value,
+  label: PPTX_TEMPLATE_LABELS[value],
+}));
 
 /** Active tab: primary (blue) background with white text. */
 const ACTIVE_TAB_CLASS =
@@ -587,6 +600,32 @@ export default function AdminPortalPage() {
     }
   };
 
+  const savePptxTemplate = async (template: string) => {
+    if (!selected || template === (selected.pptx_template ?? DEFAULT_PPTX_TEMPLATE)) return;
+    const previous = workspaces;
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === selected.id ? { ...w, pptx_template: template } : w)),
+    );
+    const templateLabel =
+      PPTX_TEMPLATE_OPTIONS.find((o) => o.value === template)?.label ?? template;
+    try {
+      const res = await fetch(`/api/workspaces/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pptx_template: template }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update template');
+      toast.success(`PowerPoint template set to ${templateLabel} for ${selected.name}`);
+    } catch (err) {
+      setWorkspaces(previous);
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : `Could not update PowerPoint template for ${selected.name}`,
+      );
+    }
+  };
+
   const assignedUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
   const allAssigned = dbUsers.length > 0 && assignedUserIds.size >= dbUsers.length;
 
@@ -1053,6 +1092,38 @@ export default function AdminPortalPage() {
                         The currency all money is displayed in across this workspace — Fund
                         Management and the Revenue/EBITDA/EV columns. Relabels only; stored
                         values are not converted.
+                      </p>
+                    </div>
+                    <div className="mt-6 flex h-9 shrink-0 items-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        PowerPoint Template
+                      </h3>
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      <Select
+                        value={selected.pptx_template ?? DEFAULT_PPTX_TEMPLATE}
+                        onValueChange={savePptxTemplate}
+                      >
+                        <SelectTrigger
+                          className="w-64 max-w-full"
+                          aria-label="PowerPoint template"
+                          data-testid="pptx-template-select"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PPTX_TEMPLATE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        The template every PowerPoint generated for this workspace follows —
+                        Copilot presentations and the Company Card export. StarCapital builds
+                        decks on the StarCapital master: logo, layouts, palette, Arial and the
+                        confidentiality footer.
                       </p>
                     </div>
                   </TabsContent>

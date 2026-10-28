@@ -41,6 +41,12 @@ export interface ColumnDef<T> {
   filter?: ColumnFilter;
   /** Cell renderer for a row. */
   cell: (row: T, index: number) => ReactNode;
+  /**
+   * The cell as plain text, for exports that copy the table as the user has
+   * it laid out (the Pipeline "Present" deck). A column without it exports
+   * as a dash.
+   */
+  text?: (row: T) => string;
   /** className applied to the header `<TableHead>`. */
   headerClassName?: string;
   /** className applied to each body `<TableCell>` (static or per-row). */

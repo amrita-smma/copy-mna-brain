@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api/client';
+import { apiRequest, buildWorkspaceHeaders } from '@/lib/api/client';
 
 export async function getCompanies(params: {
   id?: string;
@@ -544,4 +544,30 @@ export async function deleteTrack(id: string) {
   return apiRequest<{ id: string }>(`/api/investment-thesis/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+/**
+ * The Pipeline "Present" table as a .pptx (`POST
+ * /api/pipeline/presentation/pptx`) — on the workspace's PowerPoint Template,
+ * or plain slides on Default. Returns the file and the server's download name.
+ * A binary response, so it uses `fetch` rather than `apiRequest` (which parses
+ * JSON), but sends the same workspace header so the server reads this tab's
+ * workspace template.
+ */
+export async function downloadPipelinePresentationPptx(
+  deck: import('@/lib/pipeline/presentation').PipelinePresentation,
+): Promise<{ blob: Blob; fileName: string }> {
+  const url = '/api/pipeline/presentation/pptx';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: buildWorkspaceHeaders(url, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(deck),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || `Download failed (${res.status})`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'pipeline-companies.pptx';
+  return { blob: await res.blob(), fileName };
 }

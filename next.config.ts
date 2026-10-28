@@ -90,8 +90,13 @@ const nextConfig: NextConfig = {
   // quietly stop shipping. Without them the renderer falls back to the built-in
   // Helvetica and Times, and every non-Latin-1 character disappears (see
   // `src/lib/pdf/fonts.ts`).
+  //
+  // The workspace PowerPoint template's brand images (logo, page tab) are read
+  // the same way from `src/lib/pptx/templates/assets`, outside `public/` so
+  // they are not downloadable — which means nothing traces them unless listed
+  // here. The Pipeline "Present" download is the route that reads them.
   outputFileTracingIncludes: {
-    "/api/**": ["./public/fonts/**"],
+    "/api/**": ["./public/fonts/**", "./src/lib/pptx/templates/assets/**"],
   },
 };
 

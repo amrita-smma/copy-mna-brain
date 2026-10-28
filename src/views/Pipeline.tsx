@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSetPageDetail } from "@/components/layout/PageContextProvider";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -38,6 +38,7 @@ import {
   PencilLine,
   Sparkles,
   Upload,
+  Presentation,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -68,6 +69,12 @@ import PendingAutomationToggles from "@/components/pipeline/PendingAutomationTog
 import { PageHeader } from "@/components/layout/PageHeader";
 import { usePipelineHeading } from "@/components/layout/PipelineHeadingContext";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { PipelinePresentationDialog } from "@/components/pipeline/PipelinePresentationDialog";
+import {
+  buildPipelinePresentation,
+  type PipelinePresentation,
+} from "@/lib/pipeline/presentation";
+import type { ColumnDef } from "@/components/table";
 import { usePublishSourcingPendingCount } from "@/hooks/useSourcingPendingCount";
 import { useRestoreDeal } from "@/components/pipeline/useRestoreDeal";
 import AddCompanyForm from "@/components/pipeline/AddCompanyForm";
@@ -347,6 +354,10 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
   // (the default) shows both in the inbound table's layout, told apart by
   // Source Type.
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  // "Present": the table as a StarCapital table deck (null = closed), and the
+  // open columns the table reports for it.
+  const [presentDeck, setPresentDeck] = useState<PipelinePresentation | null>(null);
+  const openColumnsRef = useRef<ColumnDef<PipelineCompany>[]>([]);
   const [stageHelpOpen, setStageHelpOpen] = useState(false);
   // Origin (document type) filter — Sourcing's pending table only.
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
@@ -1264,6 +1275,59 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
       label: pipelineStages.label(stage.key),
     })),
   ];
+  // "Present": a snapshot of the table as the user has it — every row its
+  // stage, source, search and column filters let through (all pages, not just
+  // this one), in its sort order, with exactly its open columns in their order
+  // (the table reports them through `openColumnsRef`; hidden columns and
+  // collapsed groups are left out). Built when Present is clicked; the dialog
+  // is modal, so nothing it reflects can change while it is open.
+  const openPresentation = () => {
+    const columns = openColumnsRef.current.map((col) => ({
+      label: col.label,
+      text: (c: PipelineCompany) => col.text?.(c) ?? "",
+      align:
+        typeof col.cellClassName === "string" && /\btext-right\b/.test(col.cellClassName)
+          ? ("right" as const)
+          : ("left" as const),
+    }));
+    setPresentDeck(
+      buildPipelinePresentation(sortedCompanies, columns, {
+        subtitle: [
+          isSearching
+            ? `Search "${searchQuery.trim()}"`
+            : stageView === "all"
+              ? "All stages"
+              : stageView === "pending"
+                ? "Pending Confirmation"
+                : pipelineStages.label(stageView),
+          sourceFilter === "all"
+            ? "Inbound & outbound"
+            : sourceFilter === "inbound"
+              ? "Inbound"
+              : "Outbound",
+          effectiveViewMode === "all"
+            ? "Active & dropped"
+            : effectiveViewMode === "dropped"
+              ? "Dropped"
+              : "Active",
+          sectorFilter !== "all" ? sectorFilter : null,
+          stageView === screeningStage && l1StatusFilter !== "all"
+            ? `Screening: ${l1StatusFilter}`
+            : null,
+          trackFilter.length > 0
+            ? `${trackFilter.length} track filter${trackFilter.length === 1 ? "" : "s"}`
+            : null,
+          Object.keys(columnFilters).length > 0
+            ? `${Object.keys(columnFilters).length} column filter${Object.keys(columnFilters).length === 1 ? "" : "s"}`
+            : null,
+          `${sortedCompanies.length} ${sortedCompanies.length === 1 ? "company" : "companies"}`,
+          new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      }),
+    );
+  };
   const stageHelpItems: { key: string; label: string; description: string }[] = [
     { key: "pending", label: "Pending Confirmation", description: PENDING_DESCRIPTION },
     ...pipelineStages.live.map((stage) => ({
@@ -1286,6 +1350,7 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
 
   // Props shared by the inbound and outbound tables.
   const tableProps = {
+    openColumnsRef,
     tracks,
     stage: tableStage,
     viewMode: effectiveViewMode,
@@ -1624,6 +1689,17 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
                       <CardDescription>Manage your deals in the pipeline</CardDescription>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 ml-auto">
+                      <Button
+                        data-testid="pipeline-present-button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={loading}
+                        onClick={openPresentation}
+                      >
+                        <Presentation className="h-4 w-4" />
+                        Present
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button data-testid="pipeline-add-company-button" size="sm">
@@ -1968,6 +2044,17 @@ export default function Pipeline({ page = "pipeline" }: PipelineProps = {}) {
           onStagesChanged={() => fetchCompanies({ silent: true })}
         />
         {restoreStageDialog}
+
+        {/* Opened only from the Pipeline view, never on Sourcing. */}
+        {!isSourcing && presentDeck && (
+          <PipelinePresentationDialog
+            open={!!presentDeck}
+            onOpenChange={(open) => {
+              if (!open) setPresentDeck(null);
+            }}
+            deck={presentDeck}
+          />
+        )}
 
         {/* Opened only from the Pipeline view, never on Sourcing. */}
         {!isSourcing && (

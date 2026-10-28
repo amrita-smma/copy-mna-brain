@@ -51,6 +51,24 @@ const VERDICT_META: Record<
   },
 };
 
+/**
+ * The AI Opinion as plain text, e.g. "Pass: Strong margins, fits the thesis"
+ * — for exports of the table (the Pipeline "Present" deck). The verdict word
+ * stands in for the cell's icon. "Analyzing…" while a run is in flight, as
+ * the cell shows; empty when there is no verdict yet.
+ */
+export function aiOpinionText(company: {
+  ai_opinion_verdict: string | null;
+  ai_opinion_summary: string | null;
+  ai_opinion_status?: string | null;
+}): string {
+  if (company.ai_opinion_status === "processing") return "Analyzing…";
+  const meta = VERDICT_META[company.ai_opinion_verdict as Verdict];
+  if (!meta) return "";
+  const summary = company.ai_opinion_summary?.trim();
+  return summary ? `${meta.label}: ${summary}` : meta.label;
+}
+
 export function AiOpinionCell({
   company,
   analyzing,

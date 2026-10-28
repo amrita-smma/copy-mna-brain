@@ -27,12 +27,14 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [CRM contacts: email-keyed merge and CSV/Excel import](crm-contact-merge-and-import.md) — 4KB
 - [Company contact details (partnership contacts in the CRM via `@crm_contact`)](company-contacts.md) — 3KB
 - [Pipeline and Sourcing pages (`/pipeline`, `/sourcing`)](pipeline-and-sourcing.md) — 7KB
+- [Pipeline "Present": the table as laid out, as a slide deck (StarCapital or plain, per workspace); Inbound default columns](pipeline-presentation.md) — 4KB
 - [Pending Confirmation auto-scan, auto promote / auto drop, Scan now; AI screening on the AI Workforce](pending-auto-scan.md) — 5KB
 - [Deal Sponsor auto-assignment for companies detected in an email](deal-sponsor-auto-assign.md) — 4KB
 - [Track screening pass rule: must-pass criteria + minimum optional criteria; used by AI Screening, auto promote / auto drop and the AI Opinion](track-screening-rule.md) — 3KB
 - [Company detail tabs (page + pipeline dialog)](company-detail-tabs.md) — 4KB
 - [One company-filter vocabulary across the analysis tools](company-filter-vocabulary.md) — 3KB
 - [Company Card → PowerPoint (email export)](company-card-powerpoint-export.md) — 3KB
+- [Workspace PowerPoint templates (Default / StarCapital) for the Pipeline Present download](powerpoint-templates.md) — 2KB
 - [Research-summary PDF (email attachment)](research-summary-pdf.md) — 5KB
 - [Presentation page (`/presentation`)](presentation-page.md) — 1KB
 - [Relationship graph (Neo4j)](relationship-graph.md) — 10KB

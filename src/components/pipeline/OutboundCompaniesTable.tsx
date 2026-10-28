@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, type MutableRefObject } from "react";
 import {
   Table,
   TableBody,
@@ -52,14 +52,17 @@ import {
 } from "@/components/pipeline/PipelineRowActions";
 import { useChatActions } from "@/components/chat/ChatProvider";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
-import { AiOpinionCell } from "@/components/pipeline/AiOpinionCell";
+import { AiOpinionCell, aiOpinionText } from "@/components/pipeline/AiOpinionCell";
 import { companyDisplayName } from "@/lib/companyDisplay";
 import {
   persistedTrackIds,
+  persistedTrackNames as trackNames,
   trackDisplayName,
   dealLeadLabel,
+  effectiveDealLead,
   type TrackLike,
 } from "@/lib/tracks/matchTracks";
+import { sourceTypeLabel } from "@/lib/pipeline/sourceType";
 import { formatDealType } from "@/lib/companies/dealTypes";
 
 /**
@@ -174,6 +177,11 @@ interface OutboundCompaniesTableProps {
   onAnalyzeAiOpinion?: (company: PipelineCompany) => void;
   /** Company ids with an optimistic in-flight AI Opinion request. */
   analyzingAiOpinionIds?: Set<string>;
+  /**
+   * Receives the table's open columns, in display order (hidden columns and
+   * collapsed groups excluded), for the Pipeline "Present" deck.
+   */
+  openColumnsRef?: MutableRefObject<ColumnDef<PipelineCompany>[]>;
 }
 
 export default function OutboundCompaniesTable({
@@ -201,6 +209,7 @@ export default function OutboundCompaniesTable({
   runningScreeningCompanyIds,
   onAnalyzeAiOpinion,
   analyzingAiOpinionIds,
+  openColumnsRef,
 }: OutboundCompaniesTableProps) {
   const isDropped = viewMode === "dropped";
   const currency = useWorkspaceCurrency();
@@ -248,6 +257,7 @@ export default function OutboundCompaniesTable({
       {
         id: "stage",
         label: "Stage",
+        text: (c) => stageCellLabel(c.pipeline_stage, pipelineStages.code),
         sort: sortDesc("stage"), filter: filterDesc("stage"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">
@@ -258,18 +268,21 @@ export default function OutboundCompaniesTable({
       {
         id: "pipeline_status",
         label: "Pipeline Status",
+        text: (c) => (c.status === "dropped" ? "Dropped" : "Active"),
         cellClassName: "whitespace-nowrap",
         cell: (c) => <PipelineStatusCell dropped={c.status === "dropped"} />,
       },
       {
         id: "source_type",
         label: "Source Type",
+        text: (c) => sourceTypeLabel(c.source) ?? "",
         sort: sortDesc("source_type"), filter: filterDesc("source_type"),
         cell: (c) => <SourceTypeCell source={c.source} />,
       },
       {
         id: "created",
         label: "Created At",
+        text: (c) => formatCreatedAt(c.created_at),
         sort: sortDesc("created"),
         cellClassName: "text-sm whitespace-nowrap",
         cell: (c) => formatCreatedAt(c.created_at),
@@ -277,6 +290,7 @@ export default function OutboundCompaniesTable({
       {
         id: "deal_lead",
         label: picColumnLabel,
+        text: (c) => effectiveDealLead(c, c.pipeline_stage, tracks, captainKeys) ?? "",
         sort: sortDesc("deal_lead"), filter: filterDesc("deal_lead"),
         cell: (c) => (
           <DealLeadCell
@@ -289,6 +303,7 @@ export default function OutboundCompaniesTable({
       {
         id: "entered_by",
         label: "Entered by",
+        text: (c) => c.entered_by_name ?? "",
         sort: sortDesc("entered_by"), filter: filterDesc("entered_by"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">
@@ -299,6 +314,7 @@ export default function OutboundCompaniesTable({
       {
         id: "sector",
         label: "Segment",
+        text: (c) => c.segment ?? "",
         sort: sortDesc("sector"), filter: filterDesc("sector"),
         cell: (c) => (
           <span className="text-sm text-muted-foreground">{c.segment || "-"}</span>
@@ -307,12 +323,14 @@ export default function OutboundCompaniesTable({
       {
         id: "matched_tracks",
         label: "Matched Tracks",
+        text: (c) => trackNames(c, tracks),
         headerClassName: "min-w-[150px]",
         cell: (c) => <MatchedTracksCell company={c} tracks={tracks} />,
       },
       {
         id: "deal_type",
         label: "Deal Type",
+        text: (c) => (c.deal_type ? formatDealType(c.deal_type) : ""),
         sort: sortDesc("deal_type"), filter: filterDesc("deal_type"),
         cell: (c) =>
           c.deal_type ? (
@@ -326,6 +344,7 @@ export default function OutboundCompaniesTable({
       {
         id: "key_rationale",
         label: "Key Rationale",
+        text: (c) => c.key_rationale ?? "",
         headerClassName: "max-w-[260px]",
         cellClassName: "max-w-[260px]",
         cell: (c) =>
@@ -343,6 +362,7 @@ export default function OutboundCompaniesTable({
       {
         id: "financial_info",
         label: "Financial Info",
+        text: (c) => composeFinancialInfo(c.financials_raw, currency),
         headerClassName: "min-w-[180px]",
         cellClassName: "min-w-[180px]",
         cell: (c) => {
@@ -363,6 +383,7 @@ export default function OutboundCompaniesTable({
         {
           id: "last_status",
           label: "Last Status",
+          text: (c) => c.workflow_status ?? "",
           cell: (c) => (
             <span className="text-sm text-muted-foreground">
               {c.workflow_status || "—"}
@@ -372,6 +393,7 @@ export default function OutboundCompaniesTable({
         {
           id: "dropped_reason",
           label: "Drop Reason",
+          text: (c) => c.dropped_reason ?? "",
           headerClassName: "min-w-[200px] max-w-[280px]",
           cellClassName: "min-w-[200px] max-w-[280px] align-top",
           cell: (c) =>
@@ -391,6 +413,7 @@ export default function OutboundCompaniesTable({
       cols.push({
         id: "status",
         label: "Status",
+        text: (c) => c.workflow_status ?? "",
         sort: sortDesc("status"), filter: filterDesc("status"),
         headerClassName: "min-w-[160px]",
         cell: (c) => (
@@ -409,6 +432,7 @@ export default function OutboundCompaniesTable({
       {
         id: "remarks",
         label: "Additional Remarks",
+        text: (c) => c.remarks ?? "",
         headerClassName: "min-w-[320px] max-w-[400px]",
         cellClassName: "min-w-[320px] max-w-[400px] align-top",
         cell: (c) =>
@@ -426,6 +450,7 @@ export default function OutboundCompaniesTable({
       {
         id: "is_live",
         label: "Live",
+        text: (c) => (isDealLive(c) ? "Live" : "Not live"),
         sort: sortDesc("is_live"), filter: filterDesc("is_live"),
         headerClassName: "min-w-[90px]",
         cellClassName: "min-w-[90px]",
@@ -446,6 +471,7 @@ export default function OutboundCompaniesTable({
       {
         id: "nbo_date",
         label: "NBO Date",
+        text: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
         sort: sortDesc("nbo_date"),
         cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
         cell: (c) => formatDate(c.nbo_date ? `${c.nbo_date}T00:00:00` : null),
@@ -453,6 +479,7 @@ export default function OutboundCompaniesTable({
       {
         id: "last_activity",
         label: isDropped ? "Dropped On" : "Last Activity",
+        text: (c) => formatDate(isDropped ? c.dropped_at : c.last_activity_at),
         sort: sortDesc(isDropped ? "dropped_on" : "last_activity"),
         cellClassName: "text-muted-foreground text-sm whitespace-nowrap",
         cell: (c) => formatDate(isDropped ? c.dropped_at : c.last_activity_at),
@@ -460,6 +487,7 @@ export default function OutboundCompaniesTable({
       {
         id: "ai_opinion",
         label: "AI Opinion",
+        text: (c) => aiOpinionText(c),
         headerClassName: "min-w-[300px] max-w-[390px]",
         cellClassName: "h-px min-w-[300px] max-w-[390px] align-top",
         cell: (c) =>
@@ -497,6 +525,9 @@ export default function OutboundCompaniesTable({
     `pipeline-outbound:${isDropped ? "dropped" : "active"}`,
     columns,
   );
+  useEffect(() => {
+    if (openColumnsRef) openColumnsRef.current = mgr.visibleColumns;
+  });
 
   // colSpan for the empty-state row: 1 pinned leading (Company) + visible
   // managed columns + 1 pinned trailing (Actions).

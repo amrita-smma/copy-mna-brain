@@ -6,6 +6,7 @@ import {
   COPILOT_AGENTS,
   NotSuperadminError,
   WORKSPACE_CURRENCIES,
+  WORKSPACE_PPTX_TEMPLATES,
   WorkspaceNotFoundError,
 } from '@/lib/services/workspaceService';
 import { MNA_WORKSPACE_ID } from '@/lib/constants';
@@ -24,15 +25,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const { id } = await params;
-    const { name, slug, copilot_agent, default_currency } = await req.json();
+    const { name, slug, copilot_agent, default_currency, pptx_template } = await req.json();
     if (
       name === undefined &&
       slug === undefined &&
       copilot_agent === undefined &&
-      default_currency === undefined
+      default_currency === undefined &&
+      pptx_template === undefined
     ) {
       return NextResponse.json(
-        { error: 'name, slug, copilot_agent, or default_currency is required' },
+        { error: 'name, slug, copilot_agent, default_currency, or pptx_template is required' },
         { status: 400 },
       );
     }
@@ -77,6 +79,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         );
       }
       data = await workspaceService.updateDefaultCurrency(id, default_currency);
+    }
+    if (pptx_template !== undefined) {
+      if (!WORKSPACE_PPTX_TEMPLATES.includes(pptx_template)) {
+        return NextResponse.json(
+          { error: `pptx_template must be one of: ${WORKSPACE_PPTX_TEMPLATES.join(', ')}` },
+          { status: 400 },
+        );
+      }
+      data = await workspaceService.updatePptxTemplate(id, pptx_template);
     }
 
     return NextResponse.json({ data });

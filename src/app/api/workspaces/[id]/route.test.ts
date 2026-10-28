@@ -11,7 +11,7 @@ vi.mock('@/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/server/db', () => ({ createDb: createDbMock }));
 vi.mock('@/lib/services/container', () => ({ createContainer: createContainerMock }));
 
-import { DELETE } from './route';
+import { DELETE, PATCH } from './route';
 import { NotSuperadminError, WorkspaceNotFoundError } from '@/lib/services/workspaceService';
 
 const USER_ID = 'user-1';
@@ -82,5 +82,51 @@ describe('DELETE /api/workspaces/[id]', () => {
 
     expect(res.status).toBe(500);
     consoleError.mockRestore();
+  });
+});
+
+describe('PATCH /api/workspaces/[id] — pptx_template', () => {
+  const isSuperadminMock = vi.fn();
+  const updatePptxTemplateMock = vi.fn();
+  const patch = (body: unknown) => PATCH({ json: async () => body } as never, params);
+
+  beforeEach(() => {
+    authMock.mockReset().mockResolvedValue({ user: { id: USER_ID } });
+    createDbMock.mockReset().mockReturnValue({});
+    isSuperadminMock.mockReset().mockResolvedValue(true);
+    updatePptxTemplateMock.mockReset();
+    createContainerMock.mockReset().mockReturnValue({
+      workspaceService: {
+        isSuperadmin: isSuperadminMock,
+        updatePptxTemplate: updatePptxTemplateMock,
+      },
+    });
+  });
+
+  it('sets the workspace PowerPoint template', async () => {
+    const row = { id: WORKSPACE_ID, pptx_template: 'starcapital' };
+    updatePptxTemplateMock.mockResolvedValueOnce(row);
+
+    const res = await patch({ pptx_template: 'starcapital' });
+
+    expect(res.status).toBe(200);
+    expect(updatePptxTemplateMock).toHaveBeenCalledWith(WORKSPACE_ID, 'starcapital');
+    expect(await res.json()).toEqual({ data: row });
+  });
+
+  it('rejects an unknown template without writing', async () => {
+    const res = await patch({ pptx_template: 'mckinsey' });
+
+    expect(res.status).toBe(400);
+    expect(updatePptxTemplateMock).not.toHaveBeenCalled();
+  });
+
+  it('is superadmin-only', async () => {
+    isSuperadminMock.mockResolvedValueOnce(false);
+
+    const res = await patch({ pptx_template: 'starcapital' });
+
+    expect(res.status).toBe(403);
+    expect(updatePptxTemplateMock).not.toHaveBeenCalled();
   });
 });

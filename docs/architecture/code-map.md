@@ -19,7 +19,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 12 | `src/lib/flags.ts` |
 | Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 194 | `drizzle/migrations/` |
+| Migrations (app) | 195 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -288,6 +288,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/pipeline-stages` | GET, POST, PATCH | `pipelineStageService` |
 | `/api/pipeline-stages/[key]` | PATCH, DELETE | `pipelineStageService` |
 | `/api/pipeline-stages/[key]/move` | POST | `pipelineStageService` |
+| `/api/pipeline/presentation/pptx` | POST | `workspaceService` |
 | `/api/profile/items` | GET | `profileService` |
 | `/api/profile/me` | GET, PATCH | `userProfileService` |
 | `/api/profile/memories` | GET, PATCH, DELETE | `userMemoryService` |
