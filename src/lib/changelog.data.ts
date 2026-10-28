@@ -162,6 +162,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "0cc875691a148ad33fe9cfef8043534ac3529e44",
+    "date": "2026-10-28",
+    "subject": "[MB-888] Keep meeting logistics out of email notes; show who reached whom",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "9a204d77a4c31fc39dc785c269f93bbf657484c5",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "53564c2c5e6938f200efc5390af5547cae65e7e0",
     "date": "2026-10-27",
     "subject": "Deals mentioned in emails are now linked automatically without a confirmation step",
