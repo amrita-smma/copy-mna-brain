@@ -5,6 +5,8 @@ import { captureWorkspaceEvent } from '@/lib/posthog-server';
 import { enqueueAgentRun } from '@/lib/workforce';
 import { clipCompanyContext } from '@/lib/companyContextPrompt';
 import type { AIScreeningService } from './aiScreeningService';
+import type { CopilotAgentType } from '@/lib/agents/analysis/flavors/keys';
+import { CAPITAL_MARKETS_AI_OPINION_CALIBRATION } from '@/lib/agents/analysis/flavors/capitalMarketsCalibration';
 import { publishLiveEvent } from '@/lib/server/liveEvents';
 import { LIVE_TOPICS } from '@/lib/live/topics';
 
@@ -37,7 +39,27 @@ export class AiOpinionService {
     // Optional so the opinion still runs without screening context (tests,
     // or a container that doesn't wire screening).
     private readonly aiScreeningService?: AIScreeningService,
+    // The workspace's Copilot flavor. Optional for the same reason; absent, the
+    // opinion is judged on the default (M&A) footing.
+    private readonly getCopilotAgent?: () => Promise<CopilotAgentType>,
   ) {}
+
+  /**
+   * Flavor-specific calibration appended to the instruction. Only the
+   * capital-markets desk has one today. Best-effort: a failed flavor lookup
+   * must not block the opinion.
+   */
+  private async flavorCalibration(): Promise<string> {
+    if (!this.getCopilotAgent) return '';
+    try {
+      return (await this.getCopilotAgent()) === 'capital_markets'
+        ? CAPITAL_MARKETS_AI_OPINION_CALIBRATION
+        : '';
+    } catch (err) {
+      console.error('AI Opinion: failed to resolve the workspace flavor:', err);
+      return '';
+    }
+  }
 
   /**
    * The AI Screening block inlined into the instruction, judged by each
@@ -125,6 +147,7 @@ export class AiOpinionService {
       : '';
 
     const screeningBlock = await this.screeningBlock(company);
+    const calibration = await this.flavorCalibration();
 
     const instruction =
       `Analyze the AI Opinion for "${companyName}" (company_id: ${id}).${contextBlock}${screeningBlock} ` +
@@ -155,6 +178,7 @@ export class AiOpinionService {
       `or withhold the verdict over it. Judge the company on the data you do have — fundamentals, ` +
       `financials, market position, strategic rationale, the deal team's context — and still commit to ` +
       `pass or fail. ` +
+      calibration +
       `After the tool returns, briefly report the verdict you recorded.`;
 
     let runId: string;

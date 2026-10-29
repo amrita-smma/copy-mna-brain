@@ -24,6 +24,7 @@ import {
   NEXT_ACTION_GUIDE,
   ON_DEMAND_TOOLS_GUIDE,
 } from "../guides";
+import { CAPITAL_MARKETS_CALIBRATION_GUIDE } from "./capitalMarketsCalibration";
 import { defaultChatToolList } from "./mna";
 import { MNA_PIPELINE_OPERATIONS_SUMMARY } from "./pipelineOperations";
 import { lazyToolList } from "./lazyToolList";
@@ -107,6 +108,8 @@ Name the live instruments, and say plainly which are ruled out and why.
 - **No legal, tax, accounting or rating opinion.** Prospectus liability, securities-law exemptions, hedge accounting, equity credit and tax deductibility are named as specialist confirmations, not answered.
 - **Handle inside information carefully.** Pre-deal information on a listed issuer is price-sensitive. Do not repeat client-confidential or non-public material into external search queries, and flag wall-crossing, selective-disclosure and blackout issues when they arise.
 - **Marketing is not analysis.** When the honest answer is that the issuer should not raise this instrument now, say that first.
+
+${CAPITAL_MARKETS_CALIBRATION_GUIDE}
 
 ## The firm's own data
 

@@ -366,7 +366,10 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     () => new CompanyAnalysisService(companyAnalysisRepo(), companyRepo(), db, workspaceId),
   );
   const aiOpinionService = lazy(
-    () => new AiOpinionService(companyRepo(), db, workspaceId, aiScreeningService()),
+    () =>
+      new AiOpinionService(companyRepo(), db, workspaceId, aiScreeningService(), () =>
+        workspaceService().getCopilotAgent(workspaceId),
+      ),
   );
   const aiScreeningService = lazy(
     () =>

@@ -188,8 +188,10 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
   investment_banking: '0a2e88280feaa2dded8b886f0e377d1f3932f03a8922cb23745282bcf9ef50d4',
   // The Capital Markets Agent — the same tool set under a DCM/ECM prompt:
   // instrument choice, capacity, structure, evidence-based pricing, investor
-  // base, regime and window.
-  capital_markets: '138b77869135b30b0ffec9dfefa6123536aee26979ca2059150a63a61fe4e3e0',
+  // base, regime and window. It then gained the "Calibrating the bar" section
+  // (capitalMarketsCalibration.ts): judge against the home regime rather than
+  // a global standard, credit scale, keep inconsistencies visible but sized.
+  capital_markets: 'a5fa44baea20effd2b156a24b8924a01a5696db1cfc4f4819d0ad118471584b8',
 };
 // The Workforce prompt changed on purpose: the hardcoded promote_to_l0 /
 // promote_to_l1 pair is replaced by lookup_pipeline_stage + move_stage, which

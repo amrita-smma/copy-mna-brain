@@ -174,6 +174,19 @@ The eight flavors:
   assumed**, and the prompt is explicit that it does not set a price or
   underwrite.
 
+  A **"Calibrating the bar"** section keeps the read from turning pessimistic:
+  an issuer is judged against its *home* regime (for an Indonesian issuer, OJK /
+  IDX and local rating agencies such as Pefindo, which are lighter than SEC / LSE
+  / HKEX or a global investment-grade package), and **scale is credited as a
+  disproportionate advantage** — a large, established issuer's governance or
+  disclosure gap is a diligence item, not a disqualifier. Inconsistencies are
+  still named, with their size and what would close them; hard stops
+  (insolvency, an uncovered liquidity gap, fraud/sanctions, a legal bar, a shut
+  window) stay hard. The same wording (`capitalMarketsCalibration.ts`) is
+  appended to the **AI Opinion** instruction by `AiOpinionService` when the
+  workspace's flavor is `capital_markets`, so the per-company verdict is
+  calibrated the same way; other flavors' opinions are unchanged.
+
   Both advisory flavors are `defaultChatToolList()` plus the **same seven
   read-only research additions** — `calculate_investment_returns`,
   `get_company_profile`, `get_sector_context`, `get_competitor_landscape`,

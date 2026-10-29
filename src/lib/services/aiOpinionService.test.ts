@@ -28,12 +28,14 @@ import { AI_OPINION_AGENT_NAME, AiOpinionService } from './aiOpinionService';
 function makeService(
   companyRepo: Record<string, ReturnType<typeof vi.fn>>,
   aiScreeningService?: { summarizeForOpinion: ReturnType<typeof vi.fn> },
+  getCopilotAgent?: () => Promise<string>,
 ) {
   return new AiOpinionService(
     companyRepo as never,
     {} as never,
     'workspace-1',
     aiScreeningService as never,
+    getCopilotAgent as never,
   );
 }
 
@@ -236,6 +238,44 @@ describe('AiOpinionService.dispatch', () => {
     expect(input.instruction).toContain('Drop the mandate dimension altogether');
     expect(input.instruction).toContain('Judge the company on the data you do have');
     expect(input.instruction).toContain('still commit to pass or fail');
+  });
+
+  it('adds the capital-markets calibration on a capital_markets workspace', async () => {
+    const service = makeService(makeCompanyRepo(), undefined, async () => 'capital_markets');
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).toContain('CAPITAL MARKETS CALIBRATION');
+    expect(input.instruction).toContain('Scale carries a disproportionate advantage');
+    expect(input.instruction).toContain('HIGHLIGHT every inconsistency');
+    expect(input.instruction).toContain('Keep the hard stops hard');
+    // The firm-verdict rules it builds on are still there.
+    expect(input.instruction).toContain('Commit to "pass" or "fail"');
+  });
+
+  it.each(['mna', 'minority', 'investment_banking'])(
+    'leaves the %s instruction without the capital-markets calibration',
+    async (flavor) => {
+      const service = makeService(makeCompanyRepo(), undefined, async () => flavor);
+      await service.dispatch('co-1');
+
+      const { input } = enqueueAgentRun.mock.calls[0][1];
+      expect(input.instruction).not.toContain('CAPITAL MARKETS CALIBRATION');
+    },
+  );
+
+  it('still enqueues, uncalibrated, when the flavor lookup fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const service = makeService(makeCompanyRepo(), undefined, async () => {
+      throw new Error('db down');
+    });
+
+    await service.dispatch('co-1');
+
+    const { input } = enqueueAgentRun.mock.calls[0][1];
+    expect(input.instruction).not.toContain('CAPITAL MARKETS CALIBRATION');
+    expect(enqueueAgentRun).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
   });
 
   it('routes the AI Opinion run to high effort (Opus)', async () => {
