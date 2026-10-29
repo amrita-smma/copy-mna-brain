@@ -176,6 +176,14 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: false,
   },
+  {
+    key: 'MEETING_INTELLIGENCE_ENABLED',
+    label: 'Meeting Intelligence',
+    description:
+      "Integrate with Meeting Intelligence (MoM AI Intelligent): each member connects their own account from Connect Apps (Profile → Connected apps), and the Copilot can then read the meeting recaps, action items and calendars that member can see. Read-only. Off: the Connected apps row shows 'Not enabled' and the Copilot's meeting_intelligence tool refuses.",
+    defaultEnabled: false,
+    navItem: false,
+  },
   // ── Funds settings (surfaced on the admin Funds tab, not Features) ──────────
   {
     key: 'SOURCE_OF_FUNDS_ENABLED',

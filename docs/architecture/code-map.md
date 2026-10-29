@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 245 | `src/app/api/**/route.ts` |
-| Services | 101 | `src/lib/services/` |
-| Repositories | 88 | `src/lib/repositories/` |
+| API routes | 248 | `src/app/api/**/route.ts` |
+| Services | 102 | `src/lib/services/` |
+| Repositories | 89 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
-| Feature flags | 12 | `src/lib/flags.ts` |
+| Feature flags | 13 | `src/lib/flags.ts` |
 | Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 195 | `drizzle/migrations/` |
+| Migrations (app) | 196 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -39,6 +39,7 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `insightsDashboardEnabled` | `INSIGHTS_DASHBOARD_ENABLED` |
 | `insightsEnabled` | `INSIGHTS_ENABLED` |
 | `ledgerEnabled` | `LEDGER_ENABLED` |
+| `meetingIntelligenceEnabled` | `MEETING_INTELLIGENCE_ENABLED` |
 | `sourceOfFundsEnabled` | `SOURCE_OF_FUNDS_ENABLED` |
 | `taskNotificationsEnabled` | `TASK_NOTIFICATIONS_ENABLED` |
 
@@ -276,6 +277,9 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/insights/[id]/rollback` | POST | `insightService` |
 | `/api/insights/[id]/save-as-template` | POST | `insightService`, `insightTemplateService` |
 | `/api/insights/upload` | POST | `insightService` |
+| `/api/integrations/meeting-intelligence` | GET, DELETE | `meetingIntelligenceService` |
+| `/api/integrations/meeting-intelligence/callback` | GET | `meetingIntelligenceService` |
+| `/api/integrations/meeting-intelligence/connect` | GET | `meetingIntelligenceService` |
 | `/api/internal/bot-messages` | POST | — |
 | `/api/investment-thesis` | GET, POST | `investmentThesisService` |
 | `/api/investment-thesis/[id]` | DELETE | `investmentThesisService` |
@@ -350,7 +354,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 86 keys. Wire new services in
+`Container` exposes 87 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -436,6 +440,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `launcherToken.ts` | `LauncherTokenError` | ✅ |
 | `marketScanningRoutineService.ts` | `MarketScanningRoutineService` | ✅ |
 | `marketScreeningService.ts` | `MarketScreeningService` | ❌ |
+| `meetingIntelligenceService.ts` | `MeetingIntelligenceNotConnectedError`, `MeetingIntelligenceRefreshPendingError`, `MeetingIntelligenceAuthorizationError`, `MeetingIntelligenceService` | ✅ |
 | `notificationService.ts` | `NotificationService` | ✅ |
 | `password.ts` | — | ✅ |
 | `pendingAutoScanService.ts` | `PendingAutoScanService` | ✅ |
@@ -533,6 +538,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `insightVersionRepository.ts` | `InsightVersionRepository` | ✅ |
 | `investmentThesisRepository.ts` | `InvestmentThesisRepository` | ✅ |
 | `jobRepository.ts` | `JobRepository` | ✅ |
+| `meetingIntelligenceRepository.ts` | `MeetingIntelligenceRepository` | ✅ |
 | `pipelineStageRepository.ts` | `PipelineStageRepository` | ✅ |
 | `recentFileRepository.ts` | `RecentFileRepository` | ✅ |
 | `resetPasswordTokenRepository.ts` | `ResetPasswordTokenRepository` | ❌ |
@@ -563,7 +569,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 92 | 84/92 | ✅ |
+| `analysis` | 93 | 85/93 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 7 | 7/7 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |

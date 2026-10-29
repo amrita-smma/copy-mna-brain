@@ -32,6 +32,14 @@ describe('FEATURE_CATALOG', () => {
     expect(smartFiles?.defaultEnabled).toBe(true);
   });
 
+  it('registers Meeting Intelligence as an opt-in, off-by-default general feature', () => {
+    const meetings = FEATURE_CATALOG.find((feature) => feature.key === 'MEETING_INTELLIGENCE_ENABLED');
+    expect(meetings).toBeDefined();
+    expect(meetings?.defaultEnabled).toBe(false);
+    expect(meetings?.navItem).toBe(false);
+    expect(meetings?.category ?? 'general').toBe('general');
+  });
+
   it('registers Fund Vehicle View under FUND_VEHICLE_VIEW_ENABLED with funds category and default on', () => {
     const fundVehicle = FEATURE_CATALOG.find((feature) => feature.key === 'FUND_VEHICLE_VIEW_ENABLED');
     expect(fundVehicle).toBeDefined();

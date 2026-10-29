@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import Profile from '@/views/Profile';
-import { copilotMemoryEnabled } from '@/lib/flags';
+import { copilotMemoryEnabled, meetingIntelligenceEnabled } from '@/lib/flags';
 
 function ProfileLoading() {
   return (
@@ -26,10 +26,13 @@ function ProfileLoading() {
  * stops being load-bearing.
  */
 export default async function ProfilePage() {
-  const showMemoryTab = await copilotMemoryEnabled().then(Boolean);
+  const [showMemoryTab, showMeetingIntelligence] = await Promise.all([
+    copilotMemoryEnabled().then(Boolean),
+    meetingIntelligenceEnabled().then(Boolean),
+  ]);
   return (
     <Suspense fallback={<ProfileLoading />}>
-      <Profile showMemoryTab={showMemoryTab} />
+      <Profile showMemoryTab={showMemoryTab} showMeetingIntelligence={showMeetingIntelligence} />
     </Suspense>
   );
 }

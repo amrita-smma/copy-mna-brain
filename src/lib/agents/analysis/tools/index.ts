@@ -20,6 +20,7 @@ import { valyuSearch } from "./valyu_search";
 // put back in a list if the subscription ever returns.
 import { alphasenseSearch } from "./alphasense_search";
 import { queryMeetingNotes } from "./query_files";
+import { meetingIntelligence } from "./meeting_intelligence";
 import { proposeWorkforceHandoff } from "./propose_workforce_handoff";
 import { searchChatHistory } from "./search_chat_history";
 import { lookupBot } from "./lookup_bot";
@@ -90,6 +91,7 @@ import { readPipelineOperationsGuide } from "./read_pipeline_operations_guide";
 
 export { searchChatHistory, lookupBot, proposeCreateBot, updateBot, listRoutines, proposeCreateRoutine, updateRoutine, deleteRoutine, offerOptions };
 export { listTasks, createTask, updateTask, deleteTask };
+export { meetingIntelligence };
 
 export {
   getDataSchema,
@@ -234,7 +236,7 @@ export const chatOnlyTools = [
 /**
  * Bot tools — in no flavour's list. A Copilot bot gets them per turn through
  * its skills (`@/lib/bots/skills`): history search and option cards for every bot, the rest via
- * the bot_builder, routines and tasks skills. They read the chatting user from
+ * the bot_builder, routines, tasks and meetings skills. They read the chatting user from
  * the turn's `configurable`, so they only work inside a bot chat.
  */
 export const botTools = [
@@ -251,6 +253,7 @@ export const botTools = [
   createTask,
   updateTask,
   deleteTask,
+  meetingIntelligence,
 ];
 
 /**

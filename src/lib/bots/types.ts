@@ -64,6 +64,7 @@ export const BOT_SKILL_KEYS = [
   'bot_builder',
   'routines',
   'tasks',
+  'meetings',
 ] as const;
 export type BotSkillKey = (typeof BOT_SKILL_KEYS)[number];
 
@@ -138,6 +139,14 @@ export const BOT_SKILL_META: Record<BotSkillKey, BotSkillMeta> = {
     description: "Read, add, change, complete and delete the user's personal to-dos and reminders.",
     guide:
       "The user's personal to-do list is yours to manage directly, no card and no Workforce: list_tasks to read it (it reports the current time, so you can work out \"tomorrow at 9\"), create_task to add one with an optional reminder, update_task to rename, re-time, complete or reopen one, delete_task to remove one for good. Read the list before changing a task so you name the right one, and tell the user in a few words what you did. Only long-running work — building an insight — goes to the Workforce; a to-do never does.",
+  },
+  meetings: {
+    key: 'meetings',
+    label: 'Meetings',
+    description:
+      "Read the user's meeting recaps, action items and calendar from Meeting Intelligence, when their workspace has it on and they have connected it.",
+    guide:
+      "For what was discussed or decided in a meeting, who owns a follow-up, delayed / at-risk tasks, or someone's schedule, use meeting_intelligence: search_meetings or list_meetings to find the meeting, get_meeting for its recap, get_my_action_items / list_action_items for tasks, lookup_my_calendar for the day. It runs as the user and sees only their meetings. If it says the workspace hasn't enabled it or the user hasn't connected, tell them in one line how to fix it (the Connect Apps button at the bottom of the sidebar, then Connect on MoM Intelligent) and answer from what else you have — do not call it again that turn.",
   },
 };
 

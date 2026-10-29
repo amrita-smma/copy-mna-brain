@@ -36,6 +36,7 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  meetingIntelligence,
 } from '@/lib/agents/analysis/tools';
 import { lazyToolList, type ToolListFactory } from '@/lib/agents/analysis/flavors/lazyToolList';
 import type { ToolList } from '@/lib/agents/analysis/flavors/types';
@@ -86,6 +87,12 @@ export const BOT_SKILLS: Record<BotSkillKey, BotSkill> = {
     ...BOT_SKILL_META.tasks,
     // Full CRUD, applied at once: a to-do is the user's own note.
     tools: lazyToolList(() => [listTasks, createTask, updateTask, deleteTask]),
+  },
+  meetings: {
+    ...BOT_SKILL_META.meetings,
+    // Read-only, as the chatting user. Refuses (with instructions) when the
+    // workspace flag is off or the user hasn't connected.
+    tools: lazyToolList(() => [meetingIntelligence]),
   },
 };
 

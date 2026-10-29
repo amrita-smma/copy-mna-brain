@@ -56,6 +56,7 @@ import { SidebarPagesNav } from './SidebarPagesNav';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { ChangelogWidget } from './ChangelogWidget';
 import { TasksWidget } from '@/components/tasks/TasksWidget';
+import { ConnectAppsButton } from '@/components/integrations/ConnectAppsButton';
 import { TaskReminderAlerts } from '@/components/tasks/TaskReminderAlerts';
 import { FeedbackDialog } from './FeedbackDialog';
 import { useFeatureFlags } from './FeatureFlagsContext';
@@ -333,6 +334,9 @@ export function AppShell({
                     workspace. It is only reachable from the /workspace picker
                     (the root level), so superadmins enter it before selecting a
                     workspace rather than from within one. */}
+                {/* Profile → Connected apps (Meeting Intelligence, and the
+                    integrations still to come). */}
+                <ConnectAppsButton />
                 <SidebarUserFooter />
               </SidebarFooter>
             </Sidebar>

@@ -76,4 +76,4 @@ describe('assembleBotSystemPrompt', () => {
 });
 
 const GUARDRAILS_HASH = 'd016d2a0590f3924b2c399dd92eff324b6f63ea0b00e3790cf7b13abc5ff6e66';
-const NEW_BOT_HASH = '4734ba4ade110c2de728b9f5e2e7f42ca0a265ae2b1d5d33aa8ccb316c05cae6';
+const NEW_BOT_HASH = '9e0a55ac2facd75e741ef00649200b016bd5e4f03502a233a6fb841ac90f4cac';

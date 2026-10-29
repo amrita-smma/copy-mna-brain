@@ -93,3 +93,4 @@ export * from './agentCheckpointRepository';
 
 export * from './userMemoryRepository';
 export * from './contactConversationRepository';
+export * from './meetingIntelligenceRepository';

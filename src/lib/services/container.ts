@@ -23,6 +23,7 @@ import {
   UserRepository,
   RecentFileRepository,
   UserTaskRepository,
+  MeetingIntelligenceRepository,
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
@@ -110,6 +111,7 @@ import { MarketScanningRoutineService } from './marketScanningRoutineService';
 import { DealDocumentService } from './dealDocumentService';
 import { RecentFileService } from './recentFileService';
 import { UserTaskService } from './userTaskService';
+import { MeetingIntelligenceService } from './meetingIntelligenceService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
@@ -192,6 +194,7 @@ export interface Container {
   dealDocumentService: DealDocumentService;
   recentFileService: RecentFileService;
   userTaskService: UserTaskService;
+  meetingIntelligenceService: MeetingIntelligenceService;
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
   companyAnalysisService: CompanyAnalysisService;
@@ -460,6 +463,10 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         workspaceRepo(),
         workspaceId,
       ),
+  );
+  // User-scoped, not workspace-scoped: see MeetingIntelligenceRepository.
+  const meetingIntelligenceService = lazy(
+    () => new MeetingIntelligenceService(new MeetingIntelligenceRepository(db)),
   );
   const pendingAutoScanService = lazy(
     () =>
@@ -1077,6 +1084,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get dealDocumentService() { return dealDocumentService(); },
     get recentFileService() { return recentFileService(); },
     get userTaskService() { return userTaskService(); },
+    get meetingIntelligenceService() { return meetingIntelligenceService(); },
     get dealNoteService() { return dealNoteService(); },
     get dealLinkService() { return dealLinkService(); },
     get companyAnalysisService() { return companyAnalysisService(); },

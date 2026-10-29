@@ -47,6 +47,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [In-app Copilot chat caching](copilot-chat-caching.md) — 2KB
 - [Copilot bots (one permanent thread per bot, every skill, set up through the chat, persona, history search, @mentions with reply-back between bots, live presence over Redis + SSE, routines, task log, verdict-first replies, dated citations, option cards, avatar)](copilot-bots.md) — 19KB
 - [In-app Copilot chat attachments](copilot-chat-attachments.md) — 6KB
+- [Meeting Intelligence (MoM AI Intelligent) integration: per-workspace flag, per-member OAuth connect, the `meeting_intelligence` Copilot tool](meeting-intelligence.md) — 5KB
 - [CoPilot memory (mem0, pgvector)](copilot-memory.md) — 20KB
 - [Feedback on Copilot replies (thumbs, reasons, Copy/Retry, Langfuse score) — MB-693](copilot-response-feedback.md) — 4KB
 - [Copilot action cards (approvals, options, hand-offs): decisions stored per chat and told to the agent](copilot-action-cards.md) — 4KB

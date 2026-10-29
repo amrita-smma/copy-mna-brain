@@ -41,6 +41,9 @@ export const corporateActionsEnabled = booleanFlag("CORPORATE_ACTIONS_ENABLED");
 
 export const insightsEnabled = booleanFlag("INSIGHTS_ENABLED");
 
+// Meeting Intelligence (MoM AI Intelligent) integration — off by default.
+export const meetingIntelligenceEnabled = booleanFlag("MEETING_INTELLIGENCE_ENABLED");
+
 /**
  * The CoPilot's long-term memory (mem0) — a deployment-wide kill-switch, ON by
  * default.

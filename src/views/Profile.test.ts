@@ -39,6 +39,9 @@ describe('resolveProfileTab', () => {
   it('opens the tab named in the URL', () => {
     expect(resolveProfileTab('items', true)).toBe('items');
     expect(resolveProfileTab('memory', true)).toBe('memory');
+    expect(resolveProfileTab('apps', true)).toBe('apps');
+    // Connected apps does not depend on the Memory tab being available.
+    expect(resolveProfileTab('apps', false)).toBe('apps');
   });
 
   it('opens on the first tab when the URL says nothing', () => {

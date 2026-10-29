@@ -31,6 +31,7 @@ vi.mock('@/lib/agents/analysis/tools', () => {
     createTask: t('create_task'),
     updateTask: t('update_task'),
     deleteTask: t('delete_task'),
+    meetingIntelligence: t('meeting_intelligence'),
   };
 });
 
@@ -81,6 +82,7 @@ describe('mergeBotTools', () => {
       'create_task',
       'update_task',
       'delete_task',
+      'meeting_intelligence',
     ]);
   });
 });

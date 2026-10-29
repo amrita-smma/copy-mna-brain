@@ -5605,3 +5605,69 @@ export const userTasks = pgTable(
     };
   },
 );
+
+// ── Meeting Intelligence (MoM AI Intelligent) integration ──────────────────
+// The app's OAuth 2.1 client registration with a Meeting Intelligence server,
+// obtained by dynamic client registration (RFC 7591). One row per (server,
+// redirect URI): every deployment origin registers its own public client the
+// first time someone connects from it. Not workspace- or user-scoped — it is
+// the app's own identity with that server. See
+// docs/features/meeting-intelligence.md.
+export const meetingIntelligenceClients = pgTable(
+  "meeting_intelligence_clients",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    server_url: text().notNull(),
+    redirect_uri: text().notNull(),
+    client_id: text().notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqMeetingIntelligenceClientsServerRedirect: uniqueIndex(
+      "uq_meeting_intelligence_clients_server_redirect",
+    ).on(table.server_url, table.redirect_uri),
+  }),
+);
+
+// One member's connection to Meeting Intelligence: the OAuth tokens that let
+// the Copilot read meetings, action items and calendars AS that member. Scoped
+// to the user, not the workspace — the connection is the person's identity on
+// the other system and follows them across workspaces; whether a workspace may
+// use it is the MEETING_INTELLIGENCE_ENABLED feature flag. Both tokens are
+// AES-256-GCM ciphertext (src/lib/crypto/tokenCipher.ts), never plaintext.
+// `refresh_lease_until` is a short lease claimed while one request refreshes
+// the tokens: the server rotates refresh tokens and treats reuse of an old one
+// as theft, so two concurrent refreshes would disconnect the user.
+export const meetingIntelligenceConnections = pgTable(
+  "meeting_intelligence_connections",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    server_url: text().notNull(),
+    client_id: text().notNull(),
+    access_token_enc: text().notNull(),
+    refresh_token_enc: text().notNull(),
+    access_token_expires_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    scope: text(),
+    // Who the member is on the Meeting Intelligence side (its `whoami`), shown
+    // on Profile so they can tell which account they connected.
+    external_name: text(),
+    external_email: text(),
+    refresh_lease_until: timestamp({ withTimezone: true, mode: "string" }),
+    connected_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqMeetingIntelligenceConnectionsUser: uniqueIndex(
+      "uq_meeting_intelligence_connections_user",
+    ).on(table.user_id),
+  }),
+);

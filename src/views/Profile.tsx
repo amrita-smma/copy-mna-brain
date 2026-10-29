@@ -14,6 +14,7 @@ import {
   LogOut,
   ShieldCheck,
   Sparkles,
+  Plug,
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -52,6 +53,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePipelineStages } from '@/hooks/usePipelineStages';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import MemoryTab from '@/components/profile/MemoryTab';
+import ConnectedAppsTab from '@/components/profile/ConnectedAppsTab';
 import ProfileDetailsTab from '@/components/profile/ProfileDetailsTab';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useUserTasks } from '@/hooks/useUserTasks';
@@ -69,7 +71,7 @@ const ROLE_LABELS: Record<ProfileCompanyRole, string> = {
  * Tab values in the order they appear, mirrored in the `?tab=` query param so a
  * refresh restores one. The first is what the page opens on.
  */
-const PROFILE_TAB_VALUES = ['you', 'items', 'memory'] as const;
+const PROFILE_TAB_VALUES = ['you', 'items', 'memory', 'apps'] as const;
 export type ProfileTab = (typeof PROFILE_TAB_VALUES)[number];
 const DEFAULT_PROFILE_TAB: ProfileTab = 'you';
 
@@ -87,6 +89,7 @@ export function resolveProfileTab(
 ): ProfileTab {
   if (value === 'memory') return showMemoryTab ? 'memory' : DEFAULT_PROFILE_TAB;
   if (value === 'you') return 'you';
+  if (value === 'apps') return 'apps';
   return value === 'items' ? 'items' : DEFAULT_PROFILE_TAB;
 }
 
@@ -146,9 +149,18 @@ export interface ProfileProps {
    * rendered at all and the page looks exactly as it did before.
    */
   showMemoryTab?: boolean;
+  /**
+   * The workspace's MEETING_INTELLIGENCE_ENABLED flag. The Connected apps tab
+   * is always shown (the sidebar's "Connect Apps" button lands on it); this
+   * decides whether its Meeting Intelligence row can connect.
+   */
+  showMeetingIntelligence?: boolean;
 }
 
-export default function Profile({ showMemoryTab = false }: ProfileProps) {
+export default function Profile({
+  showMemoryTab = false,
+  showMeetingIntelligence = false,
+}: ProfileProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -331,7 +343,7 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
         onValueChange={handleTabChange}
         className="flex flex-col gap-3"
       >
-        <TabsList className="w-full justify-start">
+        <TabsList className="w-full justify-start overflow-x-auto [scrollbar-width:none]">
           <TabsTrigger value="you" className="gap-1.5" data-testid="profile-tab-you">
             <UserRound className="h-3.5 w-3.5" />
             Your Profile
@@ -349,6 +361,10 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
               Memory
             </TabsTrigger>
           )}
+          <TabsTrigger value="apps" className="gap-1.5" data-testid="profile-tab-apps">
+            <Plug className="h-3.5 w-3.5" />
+            Connected apps
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="you" className="mt-1">
@@ -366,6 +382,10 @@ export default function Profile({ showMemoryTab = false }: ProfileProps) {
             <MemoryTab />
           </TabsContent>
         )}
+
+        <TabsContent value="apps" className="mt-1">
+          <ConnectedAppsTab meetingIntelligenceEnabled={showMeetingIntelligence} />
+        </TabsContent>
       </Tabs>
 
       {isMobile && (

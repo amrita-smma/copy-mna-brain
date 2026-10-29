@@ -80,6 +80,8 @@ type TableMap = {
   fl_source_records: typeof schema.flSourceRecords;
 
   user_tasks: typeof schema.userTasks;
+  meeting_intelligence_clients: typeof schema.meetingIntelligenceClients;
+  meeting_intelligence_connections: typeof schema.meetingIntelligenceConnections;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];
