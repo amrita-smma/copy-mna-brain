@@ -37,7 +37,10 @@ first use for new ones. A chat turn that names no bot runs on it.
 - **Fixed.** `presentBotRow` (`botService.ts`) always gives it the user's
   name for it (`BotService` reads the user once per request, only when the
   primary bot is in the rows; the stored row name is unused), its own persona
-  (`BRAIN_BOT_PERSONA`: the master agent, which hands work on by @mention) and
+  (`BRAIN_BOT_PERSONA`: the coordinator — it calls `lookup_bot` before any non-trivial
+  request and hands the work on by @mention when a bot's persona fits, research
+  included, doing it itself only for quick answers, the user's own memory, routines
+  and bots, or when no bot fits) and
   the black **Apex** body (`BRAIN_BOT_AVATAR`), whatever its row holds. Nobody
   can edit or archive it (`canEditBot` is false). No other bot may wear Apex.
 - **Starred.** An amber star (`PrimaryStar`) sits on its avatar in every bot

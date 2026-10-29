@@ -9,6 +9,7 @@ import {
   randomBotAvatar,
   resolveBotAvatar,
   BRAIN_BOT_AVATAR,
+  BRAIN_BOT_PERSONA,
   primaryBotName,
   botGreeting,
 } from './types';
@@ -108,5 +109,24 @@ describe('primaryBotName', () => {
     expect(primaryBotName({ name: '', email: 'jane.doe@example.com' })).toBe("Jane's bot");
     expect(primaryBotName({ name: null, email: null })).toBe('My bot');
     expect(primaryBotName(null)).toBe('My bot');
+  });
+});
+
+describe('BRAIN_BOT_PERSONA', () => {
+  it('has the primary bot look up the bots before it starts non-trivial work', () => {
+    expect(BRAIN_BOT_PERSONA).toContain('**Route before you work.**');
+    expect(BRAIN_BOT_PERSONA).toContain('call lookup_bot first');
+    expect(BRAIN_BOT_PERSONA).toContain('do not start the work yourself first');
+  });
+
+  it('sends research to a research bot and offers to build one when none exists', () => {
+    expect(BRAIN_BOT_PERSONA).toContain('**Research goes to a research bot.**');
+    expect(BRAIN_BOT_PERSONA).toContain('propose_create_bot');
+  });
+
+  it('limits what the primary bot does itself, and no longer tells it to finish everything', () => {
+    expect(BRAIN_BOT_PERSONA).toContain('**Do it yourself only when it is yours.**');
+    expect(BRAIN_BOT_PERSONA).not.toContain('Take on anything the user asks');
+    expect(BRAIN_BOT_PERSONA).not.toContain('rather than handing it back');
   });
 });
