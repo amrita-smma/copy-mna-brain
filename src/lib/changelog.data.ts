@@ -6,6 +6,18 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "b03a33ab03a6835eeafeb85d5426b503e247d830",
+    "date": "2026-10-29",
+    "subject": "Paged history panel for AI Workforce runs, with a 24-hour failure indicator",
+    "category": "improvement"
+  },
+  {
+    "hash": "a9f5d91e7f58e17f75b24568110454dd44b81158",
+    "date": "2026-10-29",
+    "subject": "Meeting Intelligence can now be enabled per workspace and queried through Copilot",
+    "category": "improvement"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
@@ -247,6 +259,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "c99aa20c5999acb1321c4a0340eab0547e02bd7c",
+    "date": "2026-10-28",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "7013928342646d49cf17ee43839238b044d28d59",
     "date": "2026-10-28",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
