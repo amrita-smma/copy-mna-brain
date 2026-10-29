@@ -42,7 +42,16 @@ Deal-target file types — **prospectus** and **shopping_list** — can describe
 - Analysis + screening jobs are dispatched for each created or auto-enriched company.
 - **Note-driven inclusion** — the per-file upload notes can instruct the agent which companies to include or exclude (e.g. "only include Acme and Beta"); excluded companies are omitted from extraction entirely.
 
-Other file types (financial statements, bond issuances, legal documents, MoMs, buyer/sponsor/advisor material) never **auto**-create companies — they describe counterparties or process, not companies on sale (MB-300).
+### Bond issuers
+
+A **bond_issuance** file (offering circular, pricing supplement, a securities house's bond teaser / research note) is about one company that is *not* for sale — the issuer. The agent returns it as `bond_issuance_summary` (same shape as a `companies` entry: identity, segment, geography, ownership, any reported financials), never in `companies` / `prospectus_summary`, and adds the issuer's name to the file's matched-company chips even when the company isn't in the Known Companies list. `FileService.processUpload` then:
+
+- **creates** the issuer at `unreviewed` with `doc_type` and `deal_type` both `bond_issuance` when no existing company fuzzy-matches (same per-name advisory lock and analysis/screening dispatch as deal targets);
+- **only links** an issuer that already exists — never enriches it and never queues the file for HITL, whatever its stage, because a bond document has no claim to rewrite a tracked company's data.
+
+The same `bond_issuance_summary` seeds the manual **Create new company** action, so an issuer that auto-create skipped (e.g. after a reprocess, which never creates companies) is one click away.
+
+Every other non-target file type (financial statements, legal documents, MoMs, buyer/sponsor/advisor material) still never **auto**-creates companies — they describe counterparties or process, not companies on sale (MB-300).
 
 ## Creating a company from any file
 
@@ -54,7 +63,7 @@ that works for *any* file type:
 
 - The name is whatever the user typed in the chip's search box; with nothing
   typed, the service falls back to the best candidate on the file — an
-  extracted deal target, then a financial statement's issuer, then an
+  extracted deal target, then a bond's issuer, then a financial statement's issuer, then an
   AI-detected name chip that isn't already a pipeline company. Generic document
   headings ("Executive Summary") are rejected, and a file with no usable name
   returns 422 asking the user to type one rather than guessing from the

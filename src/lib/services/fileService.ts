@@ -145,6 +145,18 @@ export function asyncJobId(data: unknown): string | undefined {
 const MULTI_COMPANY_FILE_TYPES = new Set<string>(['prospectus', 'shopping_list']);
 
 /**
+ * File types whose document is ABOUT one company that is not for sale — the
+ * bond issuer behind a bond teaser / offering circular. The issuer is minted as
+ * an `unreviewed` company when it is not already known (that is the only thing
+ * the upload does for it): an issuer we already track is linked, never
+ * enriched and never queued for HITL, because a bond document is not a sale
+ * offering and has no claim to rewrite a pipeline company's data. Everything
+ * else in `MULTI_COMPANY_FILE_TYPES`' warning still holds for the other
+ * non-target types (MB-300).
+ */
+const ISSUER_FILE_TYPES = new Set<string>(['bond_issuance']);
+
+/**
  * `entered_by` value stamped on companies auto-created from banker email
  * attachments (no human enters these). Manual create/upload flows stamp the
  * acting user's name instead.
@@ -935,6 +947,26 @@ export class FileService {
           needsHitlReview = needsHitlReview || result.needsReview;
         } catch (err) {
           console.error('[fileService] Failed to auto-create companies from file:', err);
+        }
+      } else if (isPrimaryWorkspace && structuredResult && ISSUER_FILE_TYPES.has(effectiveFileType)) {
+        try {
+          const result = await this.createCompaniesFromExtraction({
+            companies: this.parseBondIssuer(structuredResult as Record<string, unknown>),
+            matchedCompanies: matched_companies,
+            parsedNotes: structuredResult as Record<string, unknown>,
+            effectiveFileType,
+            companySource: 'inbound',
+            existingCompanyPolicy: 'link_only',
+            bankerSource,
+            enteredByEmail,
+            uploaderUserId,
+            originEmail,
+            fileId: initialData.id,
+          });
+          matched_companies = result.matchedCompanies;
+          createdCompanies = result.createdCompanies;
+        } catch (err) {
+          console.error('[fileService] Failed to auto-create the bond issuer from file:', err);
         }
       }
 
@@ -3423,6 +3455,11 @@ function isEntityDecisionRemapped(
       // banker the agent extracted from the document itself.
       banker_source: bankerSource ?? cleanText(summary?.banker) ?? null,
     };
+    // A bond issuer is tracked for its debt raise, not as a control deal — the
+    // column default ("majority") would mislabel it.
+    if (effectiveFileType === 'bond_issuance') {
+      input.deal_type = 'bond_issuance';
+    }
 
     if (summary) {
       const summaryFieldMap: Array<[keyof ProspectusSummary, keyof CompanyDTOInput]> = [
@@ -3505,6 +3542,19 @@ function isEntityDecisionRemapped(
   }
 
   /**
+   * The bond issuer the agent extracted from a `bond_issuance` file, as a
+   * one-entry list (so it flows through the same create path as deal targets),
+   * or `[]` when the file names no issuer.
+   */
+  private parseBondIssuer(
+    parsedNotes: Record<string, unknown> | null | undefined,
+  ): ProspectusSummary[] {
+    const summary = (parsedNotes as { bond_issuance_summary?: unknown } | null | undefined)
+      ?.bond_issuance_summary;
+    return summary && typeof summary === 'object' ? [summary as ProspectusSummary] : [];
+  }
+
+  /**
    * Auto-ingest one company per extracted deal target. For each entry:
    * resolve an identity name, then
    *   - no existing company (fuzzy name match) → auto-create an `unreviewed`
@@ -3530,6 +3580,12 @@ function isEntityDecisionRemapped(
     parsedNotes?: Record<string, unknown>;
     effectiveFileType: string;
     companySource: 'inbound' | 'outbound';
+    /**
+     * What to do with an entry that matches an existing company. `enrich`
+     * (default, deal targets) auto-fills pre-pipeline companies and queues
+     * pipeline ones for HITL; `link_only` (bond issuers) just links it.
+     */
+    existingCompanyPolicy?: 'enrich' | 'link_only';
     bankerSource?: string;
     enteredByEmail?: string;
     uploaderUserId?: string | null;
@@ -3609,6 +3665,10 @@ function isEntityDecisionRemapped(
       }
 
       const existing = result.company as Tables<'companies'>;
+      if (opts.existingCompanyPolicy === 'link_only') {
+        payloads.push(this.companyMatchPayload(existing));
+        continue;
+      }
       if (isInPipelineStage(existing.pipeline_stage)) {
         // Company is actively worked in the pipeline (L0 onward) — extracted
         // changes need explicit human approval via the review dialog.
@@ -4018,6 +4078,11 @@ function isEntityDecisionRemapped(
       if (name) return name;
     }
 
+    for (const entry of this.parseBondIssuer(parsedNotes)) {
+      const name = this.companyIdentityName(entry);
+      if (name) return name;
+    }
+
     const fss = parsedNotes?.financial_statement_summary as
       | FinancialStatementSummary
       | undefined;
@@ -4049,7 +4114,10 @@ function isEntityDecisionRemapped(
   ): ProspectusSummary | undefined {
     const norm = (value: string | null | undefined) => value?.trim().toLowerCase() ?? '';
     const needle = norm(name);
-    const entries = this.parseExtractedCompanies(parsedNotes);
+    const entries = [
+      ...this.parseExtractedCompanies(parsedNotes),
+      ...this.parseBondIssuer(parsedNotes),
+    ];
     const matched = entries.find(
       (e) => norm(e.company_name) === needle || norm(e.project_name) === needle,
     );

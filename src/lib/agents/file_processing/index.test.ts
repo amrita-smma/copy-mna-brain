@@ -495,6 +495,113 @@ describe('processFileContent (multi-company extraction)', () => {
     expect(result.companies).toBeUndefined();
   });
 
+  it('adds an unknown bond issuer to matched_companies and sanitizes its FX figures', async () => {
+    mocks.getAllCompanyReferences.mockResolvedValueOnce([{ id: 'c1', name: 'Acme Corp', type: 'company' }]);
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'bond_issuance',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            bond_issuance_summary: {
+              company_name: 'PT Pyridam Farma Tbk',
+              geography: 'Indonesia',
+              financials: [{ fiscal_year: 2025, revenue_usd_mn: null, ebitda_usd_mn: null }],
+              fx_adjustments: [
+                {
+                  fiscal_year: 2025,
+                  currency: 'IDR',
+                  revenue_local: 2760.4,
+                  revenue_local_unit: 'bn',
+                  assumed_forex: 16000,
+                },
+              ],
+            },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.matched_companies).toEqual([
+      expect.objectContaining({ id: null, name: 'PT Pyridam Farma Tbk' }),
+    ]);
+    expect(result.bond_issuance_summary.financials[0].revenue_usd_mn).toBeCloseTo(172.5, 1);
+    // Bond issuers are not deal targets: they never land in `companies`.
+    expect(result.companies).toBeUndefined();
+  });
+
+  it('links a bond issuer that is already a known company instead of adding a duplicate chip', async () => {
+    mocks.getAllCompanyReferences.mockResolvedValueOnce([
+      { id: 'c-pyfa', name: 'PT Pyridam Farma Tbk', type: 'company' },
+    ]);
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'bond_issuance',
+            summary: 's',
+            companies_detected: ['PT Pyridam Farma Tbk'],
+            company_notes: [],
+            bond_issuance_summary: { company_name: 'pt pyridam farma tbk' },
+          }),
+        ),
+      ),
+    );
+
+    const result = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    expect(result.matched_companies).toEqual([expect.objectContaining({ id: 'c-pyfa' })]);
+  });
+
+  it('drops a generic-phrase bond issuer and a bond_issuance_summary on other file types', async () => {
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'bond_issuance',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            bond_issuance_summary: { company_name: 'Executive Summary' },
+          }),
+        ),
+      ),
+    );
+    const generic = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+    expect(generic.matched_companies).toEqual([]);
+    expect(generic.bond_issuance_summary.company_name).toBeNull();
+
+    mocks.stream.mockImplementationOnce(() =>
+      Promise.resolve(
+        streamReturning(
+          jsonBlock({
+            file_type: 'mom',
+            summary: 's',
+            companies_detected: [],
+            company_notes: [],
+            bond_issuance_summary: { company_name: 'PT Pyridam Farma Tbk' },
+          }),
+        ),
+      ),
+    );
+    const mom = await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+    expect(mom.bond_issuance_summary).toBeUndefined();
+    expect(mom.matched_companies).toEqual([]);
+  });
+
+  it('tells the model a bond teaser is a bond_issuance and to extract the issuer', async () => {
+    await processFileContent('raw text', Buffer.from('x'), 'text/plain', '');
+
+    const prompt = mocks.createAgent.mock.calls.at(-1)![0].systemPrompt as string;
+    expect(prompt).toContain('bond teaser');
+    expect(prompt).toContain('bond_issuance_summary');
+    expect(prompt).toContain('PT Pyridam Farma Tbk');
+  });
+
   it('instructs the model to honor user inclusion/exclusion notes', async () => {
     await processFileContent('raw text', Buffer.from('x'), 'text/plain', 'only include Acme');
 

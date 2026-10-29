@@ -466,6 +466,31 @@ describe('FileService.createCompanyFromFile', () => {
     ]);
   });
 
+  it('falls back to the bond issuer as the candidate name for a bond_issuance file', async () => {
+    vi.mocked(fileRepo.findById).mockResolvedValue(
+      makeFile({
+        id: 'file-bond',
+        file_type: 'bond_issuance',
+        structured_notes: JSON.stringify({
+          file_type: 'bond_issuance',
+          bond_issuance_summary: { company_name: 'PT Pyridam Farma Tbk', segment: 'Pharmaceuticals' },
+        }),
+      }),
+    );
+    vi.mocked(companyService.createFromDTO).mockResolvedValue(
+      makeCompany({ id: 'company-new', target: 'PT Pyridam Farma Tbk' }) as never,
+    );
+
+    await service.createCompanyFromFile('file-bond');
+
+    expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+      target: 'PT Pyridam Farma Tbk',
+      segment: 'Pharmaceuticals',
+      doc_type: 'bond_issuance',
+      deal_type: 'bond_issuance',
+    });
+  });
+
   it('prefers the caller-supplied name over the extracted candidate', async () => {
     vi.mocked(fileRepo.findById).mockResolvedValue(
       makeFile({
@@ -1877,6 +1902,99 @@ describe('FileService.processUpload', () => {
     expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
     expect(companyService.createFromDTO).not.toHaveBeenCalled();
     expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+  });
+
+  describe('bond issuer ingest (bond_issuance)', () => {
+    const bondResult = {
+      file_type: 'bond_issuance',
+      bond_issuance_summary: {
+        company_name: 'PT Pyridam Farma Tbk',
+        segment: 'Pharmaceuticals',
+        geography: 'Indonesia',
+        ownership: 'Rejuve Global Investment (60.20%)',
+      },
+      matched_companies: [{ id: null, name: 'PT Pyridam Farma Tbk', type: 'company', similarity: 1 }],
+    };
+
+    it('creates the issuer as an unreviewed bond_issuance company when it is new', async () => {
+      vi.mocked(processFileContent).mockResolvedValue(bondResult as never);
+      vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(null as never);
+      vi.mocked(companyService.findBestFuzzyMatch).mockResolvedValue(null as never);
+      vi.mocked(companyService.createFromDTO).mockResolvedValue({
+        id: 'company-new',
+        target: 'PT Pyridam Farma Tbk',
+      } as never);
+      vi.mocked(companyService.findById).mockResolvedValue(
+        makeCompany({ id: 'company-new', target: 'PT Pyridam Farma Tbk' }),
+      );
+      vi.mocked(companyAnalysisService.dispatch).mockResolvedValue({ runId: 'run-1' } as never);
+
+      await service.processUpload('uploads/bond.pdf', 'bond.pdf', 'application/pdf');
+
+      expect(companyService.createFromDTO).toHaveBeenCalledOnce();
+      expect(vi.mocked(companyService.createFromDTO).mock.calls[0][0]).toMatchObject({
+        target: 'PT Pyridam Farma Tbk',
+        pipeline_stage: 'unreviewed',
+        doc_type: 'bond_issuance',
+        deal_type: 'bond_issuance',
+        segment: 'Pharmaceuticals',
+        geography: 'Indonesia',
+      });
+      expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+        'file-1',
+        expect.objectContaining({
+          matched_companies: [expect.objectContaining({ id: 'company-new' })],
+          processing_status: 'completed',
+        }),
+      );
+      expect(companyAnalysisService.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ companyId: 'company-new', source: 'bond_issuance' }),
+      );
+    });
+
+    it('only links an issuer already in the pipeline — no enrich, no review gate, no duplicate', async () => {
+      vi.mocked(processFileContent).mockResolvedValue(bondResult as never);
+      vi.mocked(companyService.findByNameFuzzy).mockResolvedValue(
+        makeCompany({ id: 'company-existing', target: 'Pyridam Farma', pipeline_stage: 'L3' }) as never,
+      );
+
+      await service.processUpload('uploads/bond.pdf', 'bond.pdf', 'application/pdf');
+
+      expect(companyService.createFromDTO).not.toHaveBeenCalled();
+      expect(companyService.updateFromDTO).not.toHaveBeenCalled();
+      expect(companyFinancialRepo.bulkUpsertForCompany).not.toHaveBeenCalled();
+      expect(companyAnalysisService.dispatch).not.toHaveBeenCalled();
+      expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+        'file-1',
+        expect.objectContaining({
+          matched_companies: [expect.objectContaining({ id: 'company-existing' })],
+          processing_status: 'completed',
+        }),
+      );
+    });
+
+    it('creates nothing when the bond document names no issuer', async () => {
+      vi.mocked(processFileContent).mockResolvedValue({
+        file_type: 'bond_issuance',
+        bond_issuance_summary: { company_name: null },
+      } as never);
+
+      await service.processUpload('uploads/bond.pdf', 'bond.pdf', 'application/pdf');
+
+      expect(companyService.findByNameFuzzy).not.toHaveBeenCalled();
+      expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-create from other non-target file types', async () => {
+      vi.mocked(processFileContent).mockResolvedValue({
+        file_type: 'legal_document',
+        bond_issuance_summary: { company_name: 'PT Pyridam Farma Tbk' },
+      } as never);
+
+      await service.processUpload('uploads/spa.pdf', 'spa.pdf', 'application/pdf');
+
+      expect(companyService.createFromDTO).not.toHaveBeenCalled();
+    });
   });
 
   it('takes a scoped advisory lock while resolving named email-origin companies', async () => {

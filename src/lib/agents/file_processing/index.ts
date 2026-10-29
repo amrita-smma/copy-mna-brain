@@ -84,8 +84,9 @@ const generateSystemPrompt = (
 8. **Extract Companies On Offer**: If the file type is "prospectus" or "shopping_list", extract one entry per deal target in the "companies" array (a prospectus usually has exactly one; a shopping list has one per listed target).
 9. **Extract Banker Communications**: If the file type is "banker_communications", extract all email communications with their participants.
 10. **Extract Financial Statement Summary**: If the file type is "financial_statement", extract the company name and financial figures.
-11. **Match Investment Tracks**: If any investment tracks are listed below, decide which (if any) the deal target genuinely fits. Return an empty array if not confident.
-12. **Follow User Instructions**: The "Additional Notes" from the user may contain explicit instructions about which companies in the document to include or exclude. You MUST honor them (see "Additional Notes" below).
+11. **Extract Bond Issuer**: If the file type is "bond_issuance", extract the ISSUER (the legal entity raising the debt) and whatever company facts and financials the document reports about it.
+12. **Match Investment Tracks**: If any investment tracks are listed below, decide which (if any) the deal target genuinely fits. Return an empty array if not confident.
+13. **Follow User Instructions**: The "Additional Notes" from the user may contain explicit instructions about which companies in the document to include or exclude. You MUST honor them (see "Additional Notes" below).
 
 ## Known Companies:
 ${companies_list}
@@ -130,7 +131,7 @@ ${userRawNotes}
 4. **Categorize File Type**: Choose ONE of "prospectus", "financial_statement", "bond_issuance", "legal_document", "mom", "banker_communications", "shopping_list", "market_study", "fund_updates", or "other".
    - **prospectus**: ONLY for a document that OFFERS A COMPANY OR BUSINESS FOR SALE to prospective buyers — a teaser, information memorandum (IM), confidential information memorandum (CIM), sale prospectus, or pitch deck marketing a target. The defining test: *is this document presenting a company/asset that is up for acquisition?* If you are not sure a company is being offered for sale, it is NOT a prospectus.
    - **financial_statement**: audited or management financial statements, annual reports, AFS, balance sheets, P&L, or cash-flow statements presented on their own. These describe a company's finances but do NOT offer it for sale.
-   - **bond_issuance**: debt-capital-markets material for a bond, note, or sukuk issue — offering circulars, prospectuses for a bond/notes programme, pricing supplements, term sheets for an issuance, rating-agency reports on an issuer's notes, and MTN programme documents. The defining test: *is this document raising or describing DEBT rather than offering equity/the business for sale?* A bond offering circular is NOT a "prospectus" in this taxonomy even when it calls itself one.
+   - **bond_issuance**: debt-capital-markets material for a bond, note, or sukuk issue — offering circulars, prospectuses for a bond/notes programme, pricing supplements, term sheets for an issuance, rating-agency reports on an issuer's notes, and MTN programme documents. The defining test: *is this document raising or describing DEBT rather than offering equity/the business for sale?* A bond offering circular is NOT a "prospectus" in this taxonomy even when it calls itself one. This includes a **bond teaser** or securities-house research note on a bond issue (instrument name, coupon, tenor, rating, use of proceeds, bookbuilding timetable, a "subscribe" recommendation) — the word "teaser" does not make it a "prospectus", because no company is being offered for sale.
    - **legal_document**: SPAs, share/stock purchase agreements, term sheets, credit agreements, commitment papers, NDAs, and other transaction legal documents.
    - **mom**: meeting minutes, meeting notes, or call summaries.
    - **banker_communications**: an email export (CSV or MBOX) containing email threads, especially from bankers or investment professionals.
@@ -150,6 +151,7 @@ ${userRawNotes}
    - companies: Array of deal-target objects — one per company/project being offered or listed. Only present when the file type is "prospectus" or "shopping_list". Each entry has the exact same structure as prospectus_summary (see the example output below). A prospectus usually yields exactly ONE entry; only emit multiple when the document genuinely offers several distinct targets. A shopping_list yields one entry per listed target. Honor the user's inclusion/exclusion instructions from "Additional Notes".
    - prospectus_summary: Detailed variables of the primary deal target — identical to companies[0]. Only exists if the file type is "prospectus" or "shopping_list". Kept alongside "companies" for backward compatibility.
    - financial_statement_summary: Extracted financial data from the document. Only present when file_type is "financial_statement". Contains the company name and financials/fx_adjustments arrays in the same structure as prospectus_summary.
+   - bond_issuance_summary: The bond ISSUER and what the document reports about it. Only present when file_type is "bond_issuance". Same structure as one entry of "companies" (see the example output below), describing the issuer.
    - communications: Array of email communications extracted from banker communications files. Only exists if the file type is "banker_communications". Each communication should have: from_email, from_name, to_email, to_name, sent_at (in ISO 8601 format if available), company (if the sender/recipient is associated with a company). Do not extract subject or body.
 
 ## Output Format:
@@ -178,6 +180,19 @@ Your response should end with a JSON block in this format.
       "company": "Example Bank"
     }
   ],
+  "bond_issuance_summary": {
+    "company_name": "Legal entity name of the bond ISSUER exactly as the document prints it, legal prefix/suffix included (e.g. 'PT Pyridam Farma Tbk'). Null if genuinely unclear.",
+    "segment": "BROAD sector/category only (e.g. 'Pharmaceuticals')",
+    "segment_related_offerings": "...",
+    "company_focus": "...",
+    "website": "...",
+    "ownership": "...",
+    "geography": "EXACTLY ONE country name (the issuer's home country)",
+    "remarks": "...",
+    "banker": "Arranger / underwriter / securities house that produced the document, only when explicitly stated",
+    "financials": [],
+    "fx_adjustments": []
+  },
   "financial_statement_summary": {
     "company_name": "Legal entity name of the company whose financials are reported. Null if genuinely unclear.",
     "financials": [
@@ -300,6 +315,13 @@ Names of EXTERNAL people (e.g. a target company's management, an external banker
   - You MAY leave \`revenue_usd_mn\` and \`ebitda_usd_mn\` \`null\` when the document only reports local-currency figures. The server will derive them as \`<local_in_mn> / assumed_forex\`.
 - Do NOT extract derived screening fields (any \`l0_*\`, \`l1_*\`, segment revenue ratios, priority-geo flags, drop counts, screening rationales, etc.). Those are computed downstream by the screening pipeline.
 
+## Bond Issuance Summary Rules:
+- Only populate \`bond_issuance_summary\` when \`file_type\` is \`"bond_issuance"\`. Omit it (or set to null) for every other file type.
+- \`company_name\` is the ISSUER — the legal entity that owes the debt (e.g. "PT Pyridam Farma Tbk"). Keep the legal form exactly as the document prints it ("PT", "Tbk", "Pte. Ltd.", ...). It is NOT: the instrument or programme name (e.g. "Obligasi Berkelanjutan II ... Tahap II Tahun 2026"), the ticker alone, the controlling shareholder or parent, the underwriter / arranger / securities house that wrote the document, the rating agency, the trustee, or a lender. If the document does not name an issuer, set it to \`null\`.
+- The issuer is reported even when it is NOT in the "Known Companies" list — that is exactly the case where the system must create it. Fill \`segment\`, \`geography\`, \`ownership\`, \`company_focus\`, \`website\` from what the document says about the issuer (one-line business description for \`company_focus\`; shareholders and stakes for \`ownership\`). Leave a field \`null\` when the document is silent.
+- \`financials\` / \`fx_adjustments\` follow the exact same rules as \`prospectus_summary\` (one row per fiscal year the document explicitly reports for the ISSUER, annualised or interim figures excluded unless they are the only ones reported). Leave them \`[]\` rather than guessing.
+- Do NOT put the issuer in \`companies\` or \`prospectus_summary\` — those are reserved for companies being offered for sale.
+
 ## Financial Statement Summary Rules:
 - Only populate \`financial_statement_summary\` when \`file_type\` is \`"financial_statement"\`.
 - \`company_name\` is the legal entity whose financials are being reported (e.g. "Frontier Resources Pte. Ltd."). This may be a buyer, seller, or any company — do NOT restrict to deal targets.
@@ -381,6 +403,19 @@ function sanitizeCompanyEntry(entry: any, logPrefix: string): any {
   }
 
   return entry;
+}
+
+/**
+ * The bond issuer's legal name from a parsed `bond_issuance` result, or null
+ * when the file isn't a bond issuance, names no issuer, or the "name" is a
+ * section heading. Reads the raw model output, so it tolerates any shape.
+ */
+function bondIssuerNameFrom(parsed: any): string | null {
+  if (parsed?.file_type !== 'bond_issuance') return null;
+  const name = parsed.bond_issuance_summary?.company_name;
+  if (typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  return trimmed.length > 0 && !isGenericDocumentPhrase(trimmed) ? trimmed : null;
 }
 
 /**
@@ -570,6 +605,19 @@ async function processFileContentInner(
           );
       }
 
+      // A bond issuer is the whole point of a bond_issuance file, but the model
+      // is told to list only *known* companies in companies_detected, so an
+      // issuer we have never seen would otherwise leave no chip at all. Add it
+      // here; the matching loop below links it when it does exist and otherwise
+      // leaves an unmatched chip (id: null) the reviewer can turn into a company.
+      const bondIssuerName = bondIssuerNameFrom(parsed);
+      if (
+        bondIssuerName &&
+        !companiesDetected.some((n) => n.toLowerCase() === bondIssuerName.toLowerCase())
+      ) {
+        companiesDetected.push(bondIssuerName);
+      }
+
       for (const detectedName of companiesDetected) {
         const match = allReferences.find(r => r.name.toLowerCase() === (detectedName as string).toLowerCase());
         if (match) {
@@ -621,6 +669,14 @@ async function processFileContentInner(
           sanitizeCompanyEntry(entry, `companies[${i}]`),
         );
         parsed.prospectus_summary = parsed.companies[0] ?? null;
+      }
+
+      // Sanitize the bond issuer like a deal-target entry (FX backfill,
+      // generic-name nulling). Anything but a bond_issuance file never carries one.
+      if (parsed.file_type === 'bond_issuance' && parsed.bond_issuance_summary && typeof parsed.bond_issuance_summary === 'object') {
+        parsed.bond_issuance_summary = sanitizeCompanyEntry(parsed.bond_issuance_summary, 'bond_issuance_summary');
+      } else {
+        delete parsed.bond_issuance_summary;
       }
 
       // Parse and FX-backfill financial_statement_summary.financials.
