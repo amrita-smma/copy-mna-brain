@@ -4,6 +4,10 @@
  * these is a colleague, never a banker: it never gets a deal link
  * (`DealContactService`), is tagged [internal] for the ingest LLM, and mail
  * among only these domains is dropped as internal.
+ *
+ * A domain added here only changes new mail. To clear what was ingested
+ * before it joined, run `pnpm --filter data-pipeline refilter-internal-mail
+ * --domain <domain>` (dry run first, then `--apply`).
  */
 export const INTERNAL_MAIL_DOMAINS: ReadonlySet<string> = new Set<string>([
   'starcapital.co.id',
@@ -37,4 +41,5 @@ export const INTERNAL_MAIL_DOMAINS: ReadonlySet<string> = new Set<string>([
   'banksinarmas.com',
   'energigroupindonesia.com',
   'gear.com.sg',
+  'starwealth.vip',
 ]);

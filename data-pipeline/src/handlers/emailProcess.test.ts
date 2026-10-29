@@ -118,6 +118,7 @@ describe('mailDomains single source', () => {
     expect(INTERNAL_MAIL_DOMAINS.has('starcapital.co.id')).toBe(true);
     expect(INTERNAL_MAIL_DOMAINS.has('energigroupindonesia.com')).toBe(true);
     expect(INTERNAL_MAIL_DOMAINS.has('gear.com.sg')).toBe(true);
+    expect(INTERNAL_MAIL_DOMAINS.has('starwealth.vip')).toBe(true);
     expect(PERSONAL_MAIL_DOMAINS.has('gmail.com')).toBe(true);
   });
 
