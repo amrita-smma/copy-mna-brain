@@ -74,6 +74,22 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b838fd6f79b5bfdc808f0bf9bf7fa6c5cd086d40",
+    "date": "2026-10-29",
+    "subject": "Make the primary bot hand work to other bots first",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "afff80c8c90dee5adee7c104da37f4453e5fa2a3",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
