@@ -104,6 +104,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "9320634ed5a322a4ed02b01f3bd077d4ab2b04bc",
+    "date": "2026-10-29",
+    "subject": "Replace MinIO with SeaweedFS for local S3",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "af384080124187d44a5df631ede5d9fe24ee9d15",
+    "date": "2026-10-29",
+    "subject": "Financials now show five years, with projected years labeled as estimates",
+    "category": "improvement"
+  },
+  {
+    "hash": "33d26c108efd5f729597bebf960d3cc15bc5206a",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
