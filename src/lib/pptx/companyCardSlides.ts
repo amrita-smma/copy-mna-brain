@@ -27,6 +27,11 @@ import { companyDisplayTitle } from '@/lib/companyDisplay';
 import { CURRENCY_SYMBOL, type Currency } from '@/lib/currency';
 import { isDealLive } from '@/lib/dealStatus';
 import { formatDealType } from '@/lib/companies/dealTypes';
+import {
+  fiscalYearLabel,
+  selectIndicativeFinancialYears,
+  type IndicativeFinancialYear,
+} from '@/lib/companies/indicativeFinancials';
 import { dealLeadLabel } from '@/lib/tracks/matchTracks';
 import {
   SLIDE_W_PX,
@@ -678,24 +683,23 @@ function moneyFormatter(currency: Currency) {
   };
 }
 
-function buildFinancials(company: CompanyCardCompany): {
-  year: number;
-  revenue: number | null;
-  ebitda: number | null;
-}[] {
+function buildFinancials(company: CompanyCardCompany): IndicativeFinancialYear[] {
   if (company.financials_raw && company.financials_raw.length > 0) {
-    return [...company.financials_raw]
-      .sort((a, b) => a.fiscal_year - b.fiscal_year)
-      .slice(-3)
-      .map((r) => ({ year: r.fiscal_year, revenue: r.revenue_usd_mn, ebitda: r.ebitda_usd_mn }));
+    return selectIndicativeFinancialYears(
+      company.financials_raw.map((r) => ({
+        year: r.fiscal_year,
+        revenue: r.revenue_usd_mn,
+        ebitda: r.ebitda_usd_mn,
+      })),
+    );
   }
-  return [2022, 2023, 2024]
-    .map((y) => ({
+  return selectIndicativeFinancialYears(
+    [2022, 2023, 2024].map((y) => ({
       year: y,
       revenue: company[`revenue_${y}_usd_mn` as keyof CompanyCardCompany] as number | null,
       ebitda: company[`ebitda_${y}_usd_mn` as keyof CompanyCardCompany] as number | null,
-    }))
-    .filter((r) => r.revenue != null || r.ebitda != null);
+    })),
+  );
 }
 
 // ── Fixed (never-paginated) column-1 blocks ────────────────────────────────
@@ -737,7 +741,7 @@ function financialsPiece(
         const head: PptxTableCell[] = [
           { text: `${currency} m`, bold: true, fill: TABLE_HEAD_BG, color: NAVY, fontSize: toPt(8.5), align: 'left' },
           ...rows.map((r) => ({
-            text: String(r.year),
+            text: fiscalYearLabel(r.year),
             bold: true,
             fill: TABLE_HEAD_BG,
             color: NAVY,

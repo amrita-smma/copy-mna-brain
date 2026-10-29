@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatDealType } from "@/lib/companies/dealTypes";
+import {
+  fiscalYearLabel,
+  selectIndicativeFinancialYears,
+  type IndicativeFinancialYear,
+} from "@/lib/companies/indicativeFinancials";
 
 /**
  * Read-only "L0 → L1 Submission" overview slide. The narrative sections are
@@ -149,23 +154,18 @@ const fmtMargin = (
   return `${((ebitda / revenue) * 100).toFixed(1)}%`;
 };
 
-function buildFinancials(company: OverviewSlideCompany): {
-  year: number;
-  revenue: number | null;
-  ebitda: number | null;
-}[] {
+function buildFinancials(company: OverviewSlideCompany): IndicativeFinancialYear[] {
   if (company.financials_raw && company.financials_raw.length > 0) {
-    return [...company.financials_raw]
-      .sort((a, b) => a.fiscal_year - b.fiscal_year)
-      .slice(-3)
-      .map((r) => ({
+    return selectIndicativeFinancialYears(
+      company.financials_raw.map((r) => ({
         year: r.fiscal_year,
         revenue: r.revenue_usd_mn,
         ebitda: r.ebitda_usd_mn,
-      }));
+      })),
+    );
   }
-  return [2022, 2023, 2024]
-    .map((y) => ({
+  return selectIndicativeFinancialYears(
+    [2022, 2023, 2024].map((y) => ({
       year: y,
       revenue: company[`revenue_${y}_usd_mn` as keyof OverviewSlideCompany] as
         | number
@@ -173,8 +173,8 @@ function buildFinancials(company: OverviewSlideCompany): {
       ebitda: company[`ebitda_${y}_usd_mn` as keyof OverviewSlideCompany] as
         | number
         | null,
-    }))
-    .filter((r) => r.revenue != null || r.ebitda != null);
+    })),
+  );
 }
 
 function SectionHeading({
@@ -719,7 +719,7 @@ export default function CompanyOverviewSlide({
                         key={f.year}
                         className="border border-border bg-blue-50 px-2 py-1 text-right font-semibold text-blue-900"
                       >
-                        {f.year}
+                        {fiscalYearLabel(f.year)}
                       </th>
                     ))}
                   </tr>

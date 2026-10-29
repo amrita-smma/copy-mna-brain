@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildCompanyCardDeck,
   buildCompanyCardSlides,
@@ -259,6 +259,26 @@ describe('buildCompanyCardSlides', () => {
     expect(cells).toContain('Rp810.0M');
     // EBITDA margin = 170 / 810
     expect(cells).toContain('21.0%');
+  });
+
+  it('shows the last five years plus projections, labelled P for this year and E after', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-29T00:00:00Z'));
+    try {
+      const financials_raw = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027].map((y) => ({
+        fiscal_year: y,
+        revenue_usd_mn: 100,
+        ebitda_usd_mn: 20,
+      }));
+      const [slide] = buildCompanyCardSlides(input({ company: { ...company, financials_raw } }));
+      const table = slide.elements.find((e) => e.type === 'table');
+      const header = table!.type === 'table' ? table.rows[0].map((c) => c.text) : [];
+      expect(header).toEqual([
+        'USD m', '2021', '2022', '2023', '2024', '2025', '2026P', '2027E',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('falls back to placeholders when the AI card has not been generated', () => {
