@@ -60,6 +60,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "690b8ba0baf61454d5895e0a66ba235733cf4c25",
+    "date": "2026-10-29",
+    "subject": "Bond issuer companies are now created automatically from bond issuance Smart Files",
+    "category": "improvement"
+  },
+  {
+    "hash": "e3b74079df3a0ef973c308e34e27a4368add4a0b",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
