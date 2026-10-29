@@ -20,27 +20,43 @@ services:
       timeout: 5s
       retries: 10
 
-  # S3-compatible object storage for local dev / CI.
-  # Web console: http://localhost:9001 (admin/admin123)
-  # API endpoint: http://localhost:9000
-  minio:
-    image: minio/minio:latest
-    container_name: mna-minio
+  # S3-compatible object storage for local dev / CI (SeaweedFS, Apache-2.0).
+  # `weed mini` runs master + volume + filer + S3 gateway in one process and
+  # creates the buckets on startup. API: http://localhost:9000
+  # Admin UI: http://localhost:9001 (no login — local only)
+  # The keys stay `minioadmin` so existing host-dev `.env.local` files keep
+  # working; they are just the local admin identity.
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    container_name: mna-s3
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: >
+      mini -dir=/data
+      -s3.port=9000
+      -bucket=mna-files,mbox-archive,langfuse
+      -master.telemetry=false
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # web console
+      - "9000:9000"    # S3 API
+      - "9001:23646"   # admin UI
     volumes:
-      - minio-data:/data
+      - s3-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # Healthy only once the S3 port answers AND every bucket exists —
+      # Langfuse writes to `langfuse` as soon as it starts.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q --spider http://127.0.0.1:9000/healthz &&
+          b=$$(wget -qO- --header='Accept: application/json' http://127.0.0.1:8888/buckets/) &&
+          echo "$$b" | grep -q '"/buckets/mna-files"' &&
+          echo "$$b" | grep -q '"/buckets/mbox-archive"' &&
+          echo "$$b" | grep -q '"/buckets/langfuse"'
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   # Local SMTP catcher. UI: http://localhost:8025  SMTP: mailhog:1025
   # App sends via SMTP when SMTP_HOST is set (see `src/lib/ses.ts`).
@@ -51,23 +67,6 @@ services:
     ports:
       - "1025:1025"   # SMTP
       - "8025:8025"   # web UI
-
-  # One-shot init: create the mna-files bucket and set a public read policy
-  # so presigned URLs work the same way as AWS S3.
-  minio-init:
-    image: minio/mc:latest
-    container_name: mna-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb --ignore-existing local/mna-files;
-      mc mb --ignore-existing local/mbox-archive;
-      mc mb --ignore-existing local/langfuse;
-      echo 'buckets mna-files, mbox-archive, and langfuse ready';
-      "
 
   # The app's Redis: the Copilot bots' live state (who is thinking, Stop
   # signals, pushes to the browser). Same shape as production (terraform/redis):
@@ -98,7 +97,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
         required: false
       mailhog:
@@ -122,9 +121,9 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_S3_BUCKET: mna-files
-      AWS_S3_ENDPOINT: http://minio:9000
+      AWS_S3_ENDPOINT: http://s3:9000
       # Presigned URLs must be reachable from the browser, which can't resolve
-      # `minio` — expose the host-mapped port instead.
+      # `s3` — expose the host-mapped port instead.
       AWS_S3_PUBLIC_ENDPOINT: http://localhost:9000
       AWS_S3_FORCE_PATH_STYLE: "true"
       # Route transactional email to MailHog instead of AWS SES.
@@ -212,7 +211,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
       langfuse-redis:
         condition: service_healthy
@@ -233,13 +232,13 @@ services:
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://s3:9000
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://s3:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       REDIS_HOST: langfuse-redis
       REDIS_PORT: 6379
@@ -262,7 +261,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
       langfuse-redis:
         condition: service_healthy
@@ -275,7 +274,7 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
+  s3-data:
   neo4j-data:
   app-node-modules:
   data-pipeline-node-modules:

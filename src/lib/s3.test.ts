@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-const { sendMock, ctorConfigs } = vi.hoisted(() => ({
+const { sendMock, ctorConfigs, presignMock } = vi.hoisted(() => ({
   sendMock: vi.fn().mockResolvedValue({}),
   ctorConfigs: [] as unknown[],
+  presignMock: vi.fn().mockResolvedValue('https://signed.example/url'),
 }));
 
 vi.mock('@aws-sdk/client-s3', () => {
@@ -23,7 +24,9 @@ vi.mock('@aws-sdk/client-s3', () => {
   };
 });
 
-import { buildContentDisposition, uploadFile } from './s3';
+vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: presignMock }));
+
+import { buildContentDisposition, getSignedUrl, getUploadSignedUrl, uploadFile } from './s3';
 
 const ENV_KEYS = [
   'AWS_REGION',
@@ -43,6 +46,7 @@ beforeEach(() => {
   savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   for (const k of ENV_KEYS) delete process.env[k];
   sendMock.mockClear();
+  presignMock.mockClear();
   ctorConfigs.length = 0;
 });
 
@@ -101,7 +105,7 @@ describe('uploadFile (env read timing)', () => {
   it('picks up AWS_S3_ENDPOINT/credentials/bucket set after this module was imported', async () => {
     // Simulates scripts/seed.ts, where dotenv's config() runs after s3.ts was
     // already evaluated: env captured at import time would silently point the
-    // client at real AWS instead of local MinIO.
+    // client at real AWS instead of the local S3 server.
     Object.assign(process.env, {
       AWS_ACCESS_KEY_ID: 'minioadmin',
       AWS_SECRET_ACCESS_KEY: 'minioadmin',
@@ -130,5 +134,40 @@ describe('uploadFile (env read timing)', () => {
     await expect(uploadFile(Buffer.from('hello'), 'some/key.txt', 'text/plain')).rejects.toThrow(
       'AWS credentials not configured',
     );
+  });
+});
+
+describe('presigned URL client', () => {
+  beforeEach(() => {
+    Object.assign(process.env, {
+      AWS_ACCESS_KEY_ID: 'minioadmin',
+      AWS_SECRET_ACCESS_KEY: 'minioadmin',
+      AWS_S3_ENDPOINT: 'http://s3:9000',
+      AWS_S3_PUBLIC_ENDPOINT: 'http://localhost:9000',
+    });
+  });
+
+  it('signs upload URLs without a flexible checksum so a real body does not fail an empty-body CRC', async () => {
+    await getUploadSignedUrl('some/key.pdf', 'application/pdf');
+
+    expect(ctorConfigs).toEqual([
+      expect.objectContaining({ endpoint: 'http://localhost:9000', requestChecksumCalculation: 'WHEN_REQUIRED' }),
+    ]);
+  });
+
+  it('signs download URLs with the same presigner settings', async () => {
+    await getSignedUrl('some/key.pdf');
+
+    expect(ctorConfigs).toEqual([
+      expect.objectContaining({ endpoint: 'http://localhost:9000', requestChecksumCalculation: 'WHEN_REQUIRED' }),
+    ]);
+  });
+
+  it('leaves checksum defaults alone on the server-side client', async () => {
+    await uploadFile(Buffer.from('hello'), 'some/key.txt', 'text/plain');
+
+    expect(ctorConfigs).toHaveLength(1);
+    expect(ctorConfigs[0]).not.toHaveProperty('requestChecksumCalculation');
+    expect(ctorConfigs[0]).toEqual(expect.objectContaining({ endpoint: 'http://s3:9000' }));
   });
 });

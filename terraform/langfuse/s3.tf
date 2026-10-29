@@ -1,9 +1,8 @@
 # Blob storage for Langfuse ingestion events and media.
 #
-# The local docker-compose stack uses MinIO for this, and so did this module
-# until MinIO stopped publishing pullable images to Docker Hub (`minio/minio`
-# now 401s for anonymous pulls, which would wedge the instance's first boot).
-# S3 is the better answer on EC2 anyway: the instance profile authenticates it,
+# The local docker-compose stack uses SeaweedFS for this (it replaced MinIO,
+# whose `minio/minio` image now 401s for anonymous pulls). S3 is the better
+# answer on EC2: the instance profile authenticates it,
 # so there is no static key pair to store or rotate, and the bucket is durable
 # independently of the box.
 

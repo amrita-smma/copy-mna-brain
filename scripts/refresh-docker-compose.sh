@@ -160,19 +160,19 @@ else
     fi
 fi
 
-# Remind when MinIO was not part of the target set (lite refresh).
-needs_minio_hint=false
+# Remind when S3 was not part of the target set (lite refresh).
+needs_s3_hint=false
 if [ ${#ONLY[@]} -gt 0 ] || [ ${#EXCLUDES[@]} -gt 0 ]; then
-    needs_minio_hint=true
+    needs_s3_hint=true
     for svc in "${TARGET_SERVICES[@]}"; do
-        if [ "$svc" = "minio" ] || [ "$svc" = "minio-init" ]; then
-            needs_minio_hint=false
+        if [ "$svc" = "s3" ]; then
+            needs_s3_hint=false
             break
         fi
     done
 fi
-if [ "$needs_minio_hint" = true ]; then
-    echo "MinIO not in target set — S3 uploads need: pnpm docker:run-minio"
+if [ "$needs_s3_hint" = true ]; then
+    echo "S3 not in target set — S3 uploads need: pnpm docker:run-s3"
 fi
 
 echo "Refresh complete!"

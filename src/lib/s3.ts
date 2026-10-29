@@ -18,16 +18,16 @@ function getS3Env() {
     sessionToken: process.env.AWS_SESSION_TOKEN,
     bucket: process.env.AWS_S3_BUCKET || 'mna-files',
     // Optional custom endpoint for server→S3 operations (upload/download/delete).
-    // Set to `http://localhost:9000` (host dev) or `http://minio:9000` (docker
+    // Set to `http://localhost:9000` (host dev) or `http://s3:9000` (docker
     // network). Omit to use real AWS S3.
     endpoint,
     // Optional separate endpoint used ONLY when generating presigned URLs. These
     // URLs end up in the browser, so they must be reachable from there. In docker
-    // dev the server can reach `http://minio:9000` but the browser cannot — it
+    // dev the server can reach `http://s3:9000` but the browser cannot — it
     // needs `http://localhost:9000`. Fall back to AWS_S3_ENDPOINT if unset (same
     // address works for both in host dev and real AWS).
     publicEndpoint: process.env.AWS_S3_PUBLIC_ENDPOINT ?? endpoint,
-    // MinIO (and most S3-alike servers) require path-style addressing —
+    // SeaweedFS (and most S3-alike servers) require path-style addressing —
     // `http://host/bucket/key` instead of `http://bucket.host/key`.
     forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
   };
@@ -70,9 +70,15 @@ function createS3Client(kind: ClientKind = 'internal'): S3Client {
         }
       : {}),
     ...(endpoint && { endpoint }),
-    // If an explicit endpoint is set (MinIO/LocalStack), default to path-style
+    // If an explicit endpoint is set (SeaweedFS/LocalStack), default to path-style
     // unless explicitly overridden.
     forcePathStyle: endpoint ? env.forcePathStyle || true : env.forcePathStyle,
+    // A presigned PUT is signed before the browser has the body, so the SDK's
+    // default flexible checksum bakes the CRC32 of an *empty* body into the URL
+    // (`x-amz-checksum-crc32=AAAAAA==`). Servers that enforce it (SeaweedFS)
+    // reject every real upload with BadDigest; only add a checksum when the
+    // operation requires one.
+    ...(kind === 'presigner' ? { requestChecksumCalculation: 'WHEN_REQUIRED' as const } : {}),
   });
 }
 

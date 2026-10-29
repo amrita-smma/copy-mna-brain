@@ -4,7 +4,7 @@ set -euo pipefail
 # Start or stop an optional docker-compose stack used after docker-refresh:lite.
 #
 # Usage:
-#   bash scripts/docker-run.sh <mailhog|minio|langfuse|redis> [down]
+#   bash scripts/docker-run.sh <mailhog|s3|langfuse|redis> [down]
 #   pnpm docker:run-mailhog
 #   pnpm docker:run-mailhog -- down
 
@@ -15,7 +15,7 @@ STACK="${1:-}"
 ACTION="${2:-up}"
 
 if [ -z "$STACK" ]; then
-  echo "Usage: $0 <mailhog|minio|langfuse|redis> [down]"
+  echo "Usage: $0 <mailhog|s3|langfuse|redis> [down]"
   exit 1
 fi
 
@@ -25,15 +25,16 @@ if [ "$ACTION" != "up" ] && [ "$ACTION" != "down" ]; then
 fi
 
 # Services started for `up` may include shared deps; `down` only stops the
-# stack's own containers so e.g. `langfuse down` does not tear down MinIO.
+# stack's own containers so e.g. `langfuse down` does not tear down S3.
 case "$STACK" in
   mailhog)
     UP_SERVICES=(mailhog)
     DOWN_SERVICES=(mailhog)
     ;;
-  minio)
-    UP_SERVICES=(minio minio-init)
-    DOWN_SERVICES=(minio minio-init)
+  s3)
+    # S3-compatible storage (SeaweedFS); creates its buckets on startup.
+    UP_SERVICES=(s3)
+    DOWN_SERVICES=(s3)
     ;;
   redis)
     # The app's own Redis (bot presence, Stop signals, live updates).
@@ -42,12 +43,12 @@ case "$STACK" in
     DOWN_SERVICES=(redis)
     ;;
   langfuse)
-    # MinIO buckets (incl. `langfuse`) must exist before Langfuse workers start.
-    UP_SERVICES=(minio minio-init langfuse-redis langfuse-clickhouse langfuse-worker langfuse-web)
+    # The `langfuse` S3 bucket must exist before Langfuse workers start.
+    UP_SERVICES=(s3 langfuse-redis langfuse-clickhouse langfuse-worker langfuse-web)
     DOWN_SERVICES=(langfuse-redis langfuse-clickhouse langfuse-worker langfuse-web)
     ;;
   *)
-    echo "Unknown stack: $STACK (expected mailhog|minio|langfuse|redis)"
+    echo "Unknown stack: $STACK (expected mailhog|s3|langfuse|redis)"
     exit 1
     ;;
 esac

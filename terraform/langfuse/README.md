@@ -39,10 +39,10 @@ Deliberate choices:
   it is not worth the extra moving parts — and keeping the stack close to the
   local `docker-compose.yml` means a trace looks the same in dev and in
   production.
-- **Blob storage is S3, not MinIO.** The local stack uses MinIO for this and so
-  did this module, until MinIO stopped publishing anonymously pullable images to
-  Docker Hub — `minio/minio` now returns 401, which would wedge the instance's
-  first boot. S3 is the better fit on EC2 regardless: the compose file sets no
+- **Blob storage is S3, not a self-hosted S3 server.** The local stack uses
+  SeaweedFS for this (it replaced MinIO, which stopped publishing anonymously
+  pullable images to Docker Hub — `minio/minio` now returns 401). S3 is the
+  better fit on EC2 regardless: the compose file sets no
   `LANGFUSE_S3_*_ACCESS_KEY_ID` at all, so Langfuse leaves credentials undefined
   and the AWS SDK resolves the instance profile. There is no static key pair in
   the system to leak or rotate. (Setting those vars to *empty strings* would
