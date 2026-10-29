@@ -3259,8 +3259,8 @@ export const aiWorkforceQueue = pgTable(
       .notNull(),
     retried_from_id: uuid(),
     pending_intervention: jsonb().$type<PendingIntervention>(),
-    // When the run's owner first opened it after it failed; NULL on a failed
-    // run = an unseen failure (the red count on the Workforce nav item).
+    // No longer read or written: the nav's red chip counts failures from the
+    // last 24 hours instead. Kept until it is dropped (see TECH_DEBT.md).
     failure_seen_at: timestamp({ withTimezone: true, mode: "string" }),
     workspace_id: uuid()
       .notNull()
@@ -3308,13 +3308,15 @@ export const aiWorkforceQueue = pgTable(
       idxAiWorkforceQueueParent: index(
         "idx_ai_workforce_queue_parent",
       ).using("btree", table.parent_run_id.asc().nullsLast().op("uuid_ops")),
-      idxAiWorkforceQueueUnseenFailures: index(
-        "idx_ai_workforce_queue_unseen_failures",
-      )
-        .on(table.workspace_id, table.triggered_by_user_id)
-        .where(
-          sql`status IN ('failed', 'timed_out') AND failure_seen_at IS NULL`,
-        ),
+      // The rail's History pages and the nav's 24h failure count both read
+      // a workspace's runs by finish time.
+      idxAiWorkforceQueueWorkspaceFinished: index(
+        "idx_ai_workforce_queue_workspace_finished",
+      ).on(
+        table.workspace_id,
+        sql`(COALESCE(ended_at, created_at)) DESC`,
+        table.id.desc(),
+      ),
       idxAiWorkforceQueueOriginRoutine: index(
         "idx_ai_workforce_queue_origin_routine",
       ).using(

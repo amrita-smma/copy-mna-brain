@@ -233,8 +233,11 @@ const json = (route: Route, body: unknown, status = 200) =>
     body: JSON.stringify(body),
   });
 
+const FINISHED: string[] = ['succeeded', 'failed', 'rejected', 'timed_out'];
+
 const QUEUE_RE = {
   list: /\/api\/workforce-queue$/,
+  history: /\/api\/workforce-queue\/history$/,
   reorder: /\/api\/workforce-queue\/reorder$/,
   trace: /\/api\/workforce-queue\/([^/]+)\/trace$/,
   cancel: /\/api\/workforce-queue\/([^/]+)\/cancel$/,
@@ -269,8 +272,18 @@ const mockWorkforce = async (page: Page, fixtures: WorkforceFixtures) => {
     const method = req.method();
     const path = new URL(req.url()).pathname;
 
+    // The live list carries unfinished runs; finished ones page in from
+    // /history (one page here — the fixtures are small), filtered by `q`.
     if (method === 'GET' && QUEUE_RE.list.test(path)) {
-      return json(route, { items });
+      return json(route, { items: items.filter((i) => !FINISHED.includes(i.status)) });
+    }
+    if (method === 'GET' && QUEUE_RE.history.test(path)) {
+      const q = (new URL(req.url()).searchParams.get('q') ?? '').toLowerCase();
+      const finished = items
+        .filter((i) => FINISHED.includes(i.status))
+        .filter((i) => !q || String(i.input?.title ?? '').toLowerCase().includes(q))
+        .sort((a, b) => (b.ended_at ?? b.created_at).localeCompare(a.ended_at ?? a.created_at));
+      return json(route, { data: { items: finished, next_cursor: null } });
     }
     if (method === 'POST' && QUEUE_RE.reorder.test(path)) {
       return json(route, { data: { success: true } });

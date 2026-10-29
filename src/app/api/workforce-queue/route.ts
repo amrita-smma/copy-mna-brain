@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { CompanyRepository, UserRepository } from '@/lib/repositories';
+import { CompanyRepository } from '@/lib/repositories';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
@@ -41,42 +41,11 @@ export async function GET(req: NextRequest) {
       }
       return NextResponse.json({ item });
     }
-    const items = await aiWorkforceService.listQueue();
-    // Attach the submitter's display name so the queue UI can show "who
-    // kicked this off" rather than the agent_name. Cron/webhook rows and any
-    // row whose user has since been deleted come back with null — the client
-    // falls back to a per-trigger-source label.
-    const userIds = Array.from(
-      new Set(
-        items
-          .map((it) => it.triggered_by_user_id)
-          .filter((id): id is string => typeof id === 'string'),
-      ),
-    );
-    const userMap = new Map<string, string>();
-    if (userIds.length > 0) {
-      const userRepo = new UserRepository(db);
-      const users = await userRepo.findByIds(userIds);
-      for (const u of users) userMap.set(u.id, u.name);
-    }
-    // Global (cross-workspace) queue position — the shared single-worker
-    // queue (RFC: "1 Worker model for all applications") means this
-    // workspace's own pending items can each be blocked by other
-    // workspaces' higher-priority or earlier rows, invisibly to a
-    // workspace-local count.
-    const queuedIds = items
-      .filter((it) => it.status === 'pending' || it.status === 'resume_ready')
-      .map((it) => it.id);
-    const positions = await aiWorkforceService.getGlobalQueuePositions(queuedIds);
-    const enriched = items.map((it) => ({
-      ...it,
-      triggered_by_user_name: it.triggered_by_user_id
-        ? userMap.get(it.triggered_by_user_id) ?? null
-        : null,
-      ahead_globally: positions.get(it.id)?.aheadGlobally ?? null,
-      ahead_other_workspaces: positions.get(it.id)?.aheadOtherWorkspaces ?? null,
-    }));
-    return NextResponse.json({ items: enriched });
+    // The rail's live sections only. Finished runs page in separately from
+    // GET /api/workforce-queue/history, so a long history can't crowd
+    // unfinished runs out of a fixed-size list.
+    const items = await aiWorkforceService.listActiveQueue();
+    return NextResponse.json({ items });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : 'Failed to list workforce queue';

@@ -3,14 +3,14 @@ import { formatBadgeCount, sourcingNavBadges, workforceNavBadges } from './navBa
 
 describe('workforceNavBadges', () => {
   it('shows nothing for an idle workforce', () => {
-    expect(workforceNavBadges({ unseen_failures: 0, queue: 0, running: 0 })).toEqual({
+    expect(workforceNavBadges({ recent_failures: 0, queue: 0, running: 0 })).toEqual({
       badges: [],
       live: false,
     });
   });
 
   it('puts a red cross chip before the yellow queue chip and blinks while the queue has work', () => {
-    const result = workforceNavBadges({ unseen_failures: 2, queue: 3, running: 1 });
+    const result = workforceNavBadges({ recent_failures: 2, queue: 3, running: 1 });
     expect(result.live).toBe(true);
     expect(result.badges.map((b) => [b.tone, b.icon, b.count, b.label])).toEqual([
       ['red', 'cross', 2, '2 failed'],
@@ -23,14 +23,14 @@ describe('workforceNavBadges', () => {
   });
 
   it('shows only the failures chip, not blinking, when nothing is queued', () => {
-    const result = workforceNavBadges({ unseen_failures: 1, queue: 0, running: 0 });
+    const result = workforceNavBadges({ recent_failures: 1, queue: 0, running: 0 });
     expect(result.live).toBe(false);
     expect(result.badges).toHaveLength(1);
     expect(result.badges[0]).toMatchObject({ tone: 'red', icon: 'cross', count: 1 });
   });
 
   it('counts a running run in the queue chip', () => {
-    const result = workforceNavBadges({ unseen_failures: 0, queue: 1, running: 1 });
+    const result = workforceNavBadges({ recent_failures: 0, queue: 1, running: 1 });
     expect(result.badges).toEqual([
       expect.objectContaining({ tone: 'amber', icon: 'live', count: 1, label: '1 in queue' }),
     ]);

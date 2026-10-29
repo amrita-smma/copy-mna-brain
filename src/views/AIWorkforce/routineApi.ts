@@ -34,6 +34,8 @@ export interface ApiRoutine {
   insight_name?: string | null;
   /** The refreshed insight's current binding (list endpoint only). */
   insight_agent_key?: string | null;
+  /** Every run the routine has spawned (list endpoint only). */
+  run_count?: number;
   /**
    * Why the system paused the routine (MB-560); null for a running routine and
    * for a manual pause.

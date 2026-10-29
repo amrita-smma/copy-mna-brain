@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 248 | `src/app/api/**/route.ts` |
+| API routes | 249 | `src/app/api/**/route.ts` |
 | Services | 102 | `src/lib/services/` |
 | Repositories | 89 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 13 | `src/lib/flags.ts` |
 | Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 196 | `drizzle/migrations/` |
+| Migrations (app) | 197 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -304,7 +304,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/recent-files` | GET, POST | `recentFileService` |
 | `/api/recent-files/signed-url` | GET | `recentFileService` |
 | `/api/roles` | GET | `workspaceService` |
-| `/api/routines` | GET, POST | `routineService` |
+| `/api/routines` | GET, POST | `aiWorkforceService`, `routineService` |
 | `/api/routines/[id]` | GET, PATCH, DELETE | `routineService` |
 | `/api/routines/[id]/runs` | GET, POST | `routineService` |
 | `/api/screenings` | GET, POST | `screeningService` |
@@ -343,6 +343,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/workforce-queue/[id]/notifications/[notificationId]/dismiss` | POST | `aiWorkforceService`, `notificationService` |
 | `/api/workforce-queue/[id]/retry` | POST | — |
 | `/api/workforce-queue/[id]/trace` | GET | `aiWorkforceService`, `notificationService` |
+| `/api/workforce-queue/history` | GET | `aiWorkforceService` |
 | `/api/workforce-queue/reorder` | POST | — |
 | `/api/workforce-queue/summary` | GET | `aiWorkforceService` |
 | `/api/workspaces` | GET, POST | `workspaceService` |
@@ -361,7 +362,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 |---|---|---|
 | `aiOpinionService.ts` | `AiOpinionService` | ✅ |
 | `aiScreeningService.ts` | `NotPendingConfirmationError`, `AIScreeningService` | ✅ |
-| `aiWorkforceService.ts` | `TaskNotFoundError`, `TaskOwnershipError`, `TaskBusyError`, `AiWorkforceService` | ✅ |
+| `aiWorkforceService.ts` | `InvalidHistoryCursorError`, `TaskNotFoundError`, `TaskOwnershipError`, `TaskBusyError`, `AiWorkforceService` | ✅ |
 | `alphasenseToolCallService.ts` | `AlphasenseToolCallService` | ✅ |
 | `apiChatConversationService.ts` | `ApiChatConversationNotFoundError`, `ApiChatConversationService` | ✅ |
 | `apiKeyService.ts` | `InvalidApiKeyError`, `InsufficientScopeError`, `ApiKeyNotFoundError`, `ApiKeyService` | ✅ |

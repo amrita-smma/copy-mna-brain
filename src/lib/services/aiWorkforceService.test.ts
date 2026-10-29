@@ -16,6 +16,7 @@ vi.mock('@/lib/posthog-server', () => ({
 
 import {
   AiWorkforceService,
+  InvalidHistoryCursorError,
   TaskBusyError,
   TaskNotFoundError,
   TaskOwnershipError,
@@ -474,10 +475,10 @@ describe('AiWorkforceService.listFailedRefreshRuns', () => {
 
 describe('AiWorkforceService.getNavSummary', () => {
   it('folds running runs into the queue count and keeps running for the dot', async () => {
-    const countNavSummary = vi.fn().mockResolvedValue({ unseenFailures: 1, queued: 2, running: 1 });
+    const countNavSummary = vi.fn().mockResolvedValue({ recentFailures: 1, queued: 2, running: 1 });
     const service = makeServiceWith({ countNavSummary });
     await expect(service.getNavSummary()).resolves.toEqual({
-      unseen_failures: 1,
+      recent_failures: 1,
       queue: 3,
       running: 1,
     });
@@ -485,35 +486,148 @@ describe('AiWorkforceService.getNavSummary', () => {
   });
 });
 
-describe('AiWorkforceService.markFailureSeen', () => {
-  const run = (extra: Record<string, unknown>) =>
-    ({ id: 'r1', status: 'failed', failure_seen_at: null, ...extra }) as never;
+function makeListService(
+  queueRepo: Record<string, ReturnType<typeof vi.fn>>,
+  users: Array<{ id: string; name: string }> = [],
+) {
+  const findByIds = vi.fn().mockResolvedValue(users);
+  const service = new AiWorkforceService(
+    queueRepo as never,
+    {} as never,
+    {} as never,
+    { findByIds } as never,
+  );
+  return { service, findByIds };
+}
 
-  it('marks an unseen failure seen and tells the workforce live topic', async () => {
-    liveMocks.publishLiveEvent.mockClear();
-    const markFailureSeen = vi.fn().mockResolvedValue(true);
-    const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({ workspace_id: 'ws-1' }))).resolves.toBe(true);
-    expect(markFailureSeen).toHaveBeenCalledWith('r1');
-    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-1', 'workforce', ['r1']);
+const row = (extra: Record<string, unknown>) =>
+  ({
+    id: 'r1',
+    status: 'succeeded',
+    triggered_by_user_id: null,
+    created_at: '2026-10-28 08:00:00.5+00',
+    ended_at: null,
+    ...extra,
+  }) as never;
+
+describe('AiWorkforceService.listActiveQueue', () => {
+  it('attaches submitter names and global positions for queued rows, in batched lookups', async () => {
+    const listActive = vi.fn().mockResolvedValue([
+      row({ id: 'p1', status: 'pending', triggered_by_user_id: 'u1' }),
+      row({ id: 'run1', status: 'running', triggered_by_user_id: 'u1' }),
+      row({ id: 'rr1', status: 'resume_ready', triggered_by_user_id: 'gone' }),
+    ]);
+    const getGlobalQueuePositions = vi.fn().mockResolvedValue(
+      new Map([['p1', { aheadGlobally: 3, aheadOtherWorkspaces: 2 }]]),
+    );
+    const { service, findByIds } = makeListService(
+      { listActive, getGlobalQueuePositions },
+      [{ id: 'u1', name: 'Ana' }],
+    );
+
+    const items = await service.listActiveQueue();
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    expect(findByIds).toHaveBeenCalledWith(['u1', 'gone']);
+    expect(getGlobalQueuePositions).toHaveBeenCalledWith(['p1', 'rr1']);
+    expect(items.map((i) => [i.id, i.triggered_by_user_name, i.ahead_globally])).toEqual([
+      ['p1', 'Ana', 3],
+      ['run1', 'Ana', null],
+      ['rr1', null, null],
+    ]);
+    expect(items[0].ahead_other_workspaces).toBe(2);
   });
 
-  it('does not publish when the row was already seen by the time of the write', async () => {
-    liveMocks.publishLiveEvent.mockClear();
-    const markFailureSeen = vi.fn().mockResolvedValue(false);
-    const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({ workspace_id: 'ws-1' }))).resolves.toBe(false);
-    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
+  it('skips the user lookup when no row has a submitter', async () => {
+    const listActive = vi.fn().mockResolvedValue([row({ status: 'running' })]);
+    const getGlobalQueuePositions = vi.fn().mockResolvedValue(new Map());
+    const { service, findByIds } = makeListService({ listActive, getGlobalQueuePositions });
+
+    await service.listActiveQueue();
+
+    expect(findByIds).not.toHaveBeenCalled();
+  });
+});
+
+describe('AiWorkforceService.listHistory', () => {
+  it('returns the page with a cursor to the next one when more rows exist', async () => {
+    const rows = [
+      row({ id: '00000000-0000-0000-0000-000000000003', ended_at: '2026-10-28 10:00:00.123456+00' }),
+      row({ id: '00000000-0000-0000-0000-000000000002', ended_at: '2026-10-28 09:00:00.654321+00' }),
+      row({ id: '00000000-0000-0000-0000-000000000001' }),
+    ];
+    const listHistory = vi.fn().mockResolvedValue(rows);
+    const { service } = makeListService({ listHistory });
+
+    const page = await service.listHistory({ limit: 2 });
+
+    // One extra row is asked for to learn whether another page exists.
+    expect(listHistory).toHaveBeenCalledWith({ before: undefined, search: undefined, limit: 3 });
+    expect(page.items.map((i) => i.id)).toEqual([
+      '00000000-0000-0000-0000-000000000003',
+      '00000000-0000-0000-0000-000000000002',
+    ]);
+    expect(page.next_cursor).not.toBeNull();
+
+    // The cursor round-trips to the last row's exact finish time and id.
+    listHistory.mockResolvedValueOnce([]);
+    await service.listHistory({ cursor: page.next_cursor, search: 'deck', limit: 2 });
+    expect(listHistory).toHaveBeenLastCalledWith({
+      before: {
+        finishedAt: '2026-10-28 09:00:00.654321+00',
+        id: '00000000-0000-0000-0000-000000000002',
+      },
+      search: 'deck',
+      limit: 3,
+    });
   });
 
-  it('skips the write for a run that did not fail or was already seen', async () => {
-    const markFailureSeen = vi.fn();
-    const service = makeServiceWith({ markFailureSeen });
-    await expect(service.markFailureSeen(run({ status: 'succeeded' }))).resolves.toBe(false);
-    await expect(
-      service.markFailureSeen(run({ failure_seen_at: '2026-10-19T00:00:00Z' })),
-    ).resolves.toBe(false);
-    expect(markFailureSeen).not.toHaveBeenCalled();
+  it('returns a null cursor on the last page', async () => {
+    const listHistory = vi.fn().mockResolvedValue([row({})]);
+    const { service } = makeListService({ listHistory });
+
+    const page = await service.listHistory();
+
+    expect(listHistory).toHaveBeenCalledWith({ before: undefined, search: undefined, limit: 31 });
+    expect(page.next_cursor).toBeNull();
+    expect(page.items[0]).toMatchObject({
+      triggered_by_user_name: null,
+      ahead_globally: null,
+      ahead_other_workspaces: null,
+    });
+  });
+
+  it('clamps the page size', async () => {
+    const listHistory = vi.fn().mockResolvedValue([]);
+    const { service } = makeListService({ listHistory });
+
+    await service.listHistory({ limit: 5000 });
+    expect(listHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 101 }));
+    await service.listHistory({ limit: 0 });
+    expect(listHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 2 }));
+  });
+
+  it.each([
+    ['not base64 json', 'nope'],
+    ['a non-uuid id', Buffer.from(JSON.stringify({ finishedAt: '2026-10-28 09:00:00+00', id: "1' or 1=1" })).toString('base64url')],
+    ['a non-timestamp', Buffer.from(JSON.stringify({ finishedAt: 'yesterday', id: '00000000-0000-0000-0000-000000000001' })).toString('base64url')],
+  ])('rejects a cursor that is %s', async (_label, cursor) => {
+    const listHistory = vi.fn();
+    const { service } = makeListService({ listHistory });
+
+    await expect(service.listHistory({ cursor })).rejects.toBeInstanceOf(InvalidHistoryCursorError);
+    expect(listHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('AiWorkforceService.countRunsByRoutineIds', () => {
+  it('delegates to the repository', async () => {
+    const counts = new Map([['rt-1', 2]]);
+    const countByOriginRoutineIds = vi.fn().mockResolvedValue(counts);
+    const service = makeServiceWith({ countByOriginRoutineIds });
+
+    await expect(service.countRunsByRoutineIds(['rt-1'])).resolves.toBe(counts);
+    expect(countByOriginRoutineIds).toHaveBeenCalledWith(['rt-1']);
   });
 });
 

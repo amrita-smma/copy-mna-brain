@@ -10,7 +10,6 @@ import { avatarToneClass, describeLiveness, useVisibleInterval } from './shared'
 import { NotificationStack } from '@/components/notifications/NotificationStack';
 import type { TaskNotification } from '@/lib/notifications/types';
 import { useTaskNotifications } from './useTaskNotifications';
-import { useRefreshWorkforceNavSummary } from '@/hooks/useWorkforceNavSummary';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
 import type { InsightRunVersionLink } from '@/lib/insights/types';
 
@@ -85,8 +84,6 @@ const TRACE_POLL_MS = 5000;
 
 interface ApiQueueItem {
   id: string;
-  /** Set once the owner has opened the run after it failed. */
-  failure_seen_at?: string | null;
   agent_name: string;
   trigger_source: 'chat' | 'cron' | 'webhook' | 'api';
   status: WorkforceQueueStatus;
@@ -206,7 +203,6 @@ export function TaskCanvas({
   const traceLoadedRef = useRef(false);
   const { notifications, handleAction, handleDismiss, setSessionExpired } =
     useTaskNotifications({ taskId, serverNotifications });
-  const refreshWorkforceNav = useRefreshWorkforceNavSummary();
 
   useEffect(() => {
     if (!taskId) {
@@ -230,16 +226,6 @@ export function TaskCanvas({
         if (cancelled) return;
         setItem(data.item ?? null);
         setInsightVersion(data.insight_version ?? null);
-        // This load is what marked an unseen failure seen (server-side), so
-        // pull the nav's red count down now rather than on its next poll.
-        const loaded = data.item;
-        if (
-          loaded &&
-          (loaded.status === 'failed' || loaded.status === 'timed_out') &&
-          !loaded.failure_seen_at
-        ) {
-          refreshWorkforceNav();
-        }
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Failed to load task');
@@ -250,7 +236,7 @@ export function TaskCanvas({
     return () => {
       cancelled = true;
     };
-  }, [taskId, refreshWorkforceNav]);
+  }, [taskId]);
 
   // Fetch the task + trace on mount and poll while the task is non-terminal.
   // We refresh BOTH on each tick so the status pill, action buttons, and

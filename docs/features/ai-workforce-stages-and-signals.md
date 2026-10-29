@@ -59,16 +59,31 @@ Notifications toggle; a user's own cancellation stays behind it.
 aggregate query, workspace-wide) feeds the sidebar's AI Workforce item. The
 chips are derived in `src/components/layout/navBadges.ts`:
 
-- **red cross + count** — the workspace's unseen failures: `failed` /
-  `timed_out` runs, not cancellations, with `failure_seen_at` NULL;
+- **red cross + count** — the workspace's recent failures: `failed` /
+  `timed_out` runs, not cancellations, that finished
+  (`COALESCE(ended_at, created_at)`) in the last 24 hours. Every one of them is
+  in the rail's History, so the chip and the page always agree;
 - **yellow chip with a blinking dot + count** — the queue: pending +
   resume-ready + running. Hidden when the queue is empty.
 
 On the collapsed icon rail the item gets one corner dot instead (red if
 anything failed, otherwise yellow), blinking while the queue has work.
 
-The sidebar polls the summary every 5 seconds and on window focus. Opening a
-failed task (`GET /api/workforce-queue/[id]`) stamps `failure_seen_at` for
-anyone in the workspace, and `TaskCanvas` refetches the badge so the red count
-drops at once. The migration that added the column marked every earlier
-failure as seen, so the red chip only reports failures since then.
+The sidebar polls the summary every 5 seconds and on window focus; a failure
+drops off the red count once it is more than 24 hours old. Opening a task no
+longer changes the count (`failure_seen_at` is unused — see `TECH_DEBT.md`).
+
+## The rail: live sections and History
+
+`GET /api/workforce-queue` returns only the workspace's unfinished runs
+(`AiWorkforceService.listActiveQueue`) — Needs action, In progress and Queued.
+Finished runs are the **History** group, paged from
+`GET /api/workforce-queue/history?cursor=&q=&limit=` (`listHistory`): newest
+finished first, keyset-paged on `(COALESCE(ended_at, created_at), id)` with an
+opaque `next_cursor`, backed by `idx_ai_workforce_queue_workspace_finished`.
+History is not limited to today. `WorkforceTasks` loads the next page when a
+sentinel at the end of the list scrolls into view, and its search box queries
+the server (title, or instruction for untitled runs) rather than filtering what
+is loaded. Live events and the fallback poll re-read only History's first
+page and keep older pages already scrolled in beneath it. A routine's "N runs
+total" comes from `run_count` on `GET /api/routines`, one grouped count.

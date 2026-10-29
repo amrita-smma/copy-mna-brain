@@ -31,6 +31,10 @@ import { apiRoutineToUi } from './routineApi';
 import type { ApiRoutine } from './routineApi';
 
 const QUEUE_PAGE_SIZE = 5;
+/** Finished runs per History page — matches the server's default. */
+const HISTORY_PAGE_SIZE = 30;
+/** How long History search waits after the last keystroke before querying. */
+const HISTORY_SEARCH_DEBOUNCE_MS = 250;
 
 type WorkforceQueueStatus =
   | 'pending'
@@ -99,12 +103,6 @@ const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
 ];
 const NEEDS_ACTION_STATUSES: WorkforceQueueStatus[] = [
   'waiting_for_human_input',
-];
-const DONE_STATUSES: WorkforceQueueStatus[] = [
-  'succeeded',
-  'failed',
-  'rejected',
-  'timed_out',
 ];
 
 function toneForId(id: string): AvatarTone {
@@ -230,12 +228,31 @@ function toQueueTask(
   };
 }
 
-// Start of the user's local day. Used to filter "Done today" so historical
-// completions don't dilute the day's accomplishment count.
-function startOfTodayMs(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+interface HistoryPage {
+  items: ApiQueueItem[];
+  next_cursor: string | null;
+}
+
+async function fetchHistoryPage(
+  cursor: string | null,
+  search: string,
+): Promise<HistoryPage> {
+  const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+  if (cursor) params.set('cursor', cursor);
+  if (search) params.set('q', search);
+  const res = await fetch(`/api/workforce-queue/history?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to load history (HTTP ${res.status})`);
+  const body = (await res.json()) as { data?: HistoryPage };
+  return body.data ?? { items: [], next_cursor: null };
+}
+
+// Mirrors the server's History order: finish time (falling back to creation),
+// then id, both descending. True when `a` sorts after `b`.
+function finishedBefore(a: ApiQueueItem, b: ApiQueueItem): boolean {
+  const ta = Date.parse(a.ended_at ?? a.created_at);
+  const tb = Date.parse(b.ended_at ?? b.created_at);
+  if (ta !== tb) return ta < tb;
+  return a.id < b.id;
 }
 
 interface WorkforceTasksProps {
@@ -259,7 +276,30 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   const [editingRoutine, setEditingRoutine] = useState<ApiRoutine | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [doneTodaySearch, setDoneTodaySearch] = useState('');
+  // History — finished runs, paged in from the server as the rail scrolls.
+  const [history, setHistory] = useState<ApiQueueItem[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyQuery, setHistoryQuery] = useState('');
+  // Pages beyond the first that the user has scrolled in. A refresh only
+  // re-reads the first page, so these are kept below it rather than dropped.
+  const historyExtraPagesRef = useRef(0);
+  // Bumped per search: a response for an older query must not land.
+  const historyQueryRef = useRef('');
+  const historyLoadingMoreRef = useRef(false);
+  // The loaded History, readable from the fetch callbacks without making
+  // them depend on (and re-create with) every page.
+  const historyRef = useRef<ApiQueueItem[]>([]);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+  const railScrollRef = useRef<HTMLDivElement | null>(null);
+  // State, not a ref: the sentinel unmounts while History is collapsed, and
+  // the observer below must re-attach when it comes back.
+  const [historySentinel, setHistorySentinel] = useState<HTMLDivElement | null>(null);
 
   const fetchQueue = useCallback(async () => {
     setError(null);
@@ -288,19 +328,108 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     }
   }, []);
 
+  // Re-reads History's first page — where newly finished runs land — and
+  // keeps any older pages already scrolled in beneath it.
+  const fetchHistoryHead = useCallback(async () => {
+    const query = historyQueryRef.current;
+    try {
+      const head = await fetchHistoryPage(null, query);
+      if (historyQueryRef.current !== query) return;
+      setHistoryError(null);
+      // Keep the older pages only when the new first page still reaches
+      // into them. If more than a page of runs finished since, the rows in
+      // between were never loaded — splicing would leave a silent hole — so
+      // start over from the first page instead.
+      const last = head.items[head.items.length - 1];
+      const joins =
+        historyExtraPagesRef.current > 0 &&
+        last !== undefined &&
+        historyRef.current.some((i) => i.id === last.id);
+      if (!joins) {
+        historyExtraPagesRef.current = 0;
+        setHistory(head.items);
+        setHistoryCursor(head.next_cursor);
+        return;
+      }
+      const headIds = new Set(head.items.map((i) => i.id));
+      setHistory((prev) => [
+        ...head.items,
+        ...prev.filter((i) => !headIds.has(i.id) && finishedBefore(i, last)),
+      ]);
+    } catch (e) {
+      if (historyQueryRef.current !== query) return;
+      setHistoryError(e instanceof Error ? e.message : 'Failed to load history');
+    } finally {
+      if (historyQueryRef.current === query) setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (historyLoadingMoreRef.current || !historyCursor) return;
+    const query = historyQueryRef.current;
+    historyLoadingMoreRef.current = true;
+    setHistoryLoadingMore(true);
+    try {
+      const page = await fetchHistoryPage(historyCursor, query);
+      if (historyQueryRef.current !== query) return;
+      historyExtraPagesRef.current += 1;
+      setHistory((prev) => {
+        const seen = new Set(prev.map((i) => i.id));
+        return [...prev, ...page.items.filter((i) => !seen.has(i.id))];
+      });
+      setHistoryCursor(page.next_cursor);
+    } catch (e) {
+      if (historyQueryRef.current !== query) return;
+      setHistoryError(e instanceof Error ? e.message : 'Failed to load history');
+    } finally {
+      historyLoadingMoreRef.current = false;
+      setHistoryLoadingMore(false);
+    }
+  }, [historyCursor]);
+
+  const refreshAll = useCallback(() => {
+    void fetchQueue();
+    void fetchHistoryHead();
+  }, [fetchQueue, fetchHistoryHead]);
+
   useEffect(() => {
     void fetchQueue();
     void fetchRoutines();
   }, [fetchQueue, fetchRoutines]);
 
-  const runCountByRoutine = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const i of items) {
-      if (!i.origin_routine_id) continue;
-      counts.set(i.origin_routine_id, (counts.get(i.origin_routine_id) ?? 0) + 1);
-    }
-    return counts;
-  }, [items]);
+  // Debounce the search box into the query History is fetched with.
+  useEffect(() => {
+    const t = setTimeout(() => setHistoryQuery(historySearch.trim()), HISTORY_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [historySearch]);
+
+  // A new query (and the first mount) starts History over from its first page.
+  useEffect(() => {
+    historyQueryRef.current = historyQuery;
+    historyExtraPagesRef.current = 0;
+    historyLoadingMoreRef.current = false;
+    setHistoryLoadingMore(false);
+    setHistoryCursor(null);
+    setHistoryLoading(true);
+    void fetchHistoryHead();
+  }, [historyQuery, fetchHistoryHead]);
+
+  // Infinite scroll: load the next page as the end of History nears the
+  // bottom of the rail.
+  useEffect(() => {
+    const sentinel = historySentinel;
+    if (!sentinel || !historyCursor) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMoreHistory();
+      },
+      { root: railScrollRef.current, rootMargin: '0px 0px 200px 0px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // history.length: re-observe after each page so a sentinel still in view
+    // keeps loading until the rail is full.
+  }, [historySentinel, historyCursor, loadMoreHistory, history.length]);
 
   // Routine-name lookup used by sidebar rows to attribute each
   // routine-spawned queue item back to its source routine.
@@ -313,9 +442,9 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   const routines = useMemo(
     () =>
       apiRoutines.map((row) =>
-        apiRoutineToUi(row, { runCount: runCountByRoutine.get(row.id) ?? 0 }),
+        apiRoutineToUi(row, { runCount: row.run_count ?? 0 }),
       ),
-    [apiRoutines, runCountByRoutine],
+    [apiRoutines],
   );
 
   const handleToggleRoutineEnabled = useCallback(
@@ -374,7 +503,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
   const pollIntervalMs = useLiveRefetchInterval(5_000);
   useLiveTopic(LIVE_TOPICS.workforce, () => {
     if (document.visibilityState !== 'visible' || draggingIdRef.current !== null) return;
-    void fetchQueue();
+    refreshAll();
   });
 
   useEffect(() => {
@@ -390,7 +519,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           document.visibilityState === 'visible' &&
           draggingIdRef.current === null
         ) {
-          void fetchQueue();
+          refreshAll();
           void fetchRoutines();
         }
       }, POLL_INTERVAL_MS);
@@ -404,7 +533,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        void fetchQueue();
+        refreshAll();
         void fetchRoutines();
         start();
       } else {
@@ -419,7 +548,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fetchQueue, fetchRoutines, pollIntervalMs]);
+  }, [refreshAll, fetchRoutines, pollIntervalMs]);
 
   const inProgressItems = useMemo(
     () =>
@@ -465,35 +594,22 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
     return ordered;
   }, [items, queueOrder, routineNameById]);
 
-  // "Done today" — only terminal rows whose ended_at falls in the current
-  // local day. Rows missing ended_at (rare) fall back to created_at so a
-  // freshly-completed row never disappears just because the timestamp
-  // didn't write yet.
+  // History — every finished run, newest-finished first, as paged in from
+  // the server (already filtered by the search box there). A run that a
+  // follow-up message re-opened can linger in a stale page for a poll; the
+  // live list wins.
   //
-  // Carries `kind` alongside each task so the sidebar can pick the right
-  // icon (green check / grey ban / rose X) instead of using one emerald
-  // check for everything — see the doneTodayItems render block below.
-  const doneTodayItems = useMemo(() => {
-    const cutoff = startOfTodayMs();
-    return items
-      .filter((i) => {
-        if (!DONE_STATUSES.includes(i.status)) return false;
-        const ts = Date.parse(i.ended_at ?? i.created_at);
-        return !Number.isNaN(ts) && ts >= cutoff;
-      })
+  // Carries `kind` alongside each task so the rail can pick the right icon
+  // (green check / grey ban / rose X) — see the History render block below.
+  const historyItems = useMemo(() => {
+    const activeIds = new Set(items.map((i) => i.id));
+    return history
+      .filter((i) => !activeIds.has(i.id))
       .map((i) => ({
         task: toQueueTask(i, routineNameById, 'ended_at'),
         kind: terminalKindOf(i) ?? 'failed',
       }));
-  }, [items, routineNameById]);
-
-  const filteredDoneTodayItems = useMemo(() => {
-    const q = doneTodaySearch.trim().toLowerCase();
-    if (!q) return doneTodayItems;
-    return doneTodayItems.filter(({ task }) =>
-      task.title.toLowerCase().includes(q),
-    );
-  }, [doneTodayItems, doneTodaySearch]);
+  }, [history, items, routineNameById]);
 
   const totalQueuePages = Math.max(1, Math.ceil(pendingItems.length / QUEUE_PAGE_SIZE));
   const paginatedQueue = useMemo(
@@ -617,7 +733,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-3">
+        <div ref={railScrollRef} className="flex-1 overflow-y-auto p-2 space-y-3">
           <RailGroup data-testid="workforce-routines-group" label="Routines" count={routines.length}>
             <div className="space-y-0.5">
               {routines.map((routine) => {
@@ -908,96 +1024,115 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
             )}
           </RailGroup>
 
-          {doneTodayItems.length > 0 && (
-            <RailGroup
-              data-testid="workforce-done-today-group"
-              label="Done today"
-              count={filteredDoneTodayItems.length}
-              collapsible
-            >
-              <div className="relative mb-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                <Input
-                  data-testid="workforce-done-today-search"
-                  type="text"
-                  value={doneTodaySearch}
-                  onChange={(e) => setDoneTodaySearch(e.target.value)}
-                  placeholder="Search tasks..."
-                  className="h-8 pl-8 pr-7 text-[12px]"
-                />
-                {doneTodaySearch && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    onClick={() => setDoneTodaySearch('')}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-              {filteredDoneTodayItems.length === 0 ? (
-                <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
-                  No tasks found
-                </div>
-              ) : (
-              <div className="space-y-0.5">
-                {filteredDoneTodayItems.map(({ task, kind }) => {
-                  // Per-outcome icon. Kept inline because this is the only
-                  // place these mappings matter; lifting to a constant
-                  // would buy nothing.
-                  const Icon =
-                    kind === 'success' ? Check : kind === 'cancelled' ? Ban : X;
-                  const iconClass =
-                    kind === 'success'
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : kind === 'cancelled'
-                        ? 'bg-muted text-muted-foreground'
-                        : 'bg-rose-50 text-rose-600';
-                  return (
-                  <RailItem
-                    key={task.id}
-                    data-testid={`workforce-done-today-item-${task.id}`}
-                    onClick={() => goToTask(task.id)}
-                    active={showTaskCanvas && selectedTaskId === task.id}
-                    icon={<Icon className="h-3 w-3" strokeWidth={kind === 'success' ? 3 : 2.5} />}
-                    iconClass={iconClass}
-                    title={task.title}
-                    tooltipText={task.title}
-                    meta={
-                      <span className="flex items-center gap-1.5 min-w-0">
-                        {task.routineName && task.routineId ? (
-                          <RoutineChip
-                            name={task.routineName}
-                            onClick={() => goToRoutine(task.routineId!)}
-                          />
-                        ) : (
-                          <>
-                            <span
-                              className={cn(
-                                'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold flex-shrink-0',
-                                avatarToneClass[task.avatarTone],
-                              )}
-                            >
-                              {task.initials}
-                            </span>
-                            <span className="truncate">{task.owner}</span>
-                          </>
-                        )}
-                        {task.relTime && (
-                          <span className="text-muted-foreground/70 flex-shrink-0">
-                            · {task.relTime}
-                          </span>
-                        )}
-                      </span>
-                    }
-                  />
-                  );
-                })}
-              </div>
+          <RailGroup
+            data-testid="workforce-history-group"
+            label="History"
+            count={historyItems.length}
+            hint={historyCursor ? 'scroll for more' : undefined}
+            collapsible
+          >
+            <div className="relative mb-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                data-testid="workforce-history-search"
+                type="text"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                placeholder="Search tasks..."
+                className="h-8 pl-8 pr-7 text-[12px]"
+              />
+              {historySearch && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setHistorySearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               )}
-            </RailGroup>
-          )}
+            </div>
+            {historyLoading && historyItems.length === 0 ? (
+              <div className="px-2 py-2 text-[11px] text-muted-foreground/70">
+                Loading…
+              </div>
+            ) : historyItems.length === 0 ? (
+              historyError ? (
+                <div className="px-2 py-2 text-[11px] text-rose-600">{historyError}</div>
+              ) : (
+                <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
+                  {historyQuery ? 'No tasks found' : 'No finished tasks yet'}
+                </div>
+              )
+            ) : (
+            <div className="space-y-0.5">
+              {historyItems.map(({ task, kind }) => {
+                // Per-outcome icon. Kept inline because this is the only
+                // place these mappings matter; lifting to a constant
+                // would buy nothing.
+                const Icon =
+                  kind === 'success' ? Check : kind === 'cancelled' ? Ban : X;
+                const iconClass =
+                  kind === 'success'
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : kind === 'cancelled'
+                      ? 'bg-muted text-muted-foreground'
+                      : 'bg-rose-50 text-rose-600';
+                return (
+                <RailItem
+                  key={task.id}
+                  data-testid={`workforce-history-item-${task.id}`}
+                  onClick={() => goToTask(task.id)}
+                  active={showTaskCanvas && selectedTaskId === task.id}
+                  icon={<Icon className="h-3 w-3" strokeWidth={kind === 'success' ? 3 : 2.5} />}
+                  iconClass={iconClass}
+                  title={task.title}
+                  tooltipText={task.title}
+                  meta={
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {task.routineName && task.routineId ? (
+                        <RoutineChip
+                          name={task.routineName}
+                          onClick={() => goToRoutine(task.routineId!)}
+                        />
+                      ) : (
+                        <>
+                          <span
+                            className={cn(
+                              'h-3 w-3 rounded-full grid place-items-center text-[7px] font-bold flex-shrink-0',
+                              avatarToneClass[task.avatarTone],
+                            )}
+                          >
+                            {task.initials}
+                          </span>
+                          <span className="truncate">{task.owner}</span>
+                        </>
+                      )}
+                      {task.relTime && (
+                        <span className="text-muted-foreground/70 flex-shrink-0">
+                          · {task.relTime}
+                        </span>
+                      )}
+                    </span>
+                  }
+                />
+                );
+              })}
+              {historyError && (
+                <div className="px-2 py-2 text-[11px] text-rose-600">{historyError}</div>
+              )}
+              {historyCursor && (
+                <div
+                  ref={setHistorySentinel}
+                  data-testid="workforce-history-sentinel"
+                  className="px-2 py-2 text-center text-[11px] text-muted-foreground/70"
+                >
+                  {historyLoadingMore ? 'Loading more…' : null}
+                </div>
+              )}
+            </div>
+            )}
+          </RailGroup>
         </div>
       </aside>
 
@@ -1010,7 +1145,7 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
           key={selectedRoutine.id}
           routine={selectedRoutine}
           onDelete={() => handleDeleteRoutine(selectedRoutine.id)}
-          onEnqueued={fetchQueue}
+          onEnqueued={refreshAll}
           onToggleEnabled={(next) =>
             handleToggleRoutineEnabled(selectedRoutine.id, next)
           }
@@ -1030,23 +1165,23 @@ export function WorkforceTasks({ initialTaskId = null }: WorkforceTasksProps = {
             // straight away so the new row appears in "Queued" without
             // waiting for the next poll tick.
             goToTask(newId);
-            void fetchQueue();
+            refreshAll();
           }}
           onCancelled={() => {
             // Refetch so the cancelled row hops out of "In progress" /
-            // "Queued" and into "Done today" on the sidebar immediately.
-            void fetchQueue();
+            // "Queued" and into "History" on the sidebar immediately.
+            refreshAll();
           }}
           onForked={(newId) => {
             // Same flow as onRetried — a follow-up run started from the
             // composer is a new queue row, so jump selection to it.
             goToTask(newId);
-            void fetchQueue();
+            refreshAll();
           }}
           onAttached={() => {
-            // Refetch so the attached row hops out of "Done today"
+            // Refetch so the attached row hops out of "History"
             // and back into "Queued" / "In progress" on the sidebar immediately.
-            void fetchQueue();
+            refreshAll();
           }}
         />
       )}

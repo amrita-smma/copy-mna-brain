@@ -53,7 +53,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Copilot action cards (approvals, options, hand-offs): decisions stored per chat and told to the agent](copilot-action-cards.md) — 4KB
 - [External Chat API (`/api/v1/chat`)](external-chat-api.md) — 4KB
 - [Async jobs](async-jobs.md) — 38KB
-- [AI Workforce: stage moves, company chips, failure signals](ai-workforce-stages-and-signals.md) — 4KB
+- [AI Workforce: stage moves, company chips, failure signals, rail History](ai-workforce-stages-and-signals.md) — 5KB
 - [Insight generation: always on the AI Workforce, emailed when ready](insight-generation.md) — 2KB
 
 ## App shell & UI

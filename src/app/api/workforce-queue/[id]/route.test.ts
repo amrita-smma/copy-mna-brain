@@ -8,9 +8,7 @@ const {
   getActiveWorkspaceIdMock,
   findByIdMock,
   findVersionForRunMock,
-  markFailureSeenMock,
 } = vi.hoisted(() => ({
-  markFailureSeenMock: vi.fn(),
   authMock: vi.fn(),
   createDbMock: vi.fn(),
   createContainerMock: vi.fn(),
@@ -35,24 +33,13 @@ function call() {
 }
 
 describe('GET /api/workforce-queue/[id]', () => {
-  it("marks a failed run's failure as seen by the viewer", async () => {
-    const item = { id: RUN_ID, workspace_id: WORKSPACE_ID, status: 'failed' };
-    findByIdMock.mockResolvedValueOnce(item);
-    findVersionForRunMock.mockResolvedValueOnce(null);
-
-    const res = await call();
-
-    expect(res.status).toBe(200);
-    expect(markFailureSeenMock).toHaveBeenCalledWith(item);
-  });
-
-  it('does not mark anything seen for a run in another workspace', async () => {
+  it('404s a run in another workspace', async () => {
     findByIdMock.mockResolvedValueOnce({ id: RUN_ID, workspace_id: 'other', status: 'failed' });
 
     const res = await call();
 
     expect(res.status).toBe(404);
-    expect(markFailureSeenMock).not.toHaveBeenCalled();
+    expect(findVersionForRunMock).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
@@ -61,9 +48,8 @@ describe('GET /api/workforce-queue/[id]', () => {
     getActiveWorkspaceIdMock.mockReset().mockResolvedValue(WORKSPACE_ID);
     findByIdMock.mockReset();
     findVersionForRunMock.mockReset();
-    markFailureSeenMock.mockReset().mockResolvedValue(false);
     createContainerMock.mockReset().mockReturnValue({
-      aiWorkforceService: { findById: findByIdMock, markFailureSeen: markFailureSeenMock },
+      aiWorkforceService: { findById: findByIdMock },
       insightService: { findVersionForRun: findVersionForRunMock },
     });
   });

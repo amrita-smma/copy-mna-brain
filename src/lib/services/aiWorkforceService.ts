@@ -2,8 +2,10 @@ import { randomUUID } from 'crypto';
 import type { BaseMessage } from '@langchain/core/messages';
 import {
   AgentCheckpointRepository,
+  UserRepository,
   type AiWorkforceQueueRepository,
   type DbClient,
+  type WorkforceHistoryCursor,
   type WorkforceQueueRow,
   type WorkforceStatus,
 } from '@/lib/repositories';
@@ -42,6 +44,67 @@ export function describeRunFailure(
   if (status === 'timed_out') return 'Timed out';
   if (status === 'rejected') return 'Rejected';
   return 'Failed without a recorded reason';
+}
+
+/** A queue row as the AI Workforce rail renders it. */
+export type WorkforceQueueListItem = WorkforceQueueRow & {
+  /** Who kicked the run off; null for cron/webhook rows and deleted users. */
+  triggered_by_user_name: string | null;
+  /**
+   * How many rows across every workspace are ahead of this one in the shared
+   * single-worker queue. Only set on rows waiting to start or resume.
+   */
+  ahead_globally: number | null;
+  /** The part of `ahead_globally` that belongs to other workspaces. */
+  ahead_other_workspaces: number | null;
+};
+
+export interface WorkforceHistoryPage {
+  items: WorkforceQueueListItem[];
+  /** Pass back as `cursor` for the next page; null on the last page. */
+  next_cursor: string | null;
+}
+
+export const WORKFORCE_HISTORY_PAGE_SIZE = 30;
+const WORKFORCE_HISTORY_MAX_PAGE_SIZE = 100;
+
+/** Thrown for a History `cursor` this service didn't issue. */
+export class InvalidHistoryCursorError extends Error {
+  constructor() {
+    super('invalid history cursor');
+    this.name = 'InvalidHistoryCursorError';
+  }
+}
+
+// A timestamptz as Postgres or JS prints it — `2026-10-29 08:15:02.123456+00`
+// or `2026-10-29T08:15:02.123Z`. The cursor goes back into SQL as a cast.
+const HISTORY_CURSOR_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+
+function encodeHistoryCursor(row: WorkforceQueueRow): string {
+  const cursor: WorkforceHistoryCursor = {
+    finishedAt: row.ended_at ?? row.created_at,
+    id: row.id,
+  };
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeHistoryCursor(raw: string): WorkforceHistoryCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const { finishedAt, id } = (parsed ?? {}) as Record<string, unknown>;
+    if (
+      typeof finishedAt === 'string' &&
+      HISTORY_CURSOR_TIMESTAMP.test(finishedAt) &&
+      typeof id === 'string' &&
+      /^[0-9a-f-]{36}$/i.test(id)
+    ) {
+      return { finishedAt, id };
+    }
+  } catch {
+    // fall through
+  }
+  throw new InvalidHistoryCursorError();
 }
 
 export interface ChatHandoffInput {
@@ -117,6 +180,7 @@ export class AiWorkforceService {
     private readonly queueRepo: AiWorkforceQueueRepository,
     private readonly db: DbClient,
     private readonly checkpointRepo: AgentCheckpointRepository = new AgentCheckpointRepository(db),
+    private readonly userRepo: Pick<UserRepository, 'findByIds'> = new UserRepository(db),
   ) {}
 
   /** Best-effort: a timestamp lookup must never break the trace endpoint. */
@@ -131,12 +195,81 @@ export class AiWorkforceService {
   }
 
   /**
-   * Enqueue a run spawned from the AI CoPilot chat. The agent_name is the
-   * routing target (e.g. "outbound_pipeline_writer"); input carries the
-   * instruction and any chat context the worker will need.
+   * The rail's live sections — every run that hasn't finished (queued, in
+   * progress, needing action) — with submitter names and global queue
+   * positions.
    */
-  listQueue(opts: { limit?: number } = {}): Promise<WorkforceQueueRow[]> {
-    return this.queueRepo.list(opts);
+  async listActiveQueue(): Promise<WorkforceQueueListItem[]> {
+    const rows = await this.queueRepo.listActive();
+    const queuedIds = rows
+      .filter((it) => it.status === 'pending' || it.status === 'resume_ready')
+      .map((it) => it.id);
+    const [names, positions] = await Promise.all([
+      this.userNamesFor(rows),
+      this.queueRepo.getGlobalQueuePositions(queuedIds),
+    ]);
+    return rows.map((it) => ({
+      ...it,
+      triggered_by_user_name: it.triggered_by_user_id
+        ? names.get(it.triggered_by_user_id) ?? null
+        : null,
+      ahead_globally: positions.get(it.id)?.aheadGlobally ?? null,
+      ahead_other_workspaces: positions.get(it.id)?.aheadOtherWorkspaces ?? null,
+    }));
+  }
+
+  /**
+   * One page of the rail's History — finished runs, newest-finished first,
+   * optionally filtered by title. Throws InvalidHistoryCursorError for a
+   * cursor this method didn't hand out.
+   */
+  async listHistory(
+    opts: { cursor?: string | null; search?: string | null; limit?: number } = {},
+  ): Promise<WorkforceHistoryPage> {
+    const limit = Math.min(
+      Math.max(1, Math.floor(opts.limit ?? WORKFORCE_HISTORY_PAGE_SIZE)),
+      WORKFORCE_HISTORY_MAX_PAGE_SIZE,
+    );
+    const before = opts.cursor ? decodeHistoryCursor(opts.cursor) : undefined;
+    // One extra row says whether another page exists without a count query.
+    const rows = await this.queueRepo.listHistory({
+      before,
+      search: opts.search ?? undefined,
+      limit: limit + 1,
+    });
+    const page = rows.slice(0, limit);
+    const names = await this.userNamesFor(page);
+    return {
+      items: page.map((it) => ({
+        ...it,
+        triggered_by_user_name: it.triggered_by_user_id
+          ? names.get(it.triggered_by_user_id) ?? null
+          : null,
+        ahead_globally: null,
+        ahead_other_workspaces: null,
+      })),
+      next_cursor: rows.length > limit ? encodeHistoryCursor(page[page.length - 1]) : null,
+    };
+  }
+
+  /** How many runs each routine has spawned (0 when it has none). */
+  async countRunsByRoutineIds(routineIds: string[]): Promise<Map<string, number>> {
+    return this.queueRepo.countByOriginRoutineIds(routineIds);
+  }
+
+  /** Display names of the rows' submitters, in one batched lookup. */
+  private async userNamesFor(rows: WorkforceQueueRow[]): Promise<Map<string, string>> {
+    const ids = Array.from(
+      new Set(
+        rows
+          .map((it) => it.triggered_by_user_id)
+          .filter((id): id is string => typeof id === 'string'),
+      ),
+    );
+    const names = new Map<string, string>();
+    if (ids.length === 0) return names;
+    for (const u of await this.userRepo.findByIds(ids)) names.set(u.id, u.name);
+    return names;
   }
 
   findByToolCallId(toolCallId: string): Promise<WorkforceQueueRow | null> {
@@ -153,29 +286,18 @@ export class AiWorkforceService {
   }
 
   /**
-   * The Workforce nav item's badges: the workspace's unseen failures (red)
-   * and its queue (yellow) — `queue` counts runs waiting to start or resume
-   * plus the ones running, `running` alone says whether work is in flight.
+   * The Workforce nav item's badges: the workspace's failures from the last
+   * 24 hours (red) and its queue (yellow) — `queue` counts runs waiting to
+   * start or resume plus the ones running, `running` alone says whether work
+   * is in flight.
    */
-  async getNavSummary(): Promise<{ unseen_failures: number; queue: number; running: number }> {
+  async getNavSummary(): Promise<{ recent_failures: number; queue: number; running: number }> {
     const counts = await this.queueRepo.countNavSummary();
     return {
-      unseen_failures: counts.unseenFailures,
+      recent_failures: counts.recentFailures,
       queue: counts.queued + counts.running,
       running: counts.running,
     };
-  }
-
-  /**
-   * Someone opened a failed run: it no longer counts as an unseen failure.
-   * Skips the write unless the row is a failure still marked unseen.
-   */
-  async markFailureSeen(run: WorkforceQueueRow): Promise<boolean> {
-    if (run.failure_seen_at) return false;
-    if (run.status !== 'failed' && run.status !== 'timed_out') return false;
-    const marked = await this.queueRepo.markFailureSeen(run.id);
-    if (marked) await publishLiveEvent(run.workspace_id, LIVE_TOPICS.workforce, [run.id]);
-    return marked;
   }
 
   /**

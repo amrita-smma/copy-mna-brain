@@ -170,8 +170,8 @@ test.describe('AI Workforce', () => {
       },
     });
 
-    // Failed task → in "Done today"; Retry offered, Cancel not (terminal).
-    await page.getByTestId('workforce-done-today-item-fail-1').click();
+    // Failed task → in "History"; Retry offered, Cancel not (terminal).
+    await page.getByTestId('workforce-history-item-fail-1').click();
     const canvas = page.getByTestId('task-canvas');
     await expect(canvas).toBeVisible();
     await expect(page.getByTestId('task-retry-button')).toBeVisible();
@@ -407,7 +407,7 @@ test.describe('AI Workforce', () => {
 
   // ─── MB-78-03 ───────────────────────────────────────────────────────────────
 
-  test('MB-78-03 The rail groups tasks across Routines / Need action / In progress / Queued / Done today', async ({ page }) => {
+  test('MB-78-03 The rail groups tasks across Routines / Need action / In progress / Queued / History', async ({ page }) => {
     test.skip(isRealMode(), MOCK_ONLY);
     const now = new Date().toISOString();
     const items = [
@@ -416,6 +416,8 @@ test.describe('AI Workforce', () => {
       baseQueueItem({ id: 'q-1', status: 'pending', priority: 2, input: { title: 'Deck for TechSlurry' } }),
       baseQueueItem({ id: 'q-2', status: 'pending', priority: 1, input: { title: 'Korea lead refresh' } }),
       baseQueueItem({ id: 'done-1', status: 'succeeded', ended_at: now, input: { title: 'Weekly recap' } }),
+      // History is not limited to today: an older run stays listed.
+      baseQueueItem({ id: 'done-old', status: 'succeeded', ended_at: '2026-06-20T08:00:00Z', input: { title: 'Last week recap' } }),
     ];
 
     await openWorkforce(page, { items, routines: [baseRoutine({ id: 'r-1' })] });
@@ -424,13 +426,14 @@ test.describe('AI Workforce', () => {
     await expect(page.getByTestId('workforce-needs-action-group')).toBeVisible();
     await expect(page.getByTestId('workforce-in-progress-group')).toBeVisible();
     await expect(page.getByTestId('workforce-queued-group')).toBeVisible();
-    await expect(page.getByTestId('workforce-done-today-group')).toBeVisible();
+    await expect(page.getByTestId('workforce-history-group')).toBeVisible();
 
     await expect(page.getByTestId('workforce-in-progress-item-run-1')).toBeVisible();
     await expect(page.getByTestId('workforce-needs-action-item-wait-1')).toBeVisible();
     await expect(page.getByTestId('workforce-queued-item-q-1')).toBeVisible();
     await expect(page.getByTestId('workforce-queued-item-q-2')).toBeVisible();
-    await expect(page.getByTestId('workforce-done-today-item-done-1')).toBeVisible();
+    await expect(page.getByTestId('workforce-history-item-done-1')).toBeVisible();
+    await expect(page.getByTestId('workforce-history-item-done-old')).toBeVisible();
 
     // PRODUCT NOTE: the TC expects the canvas to default to the in-progress
     // task; the component actually defaults to a synthetic 'active' selection
@@ -532,11 +535,11 @@ test.describe('AI Workforce', () => {
 
   // ─── MB-82-01 (partial) ───────────────────────────────────────────────────────
 
-  test('MB-82-01 "Done today" search narrows completed tasks by title, clears, and opens one', async ({ page }) => {
+  test('MB-82-01 History search narrows completed tasks by title, clears, and opens one', async ({ page }) => {
     test.skip(isRealMode(), MOCK_ONLY);
     // PARTIAL COVERAGE: the full TC (date-grouped history, "Mine" toggle,
     // search by company/user, cross-user visibility) is not built. Only the
-    // "Done today" rail group with a title search exists, so this covers that
+    // History rail group with a title search exists, so this covers that
     // subset: search narrows the list, clear restores it, click opens the task.
     const endedToday = new Date().toISOString();
     const items = [
@@ -547,25 +550,25 @@ test.describe('AI Workforce', () => {
 
     await openWorkforce(page, { items });
 
-    // All three completed-today tasks are listed.
+    // All three completed tasks are listed.
     for (const id of ['d1', 'd2', 'd3']) {
-      await expect(page.getByTestId(`workforce-done-today-item-${id}`)).toBeVisible();
+      await expect(page.getByTestId(`workforce-history-item-${id}`)).toBeVisible();
     }
 
     // Searching by a title substring narrows to the single match.
-    await page.getByTestId('workforce-done-today-search').fill('deck');
-    await expect(page.getByTestId('workforce-done-today-item-d2')).toBeVisible();
-    await expect(page.getByTestId('workforce-done-today-item-d1')).toHaveCount(0);
-    await expect(page.getByTestId('workforce-done-today-item-d3')).toHaveCount(0);
+    await page.getByTestId('workforce-history-search').fill('deck');
+    await expect(page.getByTestId('workforce-history-item-d2')).toBeVisible();
+    await expect(page.getByTestId('workforce-history-item-d1')).toHaveCount(0);
+    await expect(page.getByTestId('workforce-history-item-d3')).toHaveCount(0);
 
     // Clearing the search restores the full list.
     await page.getByRole('button', { name: 'Clear search' }).click();
     for (const id of ['d1', 'd2', 'd3']) {
-      await expect(page.getByTestId(`workforce-done-today-item-${id}`)).toBeVisible();
+      await expect(page.getByTestId(`workforce-history-item-${id}`)).toBeVisible();
     }
 
     // Clicking a completed task opens its canvas.
-    await page.getByTestId('workforce-done-today-item-d2').click();
+    await page.getByTestId('workforce-history-item-d2').click();
     await expect(page.getByTestId('task-canvas')).toBeVisible();
   });
 

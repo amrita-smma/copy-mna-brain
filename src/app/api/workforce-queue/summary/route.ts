@@ -5,7 +5,7 @@ import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 
 /**
- * The Workforce nav item's badges: the workspace's unseen failed runs (red),
+ * The Workforce nav item's badges: the workspace's runs that failed in the last 24 hours (red),
  * its queue (yellow) and whether anything is running. Polled by the sidebar,
  * so it is one aggregate query.
  */

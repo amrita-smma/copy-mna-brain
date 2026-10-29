@@ -6,6 +6,29 @@ trigger to revisit, and the intended fix.
 
 ---
 
+## `ai_workforce_queue.failure_seen_at` is a dead column
+
+**Area:** `src/lib/db/schema.ts` (`aiWorkforceQueue.failure_seen_at`).
+
+**What it is:** the Workforce nav item's red chip used to count failures nobody
+had opened, stamped by `GET /api/workforce-queue/[id]`. It now counts failures
+from the last 24 hours instead, so nothing reads or writes the column. Its
+partial index was dropped in
+`drizzle/migrations/20261029000000_workforce_queue_history_index.sql`; the
+column itself was left in place.
+
+**Why we took it:** dropping a column is the destructive half of a two-phase
+migration (`.claude/rules/drizzle-migrations.md`); it has to wait until no
+deployed build selects it.
+
+**Trigger to revisit:** once the build that stopped using it has been live in
+production for a release cycle.
+
+**Intended fix:** a migration that drops the column, and remove it from the
+schema.
+
+---
+
 ## `job_type` is repaired after every migrate run
 
 **Area:** `scripts/migrate.ts`, `scripts/reconcileEnums.ts`,

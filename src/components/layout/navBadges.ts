@@ -36,17 +36,18 @@ export function sourcingNavBadges(pending: number): NavBadges {
 
 /**
  * The AI Workforce item's chips, from the nav summary: a red cross with the
- * workspace's unseen failed runs, then a yellow chip with a blinking dot and
+ * workspace's runs that failed in the last
+ * 24 hours, then a yellow chip with a blinking dot and
  * the queue (runs waiting plus runs working). Either is omitted at zero.
  */
 export function workforceNavBadges(summary: WorkforceNavSummary): NavBadges {
   const badges: NavBadge[] = [];
-  if (summary.unseen_failures > 0) {
+  if (summary.recent_failures > 0) {
     badges.push({
-      count: summary.unseen_failures,
+      count: summary.recent_failures,
       tone: 'red',
       icon: 'cross',
-      label: `${summary.unseen_failures} failed`,
+      label: `${summary.recent_failures} failed`,
       testId: 'nav-badge-ai-workforce-failures',
     });
   }

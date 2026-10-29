@@ -2,8 +2,8 @@ import { apiRequest } from './client';
 
 /** The Workforce nav item's badges — see `GET /api/workforce-queue/summary`. */
 export interface WorkforceNavSummary {
-  /** The caller's failed runs they haven't opened since they failed. */
-  unseen_failures: number;
+  /** The workspace's failed / timed-out runs (not cancellations) that finished in the last 24 hours. */
+  recent_failures: number;
   /** Runs waiting to start or resume, plus the ones running. */
   queue: number;
   /** Runs working right now. */

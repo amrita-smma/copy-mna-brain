@@ -647,7 +647,13 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
 
   const aiWorkforceQueueRepo = lazy(() => new AiWorkforceQueueRepository(db, workspaceId));
   const aiWorkforceService = lazy(
-    () => new AiWorkforceService(aiWorkforceQueueRepo(), db, new AgentCheckpointRepository(db)),
+    () =>
+      new AiWorkforceService(
+        aiWorkforceQueueRepo(),
+        db,
+        new AgentCheckpointRepository(db),
+        userRepo(),
+      ),
   );
   const notificationService = lazy(() => new NotificationService(aiWorkforceQueueRepo()));
 

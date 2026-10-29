@@ -76,7 +76,7 @@ const DOT_TONE_CLASS: Record<NavBadge['tone'], string> = {
 /**
  * Per-slug badges on the nav items:
  *   - Sourcing — its Pending Confirmation backlog (red).
- *   - AI Workforce — the workspace's unseen failed runs (a red cross) and its
+ *   - AI Workforce — the workspace's runs that failed in the last 24 hours (a red cross) and its
  *     queue (yellow, with a blinking dot while work is in it).
  * Each is fetched only while its page is in the nav, so a workspace with the
  * page flagged off makes no request.

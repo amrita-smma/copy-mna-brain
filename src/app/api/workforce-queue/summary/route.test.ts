@@ -30,10 +30,10 @@ describe('GET /api/workforce-queue/summary', () => {
   });
 
   it("returns the workspace's nav summary", async () => {
-    getNavSummaryMock.mockResolvedValueOnce({ unseen_failures: 2, queue: 3, running: 1 });
+    getNavSummaryMock.mockResolvedValueOnce({ recent_failures: 2, queue: 3, running: 1 });
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { unseen_failures: 2, queue: 3, running: 1 } });
+    expect(await res.json()).toEqual({ data: { recent_failures: 2, queue: 3, running: 1 } });
     expect(getNavSummaryMock).toHaveBeenCalledWith();
   });
 

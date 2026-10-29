@@ -1363,25 +1363,27 @@ describe('AiWorkforceQueueRepository.findLatestPerCompanyAtStages', () => {
 });
 
 describe('AiWorkforceQueueRepository.countNavSummary', () => {
-  it("counts the workspace's unseen failures and its queue in one query", async () => {
+  it("counts the workspace's failures from the last 24 hours and its queue in one query", async () => {
     const { db, selectChain } = makeMockDb();
-    selectChain.where.mockResolvedValueOnce([{ unseenFailures: 2, queued: 3, running: 1 }]);
+    selectChain.where.mockResolvedValueOnce([{ recentFailures: 2, queued: 3, running: 1 }]);
 
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(repo.countNavSummary()).resolves.toEqual({
-      unseenFailures: 2,
+      recentFailures: 2,
       queued: 3,
       running: 1,
     });
 
     expect(db.select).toHaveBeenCalledTimes(1);
     const fields = db.select.mock.calls[0][0] as Record<string, SQL>;
-    const unseen = new PgDialect().sqlToQuery(fields.unseenFailures);
-    expect(unseen.sql).toContain('"failure_seen_at" is null');
-    expect(unseen.sql).toContain("cancelled_by_user");
+    const failures = new PgDialect().sqlToQuery(fields.recentFailures);
+    // Windowed on finish time, not on whether anyone has opened the run.
+    expect(failures.sql).toMatch(/COALESCE\("ai_workforce_queue"\."ended_at", "ai_workforce_queue"\."created_at"\) >= now\(\) - interval '24 hours'/);
+    expect(failures.sql).not.toContain('failure_seen_at');
+    expect(failures.sql).toContain('cancelled_by_user');
     // Workspace-wide: not scoped to the caller's own runs.
-    expect(unseen.sql).not.toContain('triggered_by_user_id');
-    expect(unseen.params).toEqual(expect.arrayContaining(['failed', 'timed_out']));
+    expect(failures.sql).not.toContain('triggered_by_user_id');
+    expect(failures.params).toEqual(expect.arrayContaining(['failed', 'timed_out']));
 
     const where = new PgDialect().sqlToQuery(selectChain.where.mock.calls[0][0] as SQL);
     expect(where.params).toContain('workspace-1');
@@ -1392,33 +1394,127 @@ describe('AiWorkforceQueueRepository.countNavSummary', () => {
     selectChain.where.mockResolvedValueOnce([]);
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
     await expect(repo.countNavSummary()).resolves.toEqual({
-      unseenFailures: 0,
+      recentFailures: 0,
       queued: 0,
       running: 0,
     });
   });
 });
 
-describe('AiWorkforceQueueRepository.markFailureSeen', () => {
-  it('stamps failure_seen_at on an unseen failure in the workspace', async () => {
-    const { db, updateChain } = makeMockDb();
-    updateChain.returning.mockResolvedValueOnce([{ id: 'r1' }]);
+function makeListDb(rows: unknown[] = []) {
+  const chain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    groupBy: vi.fn().mockResolvedValue(rows),
+    limit: vi.fn().mockResolvedValue(rows),
+  };
+  const db = { select: vi.fn().mockReturnValue(chain) };
+  return { db, chain };
+}
 
+describe('AiWorkforceQueueRepository.listActive', () => {
+  it("returns the workspace's unfinished runs, newest first", async () => {
+    const rows = [{ id: 'r1' }];
+    const { db, chain } = makeListDb(rows);
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.markFailureSeen('r1')).resolves.toBe(true);
 
-    expect(updateChain.set).toHaveBeenCalledWith({ failure_seen_at: expect.any(String) });
-    const where = new PgDialect().sqlToQuery(updateChain.where.mock.calls[0][0] as SQL);
-    expect(where.sql).toContain('"failure_seen_at" is null');
-    expect(where.sql).not.toContain('triggered_by_user_id');
-    expect(where.params).toEqual(expect.arrayContaining(['r1', 'workspace-1', 'failed', 'timed_out']));
+    await expect(repo.listActive()).resolves.toBe(rows);
+
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.params).toEqual(
+      expect.arrayContaining(['workspace-1', ...ACTIVE_WORKFORCE_STATUSES]),
+    );
+    expect(where.params).not.toContain('succeeded');
+    const [order] = chain.orderBy.mock.calls[0] as SQL[];
+    expect(new PgDialect().sqlToQuery(order).sql).toMatch(/created_at.*desc/i);
+    expect(chain.limit).toHaveBeenCalledWith(500);
+  });
+});
+
+describe('AiWorkforceQueueRepository.listHistory', () => {
+  it('pages finished runs newest-finished first', async () => {
+    const { db, chain } = makeListDb([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await repo.listHistory({ limit: 31 });
+
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.params).toEqual([
+      'workspace-1',
+      'succeeded',
+      'failed',
+      'rejected',
+      'timed_out',
+    ]);
+    const [first, second] = chain.orderBy.mock.calls[0] as SQL[];
+    expect(new PgDialect().sqlToQuery(first).sql).toMatch(
+      /COALESCE\("ai_workforce_queue"\."ended_at", "ai_workforce_queue"\."created_at"\) desc/,
+    );
+    expect(new PgDialect().sqlToQuery(second).sql).toMatch(/"id" desc/);
+    expect(chain.limit).toHaveBeenCalledWith(31);
   });
 
-  it('returns false when nothing matched (not failed, another workspace, or already seen)', async () => {
-    const { db, updateChain } = makeMockDb();
-    updateChain.returning.mockResolvedValueOnce([]);
+  it('continues strictly after the cursor row on (finish time, id)', async () => {
+    const { db, chain } = makeListDb([]);
     const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
-    await expect(repo.markFailureSeen('r1')).resolves.toBe(false);
+
+    await repo.listHistory({
+      before: { finishedAt: '2026-10-28 09:00:00.123456+00', id: 'run-9' },
+    });
+
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toMatch(/\(COALESCE\([^)]*\), "ai_workforce_queue"\."id"\) < \(\$\d+::timestamptz, \$\d+::uuid\)/);
+    expect(where.params).toEqual(
+      expect.arrayContaining(['2026-10-28 09:00:00.123456+00', 'run-9']),
+    );
+  });
+
+  it('matches the search against the title, escaping LIKE wildcards', async () => {
+    const { db, chain } = makeListDb([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await repo.listHistory({ search: '  50%_deck ' });
+
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.sql).toContain('ILIKE');
+    expect(where.sql).toContain("->>'title'");
+    expect(where.params).toContain('%50\\%\\_deck%');
+  });
+
+  it('ignores a blank search', async () => {
+    const { db, chain } = makeListDb([]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await repo.listHistory({ search: '   ' });
+
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.sql).not.toContain('ILIKE');
+  });
+});
+
+describe('AiWorkforceQueueRepository.countByOriginRoutineIds', () => {
+  it('returns an empty map without hitting the DB when the id list is empty', async () => {
+    const { db } = makeListDb();
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    await expect(repo.countByOriginRoutineIds([])).resolves.toEqual(new Map());
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('counts runs per routine in one grouped query', async () => {
+    const { db, chain } = makeListDb([
+      { routineId: 'rt-1', count: 4 },
+      { routineId: 'rt-2', count: 1 },
+    ]);
+    const repo = new AiWorkforceQueueRepository(db as never, 'workspace-1');
+
+    const counts = await repo.countByOriginRoutineIds(['rt-1', 'rt-2', 'rt-3']);
+
+    expect(counts).toEqual(new Map([['rt-1', 4], ['rt-2', 1]]));
+    expect(db.select).toHaveBeenCalledTimes(1);
+    const where = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0] as SQL);
+    expect(where.params).toEqual(['workspace-1', 'rt-1', 'rt-2', 'rt-3']);
   });
 });
 

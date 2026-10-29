@@ -45,8 +45,16 @@ export async function GET() {
   }
   try {
     const db = createDb();
-    const repo = new RoutinesRepository(db, await getActiveWorkspaceId());
-    const items = await repo.list();
+    const workspaceId = await getActiveWorkspaceId();
+    const repo = new RoutinesRepository(db, workspaceId);
+    const { aiWorkforceService } = createContainer(db, workspaceId);
+    const routines = await repo.list();
+    // Every run each routine has spawned, for the routine canvas's "N runs
+    // total" — one grouped count, not the rail's (paged) run list.
+    const runCounts = await aiWorkforceService.countRunsByRoutineIds(
+      routines.map((r) => r.id),
+    );
+    const items = routines.map((r) => ({ ...r, run_count: runCounts.get(r.id) ?? 0 }));
     return NextResponse.json({ items });
   } catch (error: unknown) {
     const message =

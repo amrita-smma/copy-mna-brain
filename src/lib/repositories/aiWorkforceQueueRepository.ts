@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { aiWorkforceQueue, companies, workforceStatus } from '@/lib/db/schema';
 import type {
   HumanDecision,
@@ -29,6 +29,21 @@ function aiScreeningCompanyIdExpr() {
     ${aiWorkforceQueue.trigger_meta}->>'company_id',
     ${aiWorkforceQueue.input}->>'company_id'
   )`;
+}
+
+/**
+ * When a run finished, for ordering and windowing finished runs. A terminal
+ * row normally has `ended_at`; `created_at` covers the rare one that doesn't.
+ * Matches the expression in `idx_ai_workforce_queue_workspace_finished`.
+ */
+function finishedAtExpr() {
+  return sql`COALESCE(${aiWorkforceQueue.ended_at}, ${aiWorkforceQueue.created_at})`;
+}
+
+/** The last row of a History page: its finish time (as stored) and id. */
+export interface WorkforceHistoryCursor {
+  finishedAt: string;
+  id: string;
 }
 
 /** `retryById` drops trigger_meta for most agents; ai_screening needs company_id for in-flight checks and cleanup. */
@@ -85,8 +100,8 @@ export const ACTIVE_WORKFORCE_STATUSES: readonly Status[] =
 /** Terminal statuses other than success. Cancellation is `failed`. */
 const UNSUCCESSFUL_TERMINAL_STATUSES: Status[] = ['failed', 'rejected', 'timed_out'];
 
-/** Failures that count toward the Workforce nav item's red "unseen" count. */
-const UNSEEN_FAILURE_STATUSES: Status[] = ['failed', 'timed_out'];
+/** Failures that count toward the Workforce nav item's red 24-hour count. */
+const RECENT_FAILURE_STATUSES: Status[] = ['failed', 'timed_out'];
 /** Waiting to start or to resume — the queue part of the nav item's yellow count. */
 const QUEUED_STATUSES: Status[] = ['pending', 'resume_ready'];
 /** Working right now — what makes the nav item's yellow dot blink. */
@@ -154,6 +169,88 @@ export class AiWorkforceQueueRepository {
       .limit(limit);
   }
 
+  /**
+   * The workspace's runs that haven't finished — queued, running, paused —
+   * newest first. Bounded by what the worker can have in flight, so the rail
+   * loads them whole; `limit` is a backstop, not a page size.
+   */
+  async listActive({ limit = 500 }: { limit?: number } = {}): Promise<Row[]> {
+    return this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          inArray(aiWorkforceQueue.status, [...ACTIVE_WORKFORCE_STATUSES]),
+        ),
+      )
+      .orderBy(desc(aiWorkforceQueue.created_at))
+      .limit(limit);
+  }
+
+  /**
+   * One page of the workspace's finished runs, newest-finished first. Keyset
+   * paged on (finish time, id) — `before` is the last row of the previous
+   * page — so a page never repeats or skips a row as new runs finish on top.
+   * `search` matches the run's title (or its instruction when untitled).
+   */
+  async listHistory({
+    before,
+    search,
+    limit = 30,
+  }: {
+    before?: WorkforceHistoryCursor;
+    search?: string;
+    limit?: number;
+  } = {}): Promise<Row[]> {
+    const finishedAt = finishedAtExpr();
+    const conditions = [
+      eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+      inArray(aiWorkforceQueue.status, [...TERMINAL_STATUSES]),
+    ];
+    if (before) {
+      conditions.push(
+        sql`(${finishedAt}, ${aiWorkforceQueue.id}) < (${before.finishedAt}::timestamptz, ${before.id}::uuid)`,
+      );
+    }
+    const term = search?.trim();
+    if (term) {
+      const pattern = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      conditions.push(
+        sql`COALESCE(NULLIF(TRIM(${aiWorkforceQueue.input}->>'title'), ''), ${aiWorkforceQueue.input}->>'instruction', '') ILIKE ${pattern}`,
+      );
+    }
+    return this.db
+      .select()
+      .from(aiWorkforceQueue)
+      .where(and(...conditions))
+      .orderBy(desc(finishedAt), desc(aiWorkforceQueue.id))
+      .limit(limit);
+  }
+
+  /** How many runs each routine has spawned, for the routine canvas. */
+  async countByOriginRoutineIds(routineIds: string[]): Promise<Map<string, number>> {
+    if (routineIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({
+        routineId: aiWorkforceQueue.origin_routine_id,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(aiWorkforceQueue)
+      .where(
+        and(
+          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
+          inArray(aiWorkforceQueue.origin_routine_id, routineIds),
+        ),
+      )
+      .groupBy(aiWorkforceQueue.origin_routine_id);
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (row.routineId) counts.set(row.routineId, Number(row.count));
+    }
+    return counts;
+  }
+
   async listFiltered({
     status,
     agentName,
@@ -187,18 +284,18 @@ export class AiWorkforceQueueRepository {
   }
 
   /**
-   * The Workforce nav item's counts in one query: the workspace's unseen
-   * failures (a failed / timed-out run nobody has opened since it failed —
+   * The Workforce nav item's counts in one query: the workspace's recent
+   * failures (a failed / timed-out run that finished in the last 24 hours —
    * not a cancellation, which someone did on purpose) and its queue (runs
    * waiting to start or resume, plus the ones running now). Both are
    * workspace-wide: the nav item reports the workforce, not one user's runs.
    */
-  async countNavSummary(): Promise<{ unseenFailures: number; queued: number; running: number }> {
+  async countNavSummary(): Promise<{ recentFailures: number; queued: number; running: number }> {
     const [row] = await this.db
       .select({
-        unseenFailures: sql<number>`count(*) filter (where ${and(
-          inArray(aiWorkforceQueue.status, UNSEEN_FAILURE_STATUSES),
-          isNull(aiWorkforceQueue.failure_seen_at),
+        recentFailures: sql<number>`count(*) filter (where ${and(
+          inArray(aiWorkforceQueue.status, RECENT_FAILURE_STATUSES),
+          sql`${finishedAtExpr()} >= now() - interval '24 hours'`,
           this.notCancelled(),
         )})::int`,
         queued: sql<number>`count(*) filter (where ${inArray(aiWorkforceQueue.status, QUEUED_STATUSES)})::int`,
@@ -209,38 +306,17 @@ export class AiWorkforceQueueRepository {
         and(
           eq(aiWorkforceQueue.workspace_id, this.workspaceId),
           inArray(aiWorkforceQueue.status, [
-            ...UNSEEN_FAILURE_STATUSES,
+            ...RECENT_FAILURE_STATUSES,
             ...QUEUED_STATUSES,
             ...RUNNING_STATUSES,
           ]),
         ),
       );
     return {
-      unseenFailures: Number(row?.unseenFailures ?? 0),
+      recentFailures: Number(row?.recentFailures ?? 0),
       queued: Number(row?.queued ?? 0),
       running: Number(row?.running ?? 0),
     };
-  }
-
-  /**
-   * Record that someone in the workspace has opened the failed run. A no-op
-   * (returns false) for a run that didn't fail and once already seen — so the
-   * task view can call it on every load.
-   */
-  async markFailureSeen(id: string): Promise<boolean> {
-    const rows = await this.db
-      .update(aiWorkforceQueue)
-      .set({ failure_seen_at: new Date().toISOString() })
-      .where(
-        and(
-          eq(aiWorkforceQueue.id, id),
-          eq(aiWorkforceQueue.workspace_id, this.workspaceId),
-          inArray(aiWorkforceQueue.status, UNSEEN_FAILURE_STATUSES),
-          isNull(aiWorkforceQueue.failure_seen_at),
-        ),
-      )
-      .returning({ id: aiWorkforceQueue.id });
-    return rows.length > 0;
   }
 
   private notCancelled() {

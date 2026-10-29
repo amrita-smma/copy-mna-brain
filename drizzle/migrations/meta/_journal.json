@@ -1373,6 +1373,13 @@
       "when": 1793145602000,
       "tag": "20261028000002_meeting_intelligence_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "20261029000000_workforce_queue_history_index",
+      "breakpoints": true
     }
   ]
 }
