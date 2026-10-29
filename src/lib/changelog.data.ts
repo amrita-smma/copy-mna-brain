@@ -140,6 +140,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "c3ea396546eda2098d17b8108313e1c4de714507",
+    "date": "2026-10-29",
+    "subject": "Deal views now refresh live from the event stream instead of polling",
+    "category": "improvement"
+  },
+  {
+    "hash": "0426981d820d4c3e740a807a940b339fb35ac487",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
