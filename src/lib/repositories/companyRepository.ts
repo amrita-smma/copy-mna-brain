@@ -251,8 +251,8 @@ type CompanyLogRow = {
 };
 
 type ScreeningWithCriteria = Tables<"screenings"> & {
-  criterias: Pick<Tables<"criterias">, "id" | "name" | "prompt"> | null;
-  track: Pick<Tables<"investment_thesis">, "id" | "title"> | null;
+  criterias: Pick<Tables<"criterias">, "id" | "name" | "prompt" | "must_pass"> | null;
+  track: Pick<Tables<"investment_thesis">, "id" | "title" | "min_optional_criteria_pass"> | null;
 };
 
 type MatchedFile = Pick<
@@ -1572,8 +1572,10 @@ export class CompanyRepository {
           criteria_id_inner: criterias.id,
           criteria_name: criterias.name,
           criteria_prompt: criterias.prompt,
+          criteria_must_pass: criterias.must_pass,
           track_id_inner: investmentThesis.id,
           track_title: investmentThesis.title,
+          track_min_optional_criteria_pass: investmentThesis.min_optional_criteria_pass,
         })
         .from(screenings)
         .leftJoin(criterias, eq(criterias.id, screenings.criteria_id))
@@ -1612,11 +1614,16 @@ export class CompanyRepository {
                 id: r.criteria_id_inner,
                 name: r.criteria_name!,
                 prompt: r.criteria_prompt!,
+                must_pass: r.criteria_must_pass ?? false,
               },
         track:
           r.track_id_inner === null
             ? null
-            : { id: r.track_id_inner, title: r.track_title! },
+            : {
+                id: r.track_id_inner,
+                title: r.track_title!,
+                min_optional_criteria_pass: r.track_min_optional_criteria_pass,
+              },
       }),
     );
 

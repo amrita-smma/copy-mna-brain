@@ -1218,3 +1218,100 @@ describe('CompanyRepository.countActiveDealsByOwners', () => {
     expect(sql).toContain('coalesce("companies"."deal_captain", "companies"."deal_sponsor")');
   });
 });
+
+describe('CompanyRepository.findDetails', () => {
+  /**
+   * A db whose n-th `select()` call resolves to `results[n]`. Call 0 is the
+   * un-awaited workspace subquery; calls 1..6 are logs, notes, links,
+   * documents, screenings and matched files, in that order.
+   */
+  function makeDetailsDb(results: unknown[][]) {
+    let call = 0;
+    const select = vi.fn(() => {
+      const value = results[call++] ?? [];
+      const chain: Record<string, unknown> = {};
+      for (const m of ['from', 'leftJoin', 'where', 'orderBy', 'limit']) {
+        chain[m] = vi.fn().mockReturnValue(chain);
+      }
+      chain.then = (resolve: (v: unknown) => unknown) => resolve(value);
+      return chain;
+    });
+    return { select } as never;
+  }
+
+  const screeningRow = {
+    id: 's1',
+    company_id: 'c1',
+    criteria_id: 'cr1',
+    track_id: 't1',
+    state: 'completed',
+    result: 'fail',
+  };
+
+  it('returns must_pass and the track minimum so the verdict follows the track rule', async () => {
+    const db = makeDetailsDb([
+      [],
+      [],
+      [],
+      [],
+      [],
+      [
+        {
+          screening: screeningRow,
+          criteria_id_inner: 'cr1',
+          criteria_name: 'Revenue > 10M',
+          criteria_prompt: 'p',
+          criteria_must_pass: true,
+          track_id_inner: 't1',
+          track_title: 'Tech',
+          track_min_optional_criteria_pass: 2,
+        },
+      ],
+      [],
+    ]);
+    const repo = new CompanyRepository(db, 'workspace-1', makeMirror());
+
+    const { screenings } = await repo.findDetails('c1');
+
+    expect(screenings[0].criterias).toEqual({
+      id: 'cr1',
+      name: 'Revenue > 10M',
+      prompt: 'p',
+      must_pass: true,
+    });
+    expect(screenings[0].track).toEqual({
+      id: 't1',
+      title: 'Tech',
+      min_optional_criteria_pass: 2,
+    });
+  });
+
+  it('keeps criteria and track null for a screening whose rows were deleted', async () => {
+    const db = makeDetailsDb([
+      [],
+      [],
+      [],
+      [],
+      [],
+      [
+        {
+          screening: { ...screeningRow, track_id: null },
+          criteria_id_inner: null,
+          criteria_name: null,
+          criteria_prompt: null,
+          criteria_must_pass: null,
+          track_id_inner: null,
+          track_title: null,
+          track_min_optional_criteria_pass: null,
+        },
+      ],
+      [],
+    ]);
+    const repo = new CompanyRepository(db, 'workspace-1', makeMirror());
+
+    const { screenings } = await repo.findDetails('c1');
+
+    expect(screenings[0].criterias).toBeNull();
+    expect(screenings[0].track).toBeNull();
+  });
+});

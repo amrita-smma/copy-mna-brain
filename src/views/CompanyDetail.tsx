@@ -28,13 +28,10 @@ import {
   Link as LinkIcon,
   Plus,
   Loader2,
-  CheckCircle2,
-  XCircle,
   AlertCircle,
   BookOpen,
   Sparkles,
   Eye,
-  HelpCircle,
   Presentation,
   X,
   MoreVertical,
@@ -83,6 +80,7 @@ import CompanyDetailsTab from '@/components/pipeline/CompanyDetailsTab';
 import { useCompanyInformationEditor } from '@/components/pipeline/useCompanyInformationEditor';
 import { useDealStatusToggle } from '@/components/pipeline/useDealStatusToggle';
 import DropDealDialog from '@/components/pipeline/DropDealDialog';
+import { PrePipelineFilterResults, type PrePipelineScreening as Screening } from '@/components/pipeline/PrePipelineFilterResults';
 
 
 interface CompanyData {
@@ -257,21 +255,6 @@ interface MatchedFile {
   file_date: string | null;
   created_at: string;
   structured_notes: string | null;
-}
-
-interface Screening {
-  id: string;
-  company_id: string;
-  criteria_id: string;
-  state: 'pending' | 'completed' | 'failed';
-  result: string | null;
-  remarks: string | null;
-  created_at: string;
-  criterias: {
-    id: string;
-    name: string;
-    prompt: string;
-  };
 }
 
 interface CompanyAnalysis {
@@ -1194,62 +1177,8 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             />
           </TabsContent>
 
-          <TabsContent value="filters" className="mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Pre-pipeline Filter Results</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {screenings.length > 0 ? (
-                  <div className="space-y-3">
-                    {screenings.map((screening) => (
-                      <div key={screening.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">{screening.criterias?.name || 'Unknown Criteria'}</span>
-                            <Badge
-                              variant={screening.state === 'completed' ? 'outline' : screening.state === 'pending' ? 'secondary' : 'destructive'}
-                              className="text-xs"
-                            >
-                              {screening.state}
-                            </Badge>
-                          </div>
-                          {screening.result && (
-                            <p className="text-sm text-muted-foreground mt-1">{screening.result}</p>
-                          )}
-                          {screening.remarks && (
-                            <p className="text-xs text-muted-foreground mt-1 italic">{screening.remarks}</p>
-                          )}
-                        </div>
-                        <ScreeningStateIcon state={screening.state} result={screening.result} />
-                      </div>
-                    ))}
-                    <div className="pt-3 border-t">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">Overall Status</span>
-                        {(() => {
-                          const isPending = screenings.some(s => s.state === 'pending');
-                          const hasFail = screenings.some(s => s.result?.toLowerCase() === 'fail');
-
-                          if (isPending) {
-                            return <Badge variant="secondary">Pending</Badge>;
-                          }
-                          if (hasFail) {
-                            return <Badge variant="destructive">Fail</Badge>;
-                          }
-
-                          return <Badge variant="default">Pass</Badge>;
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground text-sm">
-                    No screenings have been run yet. Click &quot;Screen&quot; from the L0 stage to run filters.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <TabsContent value="filters" className="mt-6 space-y-4">
+            <PrePipelineFilterResults screenings={screenings} />
           </TabsContent>
 
           {/* Voting — Investment-Committee round on this company. */}
@@ -1282,42 +1211,5 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
         />
       )}
     </>
-  );
-}
-
-function ScreeningStateIcon({ state, result }: { state: 'pending' | 'completed' | 'failed'; result: string | null }) {
-  if (state === 'pending') {
-    return (
-      <div className="flex items-center gap-1 text-yellow-600">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-sm font-medium">Pending</span>
-      </div>
-    );
-  }
-  if (state === 'failed') {
-    return (
-      <div className="flex items-center gap-1 text-red-600">
-        <XCircle className="h-4 w-4" />
-        <span className="text-sm font-medium">Failed</span>
-      </div>
-    );
-  }
-
-  const resultLower = result?.toLowerCase();
-  if (resultLower === 'inconclusive') {
-    return (
-      <div className="flex items-center gap-1 text-amber-500">
-        <HelpCircle className="h-4 w-4" />
-        <span className="text-sm font-medium">Inconclusive</span>
-      </div>
-    );
-  }
-
-  const isPassed = resultLower === 'pass' || resultLower === 'yes';
-  return (
-    <div className={`flex items-center gap-1 ${isPassed ? 'text-green-600' : 'text-red-600'}`}>
-      {isPassed ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-      <span className="text-sm font-medium">{isPassed ? 'Pass' : 'Fail'}</span>
-    </div>
   );
 }
