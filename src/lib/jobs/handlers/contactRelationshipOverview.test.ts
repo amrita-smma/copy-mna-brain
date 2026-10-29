@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/agents/fund_update_processing/structuredOutput', () => ({
   invokeStructuredOutput: mocks.invokeStructuredOutput,
 }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 vi.mock('@/lib/repositories', () => ({
   ContactConversationRepository: class {
@@ -177,6 +179,11 @@ describe('runContactRelationshipOverview', () => {
       metadata: { correspondentId: 'c1', dealNotes: 0 },
     });
     expect(mocks.markOverviewFailed).not.toHaveBeenCalled();
+    // The contact panel hears the overview land, after the write.
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('w1', 'crm-overview', ['c1']);
+    expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mocks.saveOverviewReady.mock.invocationCallOrder[0],
+    );
   });
 
   it('on LLM failure marks overview failed, logs error, and preserves previous text in DB', async () => {
@@ -192,6 +199,7 @@ describe('runContactRelationshipOverview', () => {
       metadata: { error: true, correspondentId: 'c1' },
     });
     expect(mocks.saveOverviewReady).not.toHaveBeenCalled();
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('w1', 'crm-overview', ['c1']);
   });
 
   it('asks for low effort with room for thinking plus a line per linked deal', async () => {

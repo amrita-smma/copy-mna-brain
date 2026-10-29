@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 import {
   InsightService,
   InsightNotFoundError,
@@ -628,6 +630,19 @@ describe('InsightService', () => {
   });
 
   describe('InsightService.publishVersion', () => {
+    it('announces the insight on the insights topic once the version is committed', async () => {
+      liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+      const created = await create();
+      const insert = vi.spyOn(versionRepo, 'create');
+
+      await publish(created.id, '<p>v2 edited</p>');
+
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(WS, 'insights', [created.id]);
+      expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[0]).toBeGreaterThan(
+        insert.mock.invocationCallOrder[0],
+      );
+    });
+
     it('appends a version with trigger copilot_edit', async () => {
       const created = await create();
 
@@ -1196,6 +1211,22 @@ describe('InsightService', () => {
   });
 
   describe('InsightService.publishRunDraft', () => {
+    it('announces a published and an unchanged refresh, but not an idempotent repeat', async () => {
+      liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+      const art = await create({ name: 'Announced Doc' });
+      await seedDraft('run-announce', art.id, '<p>v1 refreshed</p>');
+
+      await service.publishRunDraft(WS, 'run-announce', art.id);
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(1);
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(WS, 'insights', [art.id]);
+
+      await service.publishRunDraft(WS, 'run-announce', art.id);
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(1);
+
+      await service.publishRunDraft(WS, 'run-no-draft-announce', art.id);
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(2);
+    });
+
     it('happy path (appends trigger routine, created_by null, source_run_id = runId, label Scheduled refresh, deletes the draft, returns ownerUserId)', async () => {
       const art = await create({ name: 'Happy Path Doc', userId: 'user-owner' });
       await seedDraft('run-happy', art.id, '<p>v1 refreshed</p>');

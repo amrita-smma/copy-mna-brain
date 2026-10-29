@@ -1,4 +1,6 @@
 import { downloadFile } from '@/lib/s3';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import { FileRepository, FlInvestorRepository, JobRepository } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
@@ -44,6 +46,8 @@ export async function runFundUpdateExtraction(
     processing_status: 'processing',
     file_type: 'fund_updates',
   });
+  const announce = () => publishLiveEvent(workspaceId, LIVE_TOPICS.files, [fileId]);
+  await announce();
 
   await jobRepo.appendLog(deps.job.id, {
     message: 'Starting fund update extraction',
@@ -88,6 +92,7 @@ export async function runFundUpdateExtraction(
         file_type: 'fund_updates',
         processing_status: 'awaiting_review',
       });
+      await announce();
 
       await jobRepo.appendLog(deps.job.id, {
         message: 'Deterministic STARTECH extraction completed successfully',
@@ -134,6 +139,7 @@ export async function runFundUpdateExtraction(
       file_type: 'fund_updates',
       processing_status: nextProcessingStatus,
     });
+    await announce();
 
     await jobRepo.appendLog(deps.job.id, {
       message: isReviewable
@@ -155,6 +161,7 @@ export async function runFundUpdateExtraction(
       await fileRepo.updatePartial(fileId, {
         processing_status: 'failed',
       });
+      await announce();
     } catch (updateErr) {
       console.warn(`[fundUpdateExtraction] Failed to mark file as failed: ${updateErr}`);
     }

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/workforce', () => ({ enqueueAgentRun: mocks.enqueueAgentRun }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 
 vi.mock('@/lib/repositories', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -195,6 +198,15 @@ describe('CompanyContactDiscoveryService.saveContacts', () => {
       editedBy: 'u1',
     });
     expect(result).toMatchObject({ employer: { id: 'emp-new' }, createdIds: ['c1'] });
+  });
+
+  it('announces the company on the contacts live topic once the contacts are saved', async () => {
+    const { service } = makeService();
+    liveMocks.publishLiveEvent.mockClear();
+
+    await service.saveContacts('co-1', ROWS);
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(expect.any(String), 'contacts', ['co-1']);
   });
 
   it('links a domain-matched firm without creating one or re-claiming its domain', async () => {

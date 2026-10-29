@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useLiveRefetchInterval, useLiveTopic } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
 /** `ai_workforce_queue` row shape the enrich endpoint returns. */
 export interface EnrichmentRun {
@@ -15,7 +17,10 @@ export interface EnrichmentRun {
   mode?: "fill" | "refresh";
 }
 
-/** How often to ask whether the run has finished. */
+/**
+ * How often to ask whether the run has finished while the live stream is
+ * down. While it is up, the run's own `workforce` frames say so.
+ */
 const POLL_MS = 4_000;
 /**
  * Stop polling after this long. The queue's own reaper fails a stuck row at 30
@@ -35,8 +40,9 @@ const POLL_TIMEOUT_MS = 5 * 60_000;
  * fill it in would be a step backwards.
  *
  * The run itself lives on the AI Workforce queue, so nothing here owns it:
- * this component polls, and if the user navigates away mid-run the work
- * continues and the contact updates anyway.
+ * this component watches it (the queue's live frames, a timer while the
+ * stream is down), and if the user navigates away mid-run the work continues
+ * and the contact updates anyway.
  *
  * It does **not** look up its own starting state. The contacts tab loads every
  * row's latest run in one request and passes it down as `initialRun` — a GET
@@ -77,12 +83,24 @@ export function FillContactButton({
   /** The run this component has already begun watching, so a re-render with
    *  the same `initialRun` does not restart the loop. */
   const watchedRunIdRef = useRef<string | null>(null);
+  /** The current loop's "ask now", for a live frame about the run. */
+  const pollNowRef = useRef<(() => void) | null>(null);
+  const pollMs = useLiveRefetchInterval(POLL_MS);
+  const pollMsRef = useRef(pollMs);
+  pollMsRef.current = pollMs;
 
   const stopPolling = useCallback(() => {
     pollGenRef.current += 1;
+    pollNowRef.current = null;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
   }, []);
+
+  useLiveTopic(LIVE_TOPICS.workforce, (ids) => {
+    const runId = watchedRunIdRef.current;
+    if (!runId || !pollNowRef.current || (ids && !ids.includes(runId))) return;
+    pollNowRef.current();
+  });
 
   const finish = useCallback(
     (run: EnrichmentRun) => {
@@ -111,8 +129,14 @@ export function FillContactButton({
       watchedRunIdRef.current = runId;
       const gen = pollGenRef.current;
       const deadline = Date.now() + POLL_TIMEOUT_MS;
+      // A live frame and the timer can both ask at once; one read at a time.
+      let inFlight = false;
 
       const poll = async (): Promise<void> => {
+        if (inFlight) return;
+        inFlight = true;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
         try {
           const res = await fetch(
             `/api/crm/correspondents/${correspondentId}/enrich`,
@@ -134,6 +158,8 @@ export function FillContactButton({
           // A single failed poll says nothing about the run — it is still on
           // the queue. Keep waiting; the deadline below is what ends this.
           if (!mountedRef.current || gen !== pollGenRef.current) return;
+        } finally {
+          inFlight = false;
         }
         if (Date.now() > deadline) {
           stopPolling();
@@ -147,9 +173,10 @@ export function FillContactButton({
         // allowed to own timerRef, so a superseded loop can never schedule a
         // tick that outlives the stopPolling() that retired it.
         if (gen !== pollGenRef.current) return;
-        timerRef.current = setTimeout(() => void poll(), POLL_MS);
+        timerRef.current = setTimeout(() => void poll(), pollMsRef.current);
       };
 
+      pollNowRef.current = () => void poll();
       void poll();
     },
     [contactName, correspondentId, finish, stopPolling],

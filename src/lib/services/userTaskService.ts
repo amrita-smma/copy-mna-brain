@@ -1,3 +1,5 @@
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import type {
   UserRepository,
   UserTaskPatch,
@@ -123,7 +125,13 @@ export class UserTaskService {
       title: normalizeTitle(input.title),
       remind_at: normalizeRemindAt(input.remindAt),
     });
+    await this.announce(userId);
     return toDto(row);
+  }
+
+  /** The owner's open tabs re-read their list. `ids` is the user, so other members ignore it. */
+  private announce(userId: string): Promise<void> {
+    return publishLiveEvent(this.workspaceId, LIVE_TOPICS.userTasks, [userId]);
   }
 
   /** Returns `null` when the task does not exist or is not the user's. */
@@ -145,11 +153,14 @@ export class UserTaskService {
       throw new UserTaskValidationError('nothing to update');
     }
     const row = await this.taskRepo.update(id, userId, patch);
+    if (row) await this.announce(userId);
     return row ? toDto(row) : null;
   }
 
   async delete(userId: string, id: string): Promise<boolean> {
-    return this.taskRepo.delete(id, userId);
+    const deleted = await this.taskRepo.delete(id, userId);
+    if (deleted) await this.announce(userId);
+    return deleted;
   }
 
   /**

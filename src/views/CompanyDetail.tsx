@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { CompanyContextCard } from '@/components/pipeline/CompanyContextCard';
@@ -54,8 +54,8 @@ import {
   hasCompanyCard,
   useCompanyCardGeneration,
 } from '@/components/pipeline/useCompanyCardGeneration';
+import { useCompanyCardSectionEdit } from '@/components/pipeline/useCompanyCardSectionEdit';
 import CompanyOverviewSlide, {
-  type AnalysisSectionKey,
   type EditSectionRequest,
 } from '@/components/pipeline/CompanyOverviewSlide';
 import { useLayoutControl } from '@/components/layout/LayoutControlContext';
@@ -409,21 +409,15 @@ export default function CompanyDetail() {
     cancel: cancelAnalysis,
   } = card;
   const generateAnalysis = () => card.generate();
-  const [editingSectionKey, setEditingSectionKey] =
-    useState<AnalysisSectionKey | null>(null);
-  const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopSectionEditPoll = () => {
-    if (sectionEditPollRef.current) {
-      clearInterval(sectionEditPollRef.current);
-      sectionEditPollRef.current = null;
-    }
-  };
+  // The card section the copilot is currently rewriting (drives the slide's
+  // busy overlay). Cleared when the new content lands or the wait times out.
+  const { editingSectionKey, watch: watchSectionEdit } =
+    useCompanyCardSectionEdit<CompanyAnalysis>(companyId, setAnalysis);
 
   // Right-click → "Edit with AI" on an Overview slide section. Hands the copilot
   // a tightly-scoped prompt (company_id + section + current content + change) so
-  // it rewrites ONLY that section via update_company_card_section, then polls the
-  // analysis row until the new content lands and refreshes the slide in place.
+  // it rewrites ONLY that section via update_company_card_section, then watches
+  // the analysis row until the new content lands and refreshes the slide in place.
   const handleEditSection = (req: EditSectionRequest) => {
     if (!companyId) return;
     const name = companyDisplayName(company, 'this company');
@@ -447,37 +441,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     }
     toast.info(`Sent to AI CoPilot — updating "${req.sectionTitle}"…`);
 
-    setEditingSectionKey(req.sectionKey);
-    stopSectionEditPoll();
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const res = await fetch(`/api/company-analysis?companyId=${companyId}`);
-        if (res.ok) {
-          const data = (await res.json()) as CompanyAnalysis;
-          const next = data?.[req.sectionKey];
-          if (
-            data &&
-            typeof next === 'string' &&
-            next.trim() !== previousContent.trim()
-          ) {
-            setAnalysis(data);
-            setEditingSectionKey(null);
-            stopSectionEditPoll();
-            toast.success(`Updated "${req.sectionTitle}"`);
-            return;
-          }
-        }
-      } catch {
-        // transient — keep polling until the cap
-      }
-      if (attempts >= 48) {
-        stopSectionEditPoll();
-        setEditingSectionKey(null);
-      }
-    }, 2500);
-    sectionEditPollRef.current = interval;
+    watchSectionEdit(req);
   };
 
   const [newNote, setNewNote] = useState('');
@@ -562,12 +526,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     getTracks()
       .then(setTracks)
       .catch((err) => console.error('Failed to load tracks:', err));
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      stopSectionEditPoll();
-    };
   }, []);
 
   const fetchCompany = async (opts: { silent?: boolean } = {}) => {

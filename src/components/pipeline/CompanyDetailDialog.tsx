@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   PrePipelineFilterResults,
   type PrePipelineScreening as Screening,
@@ -57,9 +57,9 @@ import {
   hasCompanyCard,
   useCompanyCardGeneration,
 } from "@/components/pipeline/useCompanyCardGeneration";
+import { useCompanyCardSectionEdit } from "@/components/pipeline/useCompanyCardSectionEdit";
 import DropDealDialog from "@/components/pipeline/DropDealDialog";
 import CompanyOverviewSlide, {
-  type AnalysisSectionKey,
   type EditSectionRequest,
 } from "@/components/pipeline/CompanyOverviewSlide";
 import FeaturedSlideSection from "@/components/pipeline/featured/FeaturedSlideSection";
@@ -438,22 +438,14 @@ export default function CompanyDetailDialog({
   } = card;
   // The card section the copilot is currently rewriting (drives the slide's
   // busy overlay). Cleared when the new content lands or the wait times out.
-  const [editingSectionKey, setEditingSectionKey] =
-    useState<AnalysisSectionKey | null>(null);
-  const sectionEditPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopSectionEditPoll = () => {
-    if (sectionEditPollRef.current) {
-      clearInterval(sectionEditPollRef.current);
-      sectionEditPollRef.current = null;
-    }
-  };
+  const { editingSectionKey, watch: watchSectionEdit } =
+    useCompanyCardSectionEdit<CompanyAnalysis>(company.id, setAnalysis);
 
   // Right-click → "Edit with AI" on an Overview slide section. We hand the
   // copilot a tightly-scoped prompt (company_id + section key + current content
   // + the requested change) so it can rewrite ONLY that section via the
-  // update_company_card_section tool, then poll the analysis row until the new
-  // content lands and refresh the slide in place.
+  // update_company_card_section tool, then watch the analysis row until the
+  // new content lands and refresh the slide in place.
   const handleEditSection = (req: EditSectionRequest) => {
     const name = companyDisplayName(company, "this company");
     const previousContent = req.currentContent;
@@ -472,37 +464,7 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
     focusCopilot();
     toast.info(`Sent to AI CoPilot — updating "${req.sectionTitle}"…`);
 
-    setEditingSectionKey(req.sectionKey);
-    stopSectionEditPoll();
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const data = await apiRequest<CompanyAnalysis>(
-          `/api/company-analysis?companyId=${company.id}`,
-        );
-        const next = data?.[req.sectionKey];
-        if (
-          data &&
-          typeof next === "string" &&
-          next.trim() !== previousContent.trim()
-        ) {
-          setAnalysis(data);
-          setEditingSectionKey(null);
-          stopSectionEditPoll();
-          toast.success(`Updated "${req.sectionTitle}"`);
-          return;
-        }
-      } catch {
-        // transient — keep polling until the cap
-      }
-      if (attempts >= 48) {
-        // ~2 min cap; the copilot may still finish, but stop blocking the UI.
-        stopSectionEditPoll();
-        setEditingSectionKey(null);
-      }
-    }, 2500);
-    sectionEditPollRef.current = interval;
+    watchSectionEdit(req);
   };
 
   // Form states
@@ -570,12 +532,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
       .then(setTracks)
       .catch((err) => console.error("Failed to load tracks:", err));
   }, [open, tracks.length]);
-
-  useEffect(() => {
-    return () => {
-      stopSectionEditPoll();
-    };
-  }, []);
 
   const fetchDetails = async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true);

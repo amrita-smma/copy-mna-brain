@@ -9,6 +9,8 @@ import { TraceLine } from './trace';
 import type { InterventionDecisionInput } from './trace';
 import type { Routine, RoutineRunStatus, TraceData } from './shared';
 import { useVisibleInterval } from './shared';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 type WorkforceQueueStatus =
   | 'pending'
@@ -21,9 +23,10 @@ type WorkforceQueueStatus =
   | 'rejected'
   | 'timed_out';
 
-// Polled while a run is non-terminal so the inline trace + decision UI
-// stays current. Mirrors TaskCanvas's poll cadence; cleared on collapse or
-// terminal status.
+// While the live stream is down, how often an open, non-terminal run's trace
+// is re-read so the inline trace + decision UI stays current. While it is up,
+// the run's `workforce` frames drive the refresh. Mirrors TaskCanvas; cleared
+// on collapse or terminal status.
 const TRACE_POLL_MS = 5000;
 const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
   'pending',
@@ -393,7 +396,11 @@ function RunCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isInProgress, fetchTrace]);
 
-  useVisibleInterval(fetchTrace, TRACE_POLL_MS, open && isInProgress);
+  useVisibleInterval(fetchTrace, useLiveRefetchInterval(TRACE_POLL_MS), open && isInProgress);
+  useLiveTopic(LIVE_TOPICS.workforce, (ids) => {
+    if (!open || !isInProgress || (ids && !ids.includes(run.id))) return;
+    void fetchTrace();
+  });
 
   const handleToggle = () => setOpen((v) => !v);
 

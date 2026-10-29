@@ -10,7 +10,11 @@ import { formatInsightDate } from '@/lib/insights/format';
 import type { InsightDetail, InsightHead } from '@/lib/insights/types';
 import type { PublishInsightVersionParams } from '@/lib/api/insights';
 
-/** How often an open, visible, unresolved card checks the insight's head. */
+/**
+ * How often an open, visible, unresolved card checks the insight's head
+ * while the live stream is down; while it is up, the `insights` topic says
+ * when a version landed.
+ */
 export const BASE_POLL_INTERVAL_MS = 30_000;
 
 /** What the card shows once rejected. Rejecting writes nothing anywhere. */

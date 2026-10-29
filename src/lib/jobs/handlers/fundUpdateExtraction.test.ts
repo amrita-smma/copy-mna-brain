@@ -3,6 +3,9 @@ import { runFundUpdateExtraction } from './fundUpdateExtraction';
 import type { Tables } from '@/lib/repositories';
 import { tryDeterministicFundUpdateParse } from '@/lib/fund_updates';
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 // Mock dependencies
 vi.mock('@/lib/s3', () => ({
   downloadFile: vi.fn().mockResolvedValue(Buffer.from('mock-excel-binary')),
@@ -92,6 +95,7 @@ describe('fundUpdateExtraction job handler', () => {
     };
 
     mockDb = {};
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
     mockJob = {
       id: 'job-999',
       type: 'fund_update_extraction' as any,
@@ -138,6 +142,12 @@ describe('fundUpdateExtraction job handler', () => {
     );
 
     expect((result.fund_update_proposal as any)?.schema_version).toBe('workbook_fallback_v1');
+    // Smart Files hears the row move to processing, then to awaiting_review.
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(2);
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-1', 'files', ['file-123']);
+    expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[1]).toBeGreaterThan(
+      mockFileRepo.updatePartial.mock.invocationCallOrder[1],
+    );
   });
 
   it('reparses Nanjing workbooks with existing master investor names', async () => {

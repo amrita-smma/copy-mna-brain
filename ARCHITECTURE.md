@@ -128,11 +128,17 @@ check for N+1 queries before you finish — see below.
 `terraform/redis`) holds what expires on its own: which bot is thinking, Stop
 signals, pub/sub to the browsers' SSE streams. Never make correctness depend on
 it — the turn lock, history and checkpoints stay in Postgres, and every Redis
-write is wrapped so an outage degrades the live indicators, not chat. Live
-views follow the same rule: a service publishes `{ topic, ids }` after its
-write (`publishLiveEvent`), `GET /api/events` forwards it, and each view is a
-react-query hook keyed under its topic with a slow polling fallback
-(`docs/features/live-updates-sse.md`). Never poll the database from a stream.
+write is wrapped so an outage degrades the live indicators, not chat.
+
+**The browser never polls.** State a view shows while it changes elsewhere is
+pushed: the writer publishes `{ topic, ids }` after its write
+(`publishLiveEvent`), `GET /api/events` forwards it over one SSE connection
+per tab, and the view subscribes (a react-query key under the topic,
+`useLiveTopic`, or `waitForLiveEvent` for a promise). A timer exists only as
+the fallback while the stream is down, at the view's old cadence; while it is
+up it is the 60 s safety net. A new `setInterval`/`refetchInterval` against
+server state, or a status write without a publish, is rejected in review:
+`.claude/rules/live-updates.md`. Never poll the database from a stream route.
 
 **Two migration folders, one fixed order.** `pnpm db:migrate` applies every
 pending app migration, then every pending pipeline migration, so on a database

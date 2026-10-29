@@ -12,6 +12,8 @@ import {
 } from '@/lib/agents/fund_update_processing/structuredOutput';
 import { decodeHtmlEntities } from '@/lib/crm/displayText';
 import { overviewInputHash } from '@/lib/crm/overviewInputHash';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import type { OverviewDealNote } from '@/lib/repositories';
 
 // Haiku: the input is already-paraphrased notes, and a post-ingest refresh runs
@@ -304,6 +306,7 @@ export async function runContactRelationshipOverview(
       inferredIndustryFocus,
       inferredAreaFocus,
     });
+    await publishLiveEvent(workspaceId, LIVE_TOPICS.crmOverview, [correspondentId]);
 
     if (jobId) {
       try {
@@ -320,6 +323,7 @@ export async function runContactRelationshipOverview(
   } catch (err) {
     try {
       await contactConversationRepo.markOverviewFailed(workspaceId, correspondentId);
+      await publishLiveEvent(workspaceId, LIVE_TOPICS.crmOverview, [correspondentId]);
       if (jobId) {
         await jobRepo.appendLog(jobId, {
           message: err instanceof Error ? err.message : String(err),

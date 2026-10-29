@@ -8,6 +8,8 @@ import {
   runDealDocumentProcessing,
   DEAL_DOCUMENT_PROCESSING_TIMEOUT_SECONDS,
 } from '@/lib/jobs/handlers/dealDocumentProcessing';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export class DealDocumentService {
   constructor(
@@ -35,14 +37,17 @@ export class DealDocumentService {
     // job would pull the whole (often very large) file into memory to find
     // that out. Store it as `skipped` so nothing polls for insights either.
     if (isMediaFileKind(detectFileKind(data.file_name))) {
-      return this.dealDocRepo.insert({
+      const skipped = await this.dealDocRepo.insert({
         ...rest,
         ...(created_at ? { created_at } : {}),
         processing_status: 'skipped',
       });
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.documents, [skipped.id]);
+      return skipped;
     }
 
     const row = await this.dealDocRepo.insert(created_at ? { ...rest, created_at } : rest);
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.documents, [row.id]);
 
     await this.jobDispatcher.dispatch({
       type: 'deal_document_processing',

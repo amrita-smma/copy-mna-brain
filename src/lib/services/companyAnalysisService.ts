@@ -389,6 +389,7 @@ export class CompanyAnalysisService {
     const existing = await this.companyAnalysisRepo.findByCompanyId(companyId);
     if (existing && existing.status !== 'completed') {
       await this.companyAnalysisRepo.deleteByCompanyId(companyId);
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.companyCard, [companyId]);
     }
 
     return { cancelled };

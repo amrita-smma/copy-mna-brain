@@ -1,3 +1,5 @@
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import type { DbClient } from '@/lib/repositories/types';
 import type {
   InsightRepository,
@@ -923,7 +925,16 @@ export class InsightService {
         agentStamp: input.agentStamp ?? null,
       });
     });
+    await this.announceInsight(input.workspaceId, input.insightId);
     return this.withSourceTemplateName(input.workspaceId, detail);
+  }
+
+  /**
+   * The insight's head moved: an open CoPilot edit card re-diffs against it.
+   * After the transaction commits, never inside it.
+   */
+  private announceInsight(workspaceId: string, insightId: string): Promise<void> {
+    return publishLiveEvent(workspaceId, LIVE_TOPICS.insights, [insightId]);
   }
 
   /**
@@ -950,6 +961,7 @@ export class InsightService {
         userId: input.userId,
       });
     });
+    await this.announceInsight(input.workspaceId, input.insightId);
     return this.withSourceTemplateName(input.workspaceId, detail);
   }
 
@@ -1428,7 +1440,7 @@ export class InsightService {
     insightId: string,
     agentStamp: InsightAgentStamp | null = null,
   ): Promise<PublishRunDraftResult> {
-    return this.withTransaction(async (tx) => {
+    const result = await this.withTransaction<PublishRunDraftResult>(async (tx) => {
       // 1. Check if routine version already exists
       const existingRoutine =
         await this.insightVersionRepo.findRoutineVersionBySourceRunId(
@@ -1577,6 +1589,11 @@ export class InsightService {
         ownerUserId: locked.created_by,
       };
     });
+    // 'published' and 'unchanged' both appended a version; 'already_published' wrote nothing.
+    if (result.status !== 'already_published') {
+      await this.announceInsight(workspaceId, result.insightId);
+    }
+    return result;
   }
 
   private async currentVersionHtml(

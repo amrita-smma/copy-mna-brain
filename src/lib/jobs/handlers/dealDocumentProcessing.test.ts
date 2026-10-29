@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { runDealDocumentProcessing } from './dealDocumentProcessing';
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
 import type { Tables } from '@/lib/repositories';
 
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 vi.mock('@/lib/s3', () => ({
   downloadFile: vi.fn().mockResolvedValue(Buffer.from('mock-pdf-binary')),
 }));
@@ -98,6 +100,19 @@ describe('dealDocumentProcessing job handler', () => {
       'job-999',
       expect.objectContaining({ message: 'Document analysis completed' }),
     );
+  });
+
+  it('announces the document on the documents live topic as it starts and as it finishes', async () => {
+    const { processFileContent } = await import('@/lib/agents/file_processing');
+    vi.mocked(processFileContent).mockResolvedValue({ summary: 's', tags: [] } as never);
+    liveMocks.publishLiveEvent.mockClear();
+
+    await runDealDocumentProcessing({ dealDocumentId: 'doc-123' }, { db: mockDb, job: mockJob });
+
+    expect(liveMocks.publishLiveEvent.mock.calls).toEqual([
+      ['ws-1', 'documents', ['doc-123']],
+      ['ws-1', 'documents', ['doc-123']],
+    ]);
   });
 
   it('marks the document failed and rethrows when the agent call throws', async () => {

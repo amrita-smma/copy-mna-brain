@@ -4,16 +4,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useQueryClient } from '@tanstack/react-query';
 import { useEventStream } from '@/hooks/useEventStream';
 import { ALL_LIVE_TOPICS, type LiveEvent, type LiveTopic } from '@/lib/live/topics';
+import { LIVE_REFETCH_MS, liveBus, type LiveTopicListener } from '@/lib/live/liveBus';
 
 export const LIVE_EVENTS_URL = '/api/events';
 
-/**
- * How often a live query refetches on its own while the stream is up. A
- * safety net for a dropped frame, not the update path, so it is slow.
- */
-export const LIVE_REFETCH_MS = 60_000;
+export { LIVE_REFETCH_MS };
 
-type TopicListener = (ids: string[] | undefined) => void;
+type TopicListener = LiveTopicListener;
 
 interface LiveEventsContextValue {
   /** The stream is open: updates arrive as they happen. */
@@ -40,18 +37,14 @@ const LiveEventsContext = createContext<LiveEventsContextValue>({
  */
 export function LiveEventsProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [connected, setConnected] = useState(false);
-  const listeners = useRef(new Map<LiveTopic, Set<TopicListener>>());
-
-  const notify = useCallback((topic: LiveTopic, ids: string[] | undefined) => {
-    listeners.current.get(topic)?.forEach((listener) => {
-      try {
-        listener(ids);
-      } catch (err) {
-        console.error('[live] listener failed:', err);
-      }
-    });
+  const [connected, setConnectedState] = useState(false);
+  // Mirrored into the module-level bus so non-hook code (`waitForJob`) hears it.
+  const setConnected = useCallback((value: boolean) => {
+    liveBus.setConnected(value);
+    setConnectedState(value);
   }, []);
+
+  const notify = useCallback((topic: LiveTopic, ids: string[] | undefined) => liveBus.emit(topic, ids), []);
 
   const onEvent = useCallback(
     (event: LiveEvent) => {
@@ -70,25 +63,17 @@ export function LiveEventsProvider({ enabled, children }: { enabled: boolean; ch
     [queryClient, notify],
   );
 
-  const onOpen = useCallback(() => setConnected(true), []);
-  const onClose = useCallback(() => setConnected(false), []);
+  const onOpen = useCallback(() => setConnected(true), [setConnected]);
+  const onClose = useCallback(() => setConnected(false), [setConnected]);
   useEventStream<LiveEvent>(enabled ? LIVE_EVENTS_URL : null, onEvent, { onOpen, onClose });
 
   useEffect(() => {
     if (!enabled) setConnected(false);
-  }, [enabled]);
+  }, [enabled, setConnected]);
 
-  const subscribe = useCallback((topic: LiveTopic, listener: TopicListener) => {
-    let set = listeners.current.get(topic);
-    if (!set) {
-      set = new Set();
-      listeners.current.set(topic, set);
-    }
-    set.add(listener);
-    return () => {
-      set.delete(listener);
-    };
-  }, []);
+  useEffect(() => () => setConnected(false), [setConnected]);
+
+  const subscribe = useCallback((topic: LiveTopic, listener: TopicListener) => liveBus.subscribe(topic, listener), []);
 
   const value = useMemo(() => ({ connected, subscribe }), [connected, subscribe]);
   return <LiveEventsContext.Provider value={value}>{children}</LiveEventsContext.Provider>;

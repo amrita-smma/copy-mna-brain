@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/queue', () => ({ enqueueSendEmail: vi.fn() }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 class MockTaskRepo {
   listForUser = mocks.listForUser;
@@ -89,6 +91,36 @@ describe('UserTaskService.create', () => {
       title: 'Call banker',
       remind_at: '2026-10-16T02:00:00.000Z',
     });
+  });
+
+  it('announces the owner on the user-tasks topic after a create, an update and a delete', async () => {
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+    mocks.create.mockResolvedValue(row());
+    mocks.update.mockResolvedValue(row({ completed_at: '2026-10-16T02:00:00.000Z' }));
+    mocks.delete.mockResolvedValue(true);
+    const service = makeService();
+
+    await service.create('u1', { title: 'Call banker' });
+    await service.update('u1', 't1', { completed: true });
+    await service.delete('u1', 't1');
+
+    expect(liveMocks.publishLiveEvent.mock.calls).toEqual([
+      ['ws-1', 'user-tasks', ['u1']],
+      ['ws-1', 'user-tasks', ['u1']],
+      ['ws-1', 'user-tasks', ['u1']],
+    ]);
+  });
+
+  it('announces nothing when an update or delete touched no row', async () => {
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+    mocks.update.mockResolvedValue(null);
+    mocks.delete.mockResolvedValue(false);
+    const service = makeService();
+
+    await service.update('u1', 'missing', { completed: true });
+    await service.delete('u1', 'missing');
+
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 
   it('rejects a blank title', async () => {

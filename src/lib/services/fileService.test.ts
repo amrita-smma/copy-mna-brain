@@ -26,6 +26,8 @@ vi.mock('@/lib/s3', () => ({
 }));
 
 const posthogMocks = vi.hoisted(() => ({ captureWorkspaceEvent: vi.fn() }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 vi.mock('@/lib/posthog-server', () => ({
   captureWorkspaceEvent: posthogMocks.captureWorkspaceEvent,
 }));
@@ -650,6 +652,37 @@ describe('FileService.processUpload', () => {
     vi.mocked(processFileContent).mockResolvedValue(null);
     vi.mocked(processFundUpdateContent).mockResolvedValue(null as any);
     vi.mocked(criteriaRepo.findAll).mockResolvedValue([]);
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('announces the file on the files topic when its row lands and again after its status settles', async () => {
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    const frames = liveMocks.publishLiveEvent.mock.calls.filter(([, topic]) => topic === 'files');
+    expect(frames).toEqual([
+      ['workspace-1', 'files', ['file-1']],
+      ['workspace-1', 'files', ['file-1']],
+    ]);
+    // The settling frame follows the completing write.
+    const completedWrite = vi
+      .mocked(fileRepo.updatePartial)
+      .mock.calls.findIndex(([, updates]) => updates.processing_status === 'completed');
+    expect(completedWrite).toBeGreaterThanOrEqual(0);
+    expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[1]).toBeGreaterThan(
+      vi.mocked(fileRepo.updatePartial).mock.invocationCallOrder[completedWrite],
+    );
+  });
+
+  it('announces the file after it is marked failed when extraction throws', async () => {
+    vi.mocked(processFileContent).mockRejectedValueOnce(new Error('extract failed'));
+
+    await service.processUpload('uploads/report.pdf', 'report.pdf', 'application/pdf');
+
+    expect(fileRepo.updatePartial).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ processing_status: 'failed' }),
+    );
+    expect(liveMocks.publishLiveEvent).toHaveBeenLastCalledWith('workspace-1', 'files', ['file-1']);
   });
 
   it('skips insert and returns the existing file when the same filename was already uploaded', async () => {

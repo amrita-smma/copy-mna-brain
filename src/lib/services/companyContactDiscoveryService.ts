@@ -29,6 +29,8 @@ import {
   toContactEnrichmentRun,
   type ContactEnrichmentRun,
 } from './crmContactEnrichmentService';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /** The CRM employer a company resolves to, and how. */
 export interface CompanyCrmEmployer {
@@ -250,6 +252,7 @@ export class CompanyContactDiscoveryService {
       source: 'crm_contact',
       editedBy: opts.editedBy ?? null,
     });
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.contacts, [companyId]);
     return {
       employer,
       createdIds: result.createdIds,

@@ -30,6 +30,8 @@ import { getActiveWorkspaceId } from "@/lib/workspace";
 import { clipCompanyContext } from '@/lib/companyContextPrompt';
 import { companyDisplayName } from "@/lib/companyDisplay";
 import { TRACE_NAMES } from "@/lib/langfuseTraceNames";
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export const COMPANY_ANALYSIS_TIMEOUT_SECONDS = 480; // 8 minutes
 
@@ -288,6 +290,8 @@ export async function generateCompanyCard(
   if (!companyId) throw new Error("Missing required field: companyId");
 
   const analysisRepo = new CompanyAnalysisRepository(deps.db, workspaceId);
+  // The Overview watches the card row: every status write below announces it.
+  const announceCard = () => publishLiveEvent(workspaceId, LIVE_TOPICS.companyCard, [companyId]);
   const companyRepo = new CompanyRepository(deps.db, workspaceId);
   const financialRepo = new CompanyFinancialRepository(deps.db, workspaceId);
   const screeningRepo = new CompanyScreeningDerivedRepository(deps.db, workspaceId);
@@ -339,6 +343,7 @@ export async function generateCompanyCard(
     error_message: null,
     job_id: jobId,
   });
+  await announceCard();
 
   const agent = await getStatelessAgentGraph();
   if (!agent) {
@@ -346,6 +351,7 @@ export async function generateCompanyCard(
       status: "failed",
       error_message: "Agent not available. Check ANTHROPIC_API_KEY.",
     });
+    await announceCard();
     throw new Error(
       "Agent not available. Please ensure ANTHROPIC_API_KEY is set.",
     );
@@ -384,6 +390,7 @@ export async function generateCompanyCard(
       status: "failed",
       error_message: message,
     });
+    await announceCard();
     throw err;
   }
 
@@ -416,6 +423,7 @@ export async function generateCompanyCard(
           status: "failed",
           error_message: "Failed to parse AI response into structured format",
         });
+        await announceCard();
         throw new Error("Failed to parse AI response");
       }
     } else {
@@ -432,6 +440,7 @@ export async function generateCompanyCard(
         status: "failed",
         error_message: "AI response was not in expected JSON format",
       });
+      await announceCard();
       throw new Error("AI response was not in expected format");
     }
   }
@@ -462,6 +471,7 @@ export async function generateCompanyCard(
     ...(analysisResult.logo_url ? { logo_url: analysisResult.logo_url } : {}),
     error_message: null,
   });
+  await announceCard();
 
   captureWorkspaceEvent({
     workspaceId,

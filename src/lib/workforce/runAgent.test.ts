@@ -4,6 +4,7 @@
  * plain async code. We mock the LangChain agent, the repo, and the DB client.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LiveTraceCallbackHandler } from './liveTrace';
 
 const {
   findById,
@@ -287,6 +288,17 @@ afterEach(() => {
 });
 
 describe('runAgent — happy path', () => {
+  it('rides the run with a live trace handler so the canvases redraw as the checkpoint grows', async () => {
+    findById.mockResolvedValueOnce(makeRow());
+    getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
+    invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
+
+    await runAgent({ runId: RUN_ID });
+
+    const { callbacks } = invokeMock.mock.calls[0][1] as { callbacks?: unknown[] };
+    expect(callbacks).toEqual([expect.any(LiveTraceCallbackHandler)]);
+  });
+
   it('feeds input.prompt through to the agent with runId as thread_id', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });

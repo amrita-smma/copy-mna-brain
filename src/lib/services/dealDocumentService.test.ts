@@ -5,6 +5,9 @@ import { DealDocumentService } from './dealDocumentService';
 import { UnsupportedFeaturedSlideError } from './featuredSlide';
 
 vi.mock('@/lib/s3', () => ({ deleteFile: vi.fn() }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
+
 
 import { deleteFile } from '@/lib/s3';
 
@@ -88,6 +91,16 @@ describe('DealDocumentService.register', () => {
         payload: { dealDocumentId: 'doc-1', workspaceId: 'workspace-1', contentType: 'application/pdf' },
       }),
     );
+  });
+
+  it('announces the new document on the documents live topic', async () => {
+    const repo = makeRepoStub();
+    vi.mocked(repo.insert).mockResolvedValue(makeDocument({ id: 'doc-9' }));
+    const service = new DealDocumentService(repo, linkRepo, makeJobDispatcherStub(), 'workspace-1');
+
+    await service.register({ deal_id: 'company-1', file_name: 'report.pdf', file_path: 'p', file_size: 1, mime_type: 'application/pdf', stage: 'L1' });
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('workspace-1', 'documents', ['doc-9']);
   });
 
   it('does not clear any featured document when registering a non-featured upload', async () => {

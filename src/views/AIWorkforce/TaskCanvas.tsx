@@ -10,6 +10,8 @@ import { avatarToneClass, describeLiveness, useVisibleInterval } from './shared'
 import { NotificationStack } from '@/components/notifications/NotificationStack';
 import type { TaskNotification } from '@/lib/notifications/types';
 import { useTaskNotifications } from './useTaskNotifications';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import { WorkspaceLink } from '@/components/WorkspaceLink';
 import type { InsightRunVersionLink } from '@/lib/insights/types';
 
@@ -80,6 +82,11 @@ function getComposerMode(status: WorkforceQueueStatus): ComposerMode {
   if (COMPOSER_ATTACH_STATUSES.includes(status)) return 'attach';
   return 'disabled';
 }
+/**
+ * While the live stream is down, how often an in-progress task's trace is
+ * re-read. While it is up, the run's `workforce` frames (every status move,
+ * and the trace as it grows) drive the refresh.
+ */
 const TRACE_POLL_MS = 5000;
 
 interface ApiQueueItem {
@@ -303,7 +310,11 @@ export function TaskCanvas({
   }, [refresh, item?.status]);
 
   const inProgress = Boolean(item?.status && IN_PROGRESS_STATUSES.includes(item.status));
-  useVisibleInterval(refresh, TRACE_POLL_MS, inProgress);
+  useVisibleInterval(refresh, useLiveRefetchInterval(TRACE_POLL_MS), inProgress);
+  useLiveTopic(LIVE_TOPICS.workforce, (ids) => {
+    if (!inProgress || !taskId || (ids && !ids.includes(taskId))) return;
+    void refresh();
+  });
 
   if (!taskId) {
     return (

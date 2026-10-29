@@ -4,6 +4,8 @@ import { processFileContent } from '@/lib/agents/file_processing';
 import { DealDocumentRepository, JobRepository } from '@/lib/repositories';
 import type { DbClient, Tables } from '@/lib/repositories';
 import { getActiveWorkspaceId } from '@/lib/workspace';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 export const DEAL_DOCUMENT_PROCESSING_TIMEOUT_SECONDS = 180; // 3 minutes
 
@@ -35,6 +37,7 @@ export async function runDealDocumentProcessing(
   const doc = await dealDocRepo.findById(dealDocumentId);
 
   await dealDocRepo.updatePartial(doc.id, { processing_status: 'processing' });
+  await publishLiveEvent(workspaceId, LIVE_TOPICS.documents, [doc.id]);
   await jobRepo.appendLog(deps.job.id, {
     message: 'Starting document analysis',
     metadata: { dealDocumentId: doc.id, fileName: doc.file_name },
@@ -54,12 +57,14 @@ export async function runDealDocumentProcessing(
       tags: structured?.tags ?? [],
       processing_status: structured ? 'completed' : 'failed',
     });
+    await publishLiveEvent(workspaceId, LIVE_TOPICS.documents, [doc.id]);
 
     await jobRepo.appendLog(deps.job.id, {
       message: structured ? 'Document analysis completed' : 'Document analysis produced no result',
     });
   } catch (error) {
     await dealDocRepo.updatePartial(doc.id, { processing_status: 'failed' });
+    await publishLiveEvent(workspaceId, LIVE_TOPICS.documents, [doc.id]);
     await jobRepo.appendLog(deps.job.id, {
       message: `Document analysis failed: ${error instanceof Error ? error.message : String(error)}`,
       metadata: {

@@ -11,7 +11,9 @@
  *
  * So the contract for a live view is: its react-query key starts with the
  * topic (`[LIVE_TOPICS.screenings, slug, companyId]`), and it keeps a slow
- * `refetchInterval` as the fallback for when the stream is down.
+ * `refetchInterval` as the fallback for when the stream is down. Nothing in
+ * the client watches server state on its own timer: see
+ * `.claude/rules/live-updates.md`.
  */
 export const LIVE_TOPICS = {
   /** `screenings` rows: state / result changes. */
@@ -22,6 +24,24 @@ export const LIVE_TOPICS = {
   aiOpinion: 'ai-opinion',
   /** Sourcing's Pending Confirmation bucket: a company arrived, left, or was dropped. */
   sourcing: 'sourcing',
+  /** `deal_documents.processing_status`: an attachment's AI processing moved. `ids` are document ids. */
+  documents: 'documents',
+  /** `company_analyses` (the AI Company Card): a run wrote the row. `ids` are company ids. */
+  companyCard: 'company-card',
+  /** A contact search saved CRM contacts for a company. `ids` are company ids. */
+  contacts: 'contacts',
+  /** A company's voting round: started, a ballot saved, sent back, cancelled, concluded, synthesised. `ids` are company ids. */
+  voting: 'voting',
+  /** `jobs.status`: a job started or reached a terminal state. `ids` are job ids. */
+  jobs: 'jobs',
+  /** Smart Files (`files.processing_status`): a file landed, processed, failed, dropped or was approved. `ids` are file ids. */
+  files: 'files',
+  /** An insight gained a version (edit, refresh, rollback). `ids` are insight ids. */
+  insights: 'insights',
+  /** A user's personal tasks changed. `ids` are user ids. */
+  userTasks: 'user-tasks',
+  /** A CRM contact's relationship overview moved (pending, ready, failed). `ids` are correspondent ids. */
+  crmOverview: 'crm-overview',
 } as const;
 
 export type LiveTopic = (typeof LIVE_TOPICS)[keyof typeof LIVE_TOPICS];

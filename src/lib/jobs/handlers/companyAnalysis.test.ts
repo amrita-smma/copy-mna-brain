@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Tables } from '@/lib/repositories';
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   getAgentGraph: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
 }));
 
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 vi.mock('@/lib/posthog-server', () => ({
   captureWorkspaceEvent: mocks.capture,
 }));
@@ -116,6 +118,20 @@ describe('runCompanyAnalysis', () => {
       expect.objectContaining({ status: 'completed', business_overview: 'overview' }),
     );
     expect(result).toEqual({});
+  });
+
+  it('announces the card on the company-card live topic when the run starts and when it completes', async () => {
+    liveMocks.publishLiveEvent.mockClear();
+
+    await runCompanyAnalysis(
+      { companyId: 'co-1' },
+      { db: {} as never, job: { id: 'job-abc-123', workspace_id: 'ws-1' } as Tables<'jobs'> },
+    );
+
+    expect(liveMocks.publishLiveEvent.mock.calls).toEqual([
+      ['ws-1', 'company-card', ['co-1']],
+      ['ws-1', 'company-card', ['co-1']],
+    ]);
   });
 });
 

@@ -38,6 +38,9 @@ export class JobService {
       try {
         const reason = buildStuckReason(job);
         await this.jobRepo.markStuckAsTimedOut(job.id, reason);
+        if (job.workspace_id) {
+          await publishLiveEvent(job.workspace_id, LIVE_TOPICS.jobs, [job.id]);
+        }
         await this.mirrorTerminalJobToSideRecord(job, reason);
         jobIds.push(job.id);
       } catch (err) {

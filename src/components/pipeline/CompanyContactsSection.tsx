@@ -21,8 +21,13 @@ import {
   type CompanyContact,
   type CompanyContactsState,
 } from "@/lib/api/companyContacts";
+import { useLiveRefetchInterval, useLiveTopic } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
-/** How often to re-read the card while a run is in flight. */
+/**
+ * How often to re-read the card while a run is in flight and the live stream
+ * is down; while it is up the `workforce` and `contacts` topics drive it.
+ */
 const POLL_MS = 4_000;
 /**
  * Stop polling after this long. The run keeps going on the AI Workforce queue
@@ -137,6 +142,16 @@ export function CompanyContactsSection({
 
   const run = state?.run ?? null;
   const running = Boolean(run?.active) && !pollExpired;
+  const pollMs = useLiveRefetchInterval(POLL_MS);
+  const runActiveRef = useRef(false);
+  runActiveRef.current = Boolean(run?.active) && !pollExpired;
+  const onLiveEvent = (ids: string[] | undefined) => {
+    if (!runActiveRef.current) return;
+    if (ids && !ids.includes(companyId) && !(run?.runId && ids.includes(run.runId))) return;
+    void load();
+  };
+  useLiveTopic(LIVE_TOPICS.workforce, onLiveEvent);
+  useLiveTopic(LIVE_TOPICS.contacts, onLiveEvent);
   /** Still running server-side, but this card stopped watching it. */
   const unwatched = Boolean(run?.active) && pollExpired;
 
@@ -152,7 +167,7 @@ export function CompanyContactsSection({
         toast.info(`Still looking for ${companyName}'s contacts — follow it on the AI Workforce page`);
         return;
       }
-      const timer = setTimeout(() => void load(), POLL_MS);
+      const timer = setTimeout(() => void load(), pollMs);
       return () => clearTimeout(timer);
     }
     if (wasActiveRef.current) {
@@ -171,7 +186,7 @@ export function CompanyContactsSection({
         toast.info(`Contact search finished for ${companyName} — no new contacts added`);
       }
     }
-  }, [run, state, companyName, load, pollExpired]);
+  }, [run, state, companyName, load, pollExpired, pollMs]);
 
   const start = async () => {
     setStarting(true);

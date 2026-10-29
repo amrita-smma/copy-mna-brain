@@ -52,6 +52,7 @@ import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
 import { notifyRunFailed } from './notifyFailure';
 import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LiveTraceCallbackHandler } from './liveTrace';
 import { LIVE_TOPICS } from '@/lib/live/topics';
 
 function isRateLimitError(err: unknown): boolean {
@@ -461,6 +462,8 @@ export async function invokeAgent(
       ...(agentName ? { workforce_agent_name: agentName } : {}),
       ...(agentKey ? { sector_agent_key: agentKey } : {}),
     },
+    // The trace canvases redraw as the checkpoint grows, not on a timer.
+    callbacks: [new LiveTraceCallbackHandler(workspaceId, runId)],
   };
 
   try {

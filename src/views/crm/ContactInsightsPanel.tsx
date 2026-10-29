@@ -26,6 +26,8 @@ import { decodeHtmlEntities } from "@/lib/crm/displayText";
 import { Info, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useLiveRefetchInterval, useLiveTopic } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 import { useAskBrain } from "./AskBrainRow";
 import { DealFunnelTab } from "./conversation/DealFunnelTab";
 import { OverviewTab } from "./conversation/OverviewTab";
@@ -42,6 +44,10 @@ export interface ContactPanelSeed {
   title: string | null;
 }
 
+/**
+ * While the live stream is down, how often a pending overview is re-read.
+ * While it is up, the `crm-overview` frame for this contact says it landed.
+ */
 const POLL_MS = 4_000;
 const POLL_TIMEOUT_MS = 2 * 60_000;
 /**
@@ -101,8 +107,15 @@ export function ContactInsightsPanel({
   const mountedRef = useRef(true);
   const askedRef = useRef(false);
 
+  /** The current wait's "ask now", for a live frame about this contact. */
+  const pollNowRef = useRef<(() => void) | null>(null);
+  const pollMs = useLiveRefetchInterval(POLL_MS);
+  const pollMsRef = useRef(pollMs);
+  pollMsRef.current = pollMs;
+
   const stopPolling = useCallback(() => {
     pollGenRef.current += 1;
+    pollNowRef.current = null;
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     pollTimerRef.current = null;
     setSummarising(false);
@@ -113,8 +126,13 @@ export function ContactInsightsPanel({
     setSummarising(true);
     const gen = pollGenRef.current;
     const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let inFlight = false;
 
     const poll = async (): Promise<void> => {
+      if (inFlight) return;
+      inFlight = true;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
       try {
         const data = await getContactConversation(contact.id, { limit: NOTE_PROBE_LIMIT });
         if (!mountedRef.current || gen !== pollGenRef.current) return;
@@ -126,6 +144,8 @@ export function ContactInsightsPanel({
         }
       } catch {
         if (!mountedRef.current || gen !== pollGenRef.current) return;
+      } finally {
+        inFlight = false;
       }
 
       if (Date.now() > deadline) {
@@ -134,11 +154,17 @@ export function ContactInsightsPanel({
       }
 
       if (gen !== pollGenRef.current) return;
-      pollTimerRef.current = setTimeout(() => void poll(), POLL_MS);
+      pollTimerRef.current = setTimeout(() => void poll(), pollMsRef.current);
     };
 
-    pollTimerRef.current = setTimeout(() => void poll(), POLL_MS);
+    pollNowRef.current = () => void poll();
+    pollTimerRef.current = setTimeout(() => void poll(), pollMsRef.current);
   }, [contact.id, stopPolling]);
+
+  useLiveTopic(LIVE_TOPICS.crmOverview, (ids) => {
+    if (!pollNowRef.current || (ids && !ids.includes(contact.id))) return;
+    pollNowRef.current();
+  });
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;

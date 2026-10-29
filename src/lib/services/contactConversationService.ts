@@ -1,3 +1,5 @@
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import type {
   ContactConversationRepository,
   ContactInteractionRepository,
@@ -294,6 +296,7 @@ export class ContactConversationService {
       (await this.contactConversationRepo.claimOverviewPending(this.workspaceId, correspondentId))
     ) {
       await this.dispatchOverviewJob([correspondentId]);
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.crmOverview, [correspondentId]);
       return { ...current, status: 'pending' };
     }
 

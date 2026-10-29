@@ -46,6 +46,8 @@ import {
 } from '@/lib/repositories';
 import { enqueueSendEmail } from '@/lib/queue';
 import { captureWorkspaceEvent } from '@/lib/posthog-server';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import type { CompanyAnalysisService } from './companyAnalysisService';
 import type { AIScreeningService } from './aiScreeningService';
 import type { CRMService } from './crmService';
@@ -638,6 +640,19 @@ export class FileService {
    * Manual (session-authenticated) uploads have no mailbox at all — they
    * land in this request's own workspace, same as every other write path.
    */
+  /**
+   * Tell the workspace's open Smart Files pages that these rows moved
+   * (landed, processed, failed, dropped, approved). Best-effort, after the
+   * write; a fan-out row is announced to its own workspace.
+   */
+  private announceFiles(workspaceId: string, fileIds: string[]): Promise<void> {
+    return publishLiveEvent(workspaceId, LIVE_TOPICS.files, fileIds);
+  }
+
+  private announceSecondaryFiles(workspaceIds: string[], rows: Array<{ id: string }>): Promise<void[]> {
+    return Promise.all(workspaceIds.map((workspaceId, i) => this.announceFiles(workspaceId, [rows[i].id])));
+  }
+
   private async resolveTargetWorkspaceIds(enteredByEmail?: string): Promise<string[]> {
     if (!enteredByEmail) return [this.workspaceId];
     const workspaceIds = await this.userWorkspaceRepo.findWorkspaceIdsBySyncedEmail(enteredByEmail);
@@ -761,6 +776,9 @@ export class FileService {
       ),
     );
 
+    await this.announceFiles(primaryWorkspaceId, [initialData.id]);
+    await this.announceSecondaryFiles(secondaryWorkspaceIds, secondaryInitialRows);
+
     let rawText = '';
     let structuredResult: IngestStructuredResult | null = null;
     let tags: string[] = [];
@@ -845,6 +863,7 @@ export class FileService {
           throw new Error(failureReason);
         }
 
+        await this.announceSecondaryFiles(secondaryWorkspaceIds, secondaryInitialRows);
         const signedUrl = await getSignedUrl(key).catch(() => null);
         const updated = await primaryFileRepo.findById(initialData.id);
         return {
@@ -922,6 +941,8 @@ export class FileService {
         await deleteFile(key).catch((err) =>
           console.error('[fileService] Failed to delete dropped origin_email S3 object:', err),
         );
+        await this.announceFiles(primaryWorkspaceId, [initialData.id]);
+        await this.announceSecondaryFiles(secondaryWorkspaceIds, secondaryInitialRows);
         const dropped = await primaryFileRepo.findById(initialData.id);
         return { ...dropped, signed_url: null, dropped: true };
       }
@@ -1042,11 +1063,15 @@ export class FileService {
           }),
         ),
       );
+      await this.announceFiles(primaryWorkspaceId, [initialData.id]);
+      await this.announceSecondaryFiles(secondaryWorkspaceIds, secondaryInitialRows);
       if ((processError as Error)?.message?.includes('Failed to dispatch')) {
         throw processError;
       }
     }
 
+    await this.announceFiles(primaryWorkspaceId, [initialData.id]);
+    await this.announceSecondaryFiles(secondaryWorkspaceIds, secondaryInitialRows);
     const updatedData = await primaryFileRepo.findById(initialData.id);
     const signedUrl = await getSignedUrl(key);
 
@@ -1187,6 +1212,7 @@ export class FileService {
     const existingFileType = existing.file_type ?? 'other';
 
     await this.fileRepo.updatePartial(fileId, { processing_status: 'processing' });
+    await this.announceFiles(this.workspaceId, [fileId]);
 
     const buffer = await downloadFile(key);
     const contentType = guessContentType(fileName);
@@ -1294,12 +1320,14 @@ export class FileService {
         file_date: structuredResult?.file_date || null,
         processing_status: fundUpdateNeedsReview ? 'awaiting_review' : 'completed',
       });
+      await this.announceFiles(this.workspaceId, [fileId]);
     } catch (processError) {
       console.error('Error during file reprocessing:', processError);
       await this.fileRepo.updatePartial(fileId, {
         processing_status: 'failed',
         raw_notes: rawText || 'Extraction failed',
       });
+      await this.announceFiles(this.workspaceId, [fileId]);
       throw processError;
     }
 
@@ -1891,6 +1919,7 @@ export class FileService {
     }
 
     await this.fileRepo.updatePartial(fileId, fileUpdates);
+    await this.announceFiles(this.workspaceId, [fileId]);
 
     if (companyId && companyRecord) {
       await this.companyAnalysisService
@@ -3310,6 +3339,7 @@ function isEntityDecisionRemapped(
       const updated = await this.fileRepo.findById(fileId, tx);
       return { file: updated, company_id: null, fund_update: mergedFundUpdateResult };
     });
+    await this.announceFiles(this.workspaceId, [fileId]);
 
     if (!isV1) {
       const catalogCheck = await this.runCatalogCheck(fileId, fundCatalogItems, () =>

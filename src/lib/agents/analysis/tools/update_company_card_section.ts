@@ -5,6 +5,8 @@ import { logger } from "../../logger";
 import { createDb } from "@/lib/server/db";
 import { CompanyAnalysisRepository } from "@/lib/repositories";
 import type { TablesUpdate } from "@/lib/repositories";
+import { publishLiveEvent } from "@/lib/server/liveEvents";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
 /**
  * Chat-callable, self-service edit of a SINGLE section of a company's AI
@@ -62,7 +64,8 @@ export const updateCompanyCardSection = tool(
 
     try {
       const db = createDb();
-      const repo = new CompanyAnalysisRepository(db, await getActiveWorkspaceId());
+      const workspaceId = await getActiveWorkspaceId();
+      const repo = new CompanyAnalysisRepository(db, workspaceId);
       const existing = await repo.findByCompanyId(id);
       if (!existing) {
         return `**Error:** No AI Company Card exists for company_id "${id}" yet. The card must be generated before a section can be edited.`;
@@ -75,6 +78,8 @@ export const updateCompanyCardSection = tool(
       (updates as Record<string, unknown>)[section] = text;
 
       const updated = await repo.updateByCompanyId(id, updates);
+      // The Overview slide that asked for this edit is watching the card.
+      await publishLiveEvent(workspaceId, LIVE_TOPICS.companyCard, [id]);
       logger.info(
         `✓ Company card section "${section}" updated for company ${id}`,
       );

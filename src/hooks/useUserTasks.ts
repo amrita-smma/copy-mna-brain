@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getWorkspaceSlugFromUrl } from '@/lib/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import {
   createTask,
   deleteTask,
@@ -13,7 +16,12 @@ import {
   type UserTaskUpdate,
 } from '@/lib/api/tasks';
 
-const QUERY_ROOT = 'user-tasks';
+// Not the live topic's name on purpose: the stream names the owner in `ids`,
+// and only that user's tabs refetch (below), not every member's.
+const QUERY_ROOT = 'my-tasks';
+
+/** While the live stream is down, how often the list re-reads itself. */
+const FALLBACK_REFETCH_MS = 60_000;
 
 /** Whether an open task's reminder time has passed. */
 export function isTaskOverdue(task: UserTask, now: number = Date.now()): boolean {
@@ -49,12 +57,20 @@ export function useUserTasks() {
   // the same shell moves to that workspace's cache entry.
   const slug = getWorkspaceSlugFromUrl();
   const key = useMemo(() => [QUERY_ROOT, slug], [slug]);
+  const userId = useAuth().user?.id ?? null;
 
+  const refetchInterval = useLiveRefetchInterval(FALLBACK_REFETCH_MS);
   const { data, isLoading, isError } = useQuery({
     queryKey: key,
     queryFn: listTasks,
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval,
+  });
+
+  // Another tab (or device) of this user changed a task: re-read the list.
+  useLiveTopic(LIVE_TOPICS.userTasks, (ids) => {
+    if (ids && userId && !ids.includes(userId)) return;
+    void queryClient.invalidateQueries({ queryKey: key });
   });
 
   // Re-render on a clock so a reminder turns red (and alerts fire) the moment

@@ -8,6 +8,8 @@ type Job = Tables<'jobs'>;
 const { markFailedIfPending } = vi.hoisted(() => ({
   markFailedIfPending: vi.fn(),
 }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 // mirrorTerminalJobToSideRecord builds `new ScreeningRepository(db, workspaceId)`
 // internally per stuck job — mock the repository class so we can assert on the
@@ -55,7 +57,24 @@ describe('JobService.cleanupStuckJobs', () => {
   beforeEach(() => {
     jobRepo = makeJobRepoStub();
     markFailedIfPending.mockReset();
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
     service = new JobService(jobRepo, {} as unknown as DbClient);
+  });
+
+  it('announces each timed-out job on the jobs topic after the write, skipping jobs without a workspace', async () => {
+    vi.mocked(jobRepo.findStuck).mockResolvedValue([
+      makeJob({ id: 'ws-job', status: 'running', type: 'graph_sync' as Job['type'] }),
+      makeJob({ id: 'global-job', status: 'running', type: 'graph_sync' as Job['type'], workspace_id: null }),
+    ]);
+    vi.mocked(jobRepo.markStuckAsTimedOut).mockImplementation(async (id) => makeJob({ id, status: 'timed_out' }));
+
+    await service.cleanupStuckJobs();
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledTimes(1);
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('workspace-1', 'jobs', ['ws-job']);
+    expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(jobRepo.markStuckAsTimedOut).mock.invocationCallOrder[0],
+    );
   });
 
   it('returns zero when nothing is stuck', async () => {

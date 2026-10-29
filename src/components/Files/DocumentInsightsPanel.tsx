@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useLiveRefetchInterval, useLiveTopic } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
 export type DocumentProcessingStatus = "pending" | "processing" | "completed" | "failed" | string | null;
 
@@ -37,15 +39,29 @@ export function hasDocumentInsights(doc: {
   );
 }
 
-/** Silent refetch while any attachment is still in the AI job pipeline. */
+/**
+ * Silent refetch while any attachment is still in the AI job pipeline: on
+ * every `documents` live event naming one of these documents, with a poll at
+ * the old 3 s cadence only while the live stream is down.
+ */
 export function useDealDocumentProcessingPoll(
-  documents: { processing_status?: DocumentProcessingStatus }[],
+  documents: { id?: string; processing_status?: DocumentProcessingStatus }[],
   refresh: () => void,
 ) {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
 
   const hasActive = documents.some((d) => isDealDocumentProcessing(d.processing_status));
+  const intervalMs = useLiveRefetchInterval(3000);
+
+  useLiveTopic(LIVE_TOPICS.documents, (ids) => {
+    const current = documentsRef.current;
+    if (!current.some((d) => isDealDocumentProcessing(d.processing_status))) return;
+    if (ids && !current.some((d) => d.id && ids.includes(d.id))) return;
+    refreshRef.current();
+  });
 
   useEffect(() => {
     if (!hasActive) return;
@@ -57,9 +73,9 @@ export function useDealDocumentProcessingPoll(
         return;
       }
       refreshRef.current();
-    }, 3000);
+    }, intervalMs);
     return () => clearInterval(id);
-  }, [hasActive]);
+  }, [hasActive, intervalMs]);
 }
 
 export function DocumentStatusBadge({ status }: { status: DocumentProcessingStatus }) {

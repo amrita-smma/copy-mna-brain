@@ -33,8 +33,13 @@ import { clearStartVoteDraft, hasStartVoteDraft } from './startVoteDraftStore';
 import StartVotePanel from './StartVotePanel';
 import VoteResults from './VoteResults';
 import VotingRules from './VotingRules';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
-/** While a round is open or the synthesis is running, refresh on this cadence. */
+/**
+ * While a round is open or the synthesis is running, refresh on this cadence
+ * when the live stream is down; while it is up the `voting` topic drives it.
+ */
 const POLL_MS = 15_000;
 
 export interface CompanyVotingTabProps {
@@ -153,11 +158,19 @@ export default function CompanyVotingTab({
     session?.ai?.status === 'processing' ||
     session?.ai?.status === 'pending';
 
+  const pollMs = useLiveRefetchInterval(POLL_MS);
   useEffect(() => {
     if (!shouldPoll) return;
-    const timer = setInterval(() => void load(), POLL_MS);
+    const timer = setInterval(() => void load(), pollMs);
     return () => clearInterval(timer);
-  }, [shouldPoll, load]);
+  }, [shouldPoll, load, pollMs]);
+
+  // Any change to this company's round — a colleague starting one, a ballot
+  // landing, the synthesis finishing — re-reads the tab, open round or not.
+  useLiveTopic(LIVE_TOPICS.voting, (ids) => {
+    if (ids && !ids.includes(companyId)) return;
+    void load();
+  });
 
   const runMutation = async (
     kind: NonNullable<typeof busy>,

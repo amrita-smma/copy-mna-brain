@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -119,7 +121,11 @@ interface MarketScreeningResultsProps {
   onAddedToPipeline: () => void;
 }
 
-/** Re-read the page's contacts this often while any of its searches is running. */
+/**
+ * Re-read the page's contacts this often while any of its searches is running
+ * and the live stream is down; while it is up the `workforce` and `contacts`
+ * topics drive it.
+ */
 const CONTACTS_POLL_MS = 5_000;
 const ITEMS_PER_PAGE = 10;
 
@@ -273,11 +279,25 @@ export default function MarketScreeningResults({ refreshTrigger, onAddedToPipeli
   }, [pageIdsKey, refreshTrigger, loadContacts]);
 
   const anySearching = pageIds.some((id) => contactsById[id]?.run?.active);
+  const contactsPollMs = useLiveRefetchInterval(CONTACTS_POLL_MS);
   useEffect(() => {
     if (!anySearching) return;
-    const timer = setInterval(() => void loadContacts(), CONTACTS_POLL_MS);
+    const timer = setInterval(() => void loadContacts(), contactsPollMs);
     return () => clearInterval(timer);
-  }, [anySearching, loadContacts]);
+  }, [anySearching, loadContacts, contactsPollMs]);
+  const anySearchingRef = useRef(false);
+  anySearchingRef.current = anySearching;
+  const onContactsLiveEvent = (ids: string[] | undefined) => {
+    if (!anySearchingRef.current) return;
+    if (ids && !ids.some((id) => pageIdsRef.current.includes(id))) {
+      // A workforce event names run ids, not company ids: re-read for those.
+      const runIds = pageIdsRef.current.map((id) => contactsById[id]?.run?.runId).filter(Boolean);
+      if (!ids.some((id) => runIds.includes(id))) return;
+    }
+    void loadContacts();
+  };
+  useLiveTopic(LIVE_TOPICS.workforce, onContactsLiveEvent);
+  useLiveTopic(LIVE_TOPICS.contacts, onContactsLiveEvent);
 
   const findContacts = async (result: MarketScreeningResult) => {
     if (startingIds.has(result.id)) return;

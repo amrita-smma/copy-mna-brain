@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   exportElementsToPptx: vi.fn(),
 }));
 
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn(async () => undefined) }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 vi.mock('@/lib/voting/synthesis', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/voting/synthesis')>();
   return { ...actual, generateVoteSynthesis: mocks.generateVoteSynthesis };
@@ -522,6 +524,22 @@ describe('CompanyVoteService', () => {
           payload: { kind: 'invite', sessionId: 'vs-1', workspaceId: 'ws-1' },
         }),
       );
+    });
+
+    it('announces the company on the voting live topic once the round and its ballots exist', async () => {
+      liveMocks.publishLiveEvent.mockClear();
+
+      await service.startVote({
+        companyId: 'c-1',
+        initiatorId: 'u-init',
+        voterIds: ['u-1', 'u-2'],
+        deadlineAt: DEADLINE,
+      });
+
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-1', 'voting', ['c-1']);
+      const publishOrder = liveMocks.publishLiveEvent.mock.invocationCallOrder[0];
+      const ballotsOrder = voteRepo.insertBallots.mock.invocationCallOrder[0];
+      expect(publishOrder).toBeGreaterThan(ballotsOrder);
     });
 
     it('dedupes a voter selected twice', async () => {
@@ -1362,6 +1380,17 @@ describe('CompanyVoteService', () => {
           closedReason: 'all_submitted',
         }),
       );
+    });
+
+    it('announces the company on the voting live topic once the synthesis status is written', async () => {
+      liveMocks.publishLiveEvent.mockClear();
+
+      await service.finalizeConcludedSession('vs-1', 'all_submitted');
+
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('ws-1', 'voting', ['c-1']);
+      const publishOrder = liveMocks.publishLiveEvent.mock.invocationCallOrder[0];
+      const statusWriteOrder = voteRepo.updateSession.mock.invocationCallOrder.at(-1);
+      expect(publishOrder).toBeGreaterThan(statusWriteOrder as number);
     });
 
     it('flattens each ballot body to plain text for the recap', async () => {

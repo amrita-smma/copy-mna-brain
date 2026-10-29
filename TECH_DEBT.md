@@ -937,45 +937,46 @@ or the GET showing up in slow-query logs.
 
 ---
 
-## Live updates are one Redis-driven stream — resolved, with pollers left
+## Live updates are one Redis-driven stream — resolved; what the stream still does not cover
 
 **Area:** `src/lib/server/liveEvents.ts`, `src/lib/live/topics.ts`,
-`GET /api/events`, `src/components/live/LiveEventsProvider.tsx`.
+`src/lib/live/liveBus.ts`, `GET /api/events`,
+`src/components/live/LiveEventsProvider.tsx`.
 
-**What it was:** four server-polling SSE streams (`/api/screenings/stream`,
-`/api/companies/stream`, `/api/ai-screening/tasks/stream`, each a function
-invocation re-running a full snapshot query every 3 s per open tab) plus the
-nav badges on plain HTTP polling. SSE saved requests, not database work.
+**What it was:** four server-polling SSE streams (each a function invocation
+re-running a full snapshot query every 3 s per open tab), the nav badges on
+HTTP polling, and a dozen views each with its own `setInterval` against a
+status column (2.5–15 s while something ran).
 
-**Now:** one push stream per tab. Every service that changes live state
-publishes `{ topic, ids }` to `ws:<workspaceId>:events` after its write;
-`GET /api/events` forwards it; `LiveEventsProvider` invalidates the react-query
-key `[topic]`. The live views are ordinary `useQuery` hooks with
-`useLiveRefetchInterval(oldCadence)` — slow (60 s) while the stream is up,
-the old cadence only while it is down. The three polling routes and
-`changeStream` are gone. `docs/features/live-updates-sse.md` has the contract.
+**Now:** one push stream per tab; every writer publishes `{ topic, ids }`
+after its write; no view polls. `.claude/rules/live-updates.md` is the rule,
+`docs/features/live-updates-sse.md` the contract and the list of topics and
+views.
 
 **Left on the table:**
 
-- **The remaining `setInterval` pollers** that watch server state and have no
-  topic yet: `CompanyVotingTab` (votes), `DocumentInsightsPanel` and
-  `useDealDocumentProcessingPoll` (document processing), `InsightEditApprovalCard`
-  (approval status), `useUserTasks`, `MarketScreeningResults`,
-  `useCompanyCardGeneration`. Each needs a topic and a publish at its writers
-  (`CompanyDetail` / `CompanyDetailDialog` together, per the parity rule).
-- **`WorkforceTasks` still owns its state** (manual fetch with a drag guard) and
-  listens with `useLiveTopic` instead of a query; its own poller runs at the
-  live interval.
-- **`ids` are published but no client filters on them yet**: a screening write
-  on one company invalidates every tab's screening queries. Cheap today (one
-  small GET per tab per event); the filter belongs in the view when an event
-  rate makes it matter.
+- **The react-query views do not filter on `ids`.** `LiveEventsProvider`
+  invalidates `[topic]` for every frame, so a screening write on one company
+  refetches every tab's screening queries (one small GET per tab per event).
+  The views that own their state do filter. Add an id-aware
+  `useLiveQuery` if a topic gets chatty.
+- **Smart Files re-reads every visited bucket** on a `files` frame: the frame
+  carries file ids, not the bucket, and a new file is not on any page yet.
+  Up to one page GET per visited tab per file event.
+- **The workforce trace frames are coalesced to one per second** per run
+  (`LiveTraceCallbackHandler`); a run making many tool calls publishes often.
+  Fine for a workspace's handful of concurrent runs.
 - **A tab that misses a frame** waits for the 60 s safety-net refetch or a
   reconnect's `resync`. A Redis Stream with `Last-Event-ID` would close that
   gap if it ever shows.
+- **Two handshakes still wait on a short loop, by design:** the chat Stop
+  button asks the server turn every 500 ms (15 s cap) whether it has released
+  the thread, and the agent's own lock/presence waits are server-side Redis
+  polls. Neither is a view watching state.
 
-**Trigger to revisit:** one of the pollers above showing up in function
-counts, or `GET /api/events` needing per-topic subscriptions.
+**Trigger to revisit:** `GET /api/events` needing per-topic subscriptions, or
+a topic's invalidations showing up as repeated identical GETs in function
+counts.
 
 ---
 

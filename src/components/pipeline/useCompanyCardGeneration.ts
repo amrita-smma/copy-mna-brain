@@ -6,8 +6,14 @@ import { toast } from "sonner";
 import { apiRequest } from "@/lib/api/client";
 import { isAnalysisInProgress, type AnalysisJobStatus } from "@/lib/constants";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
+import { useLiveRefetchInterval, useLiveTopic } from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
 
-/** How often the Overview re-reads the card while a run is in flight. */
+/**
+ * How often the Overview re-reads the card while a run is in flight and the
+ * live stream is down. While it is up, the `company-card` and `workforce`
+ * topics drive the refresh.
+ */
 const POLL_INTERVAL_MS = 3000;
 
 interface GenerationState<A> {
@@ -76,11 +82,23 @@ export function useCompanyCardGeneration<A extends { status: string }>(
     runId != null ||
     isAnalysisInProgress(analysis?.status as AnalysisJobStatus | undefined);
 
+  const pollIntervalMs = useLiveRefetchInterval(POLL_INTERVAL_MS);
   useEffect(() => {
     if (!enabled || !companyId || !generating || starting) return;
-    const interval = setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    const interval = setInterval(() => void refresh(), pollIntervalMs);
     return () => clearInterval(interval);
-  }, [enabled, companyId, generating, starting, refresh]);
+  }, [enabled, companyId, generating, starting, refresh, pollIntervalMs]);
+
+  // The card row changes as the run writes it; the run itself is a workforce
+  // task (queued, running, cancelled, finished). Either event re-reads the
+  // state, but only while the Overview is watching a run.
+  const onLiveEvent = (ids: string[] | undefined) => {
+    if (!enabled || !companyId || !generating || starting) return;
+    if (ids && !ids.includes(companyId) && !(runId && ids.includes(runId))) return;
+    void refresh();
+  };
+  useLiveTopic(LIVE_TOPICS.companyCard, onLiveEvent);
+  useLiveTopic(LIVE_TOPICS.workforce, onLiveEvent);
 
   const taskHref = runId ? `${workforceHref}/tasks/${runId}` : null;
 

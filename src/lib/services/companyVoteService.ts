@@ -25,6 +25,8 @@ import {
 import { parseDeadline } from '@/lib/voting/deadline';
 import { generateVoteSynthesis } from '@/lib/voting/synthesis';
 import type { CompanyVotePayload } from '@/lib/jobs/handlers/companyVote';
+import { publishLiveEvent } from '@/lib/server/liveEvents';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 
 /** A voting rule was broken (wrong actor, closed round, passed deadline, …). */
 export class VoteRuleError extends Error {
@@ -470,6 +472,7 @@ export class CompanyVoteService {
           status: 'draft' as const,
         })),
       );
+      await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [companyId]);
     } catch (err) {
       // A session with no ballots is worse than no session: the partial unique
       // index would block every future round on this company, and nobody could
@@ -577,6 +580,7 @@ export class CompanyVoteService {
         409,
       );
     }
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [session.company_id]);
 
     if (input.submit) {
       await this.notifyBallotSubmitted(session, updated);
@@ -612,6 +616,7 @@ export class CompanyVoteService {
     if (!updated) {
       throw new VoteRuleError('This voting round just closed and cannot be cancelled.', 409);
     }
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [session.company_id]);
     return updated;
   }
 
@@ -637,6 +642,7 @@ export class CompanyVoteService {
       { status: 'draft', submitted_at: null, auto_submitted: false },
       { onlyStatus: 'submitted' },
     );
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [session.company_id]);
     return { reopened: reopened.length };
   }
 
@@ -702,6 +708,7 @@ export class CompanyVoteService {
       },
       { onlyStatus: 'draft', choiceIsNull: true },
     );
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [session.company_id]);
 
     await this.dispatchVoteJob({ kind: 'conclude', sessionId: session.id, reason });
 
@@ -865,6 +872,8 @@ export class CompanyVoteService {
         ai_error: (err as Error).message,
       });
     }
+    // The synthesis (or its failure) is what the Voting tab is waiting on.
+    await publishLiveEvent(this.workspaceId, LIVE_TOPICS.voting, [session.company_id]);
 
     const voteUrl = await this.voteUrl(session.company_id);
     const recapBallots = [

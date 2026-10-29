@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const handler = vi.hoisted(() => ({ runContactRelationshipOverview: vi.fn() }));
 vi.mock('@/lib/jobs/handlers/contactRelationshipOverview', () => handler);
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock('@/lib/server/liveEvents', () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 import {
   ContactConversationService,
@@ -307,6 +309,8 @@ describe('ContactConversationService', () => {
       expect(contactConversationRepo.setOverviewJobId).toHaveBeenCalledWith('w1', ['c1'], 'job-1');
       expect(res.status).toBe('pending');
       expect(res.text).toBeNull();
+      // Other open panels for this contact see it go pending.
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith('w1', 'crm-overview', ['c1']);
     });
 
     it('dispatches when status is failed', async () => {

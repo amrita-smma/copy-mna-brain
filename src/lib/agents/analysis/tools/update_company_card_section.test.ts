@@ -17,6 +17,9 @@ const { createDb, findByCompanyId, updateByCompanyId, CompanyAnalysisRepository 
   });
 
 vi.mock("@/lib/server/db", () => ({ createDb }));
+vi.mock("@/lib/workspace", () => ({ getActiveWorkspaceId: vi.fn().mockResolvedValue("ws-1") }));
+const liveMocks = vi.hoisted(() => ({ publishLiveEvent: vi.fn() }));
+vi.mock("@/lib/server/liveEvents", () => ({ publishLiveEvent: liveMocks.publishLiveEvent }));
 
 vi.mock("@/lib/repositories", () => ({ CompanyAnalysisRepository }));
 
@@ -35,6 +38,22 @@ describe("update_company_card_section", () => {
     updateByCompanyId
       .mockReset()
       .mockResolvedValue({ id: "analysis-1", company_id: "co-1" });
+    liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("announces the card on the company-card topic after the write, so the slide that asked re-reads it", async () => {
+    await call({ company_id: "co-1", section: "key_takeaways", content: "- point" });
+
+    expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith("ws-1", "company-card", ["co-1"]);
+    expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[0]).toBeGreaterThan(
+      updateByCompanyId.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("announces nothing when there is no card to edit", async () => {
+    findByCompanyId.mockResolvedValueOnce(null);
+    await call({ company_id: "co-1", section: "key_takeaways", content: "- point" });
+    expect(liveMocks.publishLiveEvent).not.toHaveBeenCalled();
   });
 
   afterEach(() => vi.restoreAllMocks());

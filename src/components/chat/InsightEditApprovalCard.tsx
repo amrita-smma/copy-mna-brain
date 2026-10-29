@@ -28,6 +28,8 @@ import {
 } from '@/lib/insights/editReview';
 import { InsightFrame } from '@/components/insights/InsightFrame';
 import { useChatThread } from '@/components/chat/ChatProvider';
+import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
+import { LIVE_TOPICS } from '@/lib/live/topics';
 import {
   ApprovalCardShell,
   useApprovalResolution,
@@ -137,15 +139,22 @@ export function InsightEditApprovalCard({
     return () => observer.disconnect();
   }, []);
 
-  // While unresolved and visible: on window focus and every 30 s.
+  // While unresolved and visible: when the stream says this insight gained a
+  // version, on window focus, and on a timer only while the stream is down.
+  const watching = !isResolved && !!insightDetail && onScreen;
+  const pollMs = useLiveRefetchInterval(BASE_POLL_INTERVAL_MS);
+  useLiveTopic(LIVE_TOPICS.insights, (ids) => {
+    if (!watching || (ids && !ids.includes(payload.insight_id))) return;
+    void checkBase();
+  });
   useEffect(() => {
-    if (isResolved || !insightDetail || !onScreen) return;
+    if (!watching) return;
     const visible = () =>
       typeof document === 'undefined' || document.visibilityState === 'visible';
     const tick = () => {
       if (visible()) void checkBase();
     };
-    const interval = window.setInterval(tick, BASE_POLL_INTERVAL_MS);
+    const interval = window.setInterval(tick, pollMs);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return () => {
@@ -153,7 +162,7 @@ export function InsightEditApprovalCard({
       window.removeEventListener('focus', tick);
       document.removeEventListener('visibilitychange', tick);
     };
-  }, [isResolved, insightDetail, onScreen, checkBase]);
+  }, [watching, pollMs, checkBase]);
 
   const currentHtml = insightDetail?.html ?? '';
   const diff = useMemo(

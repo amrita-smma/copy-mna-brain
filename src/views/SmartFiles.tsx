@@ -112,6 +112,13 @@ import CompanyDetailDialog, {
 } from "@/components/pipeline/CompanyDetailDialog";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 import {
+  LIVE_REFETCH_MS,
+  useLiveConnected,
+  useLiveRefetchInterval,
+  useLiveTopic,
+} from "@/components/live/LiveEventsProvider";
+import { LIVE_TOPICS } from "@/lib/live/topics";
+import {
   SMART_FILES_TABS,
   SMART_FILES_TAB_LABELS,
   SMART_FILES_UPLOAD_CATEGORIES,
@@ -760,7 +767,11 @@ function TabBucketPanel({
 
 const PAGE_SIZE = 10;
 
-/** How often / how long a `?file=` deep link waits for processing to settle. */
+/**
+ * How often (while the live stream is down) and how long a `?file=` deep link
+ * waits for processing to settle. While the stream is up, the file's own
+ * `files` frame says it did.
+ */
 const DEEP_LINK_POLL_INTERVAL_MS = 4000;
 const DEEP_LINK_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -918,11 +929,22 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
     fetchFiles();
   }, [fetchFiles, enabled]);
 
+  // A file landed, processed, failed, dropped or was approved somewhere in
+  // the workspace: re-read this page. The frame carries file ids, not the
+  // bucket, and a new file is never on the page yet, so every visited bucket
+  // re-reads.
+  useLiveTopic(LIVE_TOPICS.files, () => {
+    if (enabled) void fetchFiles();
+  });
+
   const pollStartRef = useRef<number | null>(null);
   const stuckWarnedRef = useRef(false);
+  const liveConnected = useLiveConnected();
 
-  // If any file in this bucket is pending or processing, poll with exponential backoff
-  // (3s -> 6s -> 12s -> 15s) until complete or timed out (~10 mins)
+  // If any file in this bucket is pending or processing and the live stream
+  // is down, poll with exponential backoff (3s -> 6s -> 12s -> 15s) until
+  // complete or timed out (~10 mins). While the stream is up the `files`
+  // frames deliver the change and this is only the slow safety net.
   useEffect(() => {
     const hasActiveProcessing = files.some(
       (f) => f.processing_status === "pending" || f.processing_status === "processing",
@@ -964,10 +986,10 @@ function useFileBucket(fileType: string, externalSearch?: string, enabled = true
 
     const timer = setTimeout(() => {
       fetchFiles();
-    }, delay);
+    }, liveConnected ? LIVE_REFETCH_MS : delay);
 
     return () => clearTimeout(timer);
-  }, [files, enabled, fetchFiles]);
+  }, [files, enabled, fetchFiles, liveConnected]);
 
   // If a refetch shrank the result set past the current page (e.g. after a
   // delete on the last page), step back so we never sit on an empty page.
@@ -1130,28 +1152,44 @@ export default function SmartFiles({
   const activeBucket = bucketByTab[activeTab] ?? mom;
 
   // `?file=<id>` deep link (e.g. from the ledger "Upload File" drop zone).
-  // Polls the file's own status (it may not be on the first page of its tab)
-  // and opens it once processing settles.
+  // Reads the file's own status (it may not be on the first page of its tab)
+  // and opens it once processing settles: on the file's `files` frame, or on
+  // a timer while the stream is down.
   const [highlightFileId, setHighlightFileId] = useState<string | null>(initialFileId ?? null);
+  const deepLinkPollMs = useLiveRefetchInterval(DEEP_LINK_POLL_INTERVAL_MS);
+  const deepLinkPollMsRef = useRef(deepLinkPollMs);
+  deepLinkPollMsRef.current = deepLinkPollMs;
+  const deepLinkPollNowRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!initialFileId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let announced = false;
+    let inFlight = false;
     const startedAt = Date.now();
+    const done = () => {
+      deepLinkPollNowRef.current = null;
+    };
     const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
       try {
         const file = await getSmartFileStatus(initialFileId);
         if (cancelled) return;
         switch (file.processing_status) {
           case "awaiting_review":
+            done();
             setReviewFile({ id: file.id, file_type: file.file_type });
             return;
           case "completed":
+            done();
             if (file.file_type === "fund_updates") setViewFundUpdateFileId(file.id);
             return;
           case "failed":
           case "dropped":
+            done();
             toast.error(`Processing failed for "${file.file_name}"`);
             return;
           default:
@@ -1160,19 +1198,30 @@ export default function SmartFiles({
               toast.info(`"${file.file_name}" is still processing — it will open when ready.`);
             }
             if (Date.now() - startedAt < DEEP_LINK_POLL_TIMEOUT_MS) {
-              timer = setTimeout(poll, DEEP_LINK_POLL_INTERVAL_MS);
+              timer = setTimeout(() => void poll(), deepLinkPollMsRef.current);
+            } else {
+              done();
             }
         }
       } catch {
+        done();
         if (!cancelled) toast.error("Could not open the uploaded file");
+      } finally {
+        inFlight = false;
       }
     };
+    deepLinkPollNowRef.current = () => void poll();
     void poll();
     return () => {
       cancelled = true;
+      done();
       if (timer) clearTimeout(timer);
     };
   }, [initialFileId]);
+  useLiveTopic(LIVE_TOPICS.files, (ids) => {
+    if (!initialFileId || (ids && !ids.includes(initialFileId))) return;
+    deepLinkPollNowRef.current?.();
+  });
 
   // Drop `?file=` from the URL so a reload doesn't reopen the file. Reuse the
   // Next history state for the same reason as the tab sync above.
