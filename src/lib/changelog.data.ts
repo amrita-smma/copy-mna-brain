@@ -126,6 +126,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "3dede103768f7de0afc45eab39dedb8f8ccdf7be",
+    "date": "2026-10-29",
+    "subject": "Company Cards now appear for roughly three quarters of tracked companies",
+    "category": "improvement"
+  },
+  {
+    "hash": "ec11068b75a25812eb524a8abc5248e45cc049d0",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
