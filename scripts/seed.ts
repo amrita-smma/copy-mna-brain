@@ -17,6 +17,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { and, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import {
   companies,
+  companyAnalyses,
   companyFinancials,
   companyLogs,
   correspondents,
@@ -3007,6 +3008,85 @@ async function insertCompaniesForWorkspace(
 }
 
 /**
+ * Seeds a completed AI Company Card (`company_analyses`) for three in every four
+ * companies, so the Overview tab mostly shows a card while every fourth company
+ * still lands on the "Generate Company Card" call to action. The card text is
+ * built from the company's own seed fields in the same markdown shape the
+ * companyAnalysis job writes. Rows cascade when the company is deleted, so a
+ * reseed starts clean.
+ */
+async function seedCompanyCards(
+  db: ReturnType<typeof drizzle>,
+  list: SeedCompany[],
+  inserted: Array<{ entry_id: number; id: string }>,
+): Promise<number> {
+  const idByEntryId = new Map(inserted.map((c) => [c.entry_id, c.id]));
+  const rows = list.flatMap((c, i) => {
+    const companyId = idByEntryId.get(c.entry_id);
+    if (i % 4 === 3 || !companyId) return [];
+    return [{ company_id: companyId, ...seedCompanyCardContent(c) }];
+  });
+  if (rows.length === 0) return 0;
+  await db
+    .insert(companyAnalyses)
+    .values(rows)
+    .onConflictDoNothing({ target: companyAnalyses.company_id });
+  return rows.length;
+}
+
+function seedCompanyCardContent(c: SeedCompany) {
+  const name = c.target?.trim() || c.project_name?.trim() || `Entry ${c.entry_id}`;
+  const latest = [...c.financials].sort((a, b) => b.fiscal_year - a.fiscal_year)[0];
+  const margin =
+    latest?.revenue_usd_mn && latest.ebitda_usd_mn != null
+      ? `${((latest.ebitda_usd_mn / latest.revenue_usd_mn) * 100).toFixed(1)}%`
+      : null;
+  const scale = latest?.revenue_usd_mn
+    ? `USD ${latest.revenue_usd_mn}mn revenue in FY${latest.fiscal_year}` +
+      (latest.ebitda_usd_mn != null ? ` with USD ${latest.ebitda_usd_mn}mn EBITDA (${margin} margin)` : '')
+    : 'No audited financials shared yet';
+  return {
+    status: 'completed' as const,
+    business_overview: [
+      `- **Primary Products**: ${c.company_focus}`,
+      `- **End Markets**: ${c.segment} customers in ${c.geography}`,
+      `- **Ownership**: ${c.ownership}`,
+      `- **Scale**: ${scale}`,
+    ].join('\n'),
+    business_model_summary: [
+      `- **Core Focus**: ${c.company_focus}`,
+      `- **Value Chain Position**: Operator serving the ${c.segment.toLowerCase()} value chain in ${c.geography}`,
+      `- **Revenue Model**: Recurring contracts and repeat orders from an established customer base`,
+    ].join('\n'),
+    key_takeaways: [
+      `1. **Established ${c.segment.toLowerCase()} platform** ${name} has a defined niche: ${c.company_focus.toLowerCase()}.`,
+      `2. **Financial visibility** ${scale}.`,
+      `3. **Deal angle** ${c.key_rationale ?? `A ${c.ownership.toLowerCase()} business that could anchor a ${c.segment.toLowerCase()} platform in ${c.geography}.`}`,
+    ].join('\n'),
+    investment_highlights: [
+      `- **Market Position**: Recognised player in ${c.geography}'s ${c.segment.toLowerCase()} market`,
+      `- **Differentiation**: Focused offering — ${c.company_focus.toLowerCase()}`,
+      margin
+        ? `- **Profitability**: ${margin} EBITDA margin in FY${latest?.fiscal_year}`
+        : `- **Growth Runway**: Underpenetrated segment with room to scale`,
+    ].join('\n'),
+    investment_risks: [
+      `- **Customer Concentration**: Revenue may depend on a small number of key accounts`,
+      `- **Competition**: Larger regional ${c.segment.toLowerCase()} players could compete on price`,
+      `- **Key-Person Risk**: ${c.ownership} ownership may concentrate decisions in the founders or sponsor`,
+    ].join('\n'),
+    diligence_priorities: [
+      `1. How concentrated is revenue across the top ten customers?`,
+      latest
+        ? `2. What drove FY${latest.fiscal_year} performance, and is it repeatable?`
+        : `2. Can management share at least three years of audited financials?`,
+      `3. What does ${c.ownership.toLowerCase()} ownership want from a transaction (exit, growth capital, partial liquidity)?`,
+    ].join('\n'),
+    sources: [{ type: 'database' }, { type: 'web', url: c.website, title: name }],
+  };
+}
+
+/**
  * A representative slice of the global RSS catalog (3 feeds per category) plus
  * a handful of items, so the Data Navigator page renders locally without
  * running the ingest Lambdas. The full 263-feed catalog is imported separately
@@ -4598,6 +4678,12 @@ async function main() {
     console.log(
       `  ✓ ${acquisitionsWorkspaceCompanies.length} companies in M&A / Acquisitions, ${investingWorkspaceCompanies.length} in Funds & Investing`,
     );
+
+    const seededCards =
+      (await seedCompanyCards(db, seedCompanies, insertedCompanies)) +
+      (await seedCompanyCards(db, acquisitionsWorkspaceCompanies, insertedAcquisitionsCompanies)) +
+      (await seedCompanyCards(db, investingWorkspaceCompanies, insertedInvestingCompanies));
+    console.log(`  ✓ ${seededCards} generated Company Cards (3 in every 4 companies)`);
 
     // Smart Files — seed a few processed files, including one matched to a
     // project-name-only company. Identified by distinctive file names.
