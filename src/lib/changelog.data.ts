@@ -32,6 +32,34 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "2bddae966dd306dee8f27b81174918e825acbf21",
+    "date": "2026-10-29",
+    "subject": "Relax the capital markets tone: local-regime bar, credit for scale",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "95123fc672315b6b9736d14102d7f11abe9ea8b3",
+    "date": "2026-10-29",
+    "subject": "Pre-pipeline Filters overall status now uses the same pass rule as tracks",
+    "category": "improvement"
+  },
+  {
+    "hash": "937205892b2555522685e051a24963e5c1928104",
+    "date": "2026-10-29",
+    "subject": "Promotion reason now appears in the Timeline instead of the company card",
+    "category": "improvement"
+  },
+  {
+    "hash": "bfd254d1da0d9d1d91e095d8be59226bdc0672b2",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
