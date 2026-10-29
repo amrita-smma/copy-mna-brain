@@ -58,6 +58,7 @@ import {
   ApiChatConversationRepository,
   RoutinesRepository,
   UserWorkspaceRepository,
+  VaultExportRepository,
   WorkspaceRepository,
   RoleRepository,
   WorkspaceCorrespondentRepository,
@@ -336,6 +337,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     () => new CompanyScreeningDerivedRepository(db, workspaceId),
   );
   const userWorkspaceRepo = lazy(() => new UserWorkspaceRepository(db));
+  const vaultExportRepo = lazy(() => new VaultExportRepository(db));
   const workspaceRepo = lazy(() => new WorkspaceRepository(db));
   const roleRepo = lazy(() => new RoleRepository(db));
 
@@ -541,6 +543,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
         workspaceId,
         crmContactEnrichmentService(),
         contactConversationRepo(),
+        { vaultExportRepo: vaultExportRepo(), userWorkspaceRepo: userWorkspaceRepo() },
       ),
   );
 

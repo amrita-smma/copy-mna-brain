@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { EmployerRepository } from './employerRepository';
 
@@ -6,6 +7,7 @@ function makeDb() {
   const db = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
@@ -171,7 +173,39 @@ describe('EmployerRepository', () => {
       const dialect = new PgDialect();
       expect(dialect.sqlToQuery(selectArg.topics).sql).toContain('"employer_topics"."workspace_id" =');
       expect(dialect.sqlToQuery(selectArg.team).sql).toContain('"employer_team_members"."workspace_id" =');
-      expect(dialect.sqlToQuery(selectArg.name).sql).toContain('"employer_curation"."workspace_id" =');
+      // The curated name comes from employer_curation LEFT JOINed on this
+      // workspace's row.
+      expect(dialect.sqlToQuery(selectArg.name).sql).toContain('"employer_curation"."name"');
+      const curationJoin = db.leftJoin.mock.calls.find(([table]) => table !== undefined && !(table instanceof SQL));
+      const on = dialect.sqlToQuery(curationJoin![1]);
+      expect(on.sql).toContain('"employer_curation"."workspace_id" =');
+      expect(on.params).toContain('w1');
+    });
+
+    it('reads the KPI mart through one workspace-scoped LEFT JOIN, not a correlated subquery per column', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const dialect = new PgDialect();
+      const martJoin = db.leftJoin.mock.calls.find(
+        ([table]) => table instanceof SQL && dialect.sqlToQuery(table).sql.includes('mart_crm'),
+      );
+      expect(martJoin).toBeDefined();
+      const on = dialect.sqlToQuery(martJoin![1]);
+      expect(on.sql).toContain('"mart_crm"."workspace_id"');
+      expect(on.params).toContain('w1');
+
+      const selectArg = db.select.mock.calls[0]?.[0];
+      expect(dialect.sqlToQuery(selectArg.email_count).sql).not.toContain('SELECT');
+      expect(dialect.sqlToQuery(db.orderBy.mock.calls[0]?.[0]).sql).not.toContain('SELECT');
+    });
+
+    it('gates workspace visibility with one uncorrelated id set rather than per-row EXISTS probes', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.list({}, 'w1');
+      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+      expect(text).toContain('"employers"."id" IN (');
+      expect(text).toContain('UNION');
+      expect(text).not.toContain('EXISTS');
     });
 
     it('scopes the auto/manual source badge to correspondents visible to the workspace', async () => {
@@ -284,6 +318,27 @@ describe('EmployerRepository.list (search)', () => {
     expect(params).toContain('%jane%');
   });
 
+  it('finds person candidates through the indexed base columns, then re-checks the workspace view', async () => {
+    const db = makeDb();
+    db.offset.mockResolvedValueOnce([]);
+    await new EmployerRepository(db as never).list({ search: 'jane' }, 'w1');
+    const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+    expect(text).toContain('"correspondents"."name" ILIKE');
+    expect(text).toContain('"correspondents"."email" ILIKE');
+    expect(text).toMatch(/"correspondent_curation"\."workspace_id" =[\s\S]*"correspondent_curation"\."name" ILIKE/);
+    expect(text).toMatch(/"employer_curation"\."workspace_id" =[\s\S]*"employer_curation"\."name" ILIKE/);
+    expect(text).toContain('"employer_domains"."domain" ILIKE');
+    expect(text).not.toContain('EXISTS');
+  });
+
+  it('applies no search predicate without a term', async () => {
+    const db = makeDb();
+    db.offset.mockResolvedValueOnce([]);
+    await new EmployerRepository(db as never).list({}, 'w1');
+    const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0]?.[0]);
+    expect(text).not.toContain('ILIKE');
+  });
+
   it('escapes LIKE wildcards in the search term', async () => {
     const db = makeDb();
     db.offset.mockResolvedValueOnce([]);
@@ -305,8 +360,7 @@ describe('EmployerRepository.list (sort)', () => {
 
   it('defaults to latest last contact first, never-contacted firms last', async () => {
     const { leading } = await leadingOrder({});
-    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at"[\s\S]*\) DESC NULLS LAST$/);
-    expect(leading.params).toContain('w1');
+    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at" DESC NULLS LAST$/);
   });
 
   it('keeps never-contacted firms last when sorting ascending', async () => {
@@ -338,7 +392,7 @@ describe('EmployerRepository.list (sort)', () => {
       sortDir: 'sideways' as never,
     });
     expect(leading.sql).not.toContain('DROP');
-    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at"[\s\S]*\) DESC NULLS LAST$/);
+    expect(leading.sql).toMatch(/"mart_crm"\."last_contact_at" DESC NULLS LAST$/);
   });
 
   describe('claimForIndustryClassification', () => {

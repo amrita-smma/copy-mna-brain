@@ -1380,6 +1380,13 @@
       "when": 1793232000000,
       "tag": "20261029000000_workforce_queue_history_index",
       "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1793232001000,
+      "tag": "20261029000001_crm_search_trigram_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
+  correspondentCuration,
   correspondentWorkspaceEffective,
   correspondents,
   emailParticipants,
@@ -105,27 +106,25 @@ export interface MatchedContact {
 }
 
 /**
- * One column of the employer's `analytics.mart_crm` row for this workspace,
- * correlated on "employers"."id". Written with hard-coded "table"."column"
- * text because the `select({...})` shorthand strips table qualifiers from
- * column references inside the select clause (see `list`).
+ * One column of the employer's `analytics.mart_crm` row for this workspace.
+ * `list` LEFT JOINs mart_crm once on (employer_id, workspace_id) — its unique
+ * key, so the join cannot fan out rows — instead of a correlated lookup per
+ * column per row. Hard-coded "table"."column" text because the
+ * `select({...})` shorthand strips table qualifiers from column references
+ * inside the select clause (see `list`).
  */
-function martCrmColumn<T = unknown>(column: string, workspaceId: string): SQL<T> {
-  return sql<T>`(
-    SELECT "mart_crm".${sql.identifier(column)}
-    FROM "analytics"."mart_crm"
-    WHERE "mart_crm"."employer_id" = "employers"."id"
-      AND "mart_crm"."workspace_id" = ${workspaceId}
-  )`;
+function martCrmColumn<T = unknown>(column: string): SQL<T> {
+  return sql<T>`"mart_crm".${sql.identifier(column)}`;
 }
 
 /**
  * The employer's name / industry as this workspace curated it, else the
- * ingested value. Curation is per workspace (MB-687), so the workspace is
- * part of the lookup.
+ * ingested value. Curation is per workspace (MB-687); `list` LEFT JOINs this
+ * workspace's employer_curation row on its primary key (workspace_id,
+ * employer_id).
  */
-function curatedColumn<T = unknown>(column: "name" | "industry", workspaceId: string): SQL<T> {
-  return sql<T>`COALESCE((SELECT "employer_curation".${sql.identifier(column)} FROM "employer_curation" WHERE "employer_curation"."employer_id" = "employers"."id" AND "employer_curation"."workspace_id" = ${workspaceId}), "employers".${sql.identifier(column)})`;
+function curatedColumn<T = unknown>(column: "name" | "industry"): SQL<T> {
+  return sql<T>`COALESCE("employer_curation".${sql.identifier(column)}, "employers".${sql.identifier(column)})`;
 }
 
 /**
@@ -155,6 +154,67 @@ export interface FirmIndustryEvidence {
 export class EmployerRepository {
   constructor(private db: DbClient) {}
 
+  /**
+   * Ids of every employer this workspace has a relationship with. One
+   * uncorrelated UNION — each branch is an index scan keyed by workspace_id,
+   * hashed once by the planner — rather than four correlated EXISTS probes
+   * per employer row, which scaled with the shared employers table instead of
+   * this workspace's own CRM.
+   */
+  private visibleEmployerIds(workspaceId: string): SQL {
+    return sql`
+      SELECT ${correspondents.employer_id} FROM ${correspondents}
+      JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
+      WHERE ${workspaceCorrespondents.workspace_id} = ${workspaceId}
+      UNION
+      SELECT ${employerRelatedCompanies.employer_id} FROM ${employerRelatedCompanies}
+      WHERE ${employerRelatedCompanies.workspace_id} = ${workspaceId}
+        AND ${employerRelatedCompanies.dismissed_at} IS NULL
+      UNION
+      SELECT ${employerNotes.employer_id} FROM ${employerNotes}
+      WHERE ${employerNotes.workspace_id} = ${workspaceId}
+        AND ${employerNotes.deleted_at} IS NULL
+      UNION
+      SELECT ${employerTopics.employer_id} FROM ${employerTopics}
+      WHERE ${employerTopics.workspace_id} = ${workspaceId}`;
+  }
+
+  /**
+   * Ids of employers matching the (already escaped) substring pattern: the
+   * firm name, this workspace's curated name, a domain, or a person this
+   * workspace can see by their overlay-aware name or email.
+   *
+   * Each branch is served by a trigram GIN index
+   * (20261029000001_crm_search_trigram_indexes.sql), so a search costs index
+   * lookups, not a scan of every firm and contact. The person branch finds
+   * candidates through the indexed base columns (correspondents.name/email,
+   * correspondent_curation.name) and then re-checks the workspace view, so it
+   * matches exactly what the card shows: never a contact this workspace
+   * cannot see, never a stale ingested name this workspace renamed.
+   */
+  private searchMatchIds(pattern: string, workspaceId: string): SQL {
+    return sql`
+      SELECT ${employers.id} FROM ${employers} WHERE ${employers.name} ILIKE ${pattern}
+      UNION
+      SELECT ${employerCuration.employer_id} FROM ${employerCuration}
+      WHERE ${employerCuration.workspace_id} = ${workspaceId}
+        AND ${employerCuration.name} ILIKE ${pattern}
+      UNION
+      SELECT ${employerDomains.employer_id} FROM ${employerDomains} WHERE ${employerDomains.domain} ILIKE ${pattern}
+      UNION
+      SELECT ${correspondentWorkspaceEffective.employer_id} FROM ${correspondentWorkspaceEffective}
+      WHERE ${correspondentWorkspaceEffective.workspace_id} = ${workspaceId}
+        AND ${correspondentWorkspaceEffective.id} IN (
+          SELECT ${correspondents.id} FROM ${correspondents}
+          WHERE ${correspondents.name} ILIKE ${pattern} OR ${correspondents.email} ILIKE ${pattern}
+          UNION
+          SELECT ${correspondentCuration.correspondent_id} FROM ${correspondentCuration}
+          WHERE ${correspondentCuration.workspace_id} = ${workspaceId}
+            AND ${correspondentCuration.name} ILIKE ${pattern}
+        )
+        AND (${correspondentWorkspaceEffective.name} ILIKE ${pattern} OR ${correspondentWorkspaceEffective.email} ILIKE ${pattern})`;
+  }
+
   private buildWhere(
     filters: EmployerListFilters,
     workspaceId: string,
@@ -183,48 +243,10 @@ export class EmployerRepository {
       // toggled sync off; sync now only governs which mailboxes the pipeline
       // pulls from. Keep this branch list in step with those two reads so
       // the list and the detail card never disagree.
-      sql`(
-        EXISTS (
-          SELECT 1 FROM ${correspondents}
-          JOIN ${workspaceCorrespondents} ON ${workspaceCorrespondents.correspondent_id} = ${correspondents.id}
-          WHERE ${correspondents.employer_id} = ${employers.id}
-            AND ${workspaceCorrespondents.workspace_id} = ${workspaceId}
-        )
-        OR EXISTS (
-          SELECT 1 FROM ${employerRelatedCompanies}
-          WHERE ${employerRelatedCompanies.employer_id} = ${employers.id}
-            AND ${employerRelatedCompanies.workspace_id} = ${workspaceId}
-            AND ${employerRelatedCompanies.dismissed_at} IS NULL
-        )
-        OR EXISTS (
-          SELECT 1 FROM ${employerNotes}
-          WHERE ${employerNotes.employer_id} = ${employers.id}
-            AND ${employerNotes.workspace_id} = ${workspaceId}
-            AND ${employerNotes.deleted_at} IS NULL
-        )
-        OR EXISTS (
-          SELECT 1 FROM ${employerTopics}
-          WHERE ${employerTopics.employer_id} = ${employers.id}
-            AND ${employerTopics.workspace_id} = ${workspaceId}
-        )
-      )`,
+      sql`${employers.id} IN (${this.visibleEmployerIds(workspaceId)})`,
       filters.status ? eq(employers.status, filters.status) : undefined,
       searchPattern
-        ? or(
-            ilike(employers.name, searchPattern),
-            sql`EXISTS (SELECT 1 FROM ${employerCuration} WHERE ${employerCuration.employer_id} = ${employers.id} AND ${employerCuration.workspace_id} = ${workspaceId} AND ${employerCuration.name} ILIKE ${searchPattern})`,
-            sql`EXISTS (SELECT 1 FROM ${employerDomains} WHERE ${employerDomains.employer_id} = ${employers.id} AND ${employerDomains.domain} ILIKE ${searchPattern})`,
-            // A person search: this workspace's curated name or the email, and
-            // only contacts this workspace can see (the view's rows are
-            // exactly those) — otherwise a firm surfaces for a match its card
-            // would never show.
-            sql`EXISTS (
-              SELECT 1 FROM ${correspondentWorkspaceEffective}
-              WHERE ${correspondentWorkspaceEffective.employer_id} = ${employers.id}
-                AND ${correspondentWorkspaceEffective.workspace_id} = ${workspaceId}
-                AND (${correspondentWorkspaceEffective.name} ILIKE ${searchPattern} OR ${correspondentWorkspaceEffective.email} ILIKE ${searchPattern})
-            )`,
-          )
+        ? sql`${employers.id} IN (${this.searchMatchIds(searchPattern, workspaceId)})`
         : undefined,
       filters.lastContactAfter
         ? sql`EXISTS (
@@ -263,8 +285,8 @@ export class EmployerRepository {
    */
   private orderByFor(filters: EmployerListFilters, workspaceId: string): SQL {
     const expressions: Record<EmployerListSort, SQL> = {
-      name: sql`LOWER(${curatedColumn("name", workspaceId)})`,
-      industry: sql`LOWER(NULLIF(${curatedColumn("industry", workspaceId)}, ''))`,
+      name: sql`LOWER(${curatedColumn("name")})`,
+      industry: sql`LOWER(NULLIF(${curatedColumn("industry")}, ''))`,
       // Same pick as the primary_pic select: this workspace's chosen PIC,
       // else the oldest correspondent it can see.
       primary_pic: sql`(
@@ -275,9 +297,9 @@ export class EmployerRepository {
         ORDER BY "cwe"."is_primary" DESC, "cwe"."created_at" ASC, "cwe"."id" ASC
         LIMIT 1
       )`,
-      response_p50: martCrmColumn("response_p50_seconds", workspaceId),
-      last_contact: martCrmColumn("last_contact_at", workspaceId),
-      emails: sql`COALESCE(${martCrmColumn("email_count", workspaceId)}, 0)`,
+      response_p50: martCrmColumn("response_p50_seconds"),
+      last_contact: martCrmColumn("last_contact_at"),
+      emails: sql`COALESCE(${martCrmColumn("email_count")}, 0)`,
       team_members: sql`(
         SELECT COUNT(*)
         FROM "employer_team_members"
@@ -303,11 +325,11 @@ export class EmployerRepository {
     const rows = await this.db
       .select({
         id: employers.id,
-        // Effective (overlay-aware) name/industry — human override wins. The
-        // rest of this query stays correlated on "employers"."id".
-        name: curatedColumn<string>("name", workspaceId),
+        // Effective (overlay-aware) name/industry — this workspace's
+        // override (LEFT JOINed below) wins.
+        name: curatedColumn<string>("name"),
         normalized_name: employers.normalized_name,
-        industry: curatedColumn<string | null>("industry", workspaceId),
+        industry: curatedColumn<string | null>("industry"),
         status: employers.status,
         curation_status: employers.curation_status,
         created_at: employers.created_at,
@@ -315,19 +337,19 @@ export class EmployerRepository {
         // KPIs are served from the precomputed analytics.mart_crm (RFC MB-205
         // §Phase 5b) rather than recomputed per request — chiefly the
         // response_p50 percentile, which is an O(emails) LATERAL self-join.
-        // mart_crm is now keyed by (workspace_id, employer_id) — see
-        // 20260705000004_workspace_scoped_marts.sql — so every correlated
-        // subquery below must filter by this workspace too, or a shared
-        // employer's numbers would sum across every workspace's activity.
+        // mart_crm is keyed by (workspace_id, employer_id) — see
+        // 20260705000004_workspace_scoped_marts.sql — and the LEFT JOIN below
+        // matches on both, so a shared employer's numbers never sum across
+        // every workspace's activity.
         // CAVEAT: mart_crm groups email_count/last_contact by
         // correspondents.employer_id, so it only stays correct while ingest
         // is the sole writer of those links. If a future UI feature
         // reassigns an already-emailed contact to another firm, refresh the
         // mart on that write (or keep these two columns live).
-        email_count: sql<number>`COALESCE(${martCrmColumn("email_count", workspaceId)}, 0)`,
-        last_contact_at: martCrmColumn<string | null>("last_contact_at", workspaceId),
-        response_p50_seconds: martCrmColumn<number | null>("response_p50_seconds", workspaceId),
-        response_pair_count: sql<number>`COALESCE(${martCrmColumn("response_pair_count", workspaceId)}, 0)`,
+        email_count: sql<number>`COALESCE(${martCrmColumn("email_count")}, 0)`,
+        last_contact_at: martCrmColumn<string | null>("last_contact_at"),
+        response_p50_seconds: martCrmColumn<number | null>("response_p50_seconds"),
+        response_pair_count: sql<number>`COALESCE(${martCrmColumn("response_pair_count")}, 0)`,
         // Scoped to correspondents THIS workspace can see — the rows of
         // correspondent_workspace_effective — with this workspace's profile
         // edits applied. The workspace's chosen PIC (`is_primary`, from
@@ -393,6 +415,17 @@ export class EmployerRepository {
           ) = 'mbox' THEN 'auto'::text ELSE 'manual'::text END`,
       })
       .from(employers)
+      .leftJoin(
+        employerCuration,
+        and(
+          eq(employerCuration.employer_id, employers.id),
+          eq(employerCuration.workspace_id, workspaceId),
+        ),
+      )
+      .leftJoin(
+        sql`"analytics"."mart_crm"`,
+        sql`"mart_crm"."employer_id" = ${employers.id} AND "mart_crm"."workspace_id" = ${workspaceId}`,
+      )
       .where(this.buildWhere(filters, workspaceId))
       .orderBy(
         this.orderByFor(filters, workspaceId),

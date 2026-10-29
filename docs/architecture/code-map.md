@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 249 | `src/app/api/**/route.ts` |
+| API routes | 250 | `src/app/api/**/route.ts` |
 | Services | 102 | `src/lib/services/` |
-| Repositories | 89 | `src/lib/repositories/` |
+| Repositories | 90 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
 | Feature flags | 13 | `src/lib/flags.ts` |
 | Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 197 | `drizzle/migrations/` |
+| Migrations (app) | 198 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -190,6 +190,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/crm/employers/[id]/topics` | GET, POST | `crmService` |
 | `/api/crm/employers/[id]/topics/[topicId]` | PATCH, DELETE | `crmService` |
 | `/api/crm/flagged` | GET | `crmService` |
+| `/api/crm/insights` | GET | `crmService` |
 | `/api/crm/suggested-questions` | GET | `crmSuggestedQuestionService` |
 | `/api/crm/team-users` | GET | `crmService` |
 | `/api/crm/topics` | GET | `crmService` |
@@ -557,6 +558,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `userRepository.ts` | `UserRepository` | ✅ |
 | `userTaskRepository.ts` | `UserTaskRepository` | ✅ |
 | `userWorkspaceRepository.ts` | `UserWorkspaceRepository` | ✅ |
+| `vaultExportRepository.ts` | `VaultExportRepository` | ✅ |
 | `workspaceCorrespondentRepository.ts` | `WorkspaceCorrespondentRepository` | ✅ |
 | `workspaceRepository.ts` | `WorkspaceRepository` | ✅ |
 | `workspaceTableLayoutRepository.ts` | `WorkspaceTableLayoutRepository` | ✅ |

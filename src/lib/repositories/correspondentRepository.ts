@@ -261,6 +261,74 @@ export class CorrespondentRepository {
     return rows.map((r, i) => ({ ...r, is_primary: i === 0 }));
   }
 
+  private employerContactsWhere(
+    employerId: string,
+    workspaceId: string,
+    search?: string,
+  ): SQL | undefined {
+    const term = search?.trim();
+    const pattern = term ? `%${escapeLikePattern(term)}%` : null;
+    return and(
+      eq(cwe.employer_id, employerId),
+      eq(cwe.workspace_id, workspaceId),
+      // Same match as searchInEmployers, so the card shows exactly the people
+      // the list search reported as matched.
+      pattern ? or(ilike(cwe.name, pattern), ilike(cwe.email, pattern)) : undefined,
+    );
+  }
+
+  /**
+   * One page of a firm's contacts visible to this workspace, optionally
+   * narrowed by a name/email substring. Same order as findByEmployerId (the
+   * workspace's PIC first, then oldest) so pages are stable. `is_primary` is
+   * always false here: the primary is a property of the whole list, so
+   * callers resolve it with findPrimaryByEmployerId and mark it themselves.
+   */
+  async findPageByEmployerId(
+    employerId: string,
+    workspaceId: string,
+    opts: { search?: string; limit: number; offset: number },
+  ): Promise<Correspondent[]> {
+    const rows = await this.db
+      .select(workspaceCorrespondentColumns)
+      .from(cwe)
+      .where(this.employerContactsWhere(employerId, workspaceId, opts.search))
+      .orderBy(desc(cwe.is_primary), asc(cwe.created_at), asc(cwe.id))
+      .limit(opts.limit)
+      .offset(opts.offset);
+    return rows.map((r) => ({ ...r, is_primary: false }));
+  }
+
+  /** Count of a firm's visible contacts matching the same optional search. */
+  async countByEmployerId(
+    employerId: string,
+    workspaceId: string,
+    search?: string,
+  ): Promise<number> {
+    const rows = await this.db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(cwe)
+      .where(this.employerContactsWhere(employerId, workspaceId, search));
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
+   * The firm's primary contact for this workspace — its chosen PIC, else the
+   * oldest contact it can see. Same rule as findByEmployerId's first row.
+   */
+  async findPrimaryByEmployerId(
+    employerId: string,
+    workspaceId: string,
+  ): Promise<Correspondent | null> {
+    const rows = await this.db
+      .select(workspaceCorrespondentColumns)
+      .from(cwe)
+      .where(this.employerContactsWhere(employerId, workspaceId))
+      .orderBy(desc(cwe.is_primary), asc(cwe.created_at), asc(cwe.id))
+      .limit(1);
+    return rows[0] ? { ...rows[0], is_primary: true } : null;
+  }
+
   /**
    * Batched counterpart to findByEmployerId — the primary-PIC lookup for many
    * employers in one query. Same rule: the workspace's pick sorts first within

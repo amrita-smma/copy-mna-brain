@@ -316,6 +316,32 @@ describe('CrmContactEnrichmentService.latestRunsForEmployer', () => {
     expect(mocks.findLatestByCorrespondentIds).not.toHaveBeenCalled();
   });
 
+  it("looks up only the given page's contact ids, without loading the firm's whole contact list", async () => {
+    const { service, correspondentRepo } = makeService();
+    mocks.findLatestByCorrespondentIds.mockResolvedValue([
+      queueRow({ id: 'run-a', trigger_meta: { correspondent_id: 'corr-7' } }),
+    ]);
+
+    const runs = await service.latestRunsForEmployer('emp-1', ['corr-7', 'corr-8']);
+
+    expect(correspondentRepo.findByEmployerId).not.toHaveBeenCalled();
+    expect(mocks.findLatestByCorrespondentIds).toHaveBeenCalledWith(
+      CRM_CONTACT_AGENT_NAME,
+      ['corr-7', 'corr-8'],
+    );
+    expect(runs).toEqual({
+      'corr-7': expect.objectContaining({ runId: 'run-a' }),
+    });
+  });
+
+  it('returns {} without querying the queue for an empty id list', async () => {
+    const { service, correspondentRepo } = makeService();
+
+    expect(await service.latestRunsForEmployer('emp-1', [])).toEqual({});
+    expect(correspondentRepo.findByEmployerId).not.toHaveBeenCalled();
+    expect(mocks.findLatestByCorrespondentIds).not.toHaveBeenCalled();
+  });
+
   it('drops a row whose trigger_meta lost its correspondent_id', async () => {
     const { service } = makeService();
     mocks.findLatestByCorrespondentIds.mockResolvedValue([

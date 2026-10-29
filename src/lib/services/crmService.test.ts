@@ -26,6 +26,9 @@ const employerRepo = {
 
 const correspondentRepo = {
   findByEmployerId: vi.fn(),
+  findPageByEmployerId: vi.fn(),
+  countByEmployerId: vi.fn(),
+  findPrimaryByEmployerId: vi.fn(),
   findByEmployerIds: vi.fn(),
   findById: vi.fn(),
   findByEmployerAndEmail: vi.fn(),
@@ -231,13 +234,11 @@ describe('CRMService.getEmployerDetail', () => {
     );
   });
 
-  it('aggregates correspondents, notes, topics, team and primary PIC', async () => {
+  it('aggregates the contact count, notes, topics, team and primary PIC without loading every contact', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
     const primary = { id: 'c1', name: 'James', is_primary: true };
-    correspondentRepo.findByEmployerId.mockResolvedValue([
-      { id: 'c0', name: 'Sara', is_primary: false },
-      primary,
-    ]);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue(primary);
+    correspondentRepo.countByEmployerId.mockResolvedValue(1234);
     noteRepo.findByEmployerId.mockResolvedValue([{ id: 'n1' }]);
     topicRepo.listForEmployer.mockResolvedValue([{ id: 't1' }]);
     teamRepo.listForEmployer.mockResolvedValue([{ id: 'u1' }]);
@@ -249,56 +250,21 @@ describe('CRMService.getEmployerDetail', () => {
     const detail = await makeService().getEmployerDetail('e1');
 
     expect(detail.primary_pic).toEqual(primary);
+    expect(detail.contact_count).toBe(1234);
+    expect(correspondentRepo.countByEmployerId).toHaveBeenCalledWith('e1', WORKSPACE_ID);
+    expect(correspondentRepo.findByEmployerId).not.toHaveBeenCalled();
+    expect(detail).not.toHaveProperty('correspondents');
     expect(detail.email_count).toBe(7);
     expect(detail.last_contact_at).toBe('2026-05-01T00:00:00Z');
     expect(detail.notes).toHaveLength(1);
     expect(detail.topics).toHaveLength(1);
     expect(detail.team).toHaveLength(1);
-    expect(detail.inferred_focus).toEqual({});
-  });
-
-  it("maps each contact's AI-inferred focus from one batched read", async () => {
-    employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
-    correspondentRepo.findByEmployerId.mockResolvedValue([
-      { id: 'c0', name: 'Sara', is_primary: true },
-      { id: 'c1', name: 'James', is_primary: false },
-    ]);
-    noteRepo.findByEmployerId.mockResolvedValue([]);
-    topicRepo.listForEmployer.mockResolvedValue([]);
-    teamRepo.listForEmployer.mockResolvedValue([]);
-    emailRepo.countByEmployer.mockResolvedValue(0);
-    emailRepo.findByEmployerId.mockResolvedValue([]);
-    relatedCompanyRepo.listForEmployer.mockResolvedValue([]);
-    const findInferredFocus = vi
-      .fn()
-      .mockResolvedValue([{ correspondentId: 'c1', industryFocus: 'TMT', areaFocus: 'Indonesia' }]);
-    const service = new CRMService(
-      employerRepo as never,
-      correspondentRepo as never,
-      noteRepo as never,
-      topicRepo as never,
-      emailRepo as never,
-      teamRepo as never,
-      employerCurationRepo as never,
-      correspondentCurationRepo as never,
-      relatedCompanyRepo as never,
-      companyRepo as never,
-      workspaceCorrespondentRepo as never,
-      WORKSPACE_ID,
-      contactEnrichment,
-      { findInferredFocus },
-    );
-
-    const detail = await service.getEmployerDetail('e1');
-
-    expect(findInferredFocus).toHaveBeenCalledTimes(1);
-    expect(findInferredFocus).toHaveBeenCalledWith(WORKSPACE_ID, ['c0', 'c1']);
-    expect(detail.inferred_focus).toEqual({ c1: { industry_focus: 'TMT', area_focus: 'Indonesia' } });
   });
 
   it('collapses auto + manual rows for the same company into one (manual wins, evidence merged)', async () => {
     employerRepo.findById.mockResolvedValue({ id: 'e1', name: 'GS' });
-    correspondentRepo.findByEmployerId.mockResolvedValue([]);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue(null);
+    correspondentRepo.countByEmployerId.mockResolvedValue(0);
     noteRepo.findByEmployerId.mockResolvedValue([]);
     topicRepo.listForEmployer.mockResolvedValue([]);
     teamRepo.listForEmployer.mockResolvedValue([]);
@@ -327,6 +293,105 @@ describe('CRMService.getEmployerDetail', () => {
     expect(detail.related_companies[0].id).toBe('rc-manual'); // manual wins
     expect(detail.related_companies[0].evidence).toHaveLength(1); // auto evidence absorbed
     expect(detail.related_companies[0].evidence_count).toBe(1);
+  });
+});
+
+
+describe('CRMService.listContactsPage', () => {
+  function serviceWithFocus(findInferredFocus = vi.fn().mockResolvedValue([])) {
+    return new CRMService(
+      employerRepo as never,
+      correspondentRepo as never,
+      noteRepo as never,
+      topicRepo as never,
+      emailRepo as never,
+      teamRepo as never,
+      employerCurationRepo as never,
+      correspondentCurationRepo as never,
+      relatedCompanyRepo as never,
+      companyRepo as never,
+      workspaceCorrespondentRepo as never,
+      WORKSPACE_ID,
+      contactEnrichment,
+      { findInferredFocus },
+    );
+  }
+
+  it('returns one page plus the matching total, passing search and paging through', async () => {
+    correspondentRepo.findPageByEmployerId.mockResolvedValue([
+      { id: 'c26', is_primary: false },
+      { id: 'c27', is_primary: false },
+    ]);
+    correspondentRepo.countByEmployerId.mockResolvedValue(40);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue({ id: 'c1' });
+
+    const out = await serviceWithFocus().listContactsPage('e1', {
+      search: 'ann',
+      limit: 25,
+      offset: 25,
+    });
+
+    expect(correspondentRepo.findPageByEmployerId).toHaveBeenCalledWith('e1', WORKSPACE_ID, {
+      search: 'ann',
+      limit: 25,
+      offset: 25,
+    });
+    expect(correspondentRepo.countByEmployerId).toHaveBeenCalledWith('e1', WORKSPACE_ID, 'ann');
+    expect(out.total).toBe(40);
+    expect(out.data.map((c) => c.id)).toEqual(['c26', 'c27']);
+    expect(correspondentRepo.findByEmployerId).not.toHaveBeenCalled();
+  });
+
+  it('marks the firm-wide primary contact even when it is not the first row of the page', async () => {
+    correspondentRepo.findPageByEmployerId.mockResolvedValue([
+      { id: 'c5', is_primary: false },
+      { id: 'c1', is_primary: false },
+    ]);
+    correspondentRepo.countByEmployerId.mockResolvedValue(2);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue({ id: 'c1' });
+
+    const out = await serviceWithFocus().listContactsPage('e1', { limit: 25, offset: 0 });
+
+    expect(out.data).toEqual([
+      { id: 'c5', is_primary: false },
+      { id: 'c1', is_primary: true },
+    ]);
+  });
+
+  it("maps the page's AI-inferred focus from one batched read of only that page's ids", async () => {
+    correspondentRepo.findPageByEmployerId.mockResolvedValue([
+      { id: 'c0', is_primary: false },
+      { id: 'c1', is_primary: false },
+    ]);
+    correspondentRepo.countByEmployerId.mockResolvedValue(500);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue({ id: 'c0' });
+    const findInferredFocus = vi
+      .fn()
+      .mockResolvedValue([{ correspondentId: 'c1', industryFocus: 'TMT', areaFocus: 'Indonesia' }]);
+
+    const out = await serviceWithFocus(findInferredFocus).listContactsPage('e1', {
+      limit: 25,
+      offset: 0,
+    });
+
+    expect(findInferredFocus).toHaveBeenCalledTimes(1);
+    expect(findInferredFocus).toHaveBeenCalledWith(WORKSPACE_ID, ['c0', 'c1']);
+    expect(out.inferred_focus).toEqual({ c1: { industry_focus: 'TMT', area_focus: 'Indonesia' } });
+  });
+
+  it('skips the focus read and marks nothing primary for an empty page', async () => {
+    correspondentRepo.findPageByEmployerId.mockResolvedValue([]);
+    correspondentRepo.countByEmployerId.mockResolvedValue(0);
+    correspondentRepo.findPrimaryByEmployerId.mockResolvedValue(null);
+    const findInferredFocus = vi.fn();
+
+    const out = await serviceWithFocus(findInferredFocus).listContactsPage('e1', {
+      limit: 25,
+      offset: 0,
+    });
+
+    expect(out).toEqual({ data: [], total: 0, inferred_focus: {} });
+    expect(findInferredFocus).not.toHaveBeenCalled();
   });
 });
 
@@ -920,17 +985,40 @@ describe('CRMService.listFlaggedEmployerDetails', () => {
 });
 
 describe('CRMService.insights', () => {
-  it('passes vault context through to the response', async () => {
+  function serviceWithVaultSync(lastArchivedAt: string | null, custodians: number) {
+    const vaultSync = {
+      vaultExportRepo: { findLastArchivedAt: vi.fn().mockResolvedValue(lastArchivedAt) },
+      userWorkspaceRepo: { countSyncedCustodians: vi.fn().mockResolvedValue(custodians) },
+    };
+    const service = new CRMService(
+      employerRepo as never,
+      correspondentRepo as never,
+      noteRepo as never,
+      topicRepo as never,
+      emailRepo as never,
+      teamRepo as never,
+      employerCurationRepo as never,
+      correspondentCurationRepo as never,
+      relatedCompanyRepo as never,
+      companyRepo as never,
+      workspaceCorrespondentRepo as never,
+      WORKSPACE_ID,
+      contactEnrichment,
+      undefined,
+      vaultSync,
+    );
+    return { service, vaultSync };
+  }
+
+  it('reads mailbox sync state from the repositories and schedules the next daily sync', async () => {
     emailRepo.countStaleEmployers.mockResolvedValue(2);
     employerRepo.countFlagged.mockResolvedValue(1);
     emailRepo.countSince.mockResolvedValue(7);
+    const { service, vaultSync } = serviceWithVaultSync('2026-05-24T12:00:00.000Z', 4);
 
-    const out = await makeService().insights({
-      vaultCustodianCount: 4,
-      lastVaultSyncedAt: '2026-05-24T12:00:00.000Z',
-      vaultSyncCadenceMs: 24 * 60 * 60 * 1000,
-    });
+    const out = await service.insights();
 
+    expect(vaultSync.userWorkspaceRepo.countSyncedCustodians).toHaveBeenCalledWith(WORKSPACE_ID);
     expect(out).toEqual({
       stale_employers: 2,
       flagged_records: 1,
@@ -941,7 +1029,29 @@ describe('CRMService.insights', () => {
     });
   });
 
-  it('returns nulls for sync state when no vault context is provided', async () => {
+  it('reports no next sync when no export has been archived yet', async () => {
+    emailRepo.countStaleEmployers.mockResolvedValue(0);
+    employerRepo.countFlagged.mockResolvedValue(0);
+    emailRepo.countSince.mockResolvedValue(0);
+    const { service } = serviceWithVaultSync(null, 0);
+
+    const out = await service.insights();
+    expect(out.email_accounts).toBe(0);
+    expect(out.last_synced_at).toBeNull();
+    expect(out.next_sync_at).toBeNull();
+  });
+
+  it("counts today's emails from the client's local midnight when given", async () => {
+    emailRepo.countStaleEmployers.mockResolvedValue(0);
+    employerRepo.countFlagged.mockResolvedValue(0);
+    emailRepo.countSince.mockResolvedValue(3);
+
+    await makeService().insights({ clientTodayIso: '2026-10-28T17:00:00.000Z' });
+
+    expect(emailRepo.countSince).toHaveBeenCalledWith('2026-10-28T17:00:00.000Z', WORKSPACE_ID);
+  });
+
+  it('returns nulls for sync state when no sync sources are wired', async () => {
     emailRepo.countStaleEmployers.mockResolvedValue(0);
     employerRepo.countFlagged.mockResolvedValue(0);
     emailRepo.countSince.mockResolvedValue(0);

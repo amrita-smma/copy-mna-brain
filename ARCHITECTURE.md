@@ -74,6 +74,12 @@ export async function GET(req: NextRequest) {
 }
 ```
 
+- **All SQL lives in a repository.** A route or service never runs a query:
+  no `db.execute`, `db.select`/`insert`/`update`/`delete`, `sql` template or
+  `drizzle-orm` import outside `src/lib/repositories/`. A route reaches data
+  only through a service from the container — it does not construct a
+  repository either. A table the app reads but does not own (an
+  `analytics.*` pipeline table) still gets a schema entry and a repository.
 - `createDb()` and `createContainer()` are called **inside** the handler, never
   at module scope.
 - Services receive repositories by constructor injection and never call

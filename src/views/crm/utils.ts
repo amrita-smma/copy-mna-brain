@@ -7,6 +7,16 @@ import type {
 
 export const PAGE_SIZE = 50;
 
+/** Contacts shown per page inside an expanded firm card. */
+export const CONTACTS_PAGE_SIZE = 25;
+
+/** Start of the viewer's local day as an ISO string — the server's "today". */
+export function localMidnightIso(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 /** Why an email-derived field is empty while the workspace has nothing synced. */
 export const SYNC_NOTICE = "Fills in after an email sync";
 

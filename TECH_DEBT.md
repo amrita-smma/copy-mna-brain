@@ -850,6 +850,33 @@ report of a duplicated message.
 **Intended fix:** drop `bots.system_prompt` and the alias; run one backfill
 job that imports every remaining thread, then remove the lazy import.
 
+## Routes and a service that bypass the repository/service layers
+
+**Area:** `src/app/api/workforce-queue/route.ts`, `reorder/route.ts`,
+`[id]/cancel/route.ts`, `[id]/retry/route.ts`, `[id]/trace/route.ts`.
+
+**What it is:** these handlers build repositories themselves
+(`new AiWorkforceQueueRepository(db, …)`, `new UserRepository(db)`,
+`new CompanyRepository(db, …)`, …) and call them, skipping the service layer
+that `ARCHITECTURE.md` and `.claude/rules/api-routes.md` require. They run no
+raw SQL — the queries are still in repositories — but the orchestration that
+should be a service method lives in the route.
+
+**Why we took it:** written before the rule was stated explicitly; no route
+runs SQL directly today, which was the more urgent half of the rule.
+
+**Trigger to revisit:** the next change to any of these routes.
+
+**Intended fix:** move each handler's repository calls into an
+`AiWorkforceService` method and have the route call that service from the
+container.
+
+The same rule bars queries in services. One service still runs them:
+`src/lib/services/fileService.ts` (~line 2164) checks that a matched
+investor / funding source / fund / asset id exists with five inline
+`this.db.select(...)` calls. Fix: a `findExistingIds`-style method on each
+fund-ledger repository, called from the service.
+
 ## Smaller items
 
 **36 endpoints are `fetch`ed inline from views/components**, bypassing the

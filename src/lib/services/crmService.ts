@@ -1,6 +1,8 @@
 import type {
   CompanyRepository,
   ContactConversationRepository,
+  UserWorkspaceRepository,
+  VaultExportRepository,
   Correspondent,
   CorrespondentCurationEdit,
   CorrespondentInsert,
@@ -119,20 +121,33 @@ export type BankerRelatedCompaniesRow = EmployerRelatedCompanyRanking;
 export interface EmployerDetail {
   employer: Employer;
   primary_pic: Correspondent | null;
-  correspondents: Correspondent[];
+  /** Contacts this workspace sees at the firm. The rows themselves are paged
+   * and searched through listContactsPage — a large firm has thousands. */
+  contact_count: number;
   notes: EmployerNoteListItem[];
   topics: EmployerTopicAssignment[];
   team: TeamMember[];
   email_count: number;
   last_contact_at: string | null;
   related_companies: RelatedCompanyWithEvidence[];
-  /**
-   * Industry / Area Focus the relationship overview inferred from each
-   * contact's emails, by contact id. A fallback the contacts table shows,
-   * badged, only where the contact's own `specialization` / `coverage_region`
-   * is empty. Contacts with no inference are absent.
-   */
-  inferred_focus: Record<string, { industry_focus: string | null; area_focus: string | null }>;
+}
+
+/**
+ * Industry / Area Focus the relationship overview inferred from each contact's
+ * emails, by contact id. A fallback the contacts table shows, badged, only
+ * where the contact's own `specialization` / `coverage_region` is empty.
+ * Contacts with no inference are absent.
+ */
+export type InferredFocusByContact = Record<
+  string,
+  { industry_focus: string | null; area_focus: string | null }
+>;
+
+export interface ContactsPage {
+  data: Correspondent[];
+  /** Contacts matching the search (all of the firm's when there is none). */
+  total: number;
+  inferred_focus: InferredFocusByContact;
 }
 
 export interface CRMInsights {
@@ -148,12 +163,6 @@ export interface CRMInsights {
 }
 
 export interface InsightsContext {
-  /** Count of Vault custodian mailboxes — surfaced in the header subtitle. */
-  vaultCustodianCount?: number;
-  /** ISO timestamp of the last successful Vault sync job. */
-  lastVaultSyncedAt?: string | null;
-  /** Milliseconds between scheduled Vault syncs. */
-  vaultSyncCadenceMs?: number;
   /** Client's today timestamp in ISO format for time-relative insights. */
   clientTodayIso?: string;
 }
@@ -279,6 +288,14 @@ function normalizeName(s: string): string {
 
 const STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Vault exports run daily; the insights bar shows the next expected sync. */
+const VAULT_SYNC_CADENCE_MS = DAY_MS;
+
+/** Where the insights bar's mailbox-sync status comes from. */
+export interface VaultSyncSources {
+  vaultExportRepo: Pick<VaultExportRepository, "findLastArchivedAt">;
+  userWorkspaceRepo: Pick<UserWorkspaceRepository, "countSyncedCustodians">;
+}
 
 export class CRMService {
   constructor(
@@ -301,6 +318,9 @@ export class CRMService {
     private contactEnrichment?: Pick<CrmContactEnrichmentService, "enrichNewPrimary">,
     // Reads the AI-inferred focus fallbacks; absent in tests that don't need them.
     private contactConversationRepo?: Pick<ContactConversationRepository, "findInferredFocus">,
+    // Mailbox-sync status for the insights bar; absent in tests that don't
+    // need it, in which case the bar reports no sync state.
+    private vaultSync?: VaultSyncSources,
   ) {}
 
   // ─── Employers ───────────────────────────────────────────────────────────
@@ -342,9 +362,10 @@ export class CRMService {
     const employer = await this.employerRepo.findById(id, this.workspaceId);
     if (!employer) throw new EmployerNotFoundError(id);
 
-    const [correspondents, notes, topics, team, emailCount, emails, relatedCompanies] =
+    const [primary_pic, contactCount, notes, topics, team, emailCount, emails, relatedCompanies] =
       await Promise.all([
-        this.correspondentRepo.findByEmployerId(id, this.workspaceId),
+        this.correspondentRepo.findPrimaryByEmployerId(id, this.workspaceId),
+        this.correspondentRepo.countByEmployerId(id, this.workspaceId),
         this.noteRepo.findByEmployerId(id, this.workspaceId),
         this.topicRepo.listForEmployer(id, this.workspaceId),
         this.teamRepo.listForEmployer(this.workspaceId, id),
@@ -353,28 +374,10 @@ export class CRMService {
         this.relatedCompanyRepo.listForEmployer(id, this.workspaceId),
       ]);
 
-    const primary_pic =
-      correspondents.find((c) => c.is_primary) ?? correspondents[0] ?? null;
-
-    const inferred = this.contactConversationRepo
-      ? await this.contactConversationRepo.findInferredFocus(
-          this.workspaceId,
-          correspondents.map((c) => c.id),
-        )
-      : [];
-    const inferred_focus: EmployerDetail["inferred_focus"] = {};
-    for (const f of inferred) {
-      inferred_focus[f.correspondentId] = {
-        industry_focus: f.industryFocus,
-        area_focus: f.areaFocus,
-      };
-    }
-
     return {
       employer,
       primary_pic,
-      correspondents,
-      inferred_focus,
+      contact_count: contactCount,
       notes,
       topics,
       team,
@@ -882,8 +885,39 @@ export class CRMService {
     });
   }
 
-  async listContacts(employerId: string): Promise<Correspondent[]> {
-    return this.correspondentRepo.findByEmployerId(employerId, this.workspaceId);
+  /**
+   * One page of a firm's contacts for the CRM card, searched server-side by
+   * name / email (the same match the list's person search reports).
+   * `is_primary` is resolved against the firm's whole list, not the page, so
+   * the badge stays on the right row on any page or search. Inferred focus is
+   * read for this page's contacts only.
+   */
+  async listContactsPage(
+    employerId: string,
+    opts: { search?: string; limit: number; offset: number },
+  ): Promise<ContactsPage> {
+    const [rows, total, primary] = await Promise.all([
+      this.correspondentRepo.findPageByEmployerId(employerId, this.workspaceId, opts),
+      this.correspondentRepo.countByEmployerId(employerId, this.workspaceId, opts.search),
+      this.correspondentRepo.findPrimaryByEmployerId(employerId, this.workspaceId),
+    ]);
+    const data = rows.map((r) => ({ ...r, is_primary: r.id === primary?.id }));
+
+    const inferred =
+      this.contactConversationRepo && data.length > 0
+        ? await this.contactConversationRepo.findInferredFocus(
+            this.workspaceId,
+            data.map((c) => c.id),
+          )
+        : [];
+    const inferred_focus: InferredFocusByContact = {};
+    for (const f of inferred) {
+      inferred_focus[f.correspondentId] = {
+        industry_focus: f.industryFocus,
+        area_focus: f.areaFocus,
+      };
+    }
+    return { data, total, inferred_focus };
   }
 
   async updateContact(
@@ -1193,23 +1227,23 @@ export class CRMService {
       todayStartIso = ctx.clientTodayIso;
     }
     
-    const [stale, flagged, todayCount] = await Promise.all([
+    const [stale, flagged, todayCount, lastSyncedAt, custodianCount] = await Promise.all([
       this.emailRepo.countStaleEmployers(staleThreshold, this.workspaceId),
       this.employerRepo.countFlagged(this.workspaceId),
       this.emailRepo.countSince(todayStartIso, this.workspaceId),
+      this.vaultSync ? this.vaultSync.vaultExportRepo.findLastArchivedAt() : null,
+      this.vaultSync
+        ? this.vaultSync.userWorkspaceRepo.countSyncedCustodians(this.workspaceId)
+        : null,
     ]);
-    const lastSyncedAt = ctx.lastVaultSyncedAt ?? null;
-    const nextSyncAt =
-      lastSyncedAt && ctx.vaultSyncCadenceMs
-        ? new Date(
-            new Date(lastSyncedAt).getTime() + ctx.vaultSyncCadenceMs,
-          ).toISOString()
-        : null;
+    const nextSyncAt = lastSyncedAt
+      ? new Date(new Date(lastSyncedAt).getTime() + VAULT_SYNC_CADENCE_MS).toISOString()
+      : null;
     return {
       stale_employers: stale,
       flagged_records: flagged,
       emails_today: todayCount,
-      email_accounts: ctx.vaultCustodianCount ?? null,
+      email_accounts: custodianCount,
       last_synced_at: lastSyncedAt,
       next_sync_at: nextSyncAt,
     };

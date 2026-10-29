@@ -295,19 +295,26 @@ export class CrmContactEnrichmentService {
    * {@link latestRun} exists for the single button that is already polling;
    * rendering a tab must never call it in a loop, which would be one HTTP
    * request and one query per row.
+   *
+   * The contacts tab is paged, so it passes the ids of the page it shows as
+   * `contactIds` and only those are looked up — a firm with thousands of
+   * contacts must not load every one to render one page of buttons. The queue
+   * read is workspace-scoped, so an id from another workspace has no run.
    */
   async latestRunsForEmployer(
     employerId: string,
+    contactIds?: string[],
   ): Promise<Record<string, ContactEnrichmentRun>> {
-    const contacts = await this.correspondentRepo.findByEmployerId(
-      employerId,
-      this.workspaceId,
-    );
-    if (contacts.length === 0) return {};
+    const ids =
+      contactIds ??
+      (
+        await this.correspondentRepo.findByEmployerId(employerId, this.workspaceId)
+      ).map((c) => c.id);
+    if (ids.length === 0) return {};
     const queueRepo = new AiWorkforceQueueRepository(this.db, this.workspaceId);
     const rows = await queueRepo.findLatestByCorrespondentIds(
       CRM_CONTACT_AGENT_NAME,
-      contacts.map((c) => c.id),
+      ids,
     );
     const byContact: Record<string, ContactEnrichmentRun> = {};
     for (const row of rows) {

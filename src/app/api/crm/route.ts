@@ -3,13 +3,11 @@ import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
 import { createContainer } from '@/lib/services/container';
 import { DuplicateEmployerError } from '@/lib/services/crmService';
-import { UserWorkspaceRepository, type EmployerListFilters } from '@/lib/repositories';
-import { sql } from 'drizzle-orm';
+import type { EmployerListFilters } from '@/lib/repositories';
 import { lastContactAfter, lastContactBefore } from '@/lib/crm/lastContactRange';
 import { parseEmployerListSort } from '@/lib/crm/employerListSort';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const VAULT_SYNC_CADENCE_MS = DAY_MS;
+const MAX_LIMIT = 200;
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,38 +29,18 @@ export async function GET(req: NextRequest) {
       teamUserIds: sp.getAll('teamUserId').filter(Boolean),
       sort,
       sortDir: dir,
-      limit: Number(sp.get('limit')) || 50,
-      offset: Number(sp.get('offset')) || 0,
+      limit: Math.min(Math.max(Number(sp.get('limit')) || 50, 1), MAX_LIMIT),
+      offset: Math.max(Number(sp.get('offset')) || 0, 0),
     };
 
     const db = createDb();
     const workspaceId = await getActiveWorkspaceId();
     const { crmService } = createContainer(db, workspaceId);
-    const { rows: lastSyncRows } = await db.execute<{ synced_at: string | null }>(
-      sql`SELECT updated_at::text AS synced_at
-          FROM analytics.vault_exports
-          WHERE status IN ('archived', 'archived_partial')
-          ORDER BY updated_at DESC
-          LIMIT 1`,
-    );
-    const lastVaultSyncedAt = lastSyncRows[0]?.synced_at ?? null;
+    // The insights bar is served by GET /api/crm/insights. It is not
+    // recomputed here: this endpoint runs on every debounced search keystroke,
+    // sort and page change, and the stale-firm count scans email history.
     const { data, total } = await crmService.listEmployers(filters);
-    const vaultCustodianCount = await new UserWorkspaceRepository(db).countSyncedCustodians(
-      workspaceId,
-    );
-    const clientTodayIsoStr = sp.get('clientTodayIso');
-    const clientTodayIso =
-      clientTodayIsoStr && !isNaN(Date.parse(clientTodayIsoStr))
-        ? new Date(clientTodayIsoStr).toISOString()
-        : undefined;
-
-    const insights = await crmService.insights({
-      vaultCustodianCount,
-      lastVaultSyncedAt,
-      vaultSyncCadenceMs: VAULT_SYNC_CADENCE_MS,
-      clientTodayIso,
-    });
-    return NextResponse.json({ data, total, insights });
+    return NextResponse.json({ data, total });
   } catch (err) {
     console.error(err);
     return NextResponse.json(

@@ -54,7 +54,7 @@ export function CompanyPicker({
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams({ limit: "200" });
+    const params = new URLSearchParams({ limit: "25" });
     if (debounced) params.set("q", debounced);
     fetch(`/api/crm?${params.toString()}`)
       .then((r) => r.json())

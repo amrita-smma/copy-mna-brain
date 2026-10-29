@@ -2836,6 +2836,36 @@ export const correspondentWorkspaceEffective = pgView(
   },
 ).existing();
 
+// Google Vault exports the data pipeline runs (data-pipeline/migrations/
+// 20260606020000_vault_exports.sql). Owned by the pipeline; the app only reads
+// it, for the CRM insights bar's "last synced" time.
+export const vaultExports = analytics.table(
+  "vault_exports",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    matter_id: text().notNull(),
+    export_id: text().notNull(),
+    custodian_emails: text().array().notNull(),
+    window_start: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    window_end: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    mode: text().notNull(),
+    status: text().default("exporting").notNull(),
+    fail_count: integer().default(0).notNull(),
+    created_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idxVaultExportsStatus: index("idx_vault_exports_status").using(
+      "btree",
+      table.status.asc().nullsLast().op("text_ops"),
+    ),
+  }),
+);
+
 export const emails = analytics.table(
   "emails",
   {

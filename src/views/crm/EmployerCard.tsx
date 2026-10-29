@@ -37,9 +37,12 @@ import { EditEmployerDialog } from "./EditEmployerDialog";
 import { EmployerNotesTab } from "./EmployerNotesTab";
 import type { ContactPanelSeed } from "./ContactInsightsPanel";
 import { FillContactButton, type EnrichmentRun } from "./FillContactButton";
+import { Pagination } from "./Pagination";
 import type {
+  ContactsPage,
   Correspondent,
   EmployerDetail,
+  InferredFocusByContact,
   EmployerRelatedCompany,
   EmployerSummary,
   EmployerTopicAssignment,
@@ -48,6 +51,7 @@ import type {
 } from "./types";
 import {
   colorForId,
+  CONTACTS_PAGE_SIZE,
   formatResponseP50,
   initialsOf,
   isStaleContact,
@@ -109,9 +113,8 @@ export function EmployerCard({
   const pic = employer.primary_pic;
   // The primary PIC's full record (for the edit dialog) comes from the firm
   // detail; the pencil loads it when the row was never expanded.
-  const primaryContact = pic
-    ? (detail?.correspondents.find((c) => c.id === pic.id) ?? null)
-    : null;
+  const primaryContact =
+    pic && detail?.primary_pic?.id === pic.id ? detail.primary_pic : null;
   const primaryMissing = editingPrimary && !!detail && !primaryContact;
   useEffect(() => {
     if (!primaryMissing) return;
@@ -578,8 +581,8 @@ function ExpandedTabs({
           Contacts
           <span className="ml-1">
             ({matchedContactIds.length > 0
-              ? `${detail.correspondents.filter((c) => matchedContactIds.includes(c.id)).length} of ${detail.correspondents.length}`
-              : detail.correspondents.length})
+              ? `${matchedContactIds.length} of ${detail.contact_count}`
+              : detail.contact_count})
           </span>
         </TabsTrigger>
         <TabsTrigger value="topics" className={tabTriggerCls}>
@@ -610,8 +613,8 @@ function ExpandedTabs({
       <TabsContent value="contacts" className="px-5 pb-5 pt-4">
         <ContactsTab
           employerId={employerId}
-          correspondents={detail.correspondents}
-          inferredFocus={detail.inferred_focus ?? {}}
+          totalCount={detail.contact_count}
+          refreshToken={detail}
           matchedContactIds={matchedContactIds}
           searchTerm={searchTerm}
           onAddContact={onAddContact}
@@ -656,8 +659,8 @@ function ExpandedTabs({
 
 function ContactsTab({
   employerId,
-  correspondents,
-  inferredFocus,
+  totalCount,
+  refreshToken,
   matchedContactIds,
   searchTerm,
   onAddContact,
@@ -665,10 +668,12 @@ function ContactsTab({
   onOpenContact,
 }: {
   employerId: string;
-  correspondents: Correspondent[];
-  /** AI-inferred focus by contact id; the fallback for an empty focus cell. */
-  inferredFocus: NonNullable<EmployerDetail["inferred_focus"]>;
-  /** Server-matched contact ids; non-empty narrows the list to them. */
+  /** Every contact this workspace sees at the firm — from the detail read. */
+  totalCount: number;
+  /** Changes whenever the parent reloads the firm's detail; the current page
+   * is refetched so an edit, add, delete or PIC change shows without remount. */
+  refreshToken: unknown;
+  /** Contacts the list search matched; non-empty narrows the table to them. */
   matchedContactIds: string[];
   searchTerm?: string;
   onAddContact: () => void;
@@ -719,47 +724,117 @@ function ContactsTab({
       setConfirmDelete(null);
     }
   };
-  // Every row's latest @crm_contact run in one request, so the fill buttons
-  // can render their state without a GET per rendered contact.
+  // A large firm can have thousands of contacts, so the table is paged and
+  // searched on the server; the tab only ever holds one CONTACTS_PAGE_SIZE
+  // page. A person search narrows it to the people who matched (the same
+  // name/email match the list reported); "Show all" drops the narrowing.
+  // A new search resets both.
+  const matchKey = matchedContactIds.join(",");
+  const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setShowAll(false);
+    setPage(1);
+  }, [matchKey]);
+  const filtering = matchedContactIds.length > 0 && !!searchTerm;
+  const query = filtering && !showAll ? searchTerm : undefined;
+
+  const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
+  const [inferredFocus, setInferredFocus] = useState<InferredFocusByContact>({});
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const contactsAbortRef = useRef<AbortController | null>(null);
+
+  // Every row's latest @crm_contact run for the current page in one request,
+  // so the fill buttons can render their state without a GET per rendered
+  // contact. Only the newest lookup may write state.
   const [enrichRuns, setEnrichRuns] = useState<Record<string, EnrichmentRun>>(
     {},
   );
-  const enrichRunsLive = useRef(true);
-  // A person search narrows the table to the people who matched; "Show all"
-  // reveals the rest of the firm without refetching. A new search resets it.
-  const matchKey = matchedContactIds.join(",");
-  const [showAll, setShowAll] = useState(false);
-  useEffect(() => setShowAll(false), [matchKey]);
-  const filtering = matchedContactIds.length > 0;
-  const visible =
-    filtering && !showAll
-      ? correspondents.filter((c) => matchedContactIds.includes(c.id))
-      : correspondents;
+  const enrichRequestRef = useRef(0);
+  const pageIdsRef = useRef<string[]>([]);
 
-  const loadEnrichRuns = useCallback(async () => {
+  const loadEnrichRuns = useCallback(
+    async (contactIds: string[] = pageIdsRef.current) => {
+      const requestId = ++enrichRequestRef.current;
+      if (contactIds.length === 0) {
+        setEnrichRuns({});
+        return;
+      }
+      try {
+        const params = new URLSearchParams();
+        contactIds.forEach((id) => params.append("contactId", id));
+        const res = await fetch(
+          `/api/crm/employers/${employerId}/contact-enrichment?${params.toString()}`,
+          { credentials: "same-origin" },
+        );
+        if (!res.ok) return;
+        const { data } = (await res.json()) as {
+          data: Record<string, EnrichmentRun>;
+        };
+        if (enrichRequestRef.current === requestId) setEnrichRuns(data ?? {});
+      } catch {
+        // No run state is the same as no runs — the buttons stay idle and a
+        // click still works.
+      }
+    },
+    [employerId],
+  );
+
+  const loadContacts = useCallback(async () => {
+    contactsAbortRef.current?.abort();
+    const controller = new AbortController();
+    contactsAbortRef.current = controller;
+    // A run lookup still in flight for the previous page must not land here.
+    enrichRequestRef.current++;
+    setLoading(true);
     try {
+      const params = new URLSearchParams({
+        limit: String(CONTACTS_PAGE_SIZE),
+        offset: String((page - 1) * CONTACTS_PAGE_SIZE),
+      });
+      if (query) params.set("q", query);
       const res = await fetch(
-        `/api/crm/employers/${employerId}/contact-enrichment`,
-        { credentials: "same-origin" },
+        `/api/crm/employers/${employerId}/contacts?${params.toString()}`,
+        { credentials: "same-origin", signal: controller.signal },
       );
-      if (!res.ok) return;
-      const { data } = (await res.json()) as {
-        data: Record<string, EnrichmentRun>;
-      };
-      if (enrichRunsLive.current) setEnrichRuns(data ?? {});
-    } catch {
-      // No run state is the same as no runs — the buttons stay idle and a
-      // click still works.
+      const json = await res.json();
+      if (controller.signal.aborted) return;
+      if (!res.ok) throw new Error(json.error || "Failed to load contacts");
+      const body = json as ContactsPage;
+      const rows = body.data ?? [];
+      setCorrespondents(rows);
+      setInferredFocus(body.inferred_focus ?? {});
+      setTotal(Number(body.total ?? 0));
+      pageIdsRef.current = rows.map((c) => c.id);
+      void loadEnrichRuns(pageIdsRef.current);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      toast.error((err as Error).message);
+    } finally {
+      if (contactsAbortRef.current === controller) {
+        contactsAbortRef.current = null;
+        setLoading(false);
+      }
     }
-  }, [employerId]);
+  }, [employerId, page, query, loadEnrichRuns]);
 
   useEffect(() => {
-    enrichRunsLive.current = true;
-    void loadEnrichRuns();
-    return () => {
-      enrichRunsLive.current = false;
-    };
-  }, [loadEnrichRuns]);
+    void loadContacts();
+    // refreshToken: refetch the current page when the parent reloads detail.
+  }, [loadContacts, refreshToken]);
+
+  useEffect(
+    () => () => {
+      contactsAbortRef.current?.abort();
+      // Invalidate any in-flight run lookup so it cannot set state on an
+      // unmounted tab.
+      enrichRequestRef.current++;
+    },
+    [],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(total / CONTACTS_PAGE_SIZE));
 
   return (
     <>
@@ -770,17 +845,20 @@ function ContactsTab({
             data-testid="crm-contact-search-filter"
           >
             {showAll ? (
-              <>Showing all {correspondents.length} contacts · </>
+              <>Showing all {totalCount} contacts · </>
             ) : (
               <>
-                Showing {visible.length} of {correspondents.length} contacts
+                Showing {total} of {totalCount} contacts
                 matching <b className="text-foreground">“{searchTerm}”</b> ·{" "}
               </>
             )}
             <button
               type="button"
               className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
-              onClick={() => setShowAll((v) => !v)}
+              onClick={() => {
+                setShowAll((v) => !v);
+                setPage(1);
+              }}
             >
               {showAll ? "Only matches" : "Show all"}
             </button>
@@ -793,9 +871,13 @@ function ContactsTab({
           + Add contact
         </button>
       </div>
-      {visible.length === 0 ? (
+      {loading && correspondents.length === 0 ? (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : correspondents.length === 0 ? (
         <div className="py-6 text-sm text-muted-foreground">
-          {filtering && correspondents.length > 0 && !showAll
+          {query && totalCount > 0
             ? "No contacts match this search."
             : "No contacts on file."}
         </div>
@@ -815,7 +897,7 @@ function ContactsTab({
               <div className="px-2.5 py-1.5">Profile</div>
               <div className="px-2.5 py-1.5 text-center">Action</div>
             </div>
-            {visible.map((c) => {
+            {correspondents.map((c) => {
               // Profile fields are free text, so the stored URL is only safe to
               // put in an href once its scheme has been checked.
               const linkedinHref = safeProfileUrl(c.linkedin_url);
@@ -961,6 +1043,17 @@ function ContactsTab({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {total > CONTACTS_PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
+            Showing {(page - 1) * CONTACTS_PAGE_SIZE + 1}–
+            {Math.min(page * CONTACTS_PAGE_SIZE, total)} of{" "}
+            <strong>{total}</strong> contacts
+          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       )}
 

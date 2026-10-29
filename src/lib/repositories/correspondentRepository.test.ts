@@ -11,6 +11,7 @@ function makeDb() {
     innerJoin: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
+    offset: vi.fn(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     returning: vi.fn(),
@@ -42,6 +43,77 @@ describe('CorrespondentRepository', () => {
       expect(db.insert).toHaveBeenCalledTimes(1);
       expect(db.values).toHaveBeenCalledWith({ employer_id: 'e1', name: 'X' });
       expect(result.is_primary).toBe(false);
+    });
+  });
+
+  describe('findPageByEmployerId', () => {
+    it('pages in the PIC-first order and never marks a row primary (the caller resolves it firm-wide)', async () => {
+      db.offset.mockResolvedValueOnce([{ id: 'c26', employer_id: 'e1', is_primary: true }]);
+
+      const result = await repo.findPageByEmployerId('e1', 'w1', { limit: 25, offset: 25 });
+
+      expect(db.limit).toHaveBeenCalledWith(25);
+      expect(db.offset).toHaveBeenCalledWith(25);
+      expect(result).toEqual([{ id: 'c26', employer_id: 'e1', is_primary: false }]);
+      const order = db.orderBy.mock.calls[0].map(
+        (c: unknown) => new PgDialect().sqlToQuery(c as never).sql,
+      );
+      expect(order[0]).toContain('"is_primary" desc');
+    });
+
+    it('searches name and email (escaped) within the one firm and workspace', async () => {
+      db.offset.mockResolvedValueOnce([]);
+
+      await repo.findPageByEmployerId('e1', 'w1', { search: '50%', limit: 25, offset: 0 });
+
+      const { sql: text, params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(text).toContain('"correspondent_workspace_effective"."employer_id" =');
+      expect(text).toContain('"correspondent_workspace_effective"."workspace_id" =');
+      expect(text).toMatch(/"name" ilike/i);
+      expect(text).toMatch(/"email" ilike/i);
+      expect(params).toEqual(expect.arrayContaining(['e1', 'w1', '%50\\%%']));
+    });
+
+    it('has no search predicate without a term', async () => {
+      db.offset.mockResolvedValueOnce([]);
+      await repo.findPageByEmployerId('e1', 'w1', { search: '  ', limit: 25, offset: 0 });
+      const { sql: text } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(text).not.toMatch(/ilike/i);
+    });
+  });
+
+  describe('countByEmployerId', () => {
+    it('returns the numeric count of matching visible contacts', async () => {
+      db.where.mockResolvedValueOnce([{ n: '1234' }]);
+      expect(await repo.countByEmployerId('e1', 'w1', 'ann')).toBe(1234);
+      const { params } = new PgDialect().sqlToQuery(db.where.mock.calls[0][0]);
+      expect(params).toContain('%ann%');
+    });
+
+    it('returns 0 when the count row is missing', async () => {
+      db.where.mockResolvedValueOnce([]);
+      expect(await repo.countByEmployerId('e1', 'w1')).toBe(0);
+    });
+  });
+
+  describe('findPrimaryByEmployerId', () => {
+    it("returns the first row of the PIC-first order, flagged primary", async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'c1', employer_id: 'e1' }]);
+      expect(await repo.findPrimaryByEmployerId('e1', 'w1')).toEqual({
+        id: 'c1',
+        employer_id: 'e1',
+        is_primary: true,
+      });
+      expect(db.limit).toHaveBeenCalledWith(1);
+      const order = db.orderBy.mock.calls[0].map(
+        (c: unknown) => new PgDialect().sqlToQuery(c as never).sql,
+      );
+      expect(order[0]).toContain('"is_primary" desc');
+    });
+
+    it('returns null when the workspace sees no contacts at the firm', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      expect(await repo.findPrimaryByEmployerId('e1', 'w1')).toBeNull();
     });
   });
 

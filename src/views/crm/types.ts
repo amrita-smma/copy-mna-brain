@@ -160,18 +160,30 @@ export interface EmployerDetail {
     status: string;
   };
   primary_pic: Correspondent | null;
-  correspondents: Correspondent[];
+  /** Contacts this workspace sees at the firm; the rows are paged by the tab. */
+  contact_count: number;
   notes: EmployerNote[];
   topics: EmployerTopicAssignment[];
   team: TeamMemberSummary[];
   email_count: number;
   last_contact_at: string | null;
   related_companies: EmployerRelatedCompany[];
-  /**
-   * Industry / Area Focus inferred from each contact's emails, by contact id —
-   * shown badged only where the contact's own focus is empty.
-   */
-  inferred_focus?: Record<string, { industry_focus: string | null; area_focus: string | null }>;
+}
+
+/**
+ * Industry / Area Focus inferred from each contact's emails, by contact id —
+ * shown badged only where the contact's own focus is empty.
+ */
+export type InferredFocusByContact = Record<
+  string,
+  { industry_focus: string | null; area_focus: string | null }
+>;
+
+/** One page of a firm's contacts from GET /api/crm/employers/:id/contacts. */
+export interface ContactsPage {
+  data: Correspondent[];
+  total: number;
+  inferred_focus: InferredFocusByContact;
 }
 
 export interface Insights {

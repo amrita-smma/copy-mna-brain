@@ -65,6 +65,7 @@ export * from './crmSuggestedQuestionRepository';
 export * from './workspaceRepository';
 export * from './roleRepository';
 export * from './userWorkspaceRepository';
+export * from './vaultExportRepository';
 export * from './workspaceCorrespondentRepository';
 export * from './workspaceTableLayoutRepository';
 export * from './rssFeedRepository';

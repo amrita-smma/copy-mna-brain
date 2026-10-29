@@ -54,6 +54,7 @@ import type {
 } from "./crm/types";
 import {
   LAST_CONTACT_LABELS,
+  localMidnightIso,
   NEEDS_DEAL_LINKS,
   PAGE_SIZE,
   TOPIC_SUGGESTIONS,
@@ -184,8 +185,11 @@ export default function CRM({ showBankersView = false }: CRMProps) {
   useEffect(() => {
     const next = search.trim();
     if (next === debouncedSearch) return;
+    // A new term starts both views from page 1 — keeping the old page would
+    // ask for an offset past the end of a narrower result.
     const handle = setTimeout(() => {
       setDebouncedSearch(next);
+      setPage(1);
       setBankerPage(1);
     }, 250);
     return () => clearTimeout(handle);
@@ -209,8 +213,17 @@ export default function CRM({ showBankersView = false }: CRMProps) {
   }, [debouncedSearch, view]);
 
   // ─── Fetch employers ──────────────────────────────────────────────────────
+  // Search, filters, sort and paging are all server-side; the page holds one
+  // PAGE_SIZE slice. Only the latest request may write state: typing or
+  // paging quickly leaves earlier requests in flight, and a slow one landing
+  // late would replace the newer result, so superseded requests are aborted.
+  const listAbortRef = useRef<AbortController | null>(null);
+
   const fetchEmployers = useCallback(async () => {
     if (authLoading || !userId) return;
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -218,25 +231,20 @@ export default function CRM({ showBankersView = false }: CRMProps) {
       if (lastContact) params.set("lastContact", lastContact);
       if (lastContact === "custom" && customDate)
         params.set("customDate", customDate);
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      params.set("clientTodayIso", today.toISOString());
-      
+      params.set("clientTodayIso", localMidnightIso());
       topicFilter.forEach((id) => params.append("topicId", id));
       teamFilter.forEach((id) => params.append("teamUserId", id));
       params.set("sort", sort);
       params.set("dir", sortDir);
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String((page - 1) * PAGE_SIZE));
-      const localMidnight = new Date();
-      localMidnight.setHours(0, 0, 0, 0);
-      params.set("clientTodayIso", localMidnight.toISOString());
 
       const res = await fetch(`/api/crm?${params.toString()}`, {
         credentials: "same-origin",
+        signal: controller.signal,
       });
       const json = await res.json();
+      if (controller.signal.aborted) return;
       if (res.status === 401) {
         handleUnauthorized();
         return;
@@ -245,11 +253,14 @@ export default function CRM({ showBankersView = false }: CRMProps) {
       setEmployers(json.data);
       setResultSearch(debouncedSearch);
       setTotal(json.total);
-      setInsights(json.insights);
     } catch (err) {
+      if (controller.signal.aborted) return;
       toast.error((err as Error).message);
     } finally {
-      setLoading(false);
+      if (listAbortRef.current === controller) {
+        listAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }, [
     authLoading,
@@ -268,6 +279,39 @@ export default function CRM({ showBankersView = false }: CRMProps) {
   useEffect(() => {
     fetchEmployers();
   }, [fetchEmployers]);
+
+  useEffect(() => () => listAbortRef.current?.abort(), []);
+
+  // ─── Insights bar ─────────────────────────────────────────────────────────
+  // Workspace-wide counts that don't depend on the search, filters or page, so
+  // they load once and refresh after a mutation — not on every keystroke.
+  const fetchInsights = useCallback(async () => {
+    if (authLoading || !userId) return;
+    try {
+      const params = new URLSearchParams({ clientTodayIso: localMidnightIso() });
+      const res = await fetch(`/api/crm/insights?${params.toString()}`, {
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      if (!res.ok) return;
+      const json = await res.json();
+      setInsights(json.data ?? null);
+    } catch {
+      // The bar keeps its last values; the list is what matters.
+    }
+  }, [authLoading, userId, handleUnauthorized]);
+
+  useEffect(() => {
+    fetchInsights();
+  }, [fetchInsights]);
+
+  const refreshListAndInsights = useCallback(() => {
+    fetchEmployers();
+    fetchInsights();
+  }, [fetchEmployers, fetchInsights]);
 
   // ─── Fetch bankers (Bankers view) ─────────────────────────────────────────
   // Sorting, filtering and paging are server-side; a request-id guard drops a
@@ -591,8 +635,13 @@ export default function CRM({ showBankersView = false }: CRMProps) {
                       }
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="pl-9 bg-background"
+                      className="pl-9 pr-9 bg-background"
                     />
+                    {(view === "bankers"
+                      ? bankersLoading
+                      : loading && employers.length > 0) && (
+                      <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                    )}
                   </div>
 
                   <LastContactFilter
@@ -860,7 +909,7 @@ export default function CRM({ showBankersView = false }: CRMProps) {
                               setAddContactOpen(true);
                             }}
                             onRefreshDetail={() => loadDetail(emp.id)}
-                            onRefreshList={() => fetchEmployers()}
+                            onRefreshList={refreshListAndInsights}
                             onOpenContact={setSelectedContact}
                           />
                         ))}
@@ -900,7 +949,7 @@ export default function CRM({ showBankersView = false }: CRMProps) {
         employers={employers}
         onCreated={() => {
           setAddContactOpen(false);
-          fetchEmployers();
+          refreshListAndInsights();
           if (addContactEmployerId) loadDetail(addContactEmployerId);
         }}
       />
@@ -909,7 +958,7 @@ export default function CRM({ showBankersView = false }: CRMProps) {
         open={importOpen}
         onOpenChange={setImportOpen}
         onImported={() => {
-          fetchEmployers();
+          refreshListAndInsights();
           if (expandedId) loadDetail(expandedId);
         }}
       />
@@ -929,7 +978,7 @@ export default function CRM({ showBankersView = false }: CRMProps) {
       <CurationDialog
         open={curationOpen}
         onOpenChange={setCurationOpen}
-        onResolved={() => fetchEmployers()}
+        onResolved={refreshListAndInsights}
       />
     </>
   );
