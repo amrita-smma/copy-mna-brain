@@ -90,6 +90,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "9480e97f1ce2e10d46c1526095546b82dcfe75e0",
+    "date": "2026-10-29",
+    "subject": "Emails from starwealth.vip now classified as internal, including earlier mail",
+    "category": "feature"
+  },
+  {
+    "hash": "254081dc595ff3a7ad45d96985c42f42420ed306",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
