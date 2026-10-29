@@ -620,6 +620,24 @@ describe("CompanyService.promote", () => {
     );
   });
 
+  it("stores the trimmed promotion reason on the stage-move log so Timeline can show it", async () => {
+    await service.promote(
+      "company-1", "L1", "L2", undefined, undefined, undefined, undefined, "  Strong growth  ",
+    );
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith({
+      company_id: "company-1",
+      action: "PROMOTED_FROM_L1_TO_L2",
+      comments: "Strong growth",
+    });
+  });
+
+  it("logs a null comment when no promotion reason is given", async () => {
+    await service.promote("company-1", "L1", "L2", undefined, undefined, undefined, undefined, "   ");
+    expect(repos.companyLogRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PROMOTED_FROM_L1_TO_L2", comments: null }),
+    );
+  });
+
   it("inserts a note when note is provided", async () => {
     await service.promote("company-1", "L1", "L2", "Some note");
     expect(repos.dealNoteRepo.insert).toHaveBeenCalledWith(

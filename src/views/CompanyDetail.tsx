@@ -8,7 +8,6 @@ import { CollapsibleSection } from '@/components/pipeline/CollapsibleSection';
 import { CompanyTimeline } from '@/components/pipeline/CompanyTimeline';
 import { useSetPageCompanyId, useSetPageDetail } from '@/components/layout/PageContextProvider';
 import posthog from 'posthog-js';
-import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useChatActions } from '@/components/chat/ChatProvider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useQuery } from '@tanstack/react-query';
@@ -32,7 +31,6 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  TrendingUp,
   BookOpen,
   Sparkles,
   Eye,
@@ -164,6 +162,7 @@ interface CompanyLogRow {
   id: string;
   action: string;
   created_at: string | null;
+  comments?: string | null;
 }
 
 interface StageHistory {
@@ -172,6 +171,7 @@ interface StageHistory {
   entered_at: string;
   exited_at: string | null;
   duration_seconds: number | null;
+  reason: string | null;
 }
 
 /** Parse company_logs actions into stage + entered_at. Returns null if not a stage-related action. */
@@ -188,10 +188,17 @@ function stageFromLogAction(action: string, created_at: string): { stage: string
 
 /** Build StageHistory[] from company_logs rows (ordered by created_at asc). */
 function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
-  const entries: { id: string; stage: string; entered_at: string }[] = [];
+  const entries: { id: string; stage: string; entered_at: string; reason: string | null }[] = [];
   for (const log of logs) {
     const parsed = stageFromLogAction(log.action, log.created_at ?? '');
-    if (parsed) entries.push({ id: log.id, stage: parsed.stage, entered_at: parsed.entered_at });
+    if (parsed) {
+      entries.push({
+        id: log.id,
+        stage: parsed.stage,
+        entered_at: parsed.entered_at,
+        reason: log.comments?.trim() || null,
+      });
+    }
   }
   const result: StageHistory[] = [];
   for (let i = 0; i < entries.length; i++) {
@@ -208,6 +215,7 @@ function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
       entered_at: curr.entered_at,
       exited_at,
       duration_seconds,
+      reason: curr.reason,
     });
   }
   return result.reverse(); // newest first for display
@@ -1046,16 +1054,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
             </AlertTitle>
             <AlertDescription>
               {company.dropped_reason ?? 'No reason was recorded.'}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {company.promoted_reasons && company.promoted_reasons.trim() && (
-          <Alert>
-            <TrendingUp className="h-4 w-4" />
-            <AlertTitle>Promotion reasons</AlertTitle>
-            <AlertDescription>
-              <MarkdownRenderer content={company.promoted_reasons} variant="card" />
             </AlertDescription>
           </Alert>
         )}

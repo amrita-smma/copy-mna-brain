@@ -31,7 +31,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import {
-  TrendingUp,
   FileText,
   Link as LinkIcon,
   Plus,
@@ -97,7 +96,6 @@ import CompanyDetailsTab from "@/components/pipeline/CompanyDetailsTab";
 import { useCompanyInformationEditor } from "@/components/pipeline/useCompanyInformationEditor";
 import { useDealStatusToggle } from "@/components/pipeline/useDealStatusToggle";
 import type { Tables } from "@/lib/repositories";
-import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useChatActions } from "@/components/chat/ChatProvider";
 import { AskAIButton } from "@/components/chat/AskAIButton";
 import { useLayoutControl } from "@/components/layout/LayoutControlContext";
@@ -170,6 +168,7 @@ interface CompanyLogRow {
   id: string;
   action: string;
   created_at: string | null;
+  comments?: string | null;
 }
 
 interface StageHistory {
@@ -178,6 +177,7 @@ interface StageHistory {
   entered_at: string;
   exited_at: string | null;
   duration_seconds: number | null;
+  reason: string | null;
 }
 
 /** Parse company_logs actions into stage + entered_at. Returns [] if not a stage-related action. */
@@ -198,7 +198,12 @@ function stageFromLogAction(
 
 /** Build StageHistory[] from company_logs rows (ordered by created_at asc). */
 function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
-  const entries: { id: string; stage: string; entered_at: string }[] = [];
+  const entries: {
+    id: string;
+    stage: string;
+    entered_at: string;
+    reason: string | null;
+  }[] = [];
   for (const log of logs) {
     const parsed = stageFromLogAction(log.action, log.created_at ?? "");
     if (parsed)
@@ -206,6 +211,7 @@ function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
         id: log.id,
         stage: parsed.stage,
         entered_at: parsed.entered_at,
+        reason: log.comments?.trim() || null,
       });
   }
   const result: StageHistory[] = [];
@@ -225,6 +231,7 @@ function companyLogsToStageHistory(logs: CompanyLogRow[]): StageHistory[] {
       entered_at: curr.entered_at,
       exited_at,
       duration_seconds,
+      reason: curr.reason,
     });
   }
   return result.reverse(); // newest first for display
@@ -1084,16 +1091,6 @@ Rewrite ONLY this section to satisfy the request. Keep it factual and in the sam
                 </AlertDescription>
               </Alert>
             </div>
-          )}
-
-          {company.promoted_reasons && company.promoted_reasons.trim() && (
-            <Alert>
-              <TrendingUp className="h-4 w-4" />
-              <AlertTitle>Promotion reasons</AlertTitle>
-              <AlertDescription>
-                <MarkdownRenderer content={company.promoted_reasons} variant="card" />
-              </AlertDescription>
-            </Alert>
           )}
 
           {/* Scrollable tab content */}

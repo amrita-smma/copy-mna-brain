@@ -82,7 +82,7 @@ export class CompanyLogRepository {
   }
 
   async insert(
-    entry: Pick<TablesInsert<'company_logs'>, 'company_id' | 'action'>,
+    entry: Pick<TablesInsert<'company_logs'>, 'company_id' | 'action' | 'comments'>,
   ): Promise<void> {
     await this.db.insert(companyLogs).values(entry);
   }

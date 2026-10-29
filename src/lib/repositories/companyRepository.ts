@@ -246,6 +246,8 @@ type CompanyLogRow = {
   id: string;
   action: string;
   created_at: string | null;
+  /** Free-text context of the action — a stage move's promotion reason. */
+  comments: string | null;
 };
 
 type ScreeningWithCriteria = Tables<"screenings"> & {
@@ -1540,6 +1542,7 @@ export class CompanyRepository {
           id: companyLogs.id,
           action: companyLogs.action,
           created_at: companyLogs.created_at,
+          comments: companyLogs.comments,
         })
         .from(companyLogs)
         .where(and(eq(companyLogs.company_id, id), inArray(companyLogs.company_id, workspaceCompanyIds)))

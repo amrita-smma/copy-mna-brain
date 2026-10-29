@@ -923,6 +923,9 @@ export class CompanyService {
       action: currentStage
         ? `PROMOTED_FROM_${currentStage}_TO_${nextStage}`
         : `PROMOTED_TO_${nextStage}`,
+      // Kept on the log row so Timeline can show each move's own reason —
+      // `promoted_reasons` on the company is one concatenated blob.
+      comments: trimmedPromotionReason,
     });
     if (note?.trim()) {
       await this.dealNoteRepo.insert({

@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import FilePreview from '@/components/Files/FilePreview';
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { isYouTubeVideoUrl } from '@/lib/media/youtube';
 import {
   AlertDialog,
@@ -95,6 +96,8 @@ export interface TimelineStageItem {
   id: string;
   stage: string;
   entered_at: string;
+  /** Why this move was made — the promotion reason captured by the promote dialog. */
+  reason?: string | null;
 }
 
 type TimelineEvent<D, F> =
@@ -925,6 +928,15 @@ function EventDetail<D extends TimelineDocumentItem, F extends TimelineFileItem>
           <span className="text-xs text-muted-foreground">
             Entered {formatAt(event.item.entered_at, 'MMM d, yyyy HH:mm')}
           </span>
+        </div>
+      )}
+
+      {event.kind === 'stage' && event.item.reason?.trim() && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Promotion reason
+          </p>
+          <MarkdownRenderer content={event.item.reason} variant="card" />
         </div>
       )}
 
