@@ -18,6 +18,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "66102b53dda41475f4cdd8a8a50793cc0947fc85",
+    "date": "2026-10-29",
+    "subject": "Contact search, filters, and paging now run on the server for faster results",
+    "category": "improvement"
+  },
+  {
+    "hash": "52cb17f7d1ca0cae79bf989f38bb11efd726d909",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "99d1e9874167b31f1fce21377121fc284b2470eb",
     "date": "2026-10-28",
     "subject": "Copilot now summarizes long conversation threads after each reply instead of before the next message",
