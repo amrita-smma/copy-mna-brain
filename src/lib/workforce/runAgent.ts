@@ -52,7 +52,8 @@ import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
 import { notifyRunFailed } from './notifyFailure';
 import { publishLiveEvent } from '@/lib/server/liveEvents';
-import { LiveTraceCallbackHandler } from './liveTrace';
+import { LiveTraceAnnouncer } from './liveTrace';
+import { onCheckpointWrite } from '@/lib/agents/analysis/checkpointStats';
 import { LIVE_TOPICS } from '@/lib/live/topics';
 
 function isRateLimitError(err: unknown): boolean {
@@ -462,9 +463,12 @@ export async function invokeAgent(
       ...(agentName ? { workforce_agent_name: agentName } : {}),
       ...(agentKey ? { sector_agent_key: agentKey } : {}),
     },
-    // The trace canvases redraw as the checkpoint grows, not on a timer.
-    callbacks: [new LiveTraceCallbackHandler(workspaceId, runId)],
   };
+
+  // The trace canvases redraw as the checkpoint grows, not on a timer: every
+  // write LangGraph makes on this thread becomes a `workforce-trace` frame.
+  const liveTrace = new LiveTraceAnnouncer(workspaceId, runId);
+  const stopHearingWrites = onCheckpointWrite(threadId, () => liveTrace.touch());
 
   try {
     const result = await inRunContext(async () => {
@@ -629,6 +633,8 @@ export async function invokeAgent(
     throw err;
   } finally {
     clearInterval(heartbeatTimer);
+    stopHearingWrites();
+    await liveTrace.stop();
     // Drain the Langfuse queue here, inside the step that produced the trace
     // events — the handler and its queue live in this step's Node.js process.
     // This must NOT move to the workflow body: workflow functions run in the

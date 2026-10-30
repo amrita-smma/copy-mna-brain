@@ -20,6 +20,12 @@ export const LIVE_TOPICS = {
   screenings: 'screenings',
   /** `ai_workforce_queue` rows: queued, started, paused, finished, failed, seen, reordered. */
   workforce: 'workforce',
+  /**
+   * A running agent's checkpoint grew (a model reply or tool result was
+   * persisted). Its own topic so only the trace canvases redraw, not every
+   * view keyed under `workforce`. `ids` are run ids.
+   */
+  workforceTrace: 'workforce-trace',
   /** `companies.ai_opinion_status`: a run started, finished or failed. */
   aiOpinion: 'ai-opinion',
   /** Sourcing's Pending Confirmation bucket: a company arrived, left, or was dropped. */

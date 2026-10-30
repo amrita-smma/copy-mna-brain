@@ -964,8 +964,10 @@ views.
   carries file ids, not the bucket, and a new file is not on any page yet.
   Up to one page GET per visited tab per file event.
 - **The workforce trace frames are coalesced to one per second** per run
-  (`LiveTraceCallbackHandler`); a run making many tool calls publishes often.
-  Fine for a workspace's handful of concurrent runs.
+  (`LiveTraceAnnouncer`, fed by the checkpoint saver's writes); a run making
+  many tool calls publishes often, and each frame costs every open canvas of
+  that run one trace read. Fine for a workspace's handful of concurrent runs;
+  widen the window if the trace endpoint shows up in function counts.
 - **A tab that misses a frame** waits for the 60 s safety-net refetch or a
   reconnect's `resync`. A Redis Stream with `Last-Event-ID` would close that
   gap if it ever shows.

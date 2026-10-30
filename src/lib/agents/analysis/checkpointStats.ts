@@ -17,6 +17,11 @@
  * collector per thread is enough; writes on a thread with no open collector
  * — a workforce run, a background bot turn, the repairs before the run —
  * cost one map lookup and are not counted.
+ *
+ * The same wrapper is also where a thread's writes can be *heard*
+ * (`onCheckpointWrite`): a workforce run announces its trace to the live
+ * stream from here, after the write that grew it, rather than from a
+ * callback that fires before LangGraph has persisted the step.
  */
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 
@@ -41,6 +46,39 @@ interface Collector {
 }
 
 const collectors = new Map<string, Collector>();
+
+type WriteListener = () => void;
+const writeListeners = new Map<string, Set<WriteListener>>();
+
+/**
+ * Run `listener` after every successful checkpoint write (`put` or
+ * `putWrites`) on `threadId`, until the returned function is called. A
+ * failed write is not announced. Listeners run synchronously after the
+ * write resolves; one that throws is logged and does not fail the write.
+ */
+export function onCheckpointWrite(threadId: string, listener: WriteListener): () => void {
+  let set = writeListeners.get(threadId);
+  if (!set) {
+    set = new Set();
+    writeListeners.set(threadId, set);
+  }
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && writeListeners.get(threadId) === set) writeListeners.delete(threadId);
+  };
+}
+
+function notifyWrite(threadId: string | null): void {
+  if (!threadId) return;
+  writeListeners.get(threadId)?.forEach((listener) => {
+    try {
+      listener();
+    } catch (err) {
+      console.error('[checkpoint] write listener failed:', err);
+    }
+  });
+}
 
 function emptyStats(): CheckpointWriteStats {
   return { checkpoints: 0, writeBatches: 0, totalMs: 0, maxMs: 0, lastCheckpointMessages: null };
@@ -87,16 +125,20 @@ export function withCheckpointStats<T extends BaseCheckpointSaver>(
   if (typeof target.put === 'function') {
     const put = (target.put as BaseCheckpointSaver['put']).bind(saver);
     target.put = async (...args: Parameters<BaseCheckpointSaver['put']>) => {
-      const collector = collectors.get(threadIdOf(args[0]) ?? '');
-      if (!collector) return put(...args);
-      const started = now();
+      const threadId = threadIdOf(args[0]);
+      const collector = collectors.get(threadId ?? '');
+      const started = collector ? now() : 0;
       try {
-        return await put(...args);
+        const result = await put(...args);
+        notifyWrite(threadId);
+        return result;
       } finally {
-        record(collector, now() - started);
-        collector.stats.checkpoints += 1;
-        const messages = (args[1]?.channel_values as { messages?: unknown } | undefined)?.messages;
-        collector.stats.lastCheckpointMessages = Array.isArray(messages) ? messages.length : null;
+        if (collector) {
+          record(collector, now() - started);
+          collector.stats.checkpoints += 1;
+          const messages = (args[1]?.channel_values as { messages?: unknown } | undefined)?.messages;
+          collector.stats.lastCheckpointMessages = Array.isArray(messages) ? messages.length : null;
+        }
       }
     };
   }
@@ -104,14 +146,18 @@ export function withCheckpointStats<T extends BaseCheckpointSaver>(
   if (typeof target.putWrites === 'function') {
     const putWrites = (target.putWrites as BaseCheckpointSaver['putWrites']).bind(saver);
     target.putWrites = async (...args: Parameters<BaseCheckpointSaver['putWrites']>) => {
-      const collector = collectors.get(threadIdOf(args[0]) ?? '');
-      if (!collector) return putWrites(...args);
-      const started = now();
+      const threadId = threadIdOf(args[0]);
+      const collector = collectors.get(threadId ?? '');
+      const started = collector ? now() : 0;
       try {
-        return await putWrites(...args);
+        const result = await putWrites(...args);
+        notifyWrite(threadId);
+        return result;
       } finally {
-        record(collector, now() - started);
-        collector.stats.writeBatches += 1;
+        if (collector) {
+          record(collector, now() - started);
+          collector.stats.writeBatches += 1;
+        }
       }
     };
   }
@@ -119,7 +165,8 @@ export function withCheckpointStats<T extends BaseCheckpointSaver>(
   return saver;
 }
 
-/** Test seam: forget every open collector. */
+/** Test seam: forget every open collector and write listener. */
 export function resetCheckpointStatsForTests(): void {
   collectors.clear();
+  writeListeners.clear();
 }

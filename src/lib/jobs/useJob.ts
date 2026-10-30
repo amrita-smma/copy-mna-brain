@@ -24,7 +24,8 @@ const WORKFORCE_TERMINAL = new Set(['succeeded', 'failed', 'rejected', 'timed_ou
  * Read `id` until `isDone`, re-reading when the live stream names it on
  * `topic` (the server publishes every status move) and otherwise at
  * `intervalMs` only while the stream is down. The wait is armed before each
- * read so a frame landing during the read is not missed.
+ * read so a frame landing during the read is not missed, and a stream that
+ * drops mid-wait ends the wait so the next one is armed at `intervalMs`.
  */
 async function readUntil<T>(
   topic: LiveTopic,

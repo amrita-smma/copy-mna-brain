@@ -58,6 +58,27 @@ describe('waitForJob', () => {
     expect(apiRequest).toHaveBeenCalledTimes(2);
   });
 
+  it('re-reads at the short interval as soon as the stream drops mid-wait', async () => {
+    vi.useFakeTimers();
+    liveBus.setConnected(true);
+    apiRequest
+      .mockResolvedValueOnce({ id: 'j1', status: 'running', logs: [] })
+      .mockResolvedValueOnce({ id: 'j1', status: 'running', logs: [] })
+      .mockResolvedValueOnce({ id: 'j1', status: 'completed', logs: [] });
+
+    const done = waitForJob('j1', { intervalMs: 2_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+
+    // The stream drops: one read now, then the 2 s cadence, not the 60 s one.
+    liveBus.setConnected(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apiRequest).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(done).resolves.toMatchObject({ status: 'completed' });
+    expect(apiRequest).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects when aborted while waiting and when the read fails', async () => {
     const controller = new AbortController();
     apiRequest.mockResolvedValueOnce({ id: 'j1', status: 'running', logs: [] });

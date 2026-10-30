@@ -25,8 +25,8 @@ type WorkforceQueueStatus =
 
 // While the live stream is down, how often an open, non-terminal run's trace
 // is re-read so the inline trace + decision UI stays current. While it is up,
-// the run's `workforce` frames drive the refresh. Mirrors TaskCanvas; cleared
-// on collapse or terminal status.
+// the run's `workforce` (status) and `workforce-trace` (checkpoint) frames
+// drive the refresh. Mirrors TaskCanvas; cleared on collapse or terminal status.
 const TRACE_POLL_MS = 5000;
 const IN_PROGRESS_STATUSES: WorkforceQueueStatus[] = [
   'pending',
@@ -397,10 +397,12 @@ function RunCard({
   }, [open, isInProgress, fetchTrace]);
 
   useVisibleInterval(fetchTrace, useLiveRefetchInterval(TRACE_POLL_MS), open && isInProgress);
-  useLiveTopic(LIVE_TOPICS.workforce, (ids) => {
+  const onRunFrame = (ids: string[] | undefined) => {
     if (!open || !isInProgress || (ids && !ids.includes(run.id))) return;
     void fetchTrace();
-  });
+  };
+  useLiveTopic(LIVE_TOPICS.workforce, onRunFrame);
+  useLiveTopic(LIVE_TOPICS.workforceTrace, onRunFrame);
 
   const handleToggle = () => setOpen((v) => !v);
 

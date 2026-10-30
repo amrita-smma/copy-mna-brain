@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import {
   beginCheckpointStats,
+  onCheckpointWrite,
   resetCheckpointStatsForTests,
   withCheckpointStats,
 } from './checkpointStats';
@@ -115,6 +116,52 @@ describe('withCheckpointStats', () => {
 
     expect(stale.end()).toMatchObject({ checkpoints: 0 });
     expect(fresh.end()).toMatchObject({ checkpoints: 1 });
+  });
+
+  it('tells a thread\'s write listeners after each successful write, with or without a collector', async () => {
+    const saver = withCheckpointStats(fakeSaver());
+    const heard = vi.fn();
+    const other = vi.fn();
+    const off = onCheckpointWrite('t1', heard);
+    onCheckpointWrite('t2', other);
+
+    await saver.put(forThread('t1') as never, checkpointWith(1) as never, {} as never, {} as never);
+    await saver.putWrites(forThread('t1') as never, [] as never, 'task');
+    expect(heard).toHaveBeenCalledTimes(2);
+    expect(other).not.toHaveBeenCalled();
+    // The listener hears the write after it resolved.
+    expect(heard.mock.invocationCallOrder[0]).toBeGreaterThan(put.mock.invocationCallOrder[0]);
+
+    beginCheckpointStats('t1');
+    await saver.put(forThread('t1') as never, checkpointWith(2) as never, {} as never, {} as never);
+    expect(heard).toHaveBeenCalledTimes(3);
+
+    off();
+    await saver.put(forThread('t1') as never, checkpointWith(3) as never, {} as never, {} as never);
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not announce a failed write, and a throwing listener does not fail the write', async () => {
+    const saver = withCheckpointStats(fakeSaver());
+    const heard = vi.fn();
+    onCheckpointWrite('t1', heard);
+    put.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(
+      saver.put(forThread('t1') as never, checkpointWith(1) as never, {} as never, {} as never),
+    ).rejects.toThrow('db down');
+    expect(heard).not.toHaveBeenCalled();
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    onCheckpointWrite('t1', () => {
+      throw new Error('listener boom');
+    });
+    await expect(
+      saver.put(forThread('t1') as never, checkpointWith(1) as never, {} as never, {} as never),
+    ).resolves.toEqual({ configurable: { checkpoint_id: 'cp' } });
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 
   it('leaves a saver without the methods alone', () => {

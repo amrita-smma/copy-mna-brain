@@ -84,8 +84,8 @@ function getComposerMode(status: WorkforceQueueStatus): ComposerMode {
 }
 /**
  * While the live stream is down, how often an in-progress task's trace is
- * re-read. While it is up, the run's `workforce` frames (every status move,
- * and the trace as it grows) drive the refresh.
+ * re-read. While it is up, the run's `workforce` frames (every status move)
+ * and `workforce-trace` frames (the trace as it grows) drive the refresh.
  */
 const TRACE_POLL_MS = 5000;
 
@@ -311,10 +311,12 @@ export function TaskCanvas({
 
   const inProgress = Boolean(item?.status && IN_PROGRESS_STATUSES.includes(item.status));
   useVisibleInterval(refresh, useLiveRefetchInterval(TRACE_POLL_MS), inProgress);
-  useLiveTopic(LIVE_TOPICS.workforce, (ids) => {
+  const onRunFrame = (ids: string[] | undefined) => {
     if (!inProgress || !taskId || (ids && !ids.includes(taskId))) return;
     void refresh();
-  });
+  };
+  useLiveTopic(LIVE_TOPICS.workforce, onRunFrame);
+  useLiveTopic(LIVE_TOPICS.workforceTrace, onRunFrame);
 
   if (!taskId) {
     return (

@@ -17,7 +17,8 @@ while the stream is down. The rule and review checklist:
   | Topic | Fires when | `ids` |
   |---|---|---|
   | `screenings` | a screening's state or result changes | screening ids |
-  | `workforce` | a queue row is queued, started, paused, decided, finished, failed, seen, reordered — and, coalesced to once a second, as a running agent's checkpoint grows (`LiveTraceCallbackHandler`) | run ids |
+  | `workforce` | a queue row is queued, started, paused, decided, finished, failed, seen, reordered | run ids |
+  | `workforce-trace` | a running agent's checkpoint grew — heard from the checkpoint saver's own write (`onCheckpointWrite` in `checkpointStats.ts`), coalesced to one frame a second per run (`LiveTraceAnnouncer`), flushed when the step ends. Its own topic so only the trace canvases redraw | run ids |
   | `ai-opinion` | an AI Opinion run starts, finishes or fails | company ids |
   | `sourcing` | a company enters, leaves or is dropped from Pending Confirmation | company ids |
   | `documents` | an attachment's processing status moves | document ids |
@@ -54,7 +55,9 @@ while the stream is down. The rule and review checklist:
   flag so code outside React can hear frames too. Hooks:
   `useLiveRefetchInterval(fallbackMs)`, `useLiveTopic(topic, handler)`,
   `useLiveConnected()`; for a promise, `waitForLiveEvent(topic, { id,
-  timeoutMs })` and `liveFallbackMs(fallbackMs)`.
+  timeoutMs })` and `liveFallbackMs(fallbackMs)`. A wait ends on the frame,
+  the timeout, an abort, or the stream dropping — so a wait armed at the
+  slow safety-net interval never outlives the stream it trusted.
 
 ## Writing a live view
 

@@ -16,6 +16,7 @@ export const LIVE_REFETCH_MS = 60_000;
 export type LiveTopicListener = (ids: string[] | undefined) => void;
 
 const listeners = new Map<LiveTopic, Set<LiveTopicListener>>();
+const connectionListeners = new Set<(connected: boolean) => void>();
 let connected = false;
 
 export const liveBus = {
@@ -24,7 +25,22 @@ export const liveBus = {
     return connected;
   },
   setConnected(value: boolean): void {
+    if (connected === value) return;
     connected = value;
+    connectionListeners.forEach((listener) => {
+      try {
+        listener(value);
+      } catch (err) {
+        console.error('[live] connection listener failed:', err);
+      }
+    });
+  },
+  /** Hear the stream open and close. */
+  onConnectionChange(listener: (connected: boolean) => void): () => void {
+    connectionListeners.add(listener);
+    return () => {
+      connectionListeners.delete(listener);
+    };
   },
   subscribe(topic: LiveTopic, listener: LiveTopicListener): () => void {
     let set = listeners.get(topic);
@@ -50,6 +66,7 @@ export const liveBus = {
   /** Tests only. */
   reset(): void {
     listeners.clear();
+    connectionListeners.clear();
     connected = false;
   },
 };
@@ -63,39 +80,48 @@ export function liveFallbackMs(fallbackMs: number): number {
   return connected ? LIVE_REFETCH_MS : fallbackMs;
 }
 
+export type LiveWaitOutcome = 'event' | 'timeout' | 'disconnected' | 'aborted';
+
 export interface LiveWait {
   /** Why the wait ended. */
-  settled: Promise<'event' | 'timeout' | 'aborted'>;
+  settled: Promise<LiveWaitOutcome>;
   /** Stop waiting (nothing is published; `settled` resolves 'aborted'). */
   cancel(): void;
 }
 
 /**
- * Wait for a frame on `topic` that names `id` (or names no ids), or for
- * `timeoutMs`, whichever comes first. Start the wait *before* the read it
- * follows up, so a frame that lands during the read is not missed.
+ * Wait for a frame on `topic` that names `id` (or names no ids), for
+ * `timeoutMs`, or for the stream to drop — whichever comes first. A wait
+ * armed at the slow safety-net interval must not outlive the stream it
+ * trusted: on 'disconnected' the caller re-reads and re-arms at its fallback
+ * cadence. Start the wait *before* the read it follows up, so a frame that
+ * lands during the read is not missed.
  */
 export function waitForLiveEvent(
   topic: LiveTopic,
   opts: { id?: string; timeoutMs: number; signal?: AbortSignal },
 ): LiveWait {
-  let finish: (why: 'event' | 'timeout' | 'aborted') => void = () => undefined;
-  const settled = new Promise<'event' | 'timeout' | 'aborted'>((resolve) => {
+  let finish: (why: LiveWaitOutcome) => void = () => undefined;
+  const settled = new Promise<LiveWaitOutcome>((resolve) => {
     finish = resolve;
   });
   const unsubscribe = liveBus.subscribe(topic, (ids) => {
     if (ids && opts.id && !ids.includes(opts.id)) return;
     done('event');
   });
+  const stopHearingConnection = liveBus.onConnectionChange((isConnected) => {
+    if (!isConnected) done('disconnected');
+  });
   const timer = setTimeout(() => done('timeout'), opts.timeoutMs);
   const onAbort = () => done('aborted');
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   let over = false;
-  function done(why: 'event' | 'timeout' | 'aborted') {
+  function done(why: LiveWaitOutcome) {
     if (over) return;
     over = true;
     unsubscribe();
+    stopHearingConnection();
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
     finish(why);

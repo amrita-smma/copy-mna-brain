@@ -4,7 +4,6 @@
  * plain async code. We mock the LangChain agent, the repo, and the DB client.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LiveTraceCallbackHandler } from './liveTrace';
 
 const {
   findById,
@@ -71,6 +70,11 @@ const {
 
 const { getStepMetadataMock } = vi.hoisted(() => ({ getStepMetadataMock: vi.fn() }));
 const { flushLangfuseMock } = vi.hoisted(() => ({ flushLangfuseMock: vi.fn() }));
+const { onCheckpointWriteMock, stopHearingWritesMock } = vi.hoisted(() => {
+  const stopHearingWritesMock = vi.fn();
+  return { onCheckpointWriteMock: vi.fn(() => stopHearingWritesMock), stopHearingWritesMock };
+});
+vi.mock('@/lib/agents/analysis/checkpointStats', () => ({ onCheckpointWrite: onCheckpointWriteMock }));
 
 vi.mock('@/lib/langfuseClient', () => ({ flushLangfuse: flushLangfuseMock }));
 const { resolveRecipientMock, notifyTaskWaitingApprovalMock } = vi.hoisted(() => ({
@@ -274,6 +278,8 @@ beforeEach(() => {
     fileIds: ['file-mock'],
   });
   deleteFromAnthropicMock.mockReset().mockResolvedValue(undefined);
+  onCheckpointWriteMock.mockClear();
+  stopHearingWritesMock.mockClear();
   flushLangfuseMock.mockReset().mockResolvedValue(undefined);
   publishRunDraftMock.mockReset();
   notifyInsightRefreshedMock.mockReset().mockResolvedValue(true);
@@ -288,15 +294,19 @@ afterEach(() => {
 });
 
 describe('runAgent — happy path', () => {
-  it('rides the run with a live trace handler so the canvases redraw as the checkpoint grows', async () => {
+  it('hears the thread\'s checkpoint writes for the length of the run so the canvases redraw as the trace grows', async () => {
     findById.mockResolvedValueOnce(makeRow());
     getWorkforceAgentGraph.mockResolvedValueOnce({ invoke: invokeMock, getState: vi.fn().mockResolvedValue({}) });
     invokeMock.mockResolvedValueOnce(makeAgentResult({ finalText: 'Done.' }));
 
     await runAgent({ runId: RUN_ID });
 
-    const { callbacks } = invokeMock.mock.calls[0][1] as { callbacks?: unknown[] };
-    expect(callbacks).toEqual([expect.any(LiveTraceCallbackHandler)]);
+    expect(onCheckpointWriteMock).toHaveBeenCalledTimes(1);
+    expect(onCheckpointWriteMock).toHaveBeenCalledWith(RUN_ID, expect.any(Function));
+    expect(stopHearingWritesMock).toHaveBeenCalledTimes(1);
+    // Heard before the agent ran, stopped after it returned.
+    expect(onCheckpointWriteMock.mock.invocationCallOrder[0]).toBeLessThan(invokeMock.mock.invocationCallOrder[0]);
+    expect(stopHearingWritesMock.mock.invocationCallOrder[0]).toBeGreaterThan(invokeMock.mock.invocationCallOrder[0]);
   });
 
   it('feeds input.prompt through to the agent with runId as thread_id', async () => {
