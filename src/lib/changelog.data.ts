@@ -6,6 +6,14 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
+    "date": "2026-10-30",
+    "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
     "hash": "b03a33ab03a6835eeafeb85d5426b503e247d830",
     "date": "2026-10-29",
     "subject": "Paged history panel for AI Workforce runs, with a 24-hour failure indicator",
@@ -147,6 +155,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "0426981d820d4c3e740a807a940b339fb35ac487",
+    "date": "2026-10-29",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "12f349b05001373905b67f7872815486d2a11047",
     "date": "2026-10-29",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
