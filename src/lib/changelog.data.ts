@@ -14,6 +14,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "vague"
   },
   {
+    "hash": "a3c31a7910e4c1a687239c8e5246bc2ffeccdc8d",
+    "date": "2026-10-30",
+    "subject": "Connect your Gmail mailbox so the assistant can search and reference your emails in chat",
+    "category": "feature"
+  },
+  {
+    "hash": "c49bce4996f754036a77f5aff545c927dad670b9",
+    "date": "2026-10-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "b03a33ab03a6835eeafeb85d5426b503e247d830",
     "date": "2026-10-29",
     "subject": "Paged history panel for AI Workforce runs, with a 24-hour failure indicator",
