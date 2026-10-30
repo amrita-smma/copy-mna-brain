@@ -18,13 +18,14 @@ import {
   investmentTools,
   combinedTools,
   vcTools,
+  botTools,
   valyuSearch,
   getToolDescriptions,
 } from "./index";
 import { isDeferredTool, isToolSearchTool } from "./server_tools";
 import { defaultChatToolList } from "../flavors/mna";
 import { CHAT_ON_DEMAND_TOOL_NAMES } from "../guides";
-import { WORKFORCE_ON_DEMAND_TOOL_NAMES } from "../workforce";
+import { WORKFORCE_ON_DEMAND_TOOL_NAMES, workforceToolList } from "../workforce";
 import { SECTOR_CHAT_CORE_TOOLS, SECTOR_WORKFORCE_CORE_TOOLS } from "@/lib/agents/sector/coreTools";
 import { MINERBA_TOOLS } from "@/lib/agents/minerba/tools";
 import { DIKTI_TOOLS } from "@/lib/agents/dikti/tools";
@@ -135,6 +136,31 @@ describe("agent tool lists", () => {
     for (const [flavor, list] of Object.entries(AGENT_TOOL_LISTS)) {
       if (flavor === "workforce") continue;
       expect(list.map((t) => t.name)).not.toContain("ask_owner");
+    }
+  });
+
+  // The gmail tool reads a member's own mailbox, so it is a bot-chat tool:
+  // it reaches a bot only through the `gmail` skill (a bot's tool list), and
+  // must never be in a chat flavor's list or anything the AI Workforce runs.
+  it("keeps gmail in the bot tools and out of every flavor and Workforce list", () => {
+    expect(botTools.map((t) => t.name)).toContain("gmail");
+    const others: [string, { name?: string }[]][] = [
+      ...Object.entries(AGENT_TOOL_LISTS),
+      ["workforce (resolved)", workforceToolList()],
+      ["sector chat core", SECTOR_CHAT_CORE_TOOLS],
+      ["sector workforce core", SECTOR_WORKFORCE_CORE_TOOLS],
+      ["minerba chat", MINERBA_TOOLS.chat],
+      ["minerba workforce", MINERBA_TOOLS.workforce],
+      ["dikti chat", DIKTI_TOOLS.chat],
+      ["dikti workforce", DIKTI_TOOLS.workforce],
+      ["bangun chat", BANGUN_TOOLS.chat],
+      ["bangun workforce", BANGUN_TOOLS.workforce],
+    ];
+    for (const [label, list] of others) {
+      expect(
+        list.map((t) => t.name),
+        `${label} must not hold the gmail tool`,
+      ).not.toContain("gmail");
     }
   });
 

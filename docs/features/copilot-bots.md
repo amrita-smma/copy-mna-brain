@@ -314,6 +314,8 @@ gone), so a skill added later reaches every bot.
 | `bot_builder` | `lookup_bot`, `propose_create_bot`, `update_bot` |
 | `routines` | `list_routines`, `propose_create_routine` (a card), `update_routine`, `delete_routine` (applied at once) |
 | `tasks` | `list_tasks`, `create_task`, `update_task`, `delete_task` — the user's personal to-dos, full CRUD applied at once (no card, no Workforce); see [`personal-tasks.md`](personal-tasks.md) |
+| `meetings` | `meeting_intelligence` — see [`meeting-intelligence.md`](meeting-intelligence.md) |
+| `gmail` | `gmail` (search / read message / read thread, read-only, as the chatting user) — see [`gmail.md`](gmail.md). A bot-only tool: never in a Workforce list. With Gmail connected, the `email` skill's `send_email` saves a draft in the user's Gmail instead of sending |
 | *(every bot)* | `search_chat_history`, `offer_options` |
 
 **Bot builder.** `propose_create_bot` / `update_bot` validate the

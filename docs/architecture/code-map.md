@@ -12,14 +12,14 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 250 | `src/app/api/**/route.ts` |
-| Services | 102 | `src/lib/services/` |
-| Repositories | 90 | `src/lib/repositories/` |
+| API routes | 253 | `src/app/api/**/route.ts` |
+| Services | 103 | `src/lib/services/` |
+| Repositories | 91 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
 | Job handlers | 15 | `src/lib/jobs/handlers/` |
-| Feature flags | 13 | `src/lib/flags.ts` |
-| Pages | 48 | `src/app/**/page.tsx` |
-| Migrations (app) | 198 | `drizzle/migrations/` |
+| Feature flags | 14 | `src/lib/flags.ts` |
+| Pages | 50 | `src/app/**/page.tsx` |
+| Migrations (app) | 199 | `drizzle/migrations/` |
 | Migrations (pipeline) | 25 | `data-pipeline/migrations/` |
 
 ## Feature flags
@@ -36,6 +36,7 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `crmGoogleVaultSyncEnabled` | `CRM_GOOGLE_VAULT_SYNC` |
 | `fundManagementEnabled` | `FUND_MANAGEMENT_ENABLED` |
 | `fundVehicleViewEnabled` | `FUND_VEHICLE_VIEW_ENABLED` |
+| `gmailEnabled` | `GMAIL_ENABLED` |
 | `insightsDashboardEnabled` | `INSIGHTS_DASHBOARD_ENABLED` |
 | `insightsEnabled` | `INSIGHTS_ENABLED` |
 | `ledgerEnabled` | `LEDGER_ENABLED` |
@@ -64,9 +65,11 @@ Resolve server-side in a page file, pass down as boolean props. See
 | `/pipeline/[dealId]` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
 | `/pipeline/[dealId]/slides` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
 | `/presentation` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
+| `/privacy` | _inline — see `src/app/privacy/page.tsx`_ |
 | `/reset-password` | _inline — see `src/app/reset-password/page.tsx`_ |
 | `/smart-files/[[...tab]]` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
 | `/sourcing` | _legacy redirect → `/w/[workspaceSlug]` equivalent_ |
+| `/terms` | _inline — see `src/app/terms/page.tsx`_ |
 | `/w/[workspaceSlug]` | _inline — see `src/app/w/[workspaceSlug]/page.tsx`_ |
 | `/w/[workspaceSlug]/ai-workforce/[[...taskSlug]]` | `src/views/AIWorkforce.tsx` |
 | `/w/[workspaceSlug]/bots` | `src/views/Bots.tsx` |
@@ -278,6 +281,9 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/insights/[id]/rollback` | POST | `insightService` |
 | `/api/insights/[id]/save-as-template` | POST | `insightService`, `insightTemplateService` |
 | `/api/insights/upload` | POST | `insightService` |
+| `/api/integrations/gmail` | GET, DELETE | `gmailService` |
+| `/api/integrations/gmail/callback` | GET | `gmailService` |
+| `/api/integrations/gmail/connect` | GET | `gmailService` |
 | `/api/integrations/meeting-intelligence` | GET, DELETE | `meetingIntelligenceService` |
 | `/api/integrations/meeting-intelligence/callback` | GET | `meetingIntelligenceService` |
 | `/api/integrations/meeting-intelligence/connect` | GET | `meetingIntelligenceService` |
@@ -356,7 +362,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 
 ## Services
 
-`Container` exposes 87 keys. Wire new services in
+`Container` exposes 88 keys. Wire new services in
 `src/lib/services/container.ts`.
 
 | File | Exported classes | Tests |
@@ -430,6 +436,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `fundAiOpinionService.ts` | `FundAiOpinionService` | ✅ |
 | `fundCatalogCheckService.ts` | `FundCatalogCheckService` | ✅ |
 | `fundUpdateApplyService.ts` | `FundUpdateApplyService` | ✅ |
+| `gmailService.ts` | `GmailNotConfiguredError`, `GmailNotConnectedError`, `GmailScopeMissingError`, `GmailAuthorizationError`, `GmailService` | ✅ |
 | `googleToken.ts` | `GoogleTokenError` | ✅ |
 | `googleVaultService.ts` | — | ✅ |
 | `htmlToPptxElements.ts` | — | ❌ |
@@ -534,6 +541,7 @@ Workspace-scoped Drizzle data access. The only layer allowed to touch the DB.
 | `flPositionRepository.ts` | `FlPositionRepository` | ✅ |
 | `flSourceRecordRepository.ts` | `FlSourceRecordRepository` | ✅ |
 | `flValuationRepository.ts` | `FlValuationRepository` | ✅ |
+| `gmailRepository.ts` | `GmailRepository` | ✅ |
 | `insightRepository.ts` | `InsightRepository` | ✅ |
 | `insightRunDraftRepository.ts` | `InsightRunDraftRepository` | ✅ |
 | `insightTemplateRepository.ts` | `InsightTemplateRepository` | ✅ |
@@ -572,7 +580,7 @@ tool under `tools/`. See `.claude/CLAUDE.md` → Agent Design Pattern.
 
 | Agent | Tools | Tools with tests | Has `index.ts` |
 |---|---|---|---|
-| `analysis` | 93 | 85/93 | ✅ |
+| `analysis` | 95 | 86/95 | ✅ |
 | `bangun` | 0 | 0/0 | ✅ |
 | `crm_contact` | 7 | 7/7 | ✅ |
 | `dikti` | 0 | 0/0 | ✅ |

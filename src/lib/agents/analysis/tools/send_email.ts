@@ -27,9 +27,21 @@ import {
   buildCompanyCardAttachment,
 } from './emailArtifacts';
 import { COMPANY_FILTER_DOC } from './companyFilters';
+import { isMailboxAddress } from '@/lib/gmail';
+import { GMAIL_DRAFT_MAX_RECIPIENTS, resolveEmailRoute, saveGmailDraft } from './gmailDraft';
 
 /**
- * send_email — send ONE agent-composed email to one or more platform users.
+ * send_email — send ONE agent-composed email.
+ *
+ * WHERE IT GOES. In a bot chat whose user has connected Gmail (and whose
+ * workspace has it on) the email is NOT sent: it is saved as a draft in the
+ * user's own Gmail, addressed to any address, for them to review and send —
+ * unless `send_as_brain` is set because the user asked for it to go out on
+ * behalf of Investment Brain. Otherwise (Gmail not connected, or a Workforce
+ * run, which has no mailbox to draft in) it is sent through the platform
+ * mailer, to platform users only, as described below. See `gmailDraft.ts`.
+ *
+ * Platform send: one agent-composed email to one or more platform users.
  *
  * The email always carries a free-form subject + body, and may additionally
  * carry, in the SAME message:
@@ -72,7 +84,13 @@ const argsSchema = z.object({
     .array(z.string())
     .optional()
     .describe(
-      'Recipient email addresses — each must be a registered platform user. Omit to send to the signed-in user.',
+      'Recipient email addresses. For a Gmail draft (the default when the user has connected Gmail) any address is allowed. When sending on behalf of Investment Brain, each must be a registered platform user. Omit to address the signed-in user.',
+    ),
+  send_as_brain: z
+    .boolean()
+    .optional()
+    .describe(
+      'Set true ONLY when the user explicitly asks to send on behalf of Investment Brain / the platform. Otherwise leave it unset: a user with Gmail connected gets a draft in their own Gmail instead of a sent email.',
     ),
   subject: z.string().min(1).max(200).describe('Email subject line.'),
   body: z.string().min(1).max(5000).describe('Plain-text email body (newlines preserved).'),
@@ -125,50 +143,84 @@ export const sendEmailTool = tool(
     if (!subject) return '**Error:** subject is required.';
     if (!body) return '**Error:** body is required.';
 
+    // Set once the route is known, so a failure before anything is saved says
+    // "draft" rather than claiming a send was attempted.
+    let draftInGmail = false;
     try {
-      const db = createDb();
-      const userRepo = new UserRepository(db);
-      const users = await userRepo.findAll();
+      // ── Where does it go: a draft in the user's Gmail, or the platform mailer? ──
+      const route = await resolveEmailRoute(runtime, args.send_as_brain === true);
+      if (route.kind === 'blocked') return route.message;
+      draftInGmail = route.kind === 'draft';
 
-      // Build the whitelist: only registered platform users with an email.
-      const allowed = new Map<string, AllowedRecipient>();
-      for (const u of users) {
-        const email = u.email?.trim();
-        if (email) allowed.set(email.toLowerCase(), { email, name: u.name });
-      }
-
-      // ── Resolve recipients: explicit `to` (whitelisted) or the signed-in user. ──
+      // ── Resolve recipients. ──
       const recipients: AllowedRecipient[] = [];
       const rejected: string[] = [];
       const requested = Array.from(
         new Set((args.to ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean)),
       );
 
-      if (requested.length > 0) {
-        const malformed = requested.filter((e) => !EMAIL_RE.test(e));
+      if (route.kind === 'draft') {
+        // A draft is reviewed and sent by the user themselves, so any address
+        // may be on it — but each must be a plain address, never something that
+        // could smuggle a second recipient or header into the message.
+        const malformed = requested.filter((e) => !isMailboxAddress(e));
         if (malformed.length > 0) {
           return `**Error:** malformed email address(es): ${malformed.join(', ')}.`;
         }
-        for (const e of requested) {
-          const match = allowed.get(e);
-          if (match) recipients.push(match);
-          else rejected.push(e);
+        if (requested.length > GMAIL_DRAFT_MAX_RECIPIENTS) {
+          return `**Error:** a draft can have at most ${GMAIL_DRAFT_MAX_RECIPIENTS} recipients (got ${requested.length}).`;
         }
-        if (recipients.length === 0) {
-          return `**Error:** none of the requested recipients are registered platform users, so nothing was sent. Emails can only be sent to users that exist on the platform. Rejected: ${rejected.join(', ')}.`;
+        if (requested.length > 0) {
+          for (const e of requested) recipients.push({ email: e, name: '' });
+        } else {
+          // Default: the signed-in user, else the connected mailbox itself.
+          const self = [extractUserEmailFromConfig(runtime), route.googleEmail].find(
+            (e): e is string => Boolean(e && isMailboxAddress(e.trim())),
+          );
+          if (!self) {
+            return '**Error:** No recipients given and no email address is known for the signed-in user.';
+          }
+          recipients.push({ email: self.trim(), name: '' });
         }
       } else {
-        // Default: the signed-in user from runtime config.
-        const signedIn = extractUserEmailFromConfig(runtime);
-        if (!signedIn) {
-          return '**Error:** No recipients given and no signed-in user email is available on the runtime.';
+        const db = createDb();
+        const userRepo = new UserRepository(db);
+        const users = await userRepo.findAll();
+
+        // Build the whitelist: only registered platform users with an email.
+        const allowed = new Map<string, AllowedRecipient>();
+        for (const u of users) {
+          const email = u.email?.trim();
+          if (email) allowed.set(email.toLowerCase(), { email, name: u.name });
         }
-        if (!EMAIL_RE.test(signedIn)) {
-          logger.error(`send_email: malformed userEmail in config: ${signedIn}`);
-          return '**Error:** The signed-in user email on file is malformed; cannot send.';
+
+        // Explicit `to` (whitelisted) or the signed-in user.
+        if (requested.length > 0) {
+          const malformed = requested.filter((e) => !EMAIL_RE.test(e));
+          if (malformed.length > 0) {
+            return `**Error:** malformed email address(es): ${malformed.join(', ')}.`;
+          }
+          for (const e of requested) {
+            const match = allowed.get(e);
+            if (match) recipients.push(match);
+            else rejected.push(e);
+          }
+          if (recipients.length === 0) {
+            return `**Error:** none of the requested recipients are registered platform users, so nothing was sent. Emails can only be sent to users that exist on the platform. Rejected: ${rejected.join(', ')}.`;
+          }
+        } else {
+          // Default: the signed-in user from runtime config.
+          const signedIn = extractUserEmailFromConfig(runtime);
+          if (!signedIn) {
+            return '**Error:** No recipients given and no signed-in user email is available on the runtime.';
+          }
+          if (!EMAIL_RE.test(signedIn)) {
+            logger.error(`send_email: malformed userEmail in config: ${signedIn}`);
+            return '**Error:** The signed-in user email on file is malformed; cannot send.';
+          }
+          const match = allowed.get(signedIn.toLowerCase());
+          recipients.push(match ?? { email: signedIn, name: '' });
         }
-        const match = allowed.get(signedIn.toLowerCase());
-        recipients.push(match ?? { email: signedIn, name: '' });
       }
 
       // SES raw messages are ~10MB; keep the total payload under ~5.5MB so
@@ -293,7 +345,27 @@ export const sendEmailTool = tool(
         return `**Error:** Combined attachments exceed the email size limit (~5.5MB raw). Remove an attachment or shrink the deck and try again.`;
       }
 
-      // ── Send ONE composed email per recipient. ──
+      if (documentNote) notes.push(`The page was ${documentNote}.`);
+
+      // ── Gmail: one draft, addressed to everyone. Nothing is sent. ──
+      if (route.kind === 'draft') {
+        const outcome = await saveGmailDraft({
+          route,
+          to: recipients.map((r) => r.email),
+          subject,
+          body,
+          documentHtml,
+          attachments,
+          attachmentLabels,
+          notes,
+        });
+        logger.info(
+          `📝 send_email → Gmail draft for ${recipients.length} recipient(s) (${attachments.length} attachment(s), ok=${outcome.ok})`,
+        );
+        return outcome.ok ? outcome.message : `**Error:** ${outcome.message}`;
+      }
+
+      // ── Platform: send ONE composed email per recipient. ──
       const emailService = new EmailService();
       const sent: string[] = [];
       const failed: string[] = [];
@@ -317,8 +389,6 @@ export const sendEmailTool = tool(
           logger.error(`send_email to ${r.email} failed: ${(err as Error).message}`);
         }
       }
-
-      if (documentNote) notes.push(`The page was ${documentNote}.`);
 
       const parts: string[] = [];
       if (sent.length > 0) {
@@ -346,16 +416,24 @@ export const sendEmailTool = tool(
     } catch (error) {
       const message = (error as Error).message;
       logger.error(`send_email failed: ${message}`);
-      return `**Error:** Could not send email — ${message}`;
+      return draftInGmail
+        ? `**Error:** Nothing was sent. Could not save the Gmail draft — ${message}`
+        : `**Error:** Could not send email — ${message}`;
     }
   },
   {
     name: 'send_email',
-    description: `Send ONE email to one or more platform users. You compose the subject and body; you may also attach a company spreadsheet, a research PDF, and/or a PowerPoint (a Company Card export or a free-form deck) — everything goes in a SINGLE email, never split across multiple messages.
+    description: `Send ONE email. You compose the subject and body; you may also attach a company spreadsheet, a research PDF, and/or a PowerPoint (a Company Card export or a free-form deck) — everything goes in a SINGLE email, never split across multiple messages.
 
-IMPORTANT — recipients are restricted to a whitelist: only addresses that belong to a registered platform user (the users table) can be emailed. Omit \`to\` to send to the signed-in user (resolved by the runtime — you do NOT need their address). Any \`to\` address that is not a known platform user is silently skipped and reported back; the email is never delivered to non-platform addresses. Do NOT use this tool to email customers, bankers, or external parties.
+## Where the email goes — read this first
 
-VOICE — always write and sign on behalf of the app, "Investment Brain", NOT the human user. Do NOT sign off with an individual person's name. If you include a signature, sign as "Investment Brain".
+- **If the user has connected their Gmail, this tool does NOT send. It saves the email as a DRAFT in their own Gmail** (Drafts folder) for them to review, edit and send themselves. The draft can be addressed to ANY email address — customers, bankers, external parties — because a person reads it before it goes out. When the result says a draft was saved, tell the user it is waiting in their Gmail Drafts (include the link it gives) and NEVER say the email was sent.
+- Set \`send_as_brain: true\` ONLY when the user explicitly asks to send on behalf of Investment Brain / the platform ("send it from Brain", "have Brain email it"). Then it is really sent via the platform, under the rules in "Platform send" below. Never set it on your own to get around a Gmail error or a reconnect request — relay that to the user instead.
+- If the user has not connected Gmail (or Gmail is off for the workspace), it sends via the platform as described in "Platform send".
+
+**Platform send** (\`send_as_brain: true\`, or no Gmail connected): recipients are restricted to a whitelist — only addresses that belong to a registered platform user (the users table) can be emailed. Omit \`to\` to send to the signed-in user (resolved by the runtime — you do NOT need their address). Any \`to\` address that is not a known platform user is silently skipped and reported back; the email is never delivered to non-platform addresses. Do NOT use the platform send to email customers, bankers, or external parties — draft those in Gmail instead.
+
+VOICE — in a **Gmail draft** the email goes out under the user's own name: write it the way they would, in the first person, and do NOT sign it "Investment Brain" (leave the sign-off to the user unless they told you how to sign). For a **platform send**, write and sign on behalf of the app, "Investment Brain", NOT the human user; do NOT sign off with an individual person's name.
 
 ## Company attachments run AFTER query_companies
 

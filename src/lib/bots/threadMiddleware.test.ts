@@ -50,6 +50,7 @@ vi.mock('@/lib/agents/analysis/tools', () => {
     updateTask: t('update_task'),
     deleteTask: t('delete_task'),
     meetingIntelligence: t('meeting_intelligence'),
+    gmail: t('gmail'),
     offerOptions: t('offer_options'),
   };
 });

@@ -19,6 +19,13 @@ const {
 
 vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
 
+// These tests cover the platform (SES) send; the Gmail-draft routing has its own file.
+vi.mock('./gmailDraft', () => ({
+  GMAIL_DRAFT_MAX_RECIPIENTS: 25,
+  resolveEmailRoute: vi.fn(async () => ({ kind: 'platform' })),
+  saveGmailDraft: vi.fn(),
+}));
+
 vi.mock('@/lib/repositories', () => ({
   UserRepository: class {
     findAll = findAll;

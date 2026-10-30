@@ -82,6 +82,7 @@ type TableMap = {
   user_tasks: typeof schema.userTasks;
   meeting_intelligence_clients: typeof schema.meetingIntelligenceClients;
   meeting_intelligence_connections: typeof schema.meetingIntelligenceConnections;
+  gmail_connections: typeof schema.gmailConnections;
 };
 
 export type Tables<T extends keyof TableMap> = TableMap[T]["$inferSelect"];

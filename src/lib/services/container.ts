@@ -24,6 +24,7 @@ import {
   RecentFileRepository,
   UserTaskRepository,
   MeetingIntelligenceRepository,
+  GmailRepository,
   EmployerRepository,
   EmployerCurationRepository,
   EmployerRelatedCompanyRepository,
@@ -113,6 +114,7 @@ import { DealDocumentService } from './dealDocumentService';
 import { RecentFileService } from './recentFileService';
 import { UserTaskService } from './userTaskService';
 import { MeetingIntelligenceService } from './meetingIntelligenceService';
+import { GmailService } from './gmailService';
 import { DealNoteService } from './dealNoteService';
 import { DealLinkService } from './dealLinkService';
 import { CompanyAnalysisService } from './companyAnalysisService';
@@ -196,6 +198,7 @@ export interface Container {
   recentFileService: RecentFileService;
   userTaskService: UserTaskService;
   meetingIntelligenceService: MeetingIntelligenceService;
+  gmailService: GmailService;
   dealNoteService: DealNoteService;
   dealLinkService: DealLinkService;
   companyAnalysisService: CompanyAnalysisService;
@@ -473,6 +476,8 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
   const meetingIntelligenceService = lazy(
     () => new MeetingIntelligenceService(new MeetingIntelligenceRepository(db)),
   );
+  // User-scoped, not workspace-scoped: see GmailRepository.
+  const gmailService = lazy(() => new GmailService(new GmailRepository(db)));
   const pendingAutoScanService = lazy(
     () =>
       new PendingAutoScanService(
@@ -1097,6 +1102,7 @@ export function createContainer(db: DbClient, workspaceId: string): Container {
     get recentFileService() { return recentFileService(); },
     get userTaskService() { return userTaskService(); },
     get meetingIntelligenceService() { return meetingIntelligenceService(); },
+    get gmailService() { return gmailService(); },
     get dealNoteService() { return dealNoteService(); },
     get dealLinkService() { return dealLinkService(); },
     get companyAnalysisService() { return companyAnalysisService(); },

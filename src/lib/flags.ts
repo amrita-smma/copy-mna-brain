@@ -44,6 +44,9 @@ export const insightsEnabled = booleanFlag("INSIGHTS_ENABLED");
 // Meeting Intelligence (MoM AI Intelligent) integration — off by default.
 export const meetingIntelligenceEnabled = booleanFlag("MEETING_INTELLIGENCE_ENABLED");
 
+// Gmail integration (members connect their own mailbox; bots read it) — on by default.
+export const gmailEnabled = booleanFlag("GMAIL_ENABLED");
+
 /**
  * The CoPilot's long-term memory (mem0) — a deployment-wide kill-switch, ON by
  * default.

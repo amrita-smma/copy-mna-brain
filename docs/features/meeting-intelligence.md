@@ -18,7 +18,8 @@ Two gates, both required:
    button at the bottom of the sidebar (above the name / tasks / bell row) opens
    Profile → **Connected apps** (`?tab=apps`), where MoM Intelligent has a
    **Connect** button. With the workspace flag off the row is still listed but
-   reads "Not enabled". Gmail, Google Drive, Google Calendar, Outlook and Slack
+   reads "Not enabled". Gmail connects from the same tab (see
+   [`gmail.md`](gmail.md)); Google Drive, Google Calendar, Outlook and Slack
    are listed there as Coming Soon (UI only — no integration behind them yet).
    There are no API keys or service accounts: the server requires a person to
    approve the connection in a browser.

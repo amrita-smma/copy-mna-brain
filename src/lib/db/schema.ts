@@ -5703,3 +5703,39 @@ export const meetingIntelligenceConnections = pgTable(
     ).on(table.user_id),
   }),
 );
+
+// ── Gmail integration ──────────────────────────────────────────────────────
+// One member's connection to their own Gmail: the OAuth tokens that let the
+// Copilot bots search and read their mail AS that member (read-only
+// `gmail.readonly`). Scoped to the user, not the workspace — the Google
+// account is the person's and follows them across workspaces; whether a
+// workspace may use it is the GMAIL_ENABLED feature flag. Both tokens are
+// AES-256-GCM ciphertext (src/lib/crypto/tokenCipher.ts), never plaintext.
+// See docs/features/gmail.md.
+export const gmailConnections = pgTable(
+  "gmail_connections",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    user_id: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    access_token_enc: text().notNull(),
+    refresh_token_enc: text().notNull(),
+    access_token_expires_at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    scope: text(),
+    // The Gmail address they connected, shown on Profile so they can tell
+    // which account it is.
+    google_email: text(),
+    connected_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp({ withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    uqGmailConnectionsUser: uniqueIndex("uq_gmail_connections_user").on(
+      table.user_id,
+    ),
+  }),
+);

@@ -33,6 +33,9 @@ Google hands the page an ID token (the GIS credential), and the login page:
 The button is hidden when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset, leaving only
 email/password sign-in.
 
+The same client also backs the [Gmail integration](gmail.md), which additionally
+needs `GOOGLE_CLIENT_SECRET` (sign-in itself does not).
+
 ## Deeplink preservation across login
 
 A logged-out hit on a protected URL must come back to that URL after signing in,

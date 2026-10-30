@@ -184,6 +184,14 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     defaultEnabled: false,
     navItem: false,
   },
+  {
+    key: 'GMAIL_ENABLED',
+    label: 'Gmail',
+    description:
+      "Let members connect their own Gmail from Connect Apps (Profile → Connected apps) so the Copilot bots can search and read that member's mail, in chat only (never the AI Workforce). Read-only; each member sees only their own mailbox. Off: the Connected apps row shows 'Not enabled' and the bots' gmail tool refuses. On by default, though nobody can connect until the deployment has GOOGLE_CLIENT_SECRET next to GOOGLE_CLIENT_ID (the row then reads 'Not set up').",
+    defaultEnabled: true,
+    navItem: false,
+  },
   // ── Funds settings (surfaced on the admin Funds tab, not Features) ──────────
   {
     key: 'SOURCE_OF_FUNDS_ENABLED',

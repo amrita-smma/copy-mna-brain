@@ -202,8 +202,16 @@ function LoginForm() {
 
           <GoogleSignInButton onCredential={handleGoogleCredential} disabled={isLoading} />
         </CardContent>
-        <CardFooter className="flex justify-center w-full text-center text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">
+        <CardFooter className="flex w-full flex-col items-center gap-2 text-center text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">
           SECURED BY NEURAL CORE LOGIC
+          <span className="flex items-center gap-3 normal-case tracking-normal">
+            <Link href="/privacy" className="underline-offset-4 hover:underline">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="underline-offset-4 hover:underline">
+              Terms of Service
+            </Link>
+          </span>
         </CardFooter>
       </Card>
       </div>

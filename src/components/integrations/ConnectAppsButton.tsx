@@ -13,7 +13,7 @@ export const CONNECTED_APPS_HREF = '/profile?tab=apps';
 /**
  * The sidebar footer's "Connect Apps" entry, above the name / tasks / bell row.
  * A link (middle-clickable, prefetched) to Profile → Connected apps, where
- * Meeting Intelligence connects today and Gmail, Drive, Calendar and the rest
+ * Meeting Intelligence and Gmail connect today and Drive, Calendar and the rest
  * are listed as coming soon. The overlapping Gmail / Drive / Calendar marks say
  * what "apps" means at a glance. At icon width it shrinks to a plug with a
  * tooltip.

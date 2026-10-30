@@ -10,6 +10,7 @@ vi.mock('@/auth.config', () => ({ authConfig: {} }));
 
 import {
   classifyApiRoute,
+  config,
   extractRefererWorkspaceSlug,
   extractWorkspaceSlug,
   isValidWorkspaceSlug,
@@ -308,5 +309,16 @@ describe('proxy PostHog ingest branch', () => {
   it('still gates a lookalike path that is not the ingest proxy', () => {
     const res = runProxy('/api/ingest', null, CREDENTIALS);
     expect(res.headers.get('x-middleware-override-headers')).toBeNull();
+  });
+});
+
+describe('public legal pages', () => {
+  it('/privacy and /terms are outside the proxy matcher, so they need no session', () => {
+    const sources = config.matcher.map((m) => (typeof m === 'string' ? m : m.source));
+    for (const path of ['/privacy', '/terms']) {
+      expect(sources.some((s) => s === path || s.startsWith(`${path}/`) || s.startsWith(`${path}:`))).toBe(false);
+    }
+    // The gate still covers the app itself.
+    expect(sources).toEqual(expect.arrayContaining(['/api/:path*', '/w/:path*']));
   });
 });

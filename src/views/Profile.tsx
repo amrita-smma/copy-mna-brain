@@ -155,11 +155,14 @@ export interface ProfileProps {
    * decides whether its Meeting Intelligence row can connect.
    */
   showMeetingIntelligence?: boolean;
+  /** The workspace's GMAIL_ENABLED flag; decides whether the Gmail row can connect. */
+  showGmail?: boolean;
 }
 
 export default function Profile({
   showMemoryTab = false,
   showMeetingIntelligence = false,
+  showGmail = false,
 }: ProfileProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -384,7 +387,7 @@ export default function Profile({
         )}
 
         <TabsContent value="apps" className="mt-1">
-          <ConnectedAppsTab meetingIntelligenceEnabled={showMeetingIntelligence} />
+          <ConnectedAppsTab meetingIntelligenceEnabled={showMeetingIntelligence} gmailEnabled={showGmail} />
         </TabsContent>
       </Tabs>
 

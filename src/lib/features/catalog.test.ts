@@ -32,6 +32,14 @@ describe('FEATURE_CATALOG', () => {
     expect(smartFiles?.defaultEnabled).toBe(true);
   });
 
+  it('registers Gmail as an on-by-default general feature', () => {
+    const gmail = FEATURE_CATALOG.find((feature) => feature.key === 'GMAIL_ENABLED');
+    expect(gmail).toBeDefined();
+    expect(gmail?.defaultEnabled).toBe(true);
+    expect(gmail?.navItem).toBe(false);
+    expect(gmail?.category ?? 'general').toBe('general');
+  });
+
   it('registers Meeting Intelligence as an opt-in, off-by-default general feature', () => {
     const meetings = FEATURE_CATALOG.find((feature) => feature.key === 'MEETING_INTELLIGENCE_ENABLED');
     expect(meetings).toBeDefined();

@@ -37,6 +37,7 @@ import {
   updateTask,
   deleteTask,
   meetingIntelligence,
+  gmail,
 } from '@/lib/agents/analysis/tools';
 import { lazyToolList, type ToolListFactory } from '@/lib/agents/analysis/flavors/lazyToolList';
 import type { ToolList } from '@/lib/agents/analysis/flavors/types';
@@ -93,6 +94,13 @@ export const BOT_SKILLS: Record<BotSkillKey, BotSkill> = {
     // Read-only, as the chatting user. Refuses (with instructions) when the
     // workspace flag is off or the user hasn't connected.
     tools: lazyToolList(() => [meetingIntelligence]),
+  },
+  gmail: {
+    ...BOT_SKILL_META.gmail,
+    // Read-only, as the chatting user, and only ever in a bot's tool list —
+    // never the AI Workforce's. Refuses (with instructions) when the workspace
+    // flag is off or the user hasn't connected.
+    tools: lazyToolList(() => [gmail]),
   },
 };
 
