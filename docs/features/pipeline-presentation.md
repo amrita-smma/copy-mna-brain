@@ -60,10 +60,13 @@ the title (22pt navy), the subtitle, the three-dot marker and a section title
 header row in bold white Arial, unfilled Arial body rows with a #D0CECE rule
 under each, and no vertical borders.
 
-Rows are paginated 12 per slide rather than shrunk. A table of more
-than 10 columns is set one point smaller. A cell longer than its column is
-clipped to one line with "…", measured with per-character Arial widths
-(`fitCellText`), so it cannot push the table into the footer.
+A cell is never clipped: text wraps within its column, so a row shows its full
+content. Wrapped lines are estimated with per-character Arial widths
+(`wrappedLineCount`), each row's height follows its tallest cell, and rows are
+paginated by that height (`paginateByHeight`) — 12 single-line rows fit a
+slide, fewer when cells wrap. A table of more than 10 columns is set one point
+smaller, and a single row too tall for one slide steps the body type down
+(to 7pt) rather than being cut.
 
 ## The Inbound table's default layout
 

@@ -117,22 +117,11 @@ export function buildPipelinePresentation<C extends PresentationCompany>(
   };
 }
 
-/** Rows per slide: 12 single-line rows fill the template's content area. */
+/** Single-line rows that fill one slide; taller rows (wrapped cells) fit fewer. */
 export const PRESENTATION_ROWS_PER_SLIDE = 12;
 
 /** A deck past this many rows is refused rather than built (≈84 slides). */
 export const PRESENTATION_MAX_ROWS = 1000;
-
-/** Cut the rows into slide-sized pages; an empty table is still one page. */
-export function paginatePresentationRows(
-  rows: readonly string[][],
-  perSlide: number = PRESENTATION_ROWS_PER_SLIDE,
-): string[][][] {
-  if (rows.length === 0) return [[]];
-  const pages: string[][][] = [];
-  for (let i = 0; i < rows.length; i += perSlide) pages.push(rows.slice(i, i + perSlide));
-  return pages;
-}
 
 /** The Download request body, validated server-side. */
 export const pipelinePresentationSchema = z

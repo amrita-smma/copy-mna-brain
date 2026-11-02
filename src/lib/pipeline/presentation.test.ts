@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   PRESENTATION_MAX_ROWS,
-  PRESENTATION_ROWS_PER_SLIDE,
   PRESENTATION_TABLE_WIDTH,
   buildPipelinePresentation,
-  paginatePresentationRows,
   pipelinePresentationSchema,
   type PresentationSourceColumn,
 } from './presentation';
@@ -75,15 +73,6 @@ describe('buildPipelinePresentation', () => {
     const deck = buildPipelinePresentation([row()], [], { subtitle: '' });
     expect(deck.columns.map((c) => c.label)).toEqual(['No', 'Company']);
     expect(deck.rows).toEqual([['1', 'Acme Chemicals']]);
-  });
-});
-
-describe('paginatePresentationRows', () => {
-  it('cuts rows into slide-sized pages and keeps an empty table as one page', () => {
-    const rows = Array.from({ length: PRESENTATION_ROWS_PER_SLIDE * 2 + 1 }, (_, i) => [String(i)]);
-    const pages = paginatePresentationRows(rows);
-    expect(pages.map((p) => p.length)).toEqual([PRESENTATION_ROWS_PER_SLIDE, PRESENTATION_ROWS_PER_SLIDE, 1]);
-    expect(paginatePresentationRows([])).toEqual([[]]);
   });
 });
 

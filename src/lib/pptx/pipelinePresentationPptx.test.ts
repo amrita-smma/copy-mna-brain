@@ -3,7 +3,10 @@ import JSZip from 'jszip';
 import { getPptxTemplate } from './templates';
 import {
   PRESENTATION_LAYOUT,
-  fitCellText,
+  MIN_BODY_FONT_SIZE,
+  paginateByHeight,
+  rowHeight,
+  wrappedLineCount,
   pipelinePresentationToPptx,
   presentationFileName,
 } from './pipelinePresentationPptx';
@@ -117,12 +120,58 @@ describe('pipelinePresentationToPptx', () => {
   });
 });
 
-describe('fitCellText', () => {
-  it('keeps text that fits and clips longer text to one line with an ellipsis', () => {
-    expect(fitCellText('Acme', 2.4, 10)).toBe('Acme');
-    const clipped = fitCellText('A very long company name that cannot possibly fit', 1, 10);
-    expect(clipped.endsWith('…')).toBe(true);
-    expect(clipped.length).toBeLessThan(20);
+describe('wrappedLineCount', () => {
+  it('keeps short text on one line and wraps longer text onto more', () => {
+    expect(wrappedLineCount('Acme', 2.4, 10)).toBe(1);
+    const long = 'A very long company name that cannot possibly fit on one line of a narrow column';
+    expect(wrappedLineCount(long, 1, 10)).toBeGreaterThan(3);
+  });
+
+  it('breaks a word wider than the column and honours explicit newlines', () => {
+    expect(wrappedLineCount('x'.repeat(200), 1, 10)).toBeGreaterThan(5);
+    expect(wrappedLineCount('one\ntwo\nthree', 3, 10)).toBe(3);
+  });
+});
+
+describe('rowHeight and paginateByHeight', () => {
+  it('grows a row to its tallest wrapped cell, never below the minimum', () => {
+    expect(rowHeight(['a', 'b'], [1, 1], 10, 0.36)).toBe(0.36);
+    expect(rowHeight(['a', 'word '.repeat(60)], [1, 1], 10, 0.36)).toBeGreaterThan(1);
+  });
+
+  it('starts a new slide when the next row would overflow, and gives an oversized row its own', () => {
+    const rows = [['1'], ['2'], ['3'], ['4']];
+    const pages = paginateByHeight(rows, [1, 1, 5, 1], 2.5);
+    expect(pages.map((p) => p.rows.length)).toEqual([2, 1, 1]);
+  });
+});
+
+describe('full row content', () => {
+  const longRemark = 'Strategic rationale: '.concat('the target has a durable franchise and expanding margins. '.repeat(8), 'END-OF-REMARK');
+
+  it('wraps a long cell onto several lines instead of clipping it', async () => {
+    const d = deck(1);
+    d.rows[0][2] = longRemark;
+    const { slides } = await slidesOf(await pipelinePresentationToPptx(d, STARCAPITAL));
+    expect(slides[0]).toContain('END-OF-REMARK');
+    expect(slides[0]).not.toContain('…');
+  });
+
+  it('paginates by height so tall rows spill to more slides than 12 short ones', async () => {
+    const d = deck(PRESENTATION_ROWS_PER_SLIDE);
+    d.rows.forEach((r) => { r[2] = longRemark; });
+    const { slides } = await slidesOf(await pipelinePresentationToPptx(d, STARCAPITAL));
+    expect(slides.length).toBeGreaterThan(1);
+    expect(slides.join('')).toContain('END-OF-REMARK');
+  });
+
+  it('steps the type down for a single row too tall for one slide, never below the minimum', async () => {
+    const d = deck(1);
+    d.rows[0][2] = 'word '.repeat(400);
+    const { slides } = await slidesOf(await pipelinePresentationToPptx(d, STARCAPITAL));
+    expect(slides).toHaveLength(1);
+    expect(slides[0]).not.toContain('sz="1000"');
+    expect(slides[0]).toMatch(new RegExp(`sz="(${MIN_BODY_FONT_SIZE}|[7-9])00"`));
   });
 });
 
