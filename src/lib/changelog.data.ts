@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "c301ec71824c116b9e27162446d8cdef1995f287",
+    "date": "2026-11-02",
+    "subject": "Fixed a 404 error when opening Gmail drafts from deal contacts",
+    "category": "fix"
+  },
+  {
     "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
     "date": "2026-10-30",
     "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
@@ -21,6 +27,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "c49bce4996f754036a77f5aff545c927dad670b9",
+    "date": "2026-10-30",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "814d5cc702f7007c04ed4d67657d942775a99289",
     "date": "2026-10-30",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
