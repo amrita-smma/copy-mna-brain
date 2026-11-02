@@ -48,6 +48,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "ef954a68424b958f6a3e2db3d2c25af74d60cc1e",
+    "date": "2026-11-02",
+    "subject": "Screening now uses your Additional Context before running a web search",
+    "category": "improvement"
+  },
+  {
+    "hash": "500bd451be0889eb03fc45e23d21a23dd11dd4a1",
+    "date": "2026-11-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
     "date": "2026-10-30",
     "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
