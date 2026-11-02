@@ -12,6 +12,28 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "fix"
   },
   {
+    "hash": "22aa4363ed52c853a6889c0f74a9582e10f12ea5",
+    "date": "2026-11-02",
+    "subject": "put Items and Memory tabs inside cards like the other tabs",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "vague"
+  },
+  {
+    "hash": "987362d112b8217acca9b1f2ed3dc2cc56d3a465",
+    "date": "2026-11-02",
+    "subject": "AI Workforce now handles large inputs without failing partway through",
+    "category": "improvement"
+  },
+  {
+    "hash": "306f06bdd2a70d8d4ac3c3aedd213b56a69d4248",
+    "date": "2026-11-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
     "date": "2026-10-30",
     "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
