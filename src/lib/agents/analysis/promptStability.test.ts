@@ -199,7 +199,12 @@ const EXPECTED_CHAT_HASHES: Record<CopilotAgentType, string> = {
 // stages) one step at a time and gate any move touching L1+.
 // It then gained the "Tools loaded on demand" block for add_company and
 // send_email (see above).
-const EXPECTED_WORKFORCE_HASH = '5baaddccefb9f24a28bea8fa7585b74b673e58dafc708ed2f55da18ed6234e5d';
+// It then changed again on purpose to stop runs hitting the graph's step
+// limit while authoring an insight: independent reads and searches go in one
+// turn, the skeleton uses a few coarse data-section chunks filled one per turn
+// (never two concurrent edits of one insight), and a narrate_step-only turn is
+// discouraged.
+const EXPECTED_WORKFORCE_HASH = '9500ecf1c3ddc85622543a8b92e1c153cfc14147ce9da5afcf190553abece87b';
 
 describe('existing CoPilot prompts', () => {
   beforeEach(() => {
