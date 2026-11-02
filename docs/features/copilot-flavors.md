@@ -343,7 +343,11 @@ every company a run touches:
 
 Background prompts carry the same rule where they touch one company:
 `aiScreening` searches before evaluating a criterion rather than only when a
-field is missing, `companyAnalysis` always includes a latest-news angle, and the
+field is missing — except when the company has Additional Context
+(`companies.context`): that is first-hand knowledge, often from sources Brain
+cannot reach, so the prompt makes it the primary evidence, demotes `web_search`
+/ `valyu_search` to filling gaps it leaves open, and tells the agent to trust it
+over a conflicting external result. `companyAnalysis` always includes a latest-news angle, and the
 Fund AI Opinion instruction (`fundAiOpinionService`) searches the holding on
 every run, in the same pass as the internal lookups rather than after them.
 
