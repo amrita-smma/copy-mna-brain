@@ -34,6 +34,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "13b7e8d8da84cb9c37699aa4b3468a90163fe184",
+    "date": "2026-11-02",
+    "subject": "Chat shows previews of long tool results and loads the full output on request",
+    "category": "improvement"
+  },
+  {
+    "hash": "dea2d81ceba13f68861c15768c563388289464eb",
+    "date": "2026-11-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
     "date": "2026-10-30",
     "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
