@@ -266,7 +266,7 @@ export default function Profile({
   // Rendered under the Items tab, or on its own when the Memory tab is off.
   // Hoisted so both branches below share one definition rather than a copy.
   const itemsSection = (
-    <>
+    <div className="mx-auto w-full max-w-xl" data-testid="profile-items">
       {loading ? (
         <ProfileSkeleton />
       ) : error ? (
@@ -276,7 +276,7 @@ export default function Profile({
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
           <SectionGroup
             title="Needs your attention"
             icon={ShieldCheck}
@@ -328,7 +328,7 @@ export default function Profile({
           </SectionGroup>
         </div>
       )}
-    </>
+    </div>
   );
 
   return (
@@ -524,38 +524,40 @@ function SectionGroup({
   const remaining = Math.max(count - rendered, 0);
   const badge = badgeCount ?? count;
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2">
+    <section className="overflow-hidden rounded-xl border bg-card">
+      <div className="flex items-center gap-2 px-4 pb-1 pt-4">
         <Icon className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {badge > 0 && (
           <Badge variant="secondary" className="h-5 px-1.5 text-[11px]">
             {badge}
           </Badge>
         )}
       </div>
-      {lead}
+      {lead && <div className="px-4 pb-3 pt-2">{lead}</div>}
       {rendered === 0 ? (
         lead ? null : (
-          <div className="rounded-xl border bg-muted p-5 text-center">
-            <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-          </div>
+          <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
+            {emptyLabel}
+          </p>
         )
       ) : (
         <>
-          <div className="flex flex-col gap-3">{children}</div>
+          <div className={cn('flex flex-col divide-y', lead && 'border-t')}>
+            {children}
+          </div>
           {remaining > 0 && (
-            <p className="px-1 text-xs text-muted-foreground">
+            <p className="border-t px-4 py-3 text-xs text-muted-foreground">
               +{remaining} more
             </p>
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }
 
-/** The shared shape of every card on the page: a large, tappable surface. */
+/** The shared shape of every row inside a section card: a large, tappable surface. */
 function ItemCard({
   onOpen,
   testId,
@@ -577,7 +579,7 @@ function ItemCard({
           onOpen();
         }
       }}
-      className="cursor-pointer rounded-xl border bg-card p-4 shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="cursor-pointer px-4 py-3.5 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {children}
     </div>
@@ -707,9 +709,9 @@ function InsightCard({
 
 function ProfileSkeleton() {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="divide-y overflow-hidden rounded-xl border bg-card">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-xl border bg-card p-4">
+        <div key={i} className="p-4">
           <Skeleton className="h-5 w-2/3" />
           <Skeleton className="mt-2 h-4 w-1/2" />
           <Skeleton className="mt-3 h-4 w-1/3" />

@@ -183,17 +183,19 @@ export default function MemoryTab() {
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-2.5" data-testid="memory-tab-loading">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-full rounded-xl" />
-        ))}
+      <div
+        className="mx-auto flex w-full max-w-xl flex-col gap-4"
+        data-testid="memory-tab-loading"
+      >
+        <Skeleton className="h-20 w-full rounded-xl" />
+        <Skeleton className="h-48 w-full rounded-xl" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-xl border bg-card p-6 text-center">
+      <div className="mx-auto w-full max-w-xl rounded-xl border bg-card p-6 text-center">
         <p className="text-sm text-muted-foreground">Could not load your memories.</p>
         <Button variant="outline" size="sm" className="mt-3" onClick={fetchMemories}>
           Try again
@@ -206,7 +208,10 @@ export default function MemoryTab() {
   // nothing the user can do about it, so no toggle is offered.
   if (!available) {
     return (
-      <div className="rounded-xl border bg-card p-6 text-center" data-testid="memory-tab-off">
+      <div
+        className="mx-auto w-full max-w-xl rounded-xl border bg-card p-6 text-center"
+        data-testid="memory-tab-off"
+      >
         <Brain className="mx-auto h-6 w-6 text-muted-foreground" />
         <p className="mt-3 text-sm font-medium">CoPilot memory is turned off</p>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -218,7 +223,7 @@ export default function MemoryTab() {
   }
 
   return (
-    <div className="flex flex-col gap-4" data-testid="memory-tab">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-4" data-testid="memory-tab">
       <div className="flex items-start justify-between gap-4 rounded-xl border bg-card p-4">
         <div className="flex min-w-0 flex-col gap-1">
           <label
@@ -242,106 +247,108 @@ export default function MemoryTab() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          {total === 0
-            ? 'The CoPilot has not learned anything about you yet.'
-            : `${total} ${total === 1 ? 'memory' : 'memories'}.`}
-        </p>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setImportOpen(true)}
-            // An import into a switched-off memory is refused by the server;
-            // don't offer the dialog just to fail in it.
-            disabled={!enabled}
-            title={
-              enabled
-                ? undefined
-                : 'Turn memory on to import from another location'
-            }
-            data-testid="memory-import-open"
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Import memory from another location
-          </Button>
-          {total > 0 && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" data-testid="memory-forget-all">
-                  Forget all
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Forget everything?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The CoPilot will forget all {total} {total === 1 ? 'memory' : 'memories'}{' '}
-                    it has about you. Your chats are not affected, and it will start
-                    learning again from your next conversation. This cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleForgetAll}
-                    className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-600"
-                  >
+      <section className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 pt-4">
+          <p className="text-sm text-muted-foreground">
+            {total === 0
+              ? 'The CoPilot has not learned anything about you yet.'
+              : `${total} ${total === 1 ? 'memory' : 'memories'}.`}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+              // An import into a switched-off memory is refused by the server;
+              // don't offer the dialog just to fail in it.
+              disabled={!enabled}
+              title={
+                enabled
+                  ? undefined
+                  : 'Turn memory on to import from another location'
+              }
+              data-testid="memory-import-open"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import memory from another location
+            </Button>
+            {total > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="sm" data-testid="memory-forget-all">
                     Forget all
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="rounded-xl border bg-muted p-6 text-center" data-testid="memory-empty">
-          <Brain className="mx-auto h-6 w-6 text-muted-foreground" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            {enabled
-              ? 'Ask the CoPilot a few questions and it will start remembering what you work on — or import what another tool already knows.'
-              : 'Memory is switched off, so nothing new is being learned. Turn it back on above to start again.'}
-          </p>
-        </div>
-      ) : (
-        <ul className="flex flex-col gap-2.5" data-testid="memory-list">
-          {items.map((item) => (
-            <MemoryCard
-              key={item.id}
-              item={item}
-              deleting={deletingId === item.id}
-              onForget={() => setPendingDelete(item)}
-            />
-          ))}
-        </ul>
-      )}
-
-      {hasMore && (
-        <div className="flex flex-col items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadMore}
-            disabled={loadingMore}
-            data-testid="memory-load-more"
-          >
-            {loadingMore ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Loading…
-              </>
-            ) : (
-              'Load more'
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Forget everything?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The CoPilot will forget all {total} {total === 1 ? 'memory' : 'memories'}{' '}
+                      it has about you. Your chats are not affected, and it will start
+                      learning again from your next conversation. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleForgetAll}
+                      className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-600"
+                    >
+                      Forget all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            Showing the {items.length} most recent of {total}.
-          </p>
+          </div>
         </div>
-      )}
+
+        {items.length === 0 ? (
+          <div className="border-t px-4 py-8 text-center" data-testid="memory-empty">
+            <Brain className="mx-auto h-6 w-6 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              {enabled
+                ? 'Ask the CoPilot a few questions and it will start remembering what you work on — or import what another tool already knows.'
+                : 'Memory is switched off, so nothing new is being learned. Turn it back on above to start again.'}
+            </p>
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y border-t" data-testid="memory-list">
+            {items.map((item) => (
+              <MemoryCard
+                key={item.id}
+                item={item}
+                deleting={deletingId === item.id}
+                onForget={() => setPendingDelete(item)}
+              />
+            ))}
+          </ul>
+        )}
+
+        {hasMore && (
+          <div className="flex flex-col items-center gap-1.5 border-t px-4 py-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadMore}
+              disabled={loadingMore}
+              data-testid="memory-load-more"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading…
+                </>
+              ) : (
+                'Load more'
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Showing the {items.length} most recent of {total}.
+            </p>
+          </div>
+        )}
+      </section>
 
       <MemoryImportDialog
         open={importOpen}
@@ -419,7 +426,7 @@ function MemoryCard({
   const Icon = item.source === 'import' ? Upload : MessagesSquare;
 
   return (
-    <li className="flex items-start gap-3 rounded-xl border bg-card p-3.5">
+    <li className="flex items-start gap-3 px-4 py-3.5">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <p className="text-sm leading-snug">{item.memory}</p>
