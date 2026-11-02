@@ -79,7 +79,7 @@ describe('send_email → Gmail draft', () => {
     expect(out).toContain('Saved as a DRAFT');
     expect(out).toContain('nothing was sent');
     expect(out).toContain('me@gmail.com');
-    expect(out).toContain('https://mail.google.com/mail/u/me%40gmail.com/#drafts');
+    expect(out).toContain('https://mail.google.com/mail/?authuser=me%40gmail.com#drafts');
     expect(out).toContain('do not say the email was sent');
   });
 

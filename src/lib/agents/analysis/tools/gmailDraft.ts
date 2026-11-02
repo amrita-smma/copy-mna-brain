@@ -82,9 +82,14 @@ export function composeDraftBodies(input: { body: string; documentHtml?: string 
   return { text, html: `${note}${document}` };
 }
 
-/** Where the member finds the draft: their Drafts folder, in the right account when we know it. */
+/**
+ * Where the member finds the draft: their Drafts folder, in the right account when we know it.
+ * `?authuser=<email>` rather than `/mail/u/<email>/`: the path form 404s when that account
+ * isn't signed in in the browser, while authuser falls back to Google's sign-in prompt.
+ */
 export function gmailDraftsUrl(googleEmail: string | null): string {
-  return `https://mail.google.com/mail/u/${encodeURIComponent(googleEmail ?? '0')}/#drafts`;
+  const authuser = encodeURIComponent(googleEmail ?? '0');
+  return `https://mail.google.com/mail/?authuser=${authuser}#drafts`;
 }
 
 export interface DraftOutcome {
