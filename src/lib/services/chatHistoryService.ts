@@ -9,6 +9,7 @@ import type {
   NewCopilotMessage,
 } from '@/lib/repositories';
 import { toResponseFeedbackValue } from '@/lib/chat/responseFeedback';
+import { clipToolParts, toolOutputContent } from '@/lib/chat/toolOutputClip';
 import { findActionCards, type ActionCardDecision } from '@/lib/chat/actionCards';
 import { toActionCardDecision } from './copilotChatCardService';
 import {
@@ -199,6 +200,22 @@ export class ChatHistoryService {
       messages: await this.withFeedback(chat, rows),
       nextCursor: hasMore && rows.length > 0 ? rows[0].seq : null,
     };
+  }
+
+  /**
+   * One tool call's whole stored output, for the trace's "Show full output":
+   * a page carries only its head (`clipToolParts`). Null when no stored reply
+   * in the thread holds the call — a turn still running stores its reply
+   * when it ends.
+   */
+  async toolOutput(chatId: string, toolCallId: string): Promise<string | null> {
+    const row = await this.deps.messages.findByToolCallId(chatId, toolCallId);
+    if (!row) return null;
+    const part = ((row.parts ?? []) as StoredPart[]).find(
+      (p): p is Extract<UIPart, { type: 'dynamic-tool' }> =>
+        p.type === 'dynamic-tool' && p.toolCallId === toolCallId,
+    );
+    return part ? toolOutputContent(part.output) : null;
   }
 
   /**
@@ -398,9 +415,12 @@ export class ChatHistoryService {
     const attachments = stored.find((p): p is StoredAttachments => p.type === ATTACHMENTS_PART);
     const fromBot = stored.find((p): p is StoredFromBot => p.type === FROM_BOT_PART)?.data;
     const fromRoutine = stored.find((p): p is StoredFromRoutine => p.type === FROM_ROUTINE_PART)?.data;
-    const parts = stored.filter(
-      (p): p is UIPart =>
-        p.type !== ATTACHMENTS_PART && p.type !== FROM_BOT_PART && p.type !== FROM_ROUTINE_PART,
+    // Tool outputs go out head-first; the row keeps all of them (`toolOutput`).
+    const parts = clipToolParts(
+      stored.filter(
+        (p): p is UIPart =>
+          p.type !== ATTACHMENTS_PART && p.type !== FROM_BOT_PART && p.type !== FROM_ROUTINE_PART,
+      ),
     );
     return {
       id: row.id,

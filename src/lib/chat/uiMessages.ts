@@ -8,6 +8,7 @@ import type { BaseMessage } from '@langchain/core/messages';
 import { SUMMARIZATION_SOURCE, SUMMARY_MARKER_TEXT } from '@/lib/bots/summary';
 import type { ResponseFeedbackValue } from '@/lib/chat/responseFeedback';
 import type { ActionCardDecision } from '@/lib/chat/actionCards';
+import type { ToolOutputClip } from '@/lib/chat/toolOutputClip';
 import {
   INSIGHT_TEMPLATE_PART_TYPE,
   parseInsightTemplateBlock,
@@ -96,7 +97,8 @@ type ToolPart = {
   toolName: string;
   state: 'input-available' | 'output-available';
   input: unknown;
-  output?: { kwargs: { content: string } };
+  /** `clipped` is set on the way to the browser only (`clipToolParts`); a stored part has none. */
+  output?: { kwargs: { content: string }; clipped?: ToolOutputClip };
 };
 type TemplatePart = { type: typeof INSIGHT_TEMPLATE_PART_TYPE; data: InsightTemplateAttachment };
 type SelectionPart = { type: typeof INSIGHT_SELECTION_PART_TYPE; data: InsightSelectionAttachment };

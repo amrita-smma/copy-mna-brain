@@ -26,6 +26,31 @@ describe('CopilotMessageRepository', () => {
     repo = new CopilotMessageRepository(db as never, 'ws-1');
   });
 
+  describe('CopilotMessageRepository.findByToolCallId', () => {
+    it("finds the thread's reply holding the call by jsonb containment, scoped to the workspace", async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'm1' }]);
+
+      await expect(repo.findByToolCallId('chat-1', 'toolu_1')).resolves.toEqual({ id: 'm1' });
+
+      const { sql: text, params } = toQuery(db.where.mock.calls[0][0]);
+      expect(text).toContain('@>');
+      expect(params).toEqual(
+        expect.arrayContaining([
+          'chat-1',
+          'ws-1',
+          'assistant',
+          JSON.stringify([{ type: 'dynamic-tool', toolCallId: 'toolu_1' }]),
+        ]),
+      );
+      expect(db.limit).toHaveBeenCalledWith(1);
+    });
+
+    it('resolves null when no reply holds the call', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(repo.findByToolCallId('chat-1', 'toolu_x')).resolves.toBeNull();
+    });
+  });
+
   describe('CopilotMessageRepository.insertMany', () => {
     it('stamps the workspace on every row and skips the query for none', async () => {
       db.returning.mockResolvedValueOnce([{ id: 'm1', role: 'user' }]);

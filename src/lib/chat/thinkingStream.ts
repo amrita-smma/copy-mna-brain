@@ -2,6 +2,7 @@ import { GraphRecursionError } from '@langchain/langgraph';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 import type { UIMessageChunk, UIMessageStreamWriter } from 'ai';
 import { SUMMARIZATION_SOURCE } from '@/lib/bots/summary';
+import { clipToolOutput } from '@/lib/chat/toolOutputClip';
 
 type LangChainStreamChunk = Parameters<typeof toUIMessageStream>[0] extends AsyncIterable<infer U>
   ? U
@@ -223,7 +224,14 @@ export function toThinkingMessageStream(
         controller.error(streamError ?? new Error(value.errorText));
         return;
       }
-      controller.enqueue(value);
+      // A tool result reaches the browser head-first: the trace shows at
+      // most TOOL_OUTPUT_CLIENT_CHARS of it and fetches the rest from the
+      // stored reply on demand, so that is all the client is sent.
+      controller.enqueue(
+        value.type === 'tool-output-available'
+          ? ({ ...value, output: clipToolOutput(value.output) } as UIMessageChunk)
+          : value,
+      );
       if (
         value.type === 'tool-input-start' &&
         'toolCallId' in value &&

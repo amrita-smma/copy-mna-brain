@@ -141,6 +141,28 @@ export class CopilotMessageRepository {
     return { rows, hasMore };
   }
 
+  /**
+   * The thread's reply holding the tool call `toolCallId` among its parts
+   * (jsonb containment on the row's `parts`), or null. One thread's rows are
+   * few enough that the scan after the `chat_id` index is cheap.
+   */
+  async findByToolCallId(chatId: string, toolCallId: string): Promise<CopilotMessageRow | null> {
+    const needle = JSON.stringify([{ type: 'dynamic-tool', toolCallId }]);
+    const [row] = await this.db
+      .select()
+      .from(copilotMessages)
+      .where(
+        and(
+          eq(copilotMessages.chat_id, chatId),
+          eq(copilotMessages.workspace_id, this.workspaceId),
+          eq(copilotMessages.role, 'assistant'),
+          sql`${copilotMessages.parts} @> ${needle}::jsonb`,
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
   async findById(id: string): Promise<CopilotMessageRow | null> {
     const [row] = await this.db
       .select()

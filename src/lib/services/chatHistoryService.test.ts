@@ -4,8 +4,15 @@ import { ChatHistoryService } from './chatHistoryService';
 import { FROM_BOT_KWARG, FROM_ROUTINE_KWARG } from '@/lib/chat/uiMessages';
 import { OPTION_CARD_MARKER } from '@/lib/chat/optionCards';
 import { encodeApprovalMarker } from '@/lib/insights/approvalMarker';
+import { TOOL_OUTPUT_CLIENT_CHARS } from '@/lib/chat/toolOutputClip';
 
-const messages = vi.hoisted(() => ({ insertMany: vi.fn(), listPage: vi.fn(), listTurnsPage: vi.fn(), deleteById: vi.fn() }));
+const messages = vi.hoisted(() => ({
+  insertMany: vi.fn(),
+  listPage: vi.fn(),
+  listTurnsPage: vi.fn(),
+  deleteById: vi.fn(),
+  findByToolCallId: vi.fn(),
+}));
 const chats = vi.hoisted(() => ({
   claimHistoryImport: vi.fn(),
   stampMessage: vi.fn(),
@@ -488,5 +495,44 @@ describe('ChatHistoryService.queueEmbeddings', () => {
   it('lets a queue failure reach the sweep, which logs it per workspace', async () => {
     dispatchEmbedding.mockRejectedValue(new Error('no AWS'));
     await expect(service().queueEmbeddings(['m1'])).rejects.toThrow('no AWS');
+  });
+  describe('ChatHistoryService.page — tool outputs', () => {
+    const long = 'z'.repeat(TOOL_OUTPUT_CLIENT_CHARS + 50);
+    const marker = encodeApprovalMarker('INSIGHT_EDIT_APPROVAL_JSON', { insight_id: 'i1' });
+    const toolPart = {
+      type: 'dynamic-tool',
+      toolCallId: 'toolu_1',
+      toolName: 'get_insight',
+      state: 'output-available',
+      input: { id: 'i1' },
+      output: { kwargs: { content: `${long}\n${marker}` } },
+    };
+    const row = {
+      id: 'a1',
+      seq: 2,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Here.' }, toolPart],
+      created_at: '2026-10-14T00:00:01Z',
+    };
+
+    it('sends each tool output head-first, its markers whole, and keeps the row untouched', async () => {
+      messages.listTurnsPage.mockResolvedValue({ rows: [row], hasMore: false });
+
+      const page = await service().page(chat, {}, async () => []);
+
+      const [, part] = page.messages[0].parts as Array<{ output?: { kwargs: { content: string }; clipped?: unknown } }>;
+      expect(part.output?.kwargs.content).toBe(`${'z'.repeat(TOOL_OUTPUT_CLIENT_CHARS)}\n${marker}`);
+      expect(part.output?.clipped).toEqual({ fullChars: long.length + 1, toolCallId: 'toolu_1' });
+      expect(toolPart.output.kwargs.content).toBe(`${long}\n${marker}`);
+    });
+
+    it('toolOutput returns the whole stored output of one call, or null when no reply holds it', async () => {
+      messages.findByToolCallId.mockResolvedValueOnce(row);
+      await expect(service().toolOutput('chat-1', 'toolu_1')).resolves.toBe(`${long}\n${marker}`);
+      expect(messages.findByToolCallId).toHaveBeenCalledWith('chat-1', 'toolu_1');
+
+      messages.findByToolCallId.mockResolvedValueOnce(null);
+      await expect(service().toolOutput('chat-1', 'toolu_2')).resolves.toBeNull();
+    });
   });
 });

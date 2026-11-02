@@ -284,6 +284,13 @@ connection) does not stop the turn:
   first read or write. A turn writes its user row when it starts and its
   assistant row when it ends (background turns too: the target bot's chat
   shows the asking bot's message under the thinking bubble while it works).
+- **Tool outputs, head-first.** A page — and a live reply — carries at most
+  `TOOL_OUTPUT_CLIENT_CHARS` (1,200) characters of each tool result, with the
+  hidden markers (cards, citations, files, navigation, company mentions) kept
+  whole (`src/lib/chat/toolOutputClip.ts`); the stored row keeps all of it.
+  The trace's "Show full output" fetches the rest from
+  `GET /api/copilot/chats/:id/tool-outputs/:toolCallId` (404 until the turn's
+  reply is stored).
 - **Search.** `search_chat_history` (every bot has it) runs a hybrid search over
   the user's stored exchanges — pgvector nearest neighbours plus full text,
   merged by reciprocal-rank fusion (`CopilotMessageRepository.hybridSearch`).

@@ -10,6 +10,7 @@ import {
   normalizeToolInput,
   RECURSION_LIMIT_ERROR_MESSAGE,
 } from './thinkingStream';
+import { TOOL_OUTPUT_CLIENT_CHARS } from './toolOutputClip';
 
 const modelChunk = (runId: string, content: unknown[]) => ({
   event: 'on_chat_model_stream',
@@ -320,6 +321,29 @@ describe('toThinkingMessageStream tool input emission', () => {
       { type: 'tool-output-available', toolCallId: 'tool-run-2', output: '4' },
       { type: 'finish' },
     ]);
+  });
+
+  it('sends a long tool result head-first, named by its ToolMessage call id', async () => {
+    const long = 'y'.repeat(TOOL_OUTPUT_CLIENT_CHARS + 1);
+    const output = { lc: 1, kwargs: { content: long, tool_call_id: 'toolu_9', name: 'big_tool' } };
+    const chunks = await collectChunks(
+      toThinkingMessageStream(
+        fromEvents([
+          toolStart('tool-run-3', 'big_tool', { q: 'all' }),
+          { event: 'on_tool_end', run_id: 'tool-run-3', name: 'big_tool', data: { output } },
+        ]),
+        { write: vi.fn() },
+      ),
+    );
+
+    expect(chunks).toContainEqual({
+      type: 'tool-output-available',
+      toolCallId: 'tool-run-3',
+      output: {
+        kwargs: { content: 'y'.repeat(TOOL_OUTPUT_CLIENT_CHARS) },
+        clipped: { fullChars: long.length, toolCallId: 'toolu_9' },
+      },
+    });
   });
 
   it('does not emit tool-input-available when the input is unparseable', async () => {

@@ -1068,3 +1068,75 @@ data-mart consumer appears.
 
 **Fix:** a `midas.workspace_scope (workspace_id)` table (or a per-consumer
 scope table) joined by every view, managed from the admin portal.
+
+---
+
+## Chat: a resolved insight-edit card keeps a live iframe
+
+**Area:** `src/components/chat/InsightEditApprovalCard.tsx`,
+`src/components/insights/InsightFrame.tsx`.
+
+**What it is:** once approved or rejected, the card still renders the proposed
+document in a sandboxed `srcdoc` iframe (an insight is up to 4 MB) and keeps
+the diff it computed. Every resolved card in a loaded thread is one more live
+document, so a thread with several insight edits holds several documents for
+as long as the tab is open.
+
+**Why we took it:** the card shows the result in place, and unmounting the
+frame on resolve would have changed what the user sees right after approving.
+
+**Trigger to revisit:** a thread with several insight edits scrolls slowly, or
+a heap snapshot of a long thread shows iframes dominating.
+
+**Intended fix:** render a resolved card's frame on demand (a "Show document"
+toggle, or mount only while in the viewport), and drop the diff once resolved.
+
+---
+
+## Chat: every stream chunk re-renders every `ChatContext` consumer
+
+**Area:** `src/components/chat/ChatProvider.tsx` (the `ChatContext` value,
+`experimental_throttle` off), `src/components/layout/AICopilotPane.tsx`,
+`src/components/bots/BotStrip.tsx`,
+`src/components/chat/NavigationActionHandler.tsx`.
+
+**What it is:** `useChat` runs unthrottled and `messages` lives in the one
+context value rebuilt on every render, so each token commits a render of the
+pane (which regroups relay messages and recomputes day separators), the bot
+strip and the navigation handler (which walks every part of every message).
+The cost per token grows with thread length, so a long answer on a long
+thread is CPU and garbage-collection churn — not retention.
+
+**Why we took it:** the navigation handler acts on markers as they arrive and
+could not yet tolerate a lagging transcript, so throttling stayed off; the
+split contexts were added later without moving `messages` out of the shared
+value.
+
+**Trigger to revisit:** typing lag or dropped frames while a long reply
+streams, or a React profile showing the pane re-rendering per token.
+
+**Intended fix:** move `messages` into the transcript's own context so only
+it re-renders per chunk, have the navigation handler read markers from the
+finished message (or a ref), then turn on `experimental_throttle` (~50 ms).
+
+---
+
+## Chat transcript is not virtualized
+
+**Area:** `src/components/layout/AICopilotPane.tsx` (the transcript),
+`ChatProvider.loadEarlierMessages`.
+
+**What it is:** the transcript is a flat list; every loaded page stays
+mounted (5 turns on open, 10 more per "load earlier"), nothing is evicted,
+and the DOM plus each bubble's memoized markdown parse scale with the pages
+loaded.
+
+**Why we took it:** stick-to-bottom scrolling, framer-motion layout and
+variable-height bubbles make a windowed list costly to get right, and threads
+were short.
+
+**Trigger to revisit:** threads routinely past a few dozen turns, or scrolling
+jank after several "load earlier" pages.
+
+**Intended fix:** a windowed list with measured heights, or evict the oldest
+loaded page once more than a few are on screen.

@@ -12,7 +12,7 @@ pieces fit together and where new code goes. This file is the lookup table.
 
 | Layer | Count | Where |
 |---|---|---|
-| API routes | 253 | `src/app/api/**/route.ts` |
+| API routes | 254 | `src/app/api/**/route.ts` |
 | Services | 103 | `src/lib/services/` |
 | Repositories | 91 | `src/lib/repositories/` |
 | Agents | 9 | `src/lib/agents/` |
@@ -166,6 +166,7 @@ no listed service either takes none or resolves it indirectly — open the file.
 | `/api/copilot/chats/[id]/feedback` | PUT | `copilotResponseFeedbackService` |
 | `/api/copilot/chats/[id]/messages` | GET | `chatHistoryService`, `copilotChatsService` |
 | `/api/copilot/chats/[id]/stop` | POST | `copilotChatsService` |
+| `/api/copilot/chats/[id]/tool-outputs/[toolCallId]` | GET | `chatHistoryService`, `copilotChatsService` |
 | `/api/criterias` | GET, POST | `criteriaService` |
 | `/api/criterias/[id]` | PATCH, DELETE | `criteriaService` |
 | `/api/crm` | GET, POST | `crmService` |

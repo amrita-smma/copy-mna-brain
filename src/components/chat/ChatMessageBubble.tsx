@@ -69,7 +69,9 @@ import type {
   InsightRefreshApprovalPayload,
 } from "@/lib/insights/types";
 import type { ReportPlanApprovalPayload } from "@/lib/reports/plan";
-import { useChatActions, useChatComposer, useChatThread } from "./ChatProvider";
+import { useChatActions, useChatComposer, useChatThread, useOptionalChatThread } from "./ChatProvider";
+import { TOOL_OUTPUT_CLIENT_CHARS, toolOutputClip } from "@/lib/chat/toolOutputClip";
+import { getToolOutput } from "@/lib/api/chatToolOutput";
 import { MentionPings } from "./MentionPings";
 import type { FromBot, FromRoutine } from "@/lib/chat/uiMessages";
 import { relayLabel, relaySenders } from "@/lib/chat/relayGroups";
@@ -281,11 +283,28 @@ export function LoadingBubble({
 }
 
 /**
- * How much of a tool's raw output the trace shows before offering "show full
- * output". A single `query_companies` call can return tens of kilobytes; the
- * trace is a debugging aid, not content, so it is capped by default.
+ * How much of a tool's raw output the trace shows before offering "Show full
+ * output". It is also how much of it the browser holds: the server sends a
+ * tool result head-first (`clipToolOutput`), with the rest fetched from the
+ * stored reply when asked. A single `query_companies` call can return tens
+ * of kilobytes; the trace is a debugging aid, not content.
  */
-const TOOL_TRACE_PREVIEW_CHARS = 1200;
+const TOOL_TRACE_PREVIEW_CHARS = TOOL_OUTPUT_CLIENT_CHARS;
+
+/**
+ * A tool output as the trace shows it: without the hidden metadata the UI
+ * consumes elsewhere (citations, files, approval payloads, navigation and
+ * company-mention manifests).
+ */
+function presentableToolOutput(content: string): string {
+  const stripped = content
+    .replace(CITATIONS_JSON_STRIP_RE, "")
+    .replace(FILES_JSON_STRIP_RE, "")
+    .replace(WORKFORCE_HANDOFF_STRIP_RE, "")
+    .replace(BULK_DROP_APPROVAL_STRIP_RE, "")
+    .replace(BULK_PROMOTE_APPROVAL_STRIP_RE, "");
+  return stripCompanyMentionMarkers(stripNavigateMarkers(stripApprovalMarkers(stripped))).trim();
+}
 
 /**
  * One tool's input/output inside the expandable tool chain.
@@ -295,13 +314,20 @@ const TOOL_TRACE_PREVIEW_CHARS = 1200;
  * both the wrong presentation and the single most expensive thing the copilot
  * did — a ten-tool turn meant ten markdown parses, re-run on every render of
  * the bubble. Memoized so expanding the chain costs one pass per tool.
+ *
+ * A part the server clipped holds only the head of its output; "Show full
+ * output" fetches the rest from the stored reply, once.
  */
 const ToolTrace = memo(function ToolTrace({ part }: { part: unknown }) {
   const [showFull, setShowFull] = useState(false);
+  const [fetched, setFetched] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const chatId = useOptionalChatThread()?.chatId ?? null;
   const toolName = (part as any).toolName || "Tool";
   const state = (part as any).state as string | undefined;
 
-  const { text, truncated } = useMemo(() => {
+  const { text, clip } = useMemo(() => {
     const output = (part as any).output;
     let content: string;
     if (output?.kwargs?.content) {
@@ -313,28 +339,44 @@ const ToolTrace = memo(function ToolTrace({ part }: { part: unknown }) {
     } else {
       content = "";
     }
-
-    // Strip the hidden metadata the UI consumes elsewhere (citations, files,
-    // approval payloads, navigation and company-mention manifests).
-    content = content
-      .replace(CITATIONS_JSON_STRIP_RE, "")
-      .replace(FILES_JSON_STRIP_RE, "")
-      .replace(WORKFORCE_HANDOFF_STRIP_RE, "")
-      .replace(BULK_DROP_APPROVAL_STRIP_RE, "")
-      .replace(BULK_PROMOTE_APPROVAL_STRIP_RE, "");
-    content = stripApprovalMarkers(content);
-    content = stripNavigateMarkers(content);
-    content = stripCompanyMentionMarkers(content);
-
-    // Measure the trimmed text, which is what actually gets sliced — stripping
-    // a large hidden JSON manifest can drop a long raw output under the cap,
-    // and measuring before the strip would offer "show full output" with
-    // nothing further to show.
-    const trimmed = content.trim();
-    return { text: trimmed, truncated: trimmed.length > TOOL_TRACE_PREVIEW_CHARS };
+    // Measured after the strip, which is what actually gets sliced: a large
+    // hidden manifest can drop a long raw output under the cap, and measuring
+    // before it would offer "Show full output" with nothing further to show.
+    return { text: presentableToolOutput(content), clip: toolOutputClip(output) };
   }, [part]);
 
-  const visible = showFull || !truncated ? text : text.slice(0, TOOL_TRACE_PREVIEW_CHARS);
+  const truncated = clip !== null || text.length > TOOL_TRACE_PREVIEW_CHARS;
+  const fullChars = clip?.fullChars ?? text.length;
+  const visible = !truncated
+    ? text
+    : showFull
+      ? (fetched ?? text)
+      : text.slice(0, TOOL_TRACE_PREVIEW_CHARS);
+
+  const toggle = async () => {
+    if (showFull) {
+      setShowFull(false);
+      return;
+    }
+    if (clip && fetched === null) {
+      if (!chatId || !clip.toolCallId) {
+        setFetchError("The full output is not available here.");
+        return;
+      }
+      setFetching(true);
+      setFetchError(null);
+      try {
+        const { content } = await getToolOutput(chatId, clip.toolCallId);
+        setFetched(presentableToolOutput(content));
+      } catch {
+        setFetchError("The full output is stored once the reply finishes — try again in a moment.");
+        return;
+      } finally {
+        setFetching(false);
+      }
+    }
+    setShowFull(true);
+  };
 
   return (
     <div className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
@@ -363,13 +405,19 @@ const ToolTrace = memo(function ToolTrace({ part }: { part: unknown }) {
       {truncated && (
         <button
           type="button"
-          onClick={() => setShowFull((v) => !v)}
-          className="mt-1 text-[11px] font-medium text-primary hover:underline"
+          onClick={() => void toggle()}
+          disabled={fetching}
+          className="mt-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-60"
         >
-          {showFull
-            ? "Show less"
-            : `Show full output (${text.length.toLocaleString()} chars)`}
+          {fetching
+            ? "Loading full output…"
+            : showFull
+              ? "Show less"
+              : `Show full output (${fullChars.toLocaleString()} chars)`}
         </button>
+      )}
+      {fetchError && (
+        <p className="mt-1 text-[11px] text-muted-foreground">{fetchError}</p>
       )}
     </div>
   );
