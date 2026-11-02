@@ -62,6 +62,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "46233d7f1a5c9f2db9b18c75319929afa724eb70",
+    "date": "2026-11-02",
+    "subject": "Table cells in exported PPTX presentations now wrap text instead of clipping it",
+    "category": "improvement"
+  },
+  {
+    "hash": "b9c2c2bc70123108a2f76aedeb673a132b780d4a",
+    "date": "2026-11-02",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "014a5e9eeb2d1db0f5080c3c970f2e35f6b5767a",
     "date": "2026-10-30",
     "subject": "Live updates: announce the workforce trace from the checkpoint write, on its own topic",
