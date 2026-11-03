@@ -3,6 +3,7 @@ import { INSIGHT_CSP } from './srcdoc';
 import {
   INSIGHT_PRINT_DONE_MESSAGE,
   INSIGHT_PRINT_SETTLE_MS,
+  INSIGHT_PRINT_ZOOM,
   buildInsightPrintDoc,
   isInsightPrintDoneMessage,
 } from './printDoc';
@@ -41,6 +42,13 @@ describe('buildInsightPrintDoc', () => {
     expect(printDoc).toContain('animation-duration:0s!important');
     expect(printDoc).toContain('print-color-adjust:exact');
     expect(printDoc).toContain('canvas{height:auto!important;}');
+  });
+
+  it('scales the printed page down so more fits on each page, in print only', () => {
+    const printDoc = buildInsightPrintDoc('<p>x</p>');
+
+    expect(INSIGHT_PRINT_ZOOM).toBeLessThan(1);
+    expect(printDoc).toContain(`@media print{html{zoom:${INSIGHT_PRINT_ZOOM}!important;}`);
   });
 
   it('waits for fonts and the settle delay before printing', () => {

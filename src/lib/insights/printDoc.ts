@@ -6,6 +6,12 @@ export const INSIGHT_PRINT_DONE_MESSAGE = 'insight:print-done';
  *  so charts drawn in a `load` handler (and any d3 transition) have finished. */
 export const INSIGHT_PRINT_SETTLE_MS = 1200;
 
+/** Print-only scale applied to the whole document, so an exported PDF fits more
+ *  on each page. A `zoom` rather than a root `font-size`, because author CSS
+ *  sizes text in `px` as often as `rem`; zoom shrinks both, and the layout with
+ *  them, so proportions are unchanged. */
+export const INSIGHT_PRINT_ZOOM = 0.8;
+
 /**
  * Head markup for the print document, injected ahead of the author's scripts.
  *
@@ -23,12 +29,13 @@ export const INSIGHT_PRINT_SETTLE_MS = 1200;
  *   printed in its final state;
  * - keeps background colours in print (CSS-drawn bars and legend swatches are
  *   backgrounds, which browsers drop by default) and stops a canvas sized for
- *   the frame from overflowing the narrower printed page.
+ *   the frame from overflowing the narrower printed page;
+ * - scales the printed page by {@link INSIGHT_PRINT_ZOOM} so more fits per page.
  */
 const PRINT_PRELUDE = `<style>
 *,*::before,*::after{animation-delay:0s!important;animation-duration:0s!important;transition-delay:0s!important;transition-duration:0s!important;}
 *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-@media print{canvas,img,svg{max-width:100%!important;}canvas{height:auto!important;}}
+@media print{html{zoom:${INSIGHT_PRINT_ZOOM}!important;}canvas,img,svg{max-width:100%!important;}canvas{height:auto!important;}}
 </style><script>(function(){
   var nativeRaf = window.requestAnimationFrame;
   var nativeCancel = window.cancelAnimationFrame;
