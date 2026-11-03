@@ -6,7 +6,13 @@ on:
 
 concurrency:
   group: preview-db-${{ github.event.number }}
-  cancel-in-progress: true
+  # Don't cancel mid-run. A push landing while `setup` is still running would
+  # otherwise kill it partway (Neon branch created but not migrated/seeded,
+  # Vercel env vars half-set, no redeploy), and the follow-up `migrate` run
+  # can't recover that. Later runs queue behind the running one instead;
+  # GitHub keeps only the newest pending run, which is enough since
+  # `migrate` is idempotent and always runs the latest head.
+  cancel-in-progress: false
 
 env:
   NEON_BRANCH_NAME: preview/pr-${{ github.event.number }}
@@ -210,9 +216,8 @@ jobs:
         with:
           ref: main
       - name: Delete Neon branch
-        # continue-on-error: the branch may never have been created (e.g. the
-        # `setup` job was cancelled by this workflow's own concurrency group
-        # before it finished, or the PR closed faster than `setup` could run).
+        # continue-on-error: the branch may never have been created (e.g.
+        # `setup` failed before creating it, or was cancelled manually).
         # Without this, delete-branch-action's hard failure on a missing
         # branch skips the Vercel cleanup steps below, so a PR that closes
         # quickly leaks its Vercel preview env vars.
