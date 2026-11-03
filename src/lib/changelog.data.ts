@@ -56,6 +56,26 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "b3b46acba06cd7c8a4d7f04cd73375281219c0bd",
+    "date": "2026-11-03",
+    "subject": "Decided insight cards in chat keep their source document closed",
+    "category": "improvement"
+  },
+  {
+    "hash": "7d147ace19e0c72c435c82912eb063fc9dd3e046",
+    "date": "2026-11-03",
+    "subject": "Deal Insights PDF exports now scale to 80% so more content fits on each page",
+    "category": "improvement"
+  },
+  {
+    "hash": "a9939ff85d99d5cc5c546b49f60743aa4b89605b",
+    "date": "2026-11-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c301ec71824c116b9e27162446d8cdef1995f287",
     "date": "2026-11-02",
     "subject": "Fixed a 404 error when opening Gmail drafts from deal contacts",
