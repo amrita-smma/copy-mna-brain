@@ -22,6 +22,17 @@ import { replaceInsightSection } from '@/lib/insights/sectionEdit';
  */
 export const BASE_POLL_INTERVAL_MS = 30_000;
 
+/**
+ * "12 KB document": what a decided card says about the document it holds
+ * closed, so the size is known before the frame is opened.
+ */
+export function describeInsightDocument(html: string): string {
+  const bytes = new TextEncoder().encode(html).length;
+  if (bytes < 1024) return `${bytes} B document`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB document`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB document`;
+}
+
 /** What the card shows once rejected. Rejecting writes nothing anywhere. */
 export const REJECT_RESOLUTION_TEXT = 'Rejected — changes dismissed.';
 

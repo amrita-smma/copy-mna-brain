@@ -8,6 +8,7 @@ import { useWorkspacePush } from '@/hooks/useWorkspaceHref';
 import { useChatThread } from '@/components/chat/ChatProvider';
 import type { InsightCreateApprovalPayload } from '@/lib/insights/types';
 import { InsightFrame } from '@/components/insights/InsightFrame';
+import { ResolvedInsightDocument } from './ResolvedInsightDocument';
 import {
   ApprovalCardShell,
   useApprovalResolution,
@@ -97,20 +98,24 @@ export function InsightCreateApprovalCard({
         </p>
       )}
 
-      {/* Document Preview rendered via InsightFrame */}
-      <div className="rounded-xl border border-border bg-card p-3 mb-4 space-y-2">
-        <p className="text-xs font-medium text-foreground">
-          A new self-contained HTML insight document will be created.
-        </p>
-        <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-border bg-card p-1 min-w-0">
-          <InsightFrame
-            html={payload.html}
-            title={payload.name}
-            minHeight={250}
-            maxHeight={500}
-          />
+      {isResolved ? (
+        <ResolvedInsightDocument html={payload.html} title={payload.name} className="mb-4" />
+      ) : (
+        /* Document Preview rendered via InsightFrame */
+        <div className="rounded-xl border border-border bg-card p-3 mb-4 space-y-2">
+          <p className="text-xs font-medium text-foreground">
+            A new self-contained HTML insight document will be created.
+          </p>
+          <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-border bg-card p-1 min-w-0">
+            <InsightFrame
+              html={payload.html}
+              title={payload.name}
+              minHeight={250}
+              maxHeight={500}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </ApprovalCardShell>
   );
 }

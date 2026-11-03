@@ -29,6 +29,7 @@ import {
   type BaseMove,
 } from '@/lib/insights/editReview';
 import { InsightFrame } from '@/components/insights/InsightFrame';
+import { ResolvedInsightDocument } from './ResolvedInsightDocument';
 import { useChatThread } from '@/components/chat/ChatProvider';
 import { useLiveRefetchInterval, useLiveTopic } from '@/components/live/LiveEventsProvider';
 import { LIVE_TOPICS } from '@/lib/live/topics';
@@ -166,13 +167,21 @@ export function InsightEditApprovalCard({
     };
   }, [watching, pollMs, checkBase]);
 
-  const currentHtml = insightDetail?.html ?? '';
+  // Only an open card diffs: a decided one shows the proposed document alone
+  // (closed, below), so the current version's document, the diff and the
+  // highlighted preview — each the size of the document again — are let go
+  // the moment the card is decided. The detail's name stays for the badge.
+  useEffect(() => {
+    if (!isResolved) return;
+    setInsightDetail((detail) => (detail?.html ? { ...detail, html: '' } : detail));
+  }, [isResolved]);
+  const currentHtml = isResolved ? '' : (insightDetail?.html ?? '');
   // A section proposal carries only its fragment: the document shown as
   // "after" is the current version with the fragment spliced in. Null while
   // the current version loads; an error when the section is gone from it.
   const candidate = useMemo(
-    () => editCandidate(payload, insightDetail ? insightDetail.html : null),
-    [payload, insightDetail],
+    () => editCandidate(payload, isResolved || !insightDetail ? null : insightDetail.html),
+    [payload, insightDetail, isResolved],
   );
   const candidateHtml = candidate.html;
   const diff = useMemo(
@@ -317,14 +326,10 @@ export function InsightEditApprovalCard({
                 this section replaced.
               </p>
             )}
-            <div className={frameBox}>
-              <InsightFrame
-                html={payload.html}
-                title={payload.section ? `Proposed section: ${payload.section}` : 'Proposed changes'}
-                minHeight={250}
-                maxHeight={500}
-              />
-            </div>
+            <ResolvedInsightDocument
+              html={payload.html}
+              title={payload.section ? `Proposed section: ${payload.section}` : 'Proposed changes'}
+            />
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-card p-3 mb-4 space-y-3">

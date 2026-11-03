@@ -50,6 +50,10 @@ decision:
   (`alreadyDecided: true`) and shows it.
 - The card shows its decision as soon as the user acts; the write follows. A
   failed write leaves a warning toast.
+- A decided insight card (`propose_insight_create` / `_edit`) holds its
+  document closed (`ResolvedInsightDocument`): the sandboxed frame mounts only
+  while the user opens it, and the edit card drops its diff on the decision,
+  so a thread of approved edits is not a thread of live documents.
 - Only the chat's owner can decide its cards (`CopilotChatForbiddenError`
   otherwise).
 - `resolutionText` is at most 1,000 characters and `data` at most 8,000 as

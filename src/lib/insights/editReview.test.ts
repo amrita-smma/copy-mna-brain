@@ -8,7 +8,20 @@ import {
   hasBaseMoved,
   nextBaseMove,
   versionTriggerPhrase,
+  describeInsightDocument,
 } from './editReview';
+
+describe('describeInsightDocument', () => {
+  it('says the document size in bytes, KB or MB', () => {
+    expect(describeInsightDocument('<p>hi</p>')).toBe('9 B document');
+    expect(describeInsightDocument('x'.repeat(12 * 1024))).toBe('12 KB document');
+    expect(describeInsightDocument('x'.repeat(1536 * 1024))).toBe('1.5 MB document');
+  });
+
+  it('measures bytes, not characters', () => {
+    expect(describeInsightDocument('é'.repeat(600))).toBe('1 KB document');
+  });
+});
 
 describe('hasBaseMoved', () => {
   it('is true only when a known head differs from the version diffed against', () => {

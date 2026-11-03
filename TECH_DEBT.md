@@ -1071,28 +1071,6 @@ scope table) joined by every view, managed from the admin portal.
 
 ---
 
-## Chat: a resolved insight-edit card keeps a live iframe
-
-**Area:** `src/components/chat/InsightEditApprovalCard.tsx`,
-`src/components/insights/InsightFrame.tsx`.
-
-**What it is:** once approved or rejected, the card still renders the proposed
-document in a sandboxed `srcdoc` iframe (an insight is up to 4 MB) and keeps
-the diff it computed. Every resolved card in a loaded thread is one more live
-document, so a thread with several insight edits holds several documents for
-as long as the tab is open.
-
-**Why we took it:** the card shows the result in place, and unmounting the
-frame on resolve would have changed what the user sees right after approving.
-
-**Trigger to revisit:** a thread with several insight edits scrolls slowly, or
-a heap snapshot of a long thread shows iframes dominating.
-
-**Intended fix:** render a resolved card's frame on demand (a "Show document"
-toggle, or mount only while in the viewport), and drop the diff once resolved.
-
----
-
 ## Chat: every stream chunk re-renders every `ChatContext` consumer
 
 **Area:** `src/components/chat/ChatProvider.tsx` (the `ChatContext` value,
