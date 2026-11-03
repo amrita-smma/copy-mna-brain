@@ -1142,6 +1142,54 @@ describe('invokeAgent', () => {
     expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: swallowed });
   });
 
+  describe('when the step limit lands after the agent already finished', () => {
+    const limit =
+      'Error invoking agent: Recursion limit of 50 reached without hitting a stop condition.';
+    const report = '✓ Done: Completed SMAR IC pitch (BUY).\n- Emailed the link.';
+    const swallowLimit = () =>
+      invokeMock.mockResolvedValueOnce({ messages: [{ content: 'user msg' }, { content: limit }] });
+    const checkpoint = (messages: unknown[]) =>
+      getWorkforceAgentGraph.mockResolvedValueOnce(
+        graph({ getState: vi.fn().mockResolvedValue({ values: { messages } }) }),
+      );
+
+    it('completes with the checkpointed report instead of failing the run', async () => {
+      swallowLimit();
+      checkpoint([
+        { content: 'user msg' },
+        { content: report, tool_calls: [{ name: 'narrate_step', args: { title: 'Done' } }] },
+      ]);
+
+      expect(await callInvokeAgent()).toEqual({
+        kind: 'completed',
+        finalMessage: report,
+        messageCount: 2,
+        toolCallCount: 1,
+      });
+    });
+
+    it('still fails when the limit hit mid-work', async () => {
+      swallowLimit();
+      checkpoint([
+        { content: 'user msg' },
+        { content: 'Filling section 4', tool_calls: [{ name: 'edit_insight_section', args: {} }] },
+      ]);
+
+      expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: limit });
+    });
+
+    it('does not read the checkpoint for a provider error', async () => {
+      const credit = 'Error invoking agent: 400 Your credit balance is too low';
+      invokeMock.mockResolvedValueOnce({ messages: [{ content: 'user msg' }, { content: credit }] });
+      const getState = vi.fn().mockResolvedValue({});
+      getWorkforceAgentGraph.mockResolvedValueOnce(graph({ getState }));
+
+      expect(await callInvokeAgent()).toEqual({ kind: 'failed', reason: credit });
+      // Only the pre-invoke reopen check reads the thread.
+      expect(getState).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it.each([
     ['empty with no invalid_tool_calls', { content: '' }],
     ['whitespace with an empty invalid_tool_calls', { content: '   ', invalid_tool_calls: [] }],

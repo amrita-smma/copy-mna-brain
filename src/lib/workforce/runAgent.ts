@@ -48,6 +48,11 @@ import {
 } from '@/lib/agents/crm_contact/constants';
 import { readRefreshInsightId, readRunAgentKey } from '@/lib/routines/refreshAgent';
 import { failAiOpinionIfStillProcessing } from './clearAiOpinionOnFailure';
+import {
+  AGENT_INVOKE_ERROR_PREFIX,
+  finishedReportFromThread,
+  isSwallowedRecursionError,
+} from './recoverFinishedRun';
 import { failScreeningsIfStillPending } from './failScreeningsOnFailure';
 import { dispatcherTick } from './dispatcher';
 import { notifyRunFailed } from './notifyFailure';
@@ -284,9 +289,6 @@ function interruptedFrom(first: {
         : undefined,
   };
 }
-
-/** Final-message prefix AnalysisAgent.invoke returns when the model call threw. */
-const AGENT_INVOKE_ERROR_PREFIX = 'Error invoking agent:';
 
 export async function invokeAgent(
   runId: string,
@@ -543,9 +545,29 @@ export async function invokeAgent(
       }
     }
 
-    const messages = finalResult.messages ?? [];
-    const lastMessage = messages[messages.length - 1];
-    const finalMessage = extractMessageText(lastMessage);
+    let messages = finalResult.messages ?? [];
+    let lastMessage = messages[messages.length - 1];
+    let finalMessage = extractMessageText(lastMessage);
+
+    // The step limit can land right after the agent's "✓ Done:" report, with
+    // every write already made. AnalysisAgent.invoke swallows that error into
+    // the final message, which would fail a run that finished. Take the
+    // checkpointed report instead; a limit hit mid-work still fails.
+    if (isSwallowedRecursionError(finalMessage)) {
+      const state = (await graph.getState({
+        configurable: { thread_id: threadId },
+      })) as { values?: { messages?: unknown[] } };
+      const threadMessages = (state.values?.messages ?? []) as typeof messages;
+      const report = finishedReportFromThread(threadMessages, extractMessageText);
+      if (report !== null) {
+        console.warn(
+          `[runAgent] run ${runId} hit the step limit after its final report; completing it`,
+        );
+        messages = threadMessages;
+        lastMessage = messages[messages.length - 1];
+        finalMessage = report;
+      }
+    }
 
     let isFailure = finalMessage.trim().startsWith('✗ Could not complete');
     let failureReason = finalMessage;
