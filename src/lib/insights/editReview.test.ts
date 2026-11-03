@@ -3,6 +3,8 @@ import {
   REJECT_RESOLUTION_TEXT,
   baseMovedMessage,
   createInsightEditActions,
+  editCandidate,
+  editScopeText,
   hasBaseMoved,
   nextBaseMove,
   versionTriggerPhrase,
@@ -114,5 +116,63 @@ describe('createInsightEditActions', () => {
       baseVersionNo: 5,
       chat_id: 'c1',
     });
+  });
+
+  it('approve sends the fragment and its section, so the server does the splice', async () => {
+    publishInsightVersion.mockResolvedValueOnce({ version_no: 6 });
+    const actions = createInsightEditActions({ publishInsightVersion });
+    const fragment = '<section data-section="a"><p>2%</p></section>';
+
+    await actions.approve({
+      insightId: 'i1',
+      html: fragment,
+      section: 'a',
+      summary: 'Update a',
+      baseVersionNo: 5,
+      chatId: 'c1',
+    });
+
+    expect(publishInsightVersion).toHaveBeenCalledWith('i1', {
+      html: fragment,
+      section: 'a',
+      label: 'Update a',
+      baseVersionNo: 5,
+      chat_id: 'c1',
+    });
+  });
+});
+
+describe('editCandidate', () => {
+  const current = '<body><section data-section="a"><p>1%</p></section><section data-section="b"><p>x</p></section></body>';
+  const fragment = '<section data-section="a"><p>2%</p></section>';
+
+  it('is the proposal itself for a whole-document edit, before and after the current version loads', () => {
+    expect(editCandidate({ html: '<p>doc</p>' }, null)).toEqual({ html: '<p>doc</p>', error: null });
+    expect(editCandidate({ html: '<p>doc</p>', section: null }, current)).toEqual({ html: '<p>doc</p>', error: null });
+  });
+
+  it('is the current version with the fragment spliced over its section', () => {
+    expect(editCandidate({ html: fragment, section: 'a' }, current)).toEqual({
+      html: '<body><section data-section="a"><p>2%</p></section><section data-section="b"><p>x</p></section></body>',
+      error: null,
+    });
+  });
+
+  it('is nothing yet while the current version is loading', () => {
+    expect(editCandidate({ html: fragment, section: 'a' }, null)).toEqual({ html: null, error: null });
+  });
+
+  it('is an error when the section is gone from the current version', () => {
+    const result = editCandidate({ html: fragment, section: 'a' }, '<body><section data-section="b"></section></body>');
+    expect(result.html).toBeNull();
+    expect(result.error).toContain('not found');
+  });
+});
+
+describe('editScopeText', () => {
+  it('names the section for a section edit and the whole document otherwise', () => {
+    expect(editScopeText('risk-summary')).toBe('Section “risk-summary” will be replaced; the rest of the document is unchanged.');
+    expect(editScopeText(null)).toBe('Whole document content will be replaced.');
+    expect(editScopeText(undefined)).toBe('Whole document content will be replaced.');
   });
 });

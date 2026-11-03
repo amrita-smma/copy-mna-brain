@@ -103,7 +103,8 @@ describe('getInsight', () => {
     expect(out).toContain('Sector Brief');
     expect(out).toContain('version 3');
     expect(out).toContain(`Length: ${html.length.toLocaleString('en-US')} characters`);
-    expect(out).toContain('too large to edit in chat');
+    expect(out).toContain('too large to edit whole in chat');
+    expect(out).toContain('edit it in chat by section');
     expect(out).toContain('Do NOT call propose_insight_edit');
     expect(out).toContain('propose_workforce_handoff');
     expect(out).toContain(`insight_id ${INSIGHT_ID}`);
@@ -197,5 +198,113 @@ describe('getInsight', () => {
     await invoke({ insight_id: INSIGHT_ID }, { configurable: { run_id: 'run-1' } });
 
     expect(mockGetRunDraft).not.toHaveBeenCalled();
+  });
+
+  describe('one section', () => {
+    const DOC =
+      '<!DOCTYPE html><html><body>' +
+      '<section data-section="summary"><h2>Summary</h2><p>Up 4%.</p></section>' +
+      '<section data-section="risks"><ul><li>FX</li></ul></section>' +
+      '</body></html>';
+
+    it('returns only that block, with the instruction to propose it back by section', async () => {
+      mockGet.mockResolvedValue(insight({ html: DOC }));
+
+      const out = await invoke({ section: 'risks' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('Section: risks (');
+      expect(out).toContain('<section data-section="risks"><ul><li>FX</li></ul></section>');
+      expect(out).not.toContain('<h2>Summary</h2>');
+      expect(out).toContain('propose_insight_edit with section: "risks"');
+      expect(out).toContain('keep data-section="risks"');
+      expect(out).not.toContain('Current document:');
+    });
+
+    it('reads one block of an insight too large to read whole in chat, instead of the outline', async () => {
+      const big = DOC.replace('</body>', `<section data-section="appendix">${'<p>filler</p>'.repeat(3_000)}</section></body>`);
+      mockGet.mockResolvedValue(insight({ html: big }));
+
+      const out = await invoke({ section: 'summary' }, { configurable: PAGE_CONTEXT });
+
+      expect(big.length).toBeGreaterThan(CHAT_INLINE_DOCUMENT_MAX_CHARS);
+      expect(out).toContain('<section data-section="summary"><h2>Summary</h2><p>Up 4%.</p></section>');
+      expect(out).not.toContain('<insight_outline>');
+      expect(out).not.toContain('<p>filler</p>');
+    });
+
+    it('withholds a block that is itself too large for chat and sends that block to the Workforce', async () => {
+      const big = DOC.replace('</body>', `<section data-section="appendix">${'<p>filler</p>'.repeat(3_000)}</section></body>`);
+      mockGet.mockResolvedValue(insight({ html: big }));
+
+      const out = await invoke({ section: 'appendix' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('Section "appendix" alone is');
+      expect(out).toContain('propose_workforce_handoff');
+      expect(out).toContain(`insight_id ${INSIGHT_ID}`);
+      expect(out).toContain('section appendix');
+      expect(out).toContain('<insight_section_outline>');
+      expect(out).not.toContain('<p>filler</p>');
+    });
+
+    it('returns the whole oversized block in a Workforce run', async () => {
+      const big = DOC.replace('</body>', `<section data-section="appendix">${'<p>filler</p>'.repeat(3_000)}</section></body>`);
+      mockGet.mockResolvedValue(insight({ html: big }));
+
+      const out = await invoke({ section: 'appendix' }, { configurable: { ...PAGE_CONTEXT, agentRole: 'workforce' } });
+
+      expect(out).toContain('<p>filler</p>');
+      expect(out).toContain('edit_insight_section with section "appendix"');
+    });
+
+    it('lists the keys the document has when the section is not there', async () => {
+      mockGet.mockResolvedValue(insight({ html: DOC }));
+
+      const out = await invoke({ section: 'outlook' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('Section "outlook": Section "outlook" not found in document.');
+      expect(out).toContain('"summary", "risks"');
+      expect(out).not.toContain('<h2>Summary</h2>');
+    });
+
+    it('says a document with no keys must be read whole', async () => {
+      mockGet.mockResolvedValue(insight({ html: '<p>no keys</p>' }));
+
+      const out = await invoke({ section: 'summary' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('has no data-section keys');
+      expect(out).toContain('omit `section`');
+    });
+
+    it('sends a keyless document that is too large for chat to the Workforce instead of a whole read', async () => {
+      mockGet.mockResolvedValue(insight({ html: `<div>${'<p>filler</p>'.repeat(3_000)}</div>` }));
+
+      const out = await invoke({ section: 'summary' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('has no data-section keys');
+      expect(out).toContain('too large to edit whole in chat');
+      expect(out).toContain('propose_workforce_handoff');
+      expect(out).not.toContain('omit `section`');
+    });
+
+    it('rejects a key that is not a data-section key without hitting the database', async () => {
+      const out = await invoke({ section: 'bad key!' }, { configurable: PAGE_CONTEXT });
+
+      expect(out).toContain('is not a data-section key');
+      expect(mockGet).not.toHaveBeenCalled();
+    });
+
+    it('reads the section from the refresh run draft when there is one', async () => {
+      mockGet.mockResolvedValue(insight({ html: DOC }));
+      mockGetRunDraft.mockResolvedValue({
+        insight_id: INSIGHT_ID,
+        base_version_no: 3,
+        html: DOC.replace('Up 4%.', 'Up 9%.'),
+      });
+
+      const out = await invoke({ section: 'summary' }, REFRESH);
+
+      expect(out).toContain('unpublished draft for this refresh run');
+      expect(out).toContain('Up 9%.');
+    });
   });
 });

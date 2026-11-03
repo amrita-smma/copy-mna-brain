@@ -44,7 +44,10 @@ export const TIMED_OUT_FOLLOW_UP_CONTEXT =
 /**
  * Tools that write a whole document in one call. One call of that size cannot
  * finish inside a chat turn's budget, so a turn that must hand off does not
- * get them. `propose_insight_edit` is one: it carries the full edited document.
+ * get them. `propose_insight_edit` is one: without a `section` it carries the
+ * full edited document. Its section mode carries one block, but the tool is
+ * withheld as a whole after a timeout — the turn is told to hand off, and a
+ * retry that picked the whole-document mode would time out again.
  */
 export const WHOLE_DOCUMENT_TOOL_NAMES = [
   'propose_insight_edit',

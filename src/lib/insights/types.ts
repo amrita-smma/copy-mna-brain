@@ -134,6 +134,14 @@ export interface InsightEditApprovalPayload {
   approval_id: string;
   insight_id: string;
   summary: string;
+  /**
+   * The `data-section` key the edit is scoped to. When set, `html` is the
+   * replacement fragment for that one block, not a document: the card splices
+   * it into the current version to preview and diff, and approving sends the
+   * fragment for the server to splice over the version the user reviewed.
+   * Absent on a whole-document edit, where `html` is the complete document.
+   */
+  section?: string | null;
   html: string;
 }
 

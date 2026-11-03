@@ -4,6 +4,7 @@ import {
   formatInsightTemplatePart,
   formatLargeHtmlAttachmentBlock,
   formatLargeInsightForChat,
+  formatLargeInsightSectionForChat,
   isHtmlAttachment,
   LARGE_DOCUMENT_OUTLINE_MAX_CHARS,
   largeTemplateHandoffInstruction,
@@ -198,14 +199,16 @@ describe('formatLargeInsightForChat', () => {
 
   it('states the size against the chat cap and withholds the HTML', () => {
     expect(block).toContain(`${html.length.toLocaleString('en-US')} characters`);
-    expect(block).toContain('too large to edit in chat');
+    expect(block).toContain('too large to edit whole in chat');
     expect(block).not.toContain('<table>');
     expect(block).not.toContain('body{color:#111}');
   });
 
-  it('forbids propose_insight_edit and hands the edit to the Workforce with the insight id and the selection', () => {
-    expect(block).toContain('Do NOT call propose_insight_edit');
-    expect(block).toContain('Call propose_workforce_handoff');
+  it('invites a one-block edit by section, and hands a wider edit to the Workforce with the insight id and the selection', () => {
+    expect(block).toContain('Do NOT call propose_insight_edit WITHOUT a `section`');
+    expect(block).toContain('get_insight with section: "<key>"');
+    expect(block).toContain('propose_insight_edit with the same section');
+    expect(block).toContain('call propose_workforce_handoff');
     expect(block).toContain(`insight_id ${ID}`);
     expect(block).toContain('section key or element path');
     expect(block).toContain('previous version stays in the insight');
@@ -215,5 +218,26 @@ describe('formatLargeInsightForChat', () => {
     const outline = block.slice(block.indexOf('<insight_outline>'), block.indexOf('</insight_outline>'));
     expect(outline).toContain('block-0');
     expect(outline.length).toBeLessThanOrEqual(LARGE_DOCUMENT_OUTLINE_MAX_CHARS + '<insight_outline>\n'.length);
+  });
+});
+
+describe('formatLargeInsightSectionForChat', () => {
+  const html = `<section data-section="appendix">${'<p>filler</p>'.repeat(3_000)}</section>`;
+  const block = formatLargeInsightSectionForChat({ id: ID, section: 'appendix', html });
+
+  it('withholds the block, names it and its size, and sends that block to the Workforce', () => {
+    expect(html.length).toBeGreaterThan(CHAT_INLINE_DOCUMENT_MAX_CHARS);
+    expect(block).toContain(`Section "appendix" alone is ${html.length.toLocaleString('en-US')} characters`);
+    expect(block).toContain('Do NOT call propose_insight_edit for it, with or without a `section`');
+    expect(block).toContain('propose_workforce_handoff');
+    expect(block).toContain(`insight_id ${ID}`);
+    expect(block).toContain('section appendix');
+    expect(block).not.toContain('<p>filler</p>');
+  });
+
+  it('carries a bounded outline of the block', () => {
+    const outline = block.slice(block.indexOf('<insight_section_outline>'), block.indexOf('</insight_section_outline>'));
+    expect(outline).toContain('appendix');
+    expect(outline.length).toBeLessThanOrEqual(LARGE_DOCUMENT_OUTLINE_MAX_CHARS + '<insight_section_outline>\n'.length);
   });
 });

@@ -57,6 +57,7 @@ of `ARCHITECTURE.md` (it has a size budget) and out of `README.md`.
 - [Async jobs](async-jobs.md) — 38KB
 - [AI Workforce: stage moves, company chips, failure signals, rail History](ai-workforce-stages-and-signals.md) — 5KB
 - [Insight generation: always on the AI Workforce, emailed when ready](insight-generation.md) — 2KB
+- [Insight editing by section: chat reads and proposes one `data-section` block, the server splices it](insight-section-editing.md) — 4KB
 
 ## App shell & UI
 

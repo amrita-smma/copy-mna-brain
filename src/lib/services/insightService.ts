@@ -35,7 +35,7 @@ import {
 } from '@/lib/insights/upload';
 import { INSIGHT_LIST_DEFAULT_LIMIT } from '@/lib/insights/listQuery';
 import { duplicateInsightName } from '@/lib/insights/duplicateName';
-import { replaceInsightSection } from '@/lib/insights/sectionEdit';
+import { findInsightSection, replaceInsightSection } from '@/lib/insights/sectionEdit';
 import { rejectInvalidInsightDocument } from '@/lib/insights/documentGuard';
 import { rejectTooDeeplyNested } from '@/lib/insights/parseHtml';
 import { checkInsightStructure } from '@/lib/insights/structuralCheck';
@@ -249,6 +249,28 @@ export interface PublishInsightVersionInput {
   trigger?: 'copilot_edit' | 'workforce';
   sourceRunId?: string | null;
   /** The sector agent producing this version, if any (MB-541). */
+  agentStamp?: InsightAgentStamp | null;
+}
+
+/**
+ * A version that replaces ONE `data-section` block of the current version
+ * with a fragment. The splice happens here, under the insight's row lock,
+ * against whatever is current at that moment: the approved card carries
+ * only the fragment, so the document never travels through the chat.
+ */
+export interface PublishInsightSectionEditInput {
+  workspaceId: string;
+  insightId: string;
+  /** The `data-section` key of the block the fragment replaces. */
+  section: string;
+  /** The block's complete replacement fragment, its key kept. */
+  fragment: string;
+  label?: string | null;
+  userId?: string | null;
+  /** The version the user reviewed. A head that moved past it answers StaleInsightVersionError. */
+  baseVersionNo?: number | null;
+  trigger?: 'copilot_edit' | 'workforce';
+  sourceRunId?: string | null;
   agentStamp?: InsightAgentStamp | null;
 }
 
@@ -927,6 +949,103 @@ export class InsightService {
     });
     await this.announceInsight(input.workspaceId, input.insightId);
     return this.withSourceTemplateName(input.workspaceId, detail);
+  }
+
+  /**
+   * Appends a new version that is the current version with one section's
+   * fragment spliced over the block carrying its key (trigger: 'copilot_edit'
+   * or 'workforce'). The read, the splice and the write happen under the
+   * insight's row lock, so a version landing between the card's diff and the
+   * approval is either refused (a `baseVersionNo` behind the head) or — with
+   * no base given — spliced into, never lost. The spliced document clears
+   * every check a whole-document publish does, plus the one the section edit
+   * adds: the block must still carry its key afterwards.
+   */
+  async publishSectionEdit(
+    input: PublishInsightSectionEditInput,
+  ): Promise<InsightDetail> {
+    const section = input.section?.trim() ?? '';
+    if (!section) {
+      throw new InsightValidationError('A section key is required.');
+    }
+    const fragment = input.fragment?.trim() ?? '';
+    if (!fragment) {
+      throw new InsightValidationError('No HTML fragment provided for the section.');
+    }
+
+    const detail = await this.withTransaction(async (tx) => {
+      const locked = await this.insightRepo.lockById(input.insightId, input.workspaceId, tx);
+      if (!locked || locked.archived_at !== null) {
+        throw new InsightNotFoundError(input.insightId);
+      }
+
+      const current = await this.insightVersionRepo.findCurrent(
+        input.insightId,
+        input.workspaceId,
+        tx,
+      );
+      if (!current) {
+        throw new InsightNotFoundError(input.insightId);
+      }
+      if (
+        input.baseVersionNo !== undefined &&
+        input.baseVersionNo !== null &&
+        input.baseVersionNo !== current.version_no
+      ) {
+        throw new StaleInsightVersionError(input.insightId, input.baseVersionNo, current.version_no);
+      }
+
+      const currentVersion = await this.insightVersionRepo.findByVersionNo(
+        input.insightId,
+        input.workspaceId,
+        current.version_no,
+        tx,
+      );
+      if (!currentVersion) {
+        throw new InsightNotFoundError(input.insightId);
+      }
+
+      const spliced = InsightService.spliceSection(currentVersion.html, section, fragment);
+      validateHtml(spliced);
+      const structuralError = checkInsightStructure(spliced, locked.kind);
+      if (structuralError) {
+        throw new InsightValidationError(structuralError);
+      }
+      const kept = findInsightSection(spliced, section);
+      if (!kept.success) {
+        throw new InsightValidationError(
+          `After the edit, ${kept.error.replace(/\.$/, '')}. The fragment must keep data-section="${section}" on exactly one element.`,
+        );
+      }
+      assertInsightMarkers(spliced, input.agentStamp);
+
+      return this.appendVersion(tx, {
+        workspaceId: input.workspaceId,
+        insightId: input.insightId,
+        html: spliced,
+        trigger: input.trigger ?? 'copilot_edit',
+        label: input.label ?? null,
+        userId: input.userId,
+        baseVersionNo: current.version_no,
+        sourceRunId: input.sourceRunId ?? null,
+        agentStamp: input.agentStamp ?? null,
+      });
+    });
+    await this.announceInsight(input.workspaceId, input.insightId);
+    return this.withSourceTemplateName(input.workspaceId, detail);
+  }
+
+  /** The document with `fragment` over its `section` block, trimmed; a validation error when the block is not there. */
+  private static spliceSection(baseHtml: string, section: string, fragment: string): string {
+    const res = replaceInsightSection(baseHtml, section, fragment);
+    if (!res.success) {
+      throw new InsightValidationError(res.error);
+    }
+    const trimmed = res.html.trim();
+    if (!trimmed) {
+      throw new InsightValidationError('Spliced HTML document is empty.');
+    }
+    return trimmed;
   }
 
   /**

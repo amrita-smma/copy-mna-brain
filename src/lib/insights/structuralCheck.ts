@@ -104,12 +104,16 @@ export function checkInsightStructure(
  * the agent to do next:
  *   - `edit-proposal` / `create-proposal`: the chat `propose_insight_*` tools —
  *     no card is offered, and the agent reports the failure to the user;
+ *   - `edit-section-proposal`: `propose_insight_edit` with a `section` — the
+ *     candidate is one section's fragment, so the fix is to resend that
+ *     fragment, never the whole document;
  *   - `workforce-document` / `workforce-create` / `workforce-section`: the
  *     workforce write tools — nothing is written, and the agent reports the
  *     failure in its run output.
  */
 export type CandidateAudience =
   | 'edit-proposal'
+  | 'edit-section-proposal'
   | 'create-proposal'
   | 'workforce-document'
   | 'workforce-create'
@@ -138,6 +142,8 @@ export function insightStructureRefusal(
   switch (audience) {
     case 'edit-proposal':
       return `${lead} Nothing was offered to the user, and the insight's current version stays the current version — nothing changed. Tell the user this edit could not be rendered and give the reason above in one or two plain sentences. If an earlier attempt at this same instruction was already refused in this conversation, do not try again: suggest the user rephrase the instruction or narrow the change (for example, one section or one table at a time). Otherwise you may retry once with the complete document.`;
+    case 'edit-section-proposal':
+      return `${RENDER_CHECK_REFUSAL_LEAD} (in the section fragment): ${reason} Nothing was offered to the user, and the insight's current version stays the current version — nothing changed. Resend ONLY the complete fragment for this one section in another propose_insight_edit call with the same \`section\` — never the whole document. If an earlier attempt at this same instruction was already refused in this conversation, do not try again: tell the user this edit could not be rendered, give the reason above in one or two plain sentences, and suggest they rephrase or narrow the change.`;
     case 'create-proposal':
       return `${lead} Nothing was offered to the user and no insight was created. Tell the user the insight could not be rendered and give the reason above in one or two plain sentences. If an earlier attempt at this same request was already refused in this conversation, do not try again: suggest the user rephrase the request or narrow it (for example, fewer sections, or a smaller table). Otherwise you may retry once with the complete document.`;
     case 'workforce-create':

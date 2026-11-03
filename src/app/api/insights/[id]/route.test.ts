@@ -13,6 +13,7 @@ const { authMock, createContainerMock, service, agentStampForMock } = vi.hoisted
     setFeatured: vi.fn(),
     get: vi.fn(),
     publishVersion: vi.fn(),
+    publishSectionEdit: vi.fn(),
   },
   agentStampForMock: vi.fn(),
 }));
@@ -31,6 +32,7 @@ import {
   InsightEvidenceMarkerError,
   InsightNotFoundError,
   InsightValidationError,
+  StaleInsightVersionError,
 } from '@/lib/services/insightService';
 
 const WORKSPACE_ID = 'ws-test-1';
@@ -166,6 +168,74 @@ describe('POST /api/insights/[id]', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: '1 malformed evidence marker' });
+  });
+});
+
+describe('POST /api/insights/[id] with a section', () => {
+  const post = (body: Record<string, unknown>) => POST(req('POST', body), params());
+
+  beforeEach(() => {
+    service.publishSectionEdit.mockResolvedValue({ id: INSIGHT_ID, version_no: 3 });
+  });
+
+  it('routes a section edit to publishSectionEdit with the fragment, the base and the stamp', async () => {
+    agentStampForMock.mockResolvedValue({ agentKey: 'bangun' });
+
+    const res = await post({
+      html: '<section data-section="a"><p>2%</p></section>',
+      section: 'a',
+      label: 'Update a',
+      baseVersionNo: 2,
+      chat_id: CHAT_ID,
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { id: INSIGHT_ID, version_no: 3 } });
+    expect(service.publishSectionEdit).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
+      insightId: INSIGHT_ID,
+      section: 'a',
+      fragment: '<section data-section="a"><p>2%</p></section>',
+      label: 'Update a',
+      userId: 'u1',
+      baseVersionNo: 2,
+      agentStamp: { agentKey: 'bangun' },
+    });
+    expect(service.publishVersion).not.toHaveBeenCalled();
+  });
+
+  it('treats a null or blank section as a whole-document publish', async () => {
+    service.publishVersion.mockResolvedValue({ id: INSIGHT_ID, version_no: 3 });
+
+    await post({ html: '<p>x</p>', section: null });
+    await post({ html: '<p>x</p>', section: '   ' });
+
+    expect(service.publishSectionEdit).not.toHaveBeenCalled();
+    expect(service.publishVersion).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers 400 for a section that is not a string', async () => {
+    const res = await post({ html: '<p>x</p>', section: 7 });
+
+    expect(res.status).toBe(400);
+    expect(service.publishSectionEdit).not.toHaveBeenCalled();
+  });
+
+  it('maps a base the head moved past to 409, so the card re-diffs against the new version', async () => {
+    service.publishSectionEdit.mockRejectedValue(new StaleInsightVersionError(INSIGHT_ID, 2, 3));
+
+    const res = await post({ html: '<section data-section="a"></section>', section: 'a', baseVersionNo: 2 });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('maps a section the current version no longer has to 400 with the reason', async () => {
+    service.publishSectionEdit.mockRejectedValue(new InsightValidationError('Section "a" not found in document.'));
+
+    const res = await post({ html: '<section data-section="a"></section>', section: 'a' });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Section "a" not found in document.' });
   });
 });
 

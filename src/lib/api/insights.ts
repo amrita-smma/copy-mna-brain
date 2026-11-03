@@ -30,7 +30,10 @@ export interface CreateInsightFromDocumentParams {
 }
 
 export interface PublishInsightVersionParams {
+  /** The complete document — or, with `section`, the fragment replacing that one block. */
   html: string;
+  /** Scope the publish to one `data-section` block: the server splices `html` over it in the current version. */
+  section?: string | null;
   label?: string | null;
   baseVersionNo?: number | null;
   /** The CoPilot chat the approved card came from, for the agent stamp (MB-549). */

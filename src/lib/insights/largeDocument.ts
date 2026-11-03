@@ -211,15 +211,19 @@ const INSIGHT_OUTLINE_HINT =
   'The Workforce reads the full insight with get_insight.';
 
 /**
- * The hard instruction a chat turn gets for an insight too large to edit in
- * chat. `propose_insight_edit` carries the whole document, so one edit of a
- * document this size cannot be written inside a chat turn's budget.
+ * The instruction a chat turn gets for an insight too large to edit whole in
+ * chat. `propose_insight_edit` without a `section` carries the whole
+ * document, so one edit of a document this size cannot be written inside a
+ * chat turn's budget — but an edit confined to one data-section block
+ * travels as that block alone, whatever the document's size, so it stays in
+ * chat. Only a change wider than one block goes to the Workforce.
  */
 export function largeInsightEditHandoffInstruction(insightId: string): string[] {
   return [
     'To change this insight — a hard rule, not a suggestion:',
-    `- Do NOT call propose_insight_edit (or any other tool that writes a whole document) for it. One tool call cannot carry a document this size inside the turn's time budget; the turn would time out with nothing to show.`,
-    `- Call propose_workforce_handoff with the user's full requested change as the instruction. Put "insight_id ${insightId}" in the instruction, and copy the selected section key or element path from the user's message (or read_page_context) into it verbatim, so the Workforce changes exactly that part. The Workforce reads the whole document and applies the edit directly as a new version; the previous version stays in the insight's history and can be restored.`,
+    `- Do NOT call propose_insight_edit WITHOUT a \`section\` (or any other tool that writes a whole document) for it. One tool call cannot carry a document this size inside the turn's time budget; the turn would time out with nothing to show.`,
+    `- If the change is confined to ONE data-section block — the block the user selected (read_page_context), or the one the request plainly concerns in the outline below — edit it in chat by section: call get_insight with section: "<key>" to read just that block, then propose_insight_edit with the same section and ONLY the block's complete replacement fragment as html. The document never passes through you; the server splices the fragment in.`,
+    `- If the change spans several blocks or restructures the document, call propose_workforce_handoff with the user's full requested change as the instruction. Put "insight_id ${insightId}" in the instruction, and copy the selected section key or element path from the user's message (or read_page_context) into it verbatim, so the Workforce changes exactly that part. The Workforce reads the whole document and applies the edit directly as a new version; the previous version stays in the insight's history and can be restored.`,
     '- For a question about the insight, answer from this outline — say that you read only its outline.',
   ];
 }
@@ -233,17 +237,45 @@ interface LargeInsightInput {
 /**
  * What a chat `get_insight` read returns for an insight over
  * CHAT_INLINE_DOCUMENT_MAX_CHARS: its size, an outline of its sections and
- * the hard instruction to hand the edit to the Workforce — never its HTML.
- * The caller writes the header lines (name, id, version, kind) above it.
+ * the instruction to edit it one section at a time, or to hand a wider edit
+ * to the Workforce — never its HTML. The caller writes the header lines
+ * (name, id, version, kind) above it.
  */
 export function formatLargeInsightForChat(insight: LargeInsightInput): string {
   return [
-    tooLargeSentence('This insight', insight.html.length, 'edit'),
+    tooLargeSentence('This insight', insight.html.length, 'edit whole'),
     '',
     ...largeInsightEditHandoffInstruction(insight.id),
     '',
     '<insight_outline>',
     outlineOf(insight.html, INSIGHT_OUTLINE_HINT),
     '</insight_outline>',
+  ].join('\n');
+}
+
+interface LargeInsightSectionInput {
+  id: string;
+  section: string;
+  html: string;
+}
+
+/**
+ * What a chat `get_insight` read of one section returns when that section
+ * alone is over CHAT_INLINE_DOCUMENT_MAX_CHARS: a section edit still has to
+ * write the whole block back, so a block this size cannot be rewritten in a
+ * chat turn either. An outline of the block and the handoff instruction.
+ */
+export function formatLargeInsightSectionForChat(input: LargeInsightSectionInput): string {
+  return [
+    `Section "${input.section}" alone is ${fmt(input.html.length)} characters — over the ${fmt(CHAT_INLINE_DOCUMENT_MAX_CHARS)} characters chat can write in one turn — so even this one block is too large to rewrite in chat. Its HTML is not included here, only an outline.`,
+    '',
+    'To change it — a hard rule, not a suggestion:',
+    `- Do NOT call propose_insight_edit for it, with or without a \`section\`. One tool call cannot carry a block this size inside the turn's time budget; the turn would time out with nothing to show.`,
+    `- Call propose_workforce_handoff with the user's full requested change as the instruction. Put "insight_id ${input.id}" and "section ${input.section}" in the instruction, so the Workforce changes exactly that block. It applies the edit directly as a new version; the previous version stays in the insight's history and can be restored.`,
+    '- For a question about this block, answer from this outline — say that you read only its outline.',
+    '',
+    '<insight_section_outline>',
+    outlineOf(input.html, INSIGHT_OUTLINE_HINT),
+    '</insight_section_outline>',
   ].join('\n');
 }

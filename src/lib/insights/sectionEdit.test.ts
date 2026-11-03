@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { replaceInsightSection } from './sectionEdit';
+import { extractInsightSection, findInsightSection, listInsightSectionKeys, replaceInsightSection } from './sectionEdit';
 import { ADVERSARIAL_DOCUMENT, ADVERSARIAL_SECTION } from './__testHelpers';
 
 const replaced = (html: string, key: string, replacement: string) => {
@@ -116,5 +116,90 @@ describe('sectionEdit: replaceInsightSection', () => {
     ['sectionKey is empty', '<div>content</div>', ''],
   ])('returns an error when %s', (_, html, key) => {
     failure(html, key);
+  });
+});
+
+describe('sectionEdit: extractInsightSection', () => {
+  const DOC = `<!DOCTYPE html><html><body>
+<section data-section="summary"><h2>Summary</h2><p>Up 4%.</p></section>
+<section data-section='risks'><ul><li>FX</li></ul></section>
+<hr data-section=divider>
+</body></html>`;
+
+  it('returns the outer HTML of the keyed block, byte-for-byte', () => {
+    const result = extractInsightSection(DOC, 'summary');
+    expect(result).toEqual({
+      success: true,
+      html: '<section data-section="summary"><h2>Summary</h2><p>Up 4%.</p></section>',
+    });
+  });
+
+  it('round-trips with replaceInsightSection: extracting then splicing back changes nothing', () => {
+    const fragment = extractInsightSection(DOC, 'risks');
+    if (!fragment.success) throw new Error(fragment.error);
+    expect(replaceInsightSection(DOC, 'risks', fragment.html)).toEqual({ success: true, html: DOC });
+  });
+
+  it('extracts a self-closing keyed element', () => {
+    expect(extractInsightSection(DOC, 'divider')).toEqual({ success: true, html: '<hr data-section=divider>' });
+  });
+
+  it('fails with the same reasons as a replace: missing, duplicate, unclosed', () => {
+    const missing = extractInsightSection(DOC, 'nope');
+    expect(missing.success).toBe(false);
+    expect(missing.error).toContain('not found');
+
+    const dup = extractInsightSection(`${DOC}<div data-section="summary"></div>`, 'summary');
+    expect(dup.error).toContain('Duplicate section key');
+
+    const unclosed = extractInsightSection('<div><section data-section="open"><p>x</p></div>', 'open');
+    expect(unclosed.error).toContain('Unclosed element');
+  });
+
+  it('extracts the market-overview section of the adversarial document exactly', () => {
+    expect(extractInsightSection(ADVERSARIAL_DOCUMENT, 'market-overview')).toEqual({
+      success: true,
+      html: ADVERSARIAL_SECTION,
+    });
+  });
+});
+
+describe('sectionEdit: listInsightSectionKeys', () => {
+  it('lists every key in document order, nested and self-closing included', () => {
+    const html = `<div data-section="outer"><section data-section="inner"></section></div><hr data-section="rule"><p data-section="inner">dup</p>`;
+    expect(listInsightSectionKeys(html)).toEqual(['outer', 'inner', 'rule', 'inner']);
+  });
+
+  it('includes a key the document never closes, so the reader is still told it exists', () => {
+    expect(listInsightSectionKeys('<section data-section="a"></section><div data-section="open">')).toEqual(['a', 'open']);
+  });
+
+  it('is empty for an empty document or one with no keys', () => {
+    expect(listInsightSectionKeys('')).toEqual([]);
+    expect(listInsightSectionKeys('<p>no keys</p>')).toEqual([]);
+  });
+});
+
+describe('sectionEdit: findInsightSection', () => {
+  const DOC = '<body><p>a</p><section data-section="k"><p>b</p></section><p>c</p></body>';
+
+  it('returns the byte span of the keyed block', () => {
+    const start = DOC.indexOf('<section');
+    const end = DOC.indexOf('</section>') + '</section>'.length;
+    expect(findInsightSection(DOC, 'k')).toEqual({ success: true, span: { key: 'k', start, end } });
+  });
+
+  it('names the failure: empty document, missing key, duplicate key, unclosed element', () => {
+    expect(findInsightSection('', 'k')).toEqual({ success: false, error: 'HTML document is empty or invalid.' });
+    expect(findInsightSection(DOC, ' ')).toEqual({ success: false, error: 'Section key is required.' });
+    expect(findInsightSection(DOC, 'x')).toEqual({ success: false, error: 'Section "x" not found in document.' });
+    expect(findInsightSection(`${DOC}<div data-section="k"></div>`, 'k')).toEqual({
+      success: false,
+      error: 'Duplicate section key "k" found (2 occurrences). Section keys must be unique.',
+    });
+    expect(findInsightSection('<div><section data-section="k"><p>x</p></div>', 'k')).toEqual({
+      success: false,
+      error: 'Unclosed element for section "k".',
+    });
   });
 });

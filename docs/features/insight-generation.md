@@ -15,8 +15,11 @@ the model to call
 covers, its kind, and anything the user specified. Reports still go through
 `propose_report_plan` first; the confirmed plan becomes the handoff instruction.
 
-Editing an existing insight is unchanged: small edits are proposed in chat with
-`propose_insight_edit`; edits too large for a chat turn go to the Workforce.
+Editing an existing insight stays in chat: an edit confined to one `data-section`
+block is read and proposed as that block alone (`get_insight` / `propose_insight_edit`
+with `section`, see `insight-section-editing.md`), whatever the insight's size; only
+an edit wider than one block on an insight too large for a chat turn goes to the
+Workforce.
 
 `propose_insight_create` itself is still exported so past transcripts that carry
 its approval card keep rendering.

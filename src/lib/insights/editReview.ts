@@ -7,8 +7,13 @@
  */
 
 import { formatInsightDate } from '@/lib/insights/format';
-import type { InsightDetail, InsightHead } from '@/lib/insights/types';
+import type {
+  InsightDetail,
+  InsightEditApprovalPayload,
+  InsightHead,
+} from '@/lib/insights/types';
 import type { PublishInsightVersionParams } from '@/lib/api/insights';
+import { replaceInsightSection } from '@/lib/insights/sectionEdit';
 
 /**
  * How often an open, visible, unresolved card checks the insight's head
@@ -111,10 +116,43 @@ export interface ApproveInsightEditInput {
   insightId: string;
   /** The candidate exactly as proposed — never the highlighted preview. */
   html: string;
+  /** The section the candidate is scoped to; `html` is then its fragment. */
+  section?: string | null;
   summary: string;
   /** The version the card diffed against (the one on screen). */
   baseVersionNo: number | null;
   chatId: string | null;
+}
+
+/** What the card previews and diffs: the whole candidate document, or why there is none yet. */
+export type EditCandidate =
+  | { html: string; error: null }
+  | { html: null; error: string | null };
+
+/**
+ * The document the card shows as "after". A whole-document proposal is its
+ * own candidate. A section proposal carries only the fragment, so the
+ * candidate is the current version with the fragment spliced over the
+ * section — null while the current version is still loading, and an error
+ * when the section is no longer there to splice over (it was renamed or
+ * removed by a version that landed since the proposal).
+ */
+export function editCandidate(
+  payload: Pick<InsightEditApprovalPayload, 'html' | 'section'>,
+  currentHtml: string | null,
+): EditCandidate {
+  if (!payload.section) return { html: payload.html, error: null };
+  if (currentHtml === null) return { html: null, error: null };
+  const spliced = replaceInsightSection(currentHtml, payload.section, payload.html);
+  if (!spliced.success) return { html: null, error: spliced.error };
+  return { html: spliced.html, error: null };
+}
+
+/** "Section “risk-summary” will be replaced; the rest of the document is unchanged." */
+export function editScopeText(section: string | null | undefined): string {
+  return section
+    ? `Section “${section}” will be replaced; the rest of the document is unchanged.`
+    : 'Whole document content will be replaced.';
 }
 
 /**
@@ -128,6 +166,7 @@ export function createInsightEditActions(deps: InsightEditActionDeps) {
     approve(input: ApproveInsightEditInput): Promise<InsightDetail> {
       return deps.publishInsightVersion(input.insightId, {
         html: input.html,
+        ...(input.section ? { section: input.section } : {}),
         label: input.summary,
         baseVersionNo: input.baseVersionNo,
         chat_id: input.chatId,

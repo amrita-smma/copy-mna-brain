@@ -4,10 +4,14 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { logger } from '../../logger';
 import { createDb } from '@/lib/server/db';
 import { getActiveWorkspaceId } from '@/lib/workspace';
-import { resolveInsightId } from '@/lib/insights/toolValidation';
+import { resolveInsightId, validateSectionKey } from '@/lib/insights/toolValidation';
 import { readInsightRunContext } from '@/lib/insights/refreshRun';
 import { isTooLargeForChat } from '@/lib/insights/templateAttachment';
-import { formatLargeInsightForChat } from '@/lib/insights/largeDocument';
+import {
+  formatLargeInsightForChat,
+  formatLargeInsightSectionForChat,
+} from '@/lib/insights/largeDocument';
+import { extractInsightSection, listInsightSectionKeys } from '@/lib/insights/sectionEdit';
 
 export const MAX_INSIGHT_READ_CHARS = 60000;
 
@@ -16,9 +20,13 @@ function isWorkforceRun(runtime: RunnableConfig | undefined, runId: string | nul
   return runtime?.configurable?.agentRole === 'workforce' || runId !== null;
 }
 
+function fmt(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
 export const getInsight = tool(
-  async ({ insight_id }: { insight_id?: string }, runtime?: RunnableConfig) => {
-    logger.debug('🔧 TOOL CALLED: get_insight()');
+  async ({ insight_id, section }: { insight_id?: string; section?: string }, runtime?: RunnableConfig) => {
+    logger.debug(`🔧 TOOL CALLED: get_insight(${section ? `section='${section}'` : ''})`);
 
     const ctx = readInsightRunContext(runtime?.configurable);
     const rawId = insight_id?.trim() || undefined;
@@ -33,6 +41,12 @@ export const getInsight = tool(
       return resolution.error;
     }
     const resolvedId = resolution.id;
+
+    const wantsSection = section !== undefined && section !== null && section.trim() !== '';
+    const sectionKey = wantsSection ? validateSectionKey(section) : null;
+    if (sectionKey && 'error' in sectionKey) {
+      return sectionKey.error;
+    }
 
     const workspaceId = await getActiveWorkspaceId();
     const db = createDb();
@@ -57,19 +71,64 @@ export const getInsight = tool(
         }
       }
 
-      // Chat edits with propose_insight_edit, which carries the whole document:
-      // one call that size cannot finish inside a chat turn's budget, so chat
-      // gets an outline and the instruction to hand the edit to the Workforce.
-      if (!isWorkforceRun(runtime, ctx.runId) && isTooLargeForChat(rawHtml)) {
-        const header = [
-          `Insight: ${detail.name} (id ${detail.id}, version ${detail.version_no})`,
-          detail.kind ? `Kind: ${detail.kind}` : '',
-          `Length: ${rawHtml.length.toLocaleString('en-US')} characters`,
-          detail.description ? `Description: ${detail.description}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n');
-        return `${header}\n\n${formatLargeInsightForChat({ id: detail.id, name: detail.name, html: rawHtml })}`;
+      const inChat = !isWorkforceRun(runtime, ctx.runId);
+      const header = isDraft
+        ? `Insight: ${detail.name} (id ${detail.id}, unpublished draft for this refresh run, based on version ${baseVersionNo})`
+        : `Insight: ${detail.name} (id ${detail.id}, version ${detail.version_no})`;
+      const headerLines = [
+        header,
+        detail.kind ? `Kind: ${detail.kind}` : '',
+        `Length: ${fmt(rawHtml.length)} characters`,
+        detail.description ? `Description: ${detail.description}` : '',
+      ].filter(Boolean);
+
+      // ── One section: only that block's bytes reach the model, whatever the
+      // size of the document around it. The edit goes back the same way,
+      // through propose_insight_edit with the same `section`.
+      if (sectionKey && 'key' in sectionKey) {
+        const extracted = extractInsightSection(rawHtml, sectionKey.key);
+        if (!extracted.success) {
+          const keys = listInsightSectionKeys(rawHtml);
+          const known =
+            keys.length > 0
+              ? `The document's data-section keys are: ${keys.map((k) => `"${k}"`).join(', ')}. Call get_insight again with one of them.`
+              : inChat && isTooLargeForChat(rawHtml)
+                ? 'The document has no data-section keys, so it cannot be read or edited by section — and it is too large to edit whole in chat. Hand the edit to the Workforce with propose_workforce_handoff (it can add data-section keys as it goes).'
+                : 'The document has no data-section keys, so it cannot be read or edited by section: read it whole (omit `section`).';
+          return [...headerLines, '', `Section "${sectionKey.key}": ${extracted.error}`, known].join('\n');
+        }
+
+        if (inChat && isTooLargeForChat(extracted.html)) {
+          return [
+            ...headerLines,
+            '',
+            formatLargeInsightSectionForChat({
+              id: detail.id,
+              section: sectionKey.key,
+              html: extracted.html,
+            }),
+          ].join('\n');
+        }
+
+        return [
+          ...headerLines,
+          `Section: ${sectionKey.key} (${fmt(extracted.html.length)} characters of the ${fmt(rawHtml.length)}-character document)`,
+          '',
+          inChat
+            ? `To change this block, call propose_insight_edit with section: "${sectionKey.key}" and ONLY the block's complete replacement fragment as html — keep data-section="${sectionKey.key}" on its root element. The rest of the document stays exactly as it is. Do not read or resend the whole document for this.`
+            : `To change this block, call edit_insight_section with section "${sectionKey.key}" and the block's complete replacement fragment, keeping data-section="${sectionKey.key}" on its root element.`,
+          '',
+          `Current section:\n`,
+          extracted.html,
+        ].join('\n');
+      }
+
+      // Chat edits a whole document with propose_insight_edit, which carries
+      // it in full: one call that size cannot finish inside a chat turn's
+      // budget, so chat gets an outline, the invitation to edit one section
+      // at a time, and the Workforce for anything wider.
+      if (inChat && isTooLargeForChat(rawHtml)) {
+        return `${headerLines.join('\n')}\n\n${formatLargeInsightForChat({ id: detail.id, name: detail.name, html: rawHtml })}`;
       }
 
       const truncated = rawHtml.length > MAX_INSIGHT_READ_CHARS;
@@ -77,15 +136,8 @@ export const getInsight = tool(
         ? rawHtml.slice(0, MAX_INSIGHT_READ_CHARS)
         : rawHtml;
 
-      const header = isDraft
-        ? `Insight: ${detail.name} (id ${detail.id}, unpublished draft for this refresh run, based on version ${baseVersionNo})`
-        : `Insight: ${detail.name} (id ${detail.id}, version ${detail.version_no})`;
-
       return [
-        header,
-        detail.kind ? `Kind: ${detail.kind}` : '',
-        `Length: ${rawHtml.length.toLocaleString('en-US')} characters`,
-        detail.description ? `Description: ${detail.description}` : '',
+        ...headerLines,
         truncated
           ? `\nWARNING: this document is ${rawHtml.length} characters and has been TRUNCATED to the first ${MAX_INSIGHT_READ_CHARS}. Do NOT submit an edit built from this fragment — it would silently drop the rest. Tell the user the document is too large to edit wholesale.`
           : '',
@@ -100,15 +152,23 @@ export const getInsight = tool(
   },
   {
     name: 'get_insight',
-    description: `Read an insight's current HTML document (or the unpublished draft in a scheduled refresh run).
+    description: `Read an insight's current HTML document (or the unpublished draft in a scheduled refresh run), or just ONE of its data-section blocks.
 
-Read before editing — propose_insight_edit in chat, edit_insight_section or replace_insight_document in the workforce. Reading first lets you see the current document in order to change parts of it without dropping the rest. In chat, an insight too large to rewrite in one turn comes back as an outline with an instruction to hand the edit to the Workforce — follow it. Defaults to the insight open in page context, or the target insight in a scheduled refresh run.`,
+Read before editing — propose_insight_edit in chat, edit_insight_section or replace_insight_document in the workforce. Reading first lets you see the current document in order to change parts of it without dropping the rest.
+
+Pass \`section\` (a data-section key, from the selection in page context or the insight outline) to read only that block: that is the cheap path for an edit confined to one block, and the only chat path for an insight too large to read whole. Without \`section\`, an insight too large to rewrite in one chat turn comes back as an outline of its section keys with instructions — follow them. Defaults to the insight open in page context, or the target insight in a scheduled refresh run.`,
     schema: z.object({
       insight_id: z
         .string()
         .optional()
         .describe(
           'Insight UUID. Omit to read the insight currently open, or the target insight in a scheduled refresh run.',
+        ),
+      section: z
+        .string()
+        .optional()
+        .describe(
+          'A data-section key (e.g. "market-overview"). Returns only that block\'s HTML instead of the whole document.',
         ),
     }),
   },

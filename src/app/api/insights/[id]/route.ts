@@ -167,6 +167,15 @@ export async function POST(
         { status: 400 },
       );
     }
+    // With `section`, `html` is that one block's replacement fragment and the
+    // service splices it into the current version; without, the whole document.
+    const section = body.section;
+    if (section !== undefined && section !== null && typeof section !== 'string') {
+      return NextResponse.json(
+        { error: 'section must be a string' },
+        { status: 400 },
+      );
+    }
 
     const session = await auth();
     const userId = session?.user?.id ?? null;
@@ -181,16 +190,19 @@ export async function POST(
         ? await copilotChatsService.agentStampFor(body.chat_id, userId)
         : null;
 
-    const data = await insightService.publishVersion({
+    const common = {
       workspaceId,
       insightId: id,
-      html,
       label: body.label ?? null,
       userId,
       baseVersionNo:
         typeof baseVersionNo === 'number' ? baseVersionNo : null,
       agentStamp,
-    });
+    };
+    const data =
+      typeof section === 'string' && section.trim() !== ''
+        ? await insightService.publishSectionEdit({ ...common, section, fragment: html })
+        : await insightService.publishVersion({ ...common, html });
 
     return NextResponse.json({ data });
   } catch (error: unknown) {

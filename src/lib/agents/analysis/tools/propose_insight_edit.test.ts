@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { INSIGHT_LAYOUT_WARNING_LEAD } from '@/lib/insights/layoutCheck';
+
+const { mockGet, mockGetActiveWorkspaceId } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+  mockGetActiveWorkspaceId: vi.fn(),
+}));
+
+vi.mock('@/lib/server/db', () => ({ createDb: vi.fn(() => ({})) }));
+vi.mock('@/lib/workspace', () => ({ getActiveWorkspaceId: mockGetActiveWorkspaceId }));
+vi.mock('@/lib/services/container', () => ({
+  createContainer: vi.fn(() => ({ insightService: { get: mockGet } })),
+}));
+
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type { InsightEditApprovalMarker } from '@/lib/insights/types';
 import {
@@ -7,7 +19,7 @@ import {
   INSIGHT_EDIT_APPROVAL_MARKER,
 } from './propose_insight_edit';
 import { extractApprovalPayload } from '@/lib/insights/approvalMarker';
-import { makeTruncatedCandidate, makeValidReport } from '@/lib/insights/testFixtures';
+import { makeTruncatedCandidate, makeTruncatedFragment, makeValidReport } from '@/lib/insights/testFixtures';
 import { RENDER_CHECK_REFUSAL_LEAD } from '@/lib/insights/structuralCheck';
 import { INSIGHT_EDIT_AUTHORING_RULES } from '../guides';
 
@@ -55,7 +67,7 @@ describe('proposeInsightEdit description', () => {
       'Allowed scripts & styles',
       'chart.umd.min.js',
       'Key every major block',
-      'Write the document INTO the tool call',
+      'Write the document — or the section — INTO the tool call',
       'When sections are selected',
       '### Sources',
       '### Data you could not obtain',
@@ -64,9 +76,27 @@ describe('proposeInsightEdit description', () => {
     }
     expect((proposeInsightEdit as { extras?: { defer_loading?: boolean } }).extras?.defer_loading).toBe(true);
   });
+
+  it('tells the model to prefer a section edit and describes the fragment contract', () => {
+    const d = proposeInsightEdit.description;
+    expect(d).toContain('PREFER A SECTION EDIT');
+    expect(d).toContain('get_insight(section: "<key>")');
+    expect(d).toContain("the key on the fragment's root element; a fragment that drops it is refused");
+  });
 });
 
 describe('proposeInsightEdit', () => {
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockGetActiveWorkspaceId.mockReset().mockResolvedValue('ws-1');
+  });
+
+  it('never reads the database for a whole-document proposal', async () => {
+    await invoke({ insight_id: VALID_UUID, summary: 'Whole', html: UPDATED_HTML });
+
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
   it('returns an approval payload carrying insight_id and summary without html', async () => {
     const payload = payloadOf(
       await invoke({ insight_id: VALID_UUID, summary: 'Updated deal count to 45', html: UPDATED_HTML }),
@@ -173,5 +203,130 @@ describe('proposeInsightEdit', () => {
   it('adds no layout warning for a page that grows with its content', async () => {
     const result = await invoke({ insight_id: VALID_UUID, summary: 'Updated deal count to 45', html: UPDATED_HTML });
     expect(result).not.toContain(INSIGHT_LAYOUT_WARNING_LEAD);
+  });
+});
+
+describe('proposeInsightEdit with a section', () => {
+  const CURRENT =
+    '<!DOCTYPE html><html><body><h1>Brief</h1>' +
+    '<section data-section="summary"><h2>Summary</h2><p>Up 4%.</p></section>' +
+    '<section data-section="risks"><ul><li>FX</li></ul></section>' +
+    '</body></html>';
+  const FRAGMENT = '<section data-section="risks"><ul><li>FX</li><li>Rates</li></ul></section>';
+
+  beforeEach(() => {
+    mockGet.mockReset().mockResolvedValue({ id: VALID_UUID, html: CURRENT, kind: 'document', version_no: 3 });
+    mockGetActiveWorkspaceId.mockReset().mockResolvedValue('ws-1');
+  });
+
+  it('offers a card whose payload carries the section key and no html, after reading the current document', async () => {
+    const result = await invoke({ insight_id: VALID_UUID, section: 'risks', summary: 'Add rates risk', html: FRAGMENT });
+
+    expect(mockGet).toHaveBeenCalledWith('ws-1', VALID_UUID);
+    const payload = payloadOf(result);
+    expect(payload).toMatchObject({ insight_id: VALID_UUID, summary: 'Add rates risk', section: 'risks' });
+    expect((payload as unknown as { html?: string }).html).toBeUndefined();
+    expect(result).toContain('Insight section edit proposal');
+    expect(result).toContain('Section: `risks`');
+    expect(result).toContain('the rest of the document is unchanged');
+  });
+
+  it('resolves the insight from page context, like a whole-document edit', async () => {
+    const result = await invoke(
+      { section: 'risks', summary: 'Add rates risk', html: FRAGMENT },
+      { configurable: { pageContext: { path: `/insight/${VALID_UUID}`, tabSlug: 'insight', insightId: VALID_UUID } } },
+    );
+
+    expect(payloadOf(result).section).toBe('risks');
+  });
+
+  it('rejects a key that is not in the document and lists the keys that are, without a card', async () => {
+    const out = await invoke({ insight_id: VALID_UUID, section: 'outlook', summary: 'x', html: '<section data-section="outlook"><p>a</p></section>' });
+
+    expect(out).toContain('Section "outlook" not found in document');
+    expect(out).toContain('"summary", "risks"');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('rejects a fragment that drops its data-section key, so the block stays addressable', async () => {
+    const out = await invoke({ insight_id: VALID_UUID, section: 'risks', summary: 'x', html: '<section><ul><li>FX</li></ul></section>' });
+
+    expect(out).toContain('must keep data-section="risks"');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('refuses a truncated fragment with the section wording: resend the fragment, never the document', async () => {
+    const out = await invoke({ insight_id: VALID_UUID, section: 'risks', summary: 'x', html: makeTruncatedFragment() });
+
+    expect(out.startsWith(RENDER_CHECK_REFUSAL_LEAD)).toBe(true);
+    expect(out).toContain('(in the section fragment)');
+    expect(out).toContain('never the whole document');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('checks the spliced document against the report contract when the insight is a report', async () => {
+    mockGet.mockResolvedValue({ id: VALID_UUID, html: makeValidReport().trim(), kind: 'report', version_no: 1 });
+
+    const out = await invoke({
+      insight_id: VALID_UUID,
+      section: 'summary',
+      summary: 'Rewrite summary',
+      html: '<section data-section="summary"><p>Too short a summary.</p></section>',
+    });
+
+    expect(out).toMatch(/^Rejection: /);
+    expect(out).toContain('spliced into the current document for this check');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('refuses a fragment whose [S1] matches no Sources entry anywhere in the spliced document (MB-551)', async () => {
+    const out = await invoke({
+      insight_id: VALID_UUID,
+      section: 'risks',
+      summary: 'Cite',
+      html: '<section data-section="risks"><p>FX<sup data-source-ref="S1">[S1]</sup></p></section>',
+    });
+
+    expect(out).toContain('S1');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it("refuses the general CoPilot's section with an estimate in an unavailable cell (MB-556)", async () => {
+    const out = await invoke(
+      {
+        insight_id: VALID_UUID,
+        section: 'risks',
+        summary: 'Add quota',
+        html: '<section data-section="risks"><table><tr><td data-evidence="unavailable" data-reason="Quota letters not public">~12 Mt</td></tr></table></section>',
+      },
+      { configurable: { agent_key: 'general' } },
+    );
+
+    expect(out).toContain('with no digits — never put an estimate in it');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('rejects a malformed section key before reading anything', async () => {
+    const out = await invoke({ insight_id: VALID_UUID, section: 'not a key', summary: 'x', html: FRAGMENT });
+
+    expect(out).toContain('is not a data-section key');
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('reports an insight it cannot read instead of throwing', async () => {
+    mockGet.mockRejectedValue(new Error('not found'));
+
+    const out = await invoke({ insight_id: VALID_UUID, section: 'risks', summary: 'x', html: FRAGMENT });
+
+    expect(out).toContain('could not be read in this workspace');
+    expect(out).not.toContain(INSIGHT_EDIT_APPROVAL_MARKER);
+  });
+
+  it('treats a blank section as a whole-document edit', async () => {
+    const result = await invoke({ insight_id: VALID_UUID, section: '  ', summary: 'Whole', html: UPDATED_HTML });
+
+    expect(payloadOf(result).section).toBeUndefined();
+    expect(mockGet).not.toHaveBeenCalled();
   });
 });

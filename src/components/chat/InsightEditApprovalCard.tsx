@@ -22,6 +22,8 @@ import {
   BASE_POLL_INTERVAL_MS,
   baseMovedMessage,
   createInsightEditActions,
+  editCandidate,
+  editScopeText,
   hasBaseMoved,
   nextBaseMove,
   type BaseMove,
@@ -165,14 +167,23 @@ export function InsightEditApprovalCard({
   }, [watching, pollMs, checkBase]);
 
   const currentHtml = insightDetail?.html ?? '';
-  const diff = useMemo(
-    () => (currentHtml ? diffInsightVersions(currentHtml, payload.html) : null),
-    [currentHtml, payload.html],
+  // A section proposal carries only its fragment: the document shown as
+  // "after" is the current version with the fragment spliced in. Null while
+  // the current version loads; an error when the section is gone from it.
+  const candidate = useMemo(
+    () => editCandidate(payload, insightDetail ? insightDetail.html : null),
+    [payload, insightDetail],
   );
-  // The highlight is for the preview only; approve publishes payload.html.
+  const candidateHtml = candidate.html;
+  const diff = useMemo(
+    () => (currentHtml && candidateHtml ? diffInsightVersions(currentHtml, candidateHtml) : null),
+    [currentHtml, candidateHtml],
+  );
+  // The highlight is for the preview only; approve publishes payload.html
+  // (the whole document, or the fragment for the server to splice).
   const previewHtml = useMemo(
-    () => (diff ? highlightPreviewHtml(payload.html, diff) : payload.html),
-    [diff, payload.html],
+    () => (candidateHtml && diff ? highlightPreviewHtml(candidateHtml, diff) : candidateHtml),
+    [diff, candidateHtml],
   );
   const activeTab: InsightEditTab =
     chosenTab ?? (diff?.summary.hasChanges ? 'changes' : 'after');
@@ -188,6 +199,7 @@ export function InsightEditApprovalCard({
       const updated = await actions.approve({
         insightId: payload.insight_id,
         html: payload.html,
+        section: payload.section ?? null,
         summary: payload.summary,
         baseVersionNo: insightDetail?.version_no ?? null,
         chatId,
@@ -275,7 +287,7 @@ export function InsightEditApprovalCard({
       approveTestId="insight-edit-approve-button"
       approveLabel="Approve & Publish"
       submittingLabel="Publishing…"
-      approveDisabled={isStale || isSubmitting}
+      approveDisabled={isStale || isSubmitting || !!candidate.error}
       onReject={handleReject}
       onApprove={handleApprove}
     >
@@ -298,19 +310,36 @@ export function InsightEditApprovalCard({
         </h3>
 
         {isResolved ? (
-          <div className={`${frameBox} mb-4`}>
-            <InsightFrame
-              html={payload.html}
-              title="Proposed changes"
-              minHeight={250}
-              maxHeight={500}
-            />
+          <div className="mb-4 space-y-2">
+            {payload.section && (
+              <p className="text-xs text-muted-foreground">
+                Section “{payload.section}” as proposed. The published version is the full insight with
+                this section replaced.
+              </p>
+            )}
+            <div className={frameBox}>
+              <InsightFrame
+                html={payload.html}
+                title={payload.section ? `Proposed section: ${payload.section}` : 'Proposed changes'}
+                minHeight={250}
+                maxHeight={500}
+              />
+            </div>
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-card p-3 mb-4 space-y-3">
             <p className="text-xs font-medium text-foreground">
-              Whole document content will be replaced.
+              {editScopeText(payload.section)}
             </p>
+            {candidate.error && (
+              <p
+                className="text-xs text-destructive"
+                data-testid="insight-edit-section-missing"
+              >
+                This section is no longer in the current version ({candidate.error}) so the edit
+                cannot be applied. Ask the CoPilot to propose it again.
+              </p>
+            )}
 
             <div className="pt-2 border-t border-border">
               <InsightEditReview
@@ -321,14 +350,22 @@ export function InsightEditApprovalCard({
                 baseMovedNotice={baseMove ? baseMovedMessage(baseMove) : null}
                 caption={caption}
                 afterPane={
-                  <div className={frameBox}>
-                    <InsightFrame
-                      html={previewHtml}
-                      title="Proposed changes"
-                      minHeight={250}
-                      maxHeight={500}
-                    />
-                  </div>
+                  previewHtml ? (
+                    <div className={frameBox}>
+                      <InsightFrame
+                        html={previewHtml}
+                        title="Proposed changes"
+                        minHeight={250}
+                        maxHeight={500}
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center text-xs text-muted-foreground bg-card border border-border rounded-lg">
+                      {candidate.error
+                        ? 'The proposed section cannot be shown against the current version.'
+                        : 'Loading current version…'}
+                    </div>
+                  )
                 }
                 beforePane={
                   insightDetail?.html ? (

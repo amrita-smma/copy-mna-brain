@@ -703,6 +703,131 @@ describe('InsightService', () => {
     });
   });
 
+  describe('InsightService.publishSectionEdit', () => {
+    const DOC = section('summary', '<p>Summary v1</p>') + section('details', '<p>Details v1</p>');
+    const publishSection = (insightId: string, sectionKey: string, fragment: string, extra: Partial<Parameters<InsightService['publishSectionEdit']>[0]> = {}) =>
+      service.publishSectionEdit({ workspaceId: WS, insightId, section: sectionKey, fragment, ...extra });
+
+    it('appends a version that is the current one with the fragment spliced over its section', async () => {
+      const created = await create({ html: DOC });
+
+      const updated = await publishSection(created.id, 'details', section('details', '<p>Details v2</p>'), {
+        label: 'Update details',
+        baseVersionNo: 1,
+      });
+
+      expect(updated).toMatchObject({
+        version_no: 2,
+        latest_version_no: 2,
+        html: section('summary', '<p>Summary v1</p>') + section('details', '<p>Details v2</p>'),
+      });
+      expect(updated.versions[0]).toMatchObject({ trigger: 'copilot_edit', label: 'Update details' });
+    });
+
+    it('announces the insight on the insights topic once the version is committed', async () => {
+      liveMocks.publishLiveEvent.mockReset().mockResolvedValue(undefined);
+      const created = await create({ html: DOC });
+      const insert = vi.spyOn(versionRepo, 'create');
+
+      await publishSection(created.id, 'details', section('details', '<p>v2</p>'));
+
+      expect(liveMocks.publishLiveEvent).toHaveBeenCalledWith(WS, 'insights', [created.id]);
+      expect(liveMocks.publishLiveEvent.mock.invocationCallOrder[0]).toBeGreaterThan(insert.mock.invocationCallOrder[0]);
+    });
+
+    it('locks the insight before reading the version it splices into', async () => {
+      const created = await create({ html: DOC });
+      const lock = vi.spyOn(insightRepo, 'lockById');
+      const read = vi.spyOn(versionRepo, 'findByVersionNo');
+
+      await publishSection(created.id, 'details', section('details', '<p>v2</p>'));
+
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(read.mock.invocationCallOrder[0]);
+    });
+
+    it('throws StaleInsightVersionError when the head moved past the version the user reviewed, writing nothing', async () => {
+      const created = await create({ html: DOC });
+      await publish(created.id, DOC.replace('Summary v1', 'Summary v2'), { baseVersionNo: 1 });
+
+      await expect(
+        publishSection(created.id, 'details', section('details', '<p>v3</p>'), { baseVersionNo: 1 }),
+      ).rejects.toThrow(StaleInsightVersionError);
+      expect((await versionRepo.findCurrent(created.id, WS))?.version_no).toBe(2);
+    });
+
+    it('splices into whatever is current when no base is given', async () => {
+      const created = await create({ html: DOC });
+      await publish(created.id, DOC.replace('Summary v1', 'Summary v2'), { baseVersionNo: 1 });
+
+      const updated = await publishSection(created.id, 'details', section('details', '<p>Details v3</p>'));
+
+      expect(updated.html).toBe(section('summary', '<p>Summary v2</p>') + section('details', '<p>Details v3</p>'));
+      expect(updated.version_no).toBe(3);
+    });
+
+    it('rejects a section the current version does not have', async () => {
+      const created = await create({ html: DOC });
+
+      await expect(publishSection(created.id, 'outlook', section('outlook', '<p>x</p>'))).rejects.toThrow(
+        /Section "outlook" not found/,
+      );
+      expect(versionRepo.versions.filter((v) => v.insight_id === created.id)).toHaveLength(1);
+    });
+
+    it('rejects a fragment that drops the section key', async () => {
+      const created = await create({ html: DOC });
+
+      await expect(publishSection(created.id, 'details', '<section><p>no key</p></section>')).rejects.toThrow(
+        /must keep data-section="details"/,
+      );
+    });
+
+    it('rejects an empty section key or fragment before touching the database', async () => {
+      const created = await create({ html: DOC });
+      const lock = vi.spyOn(insightRepo, 'lockById');
+
+      await expect(publishSection(created.id, '  ', '<p>x</p>')).rejects.toThrow(InsightValidationError);
+      await expect(publishSection(created.id, 'details', '  ')).rejects.toThrow(InsightValidationError);
+      expect(lock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a spliced document that fails the structural check', async () => {
+      const created = await create({ html: DOC });
+
+      await expect(
+        publishSection(created.id, 'details', '<section data-section="details"><script>draw(['),
+      ).rejects.toThrow(InsightValidationError);
+    });
+
+    it('checks the markers of the spliced document as a whole (MB-551)', async () => {
+      const created = await create({ html: DOC });
+
+      await expect(
+        publishSection(created.id, 'details', section('details', '<p>1<sup data-source-ref="S1">[S1]</sup></p>')),
+      ).rejects.toThrow(InsightEvidenceMarkerError);
+    });
+
+    it('carries trigger workforce, the run id and the agent stamp into the version', async () => {
+      const created = await create({ html: DOC });
+
+      await publishSection(created.id, 'details', section('details', '<p>v2</p>'), {
+        trigger: 'workforce',
+        sourceRunId: 'run-wf-2',
+      });
+
+      expect(versionRepo.versions[1]).toMatchObject({ trigger: 'workforce', source_run_id: 'run-wf-2' });
+    });
+
+    it('throws InsightNotFoundError for an archived insight', async () => {
+      const created = await create({ html: DOC });
+      await service.archive(WS, created.id);
+
+      await expect(publishSection(created.id, 'details', section('details', '<p>v2</p>'))).rejects.toThrow(
+        InsightNotFoundError,
+      );
+    });
+  });
+
   describe('InsightService.rollback', () => {
     it('appends a new version with target HTML and trigger rollback', async () => {
       const created = await create({ html: '<p>Original v1</p>' });

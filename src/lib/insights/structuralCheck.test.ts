@@ -55,6 +55,7 @@ describe('insightStructureRefusal', () => {
     const html = '<!DOCTYPE html><html><body><h1>Output</h1><p>62.1 Mt</p></body></html>';
     for (const audience of [
       'edit-proposal',
+      'edit-section-proposal',
       'create-proposal',
       'workforce-document',
       'workforce-create',
@@ -69,6 +70,14 @@ describe('insightStructureRefusal', () => {
     expect(out).toMatch(new RegExp(`^${RENDER_CHECK_REFUSAL_LEAD}: Document contains an unclosed <html> tag`));
     expect(out).toContain('Nothing was offered to the user');
     expect(out).toContain("the insight's current version stays the current version");
+  });
+
+  it('tells a section proposal to resend the fragment and never the whole document', () => {
+    const out = insightStructureRefusal(makeTruncatedFragment(), 'edit-section-proposal');
+    expect(out).toMatch(/^Rejection: this candidate failed the render check \(in the section fragment\): Document contains an unclosed <script> tag/);
+    expect(out).toContain('Nothing was offered to the user');
+    expect(out).toContain('same `section`');
+    expect(out).toContain('never the whole document');
   });
 
   it('tells a proposal for a new insight that nothing was created', () => {
