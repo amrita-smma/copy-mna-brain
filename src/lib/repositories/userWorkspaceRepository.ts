@@ -1,5 +1,13 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
-import { roles, userWorkspaces, workspaces, users, userConsents } from '@/lib/db/schema';
+import {
+  roles,
+  userWorkspaces,
+  workspaces,
+  users,
+  userConsents,
+  gmailConnections,
+  meetingIntelligenceConnections,
+} from '@/lib/db/schema';
 import type { DbClient, Tables, TablesInsert } from './types';
 
 export interface MembershipDetail {
@@ -20,6 +28,14 @@ export interface WorkspaceMemberDetail {
   isEmailSynced: boolean;
   /** Whether this member has accepted the Sync/Terms consent screen. */
   hasConsented: boolean;
+  /** Which per-user integrations this member has connected (a connection row exists). */
+  connectedApps: MemberConnectedApps;
+}
+
+/** One flag per per-user integration — add a key here when a new connector ships. */
+export interface MemberConnectedApps {
+  meetingIntelligence: boolean;
+  gmail: boolean;
 }
 
 export class UserWorkspaceRepository {
@@ -67,6 +83,9 @@ export class UserWorkspaceRepository {
    * `userConsents` is left-joined (not inner) — a member who hasn't accepted
    * the Sync consent screen still has to appear in this list, just with
    * `hasConsented: false`, so the admin portal can surface who's pending.
+   * The per-user connection tables are left-joined the same way (each is
+   * unique on `user_id`, so a join never fans a member out into two rows) so
+   * the admin portal can show who has connected which app.
    */
   async findMembersForWorkspace(workspaceId: string): Promise<WorkspaceMemberDetail[]> {
     const rows = await this.db
@@ -78,14 +97,25 @@ export class UserWorkspaceRepository {
         roleName: roles.name,
         isEmailSynced: userWorkspaces.is_email_synced,
         consentedAt: userConsents.consented_at,
+        meetingIntelligenceConnectionId: meetingIntelligenceConnections.id,
+        gmailConnectionId: gmailConnections.id,
       })
       .from(userWorkspaces)
       .innerJoin(users, eq(userWorkspaces.user_id, users.id))
       .innerJoin(roles, eq(userWorkspaces.role_id, roles.id))
       .leftJoin(userConsents, eq(userConsents.user_id, users.id))
+      .leftJoin(meetingIntelligenceConnections, eq(meetingIntelligenceConnections.user_id, users.id))
+      .leftJoin(gmailConnections, eq(gmailConnections.user_id, users.id))
       .where(eq(userWorkspaces.workspace_id, workspaceId))
       .orderBy(users.name);
-    return rows.map(({ consentedAt, ...rest }) => ({ ...rest, hasConsented: consentedAt !== null }));
+    return rows.map(({ consentedAt, meetingIntelligenceConnectionId, gmailConnectionId, ...rest }) => ({
+      ...rest,
+      hasConsented: consentedAt !== null,
+      connectedApps: {
+        meetingIntelligence: meetingIntelligenceConnectionId !== null,
+        gmail: gmailConnectionId !== null,
+      },
+    }));
   }
 
   /** Whether this user has email sync enabled on at least one workspace membership. */

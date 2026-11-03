@@ -53,3 +53,19 @@ user's per-user rows (memberships, chats, consents, recent files, reset
 tokens, assignments) and nulls their authorship columns elsewhere.
 `UserRepository.hardDeleteDeactivated` only deletes rows with `deactivated_at`
 set, so an active account can't be removed even if the service check is skipped.
+
+## Workspace members: connected apps
+
+The selected workspace's **Users** tab shows, next to each member's name, one
+column per per-user integration (MoM Intelligent, Gmail): the app's logo on a
+green tile with a check, or a grey tile with a cross, for whether they have connected it, and a total per
+integration above the list ("Gmail 3/8 connected"). Role is shown as its
+initial (A / E / V) and email sync as an icon (green synced, amber consent
+pending, crossed-out not synced); changing either, and removing the member,
+happens in the row's ⋮ menu. "Connected" means a connection row exists
+(`gmail_connections` / `meeting_intelligence_connections`, both per user, not
+per workspace) — `UserWorkspaceRepository.findMembersForWorkspace` left-joins
+them into `connectedApps`. It does not reflect the workspace's feature flag,
+and a Gmail connection without the drafts scope still counts as connected. To
+add a connector, add a key to `MemberConnectedApps`, a left join in that
+query, and an entry in `MEMBER_CONNECTORS` in `src/app/admin-portal/page.tsx`.

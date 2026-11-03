@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -49,11 +49,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { UserManagementSection } from './UserManagementSection';
+import { GmailIcon, MeetingIntelligenceIcon } from '@/components/integrations/AppIcons';
 import {
   Loader2,
   ArrowLeft,
   Plus,
-  Minus,
   Settings,
   Check,
   ChevronsUpDown,
@@ -64,6 +64,11 @@ import {
   ChevronDown,
   ChevronRight,
   Archive,
+  MoreVertical,
+  UserMinus,
+  CheckCircle2,
+  XCircle,
+  MailX,
 } from 'lucide-react';
 import { COPILOT_AGENT_KEYS, COPILOT_AGENT_LABELS } from '@/lib/agents/analysis/flavors/keys';
 import {
@@ -135,7 +140,16 @@ const ACTIVE_TAB_CLASS =
 
 /** Shared column layout for the member header and rows — kept narrow so the
  *  remove button never gets pushed past the panel's right edge. */
-const MEMBER_ROW_GRID = 'sm:grid-cols-[minmax(0,1fr)_104px_128px_84px_36px]';
+const MEMBER_ROW_GRID = 'sm:grid-cols-[minmax(0,1fr)_auto_32px_32px_36px]';
+
+/** Per-user integrations shown on each member row, in display order. Add an
+ *  entry (and its key on `MemberConnectedApps`) when a new connector ships. */
+const MEMBER_CONNECTORS = [
+  { key: 'meetingIntelligence', name: 'MoM Intelligent', Icon: MeetingIntelligenceIcon },
+  { key: 'gmail', name: 'Gmail', Icon: GmailIcon },
+] as const;
+
+type MemberConnectorKey = (typeof MEMBER_CONNECTORS)[number]['key'];
 
 interface Role {
   id: string;
@@ -150,6 +164,7 @@ interface Member {
   roleName: string;
   isEmailSynced: boolean;
   hasConsented: boolean;
+  connectedApps: Record<MemberConnectorKey, boolean>;
 }
 
 /** One app feature and its effective on/off state, from `GET /api/workspaces/{id}/features`. */
@@ -209,6 +224,9 @@ export default function AdminPortalPage() {
   const [addMemberUserId, setAddMemberUserId] = useState<string | null>(null);
   const [addMemberRoleName, setAddMemberRoleName] = useState<string | undefined>(undefined);
   const [addMemberPending, setAddMemberPending] = useState(false);
+  /** Row whose ⋮ menu is open, and the member awaiting remove confirmation. */
+  const [memberMenuUserId, setMemberMenuUserId] = useState<string | null>(null);
+  const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -369,6 +387,8 @@ export default function AdminPortalPage() {
   useEffect(() => {
     if (!selectedId) return;
     setAddMemberOpen(false);
+    setMemberMenuUserId(null);
+    setMemberToRemove(null);
     loadMembers(selectedId);
     loadFeatures(selectedId);
   }, [selectedId, loadMembers, loadFeatures]);
@@ -627,6 +647,14 @@ export default function AdminPortalPage() {
   };
 
   const assignedUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
+  const connectorTotals = useMemo(
+    () =>
+      MEMBER_CONNECTORS.map((connector) => ({
+        ...connector,
+        connected: members.filter((m) => m.connectedApps?.[connector.key]).length,
+      })),
+    [members],
+  );
   const allAssigned = dbUsers.length > 0 && assignedUserIds.size >= dbUsers.length;
 
   const openAddMemberDialog = () => {
@@ -1221,15 +1249,41 @@ export default function AdminPortalPage() {
                     <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
                       {members.length > 0 && (
                         <div
+                          className="mb-3 flex flex-wrap items-center gap-2"
+                          data-testid="member-connector-totals"
+                        >
+                          {connectorTotals.map(({ key, name, Icon, connected }) => (
+                            <span
+                              key={key}
+                              className="inline-flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-xs"
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="font-medium">{name}</span>
+                              <span className="tabular-nums text-muted-foreground">
+                                {connected}/{members.length} connected
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {members.length > 0 && (
+                        <div
                           className={cn(
-                            'hidden gap-2 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid',
+                            'hidden items-center gap-2 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid',
                             MEMBER_ROW_GRID,
                           )}
                         >
                           <span>Name</span>
-                          <span>Role</span>
-                          <span>Sync</span>
-                          <span>Status</span>
+                          <span className="flex">
+                            {MEMBER_CONNECTORS.map(({ key, name, Icon }) => (
+                              <span key={key} className="flex w-9 justify-center" title={name}>
+                                <Icon className="h-4 w-4" />
+                                <span className="sr-only">{name}</span>
+                              </span>
+                            ))}
+                          </span>
+                          <span className="text-center">Role</span>
+                          <span className="text-center">Sync</span>
                           <span />
                         </div>
                       )}
@@ -1256,69 +1310,122 @@ export default function AdminPortalPage() {
                               disabled
                               onSelect={() => {}}
                             />
-                            <Select
-                              value={m.roleName}
-                              onValueChange={(value) => updateMemberRole(m.userId, value)}
-                            >
-                              <SelectTrigger className="capitalize">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {roles.map((role) => (
-                                  <SelectItem key={role.id} value={role.name} className="capitalize">
-                                    {role.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <EmailSyncCombobox
-                              value={m.isEmailSynced}
-                              onChange={(next) => updateMemberEmailSync(m.userId, next)}
+                            <div className="flex">
+                              {MEMBER_CONNECTORS.map(({ key, name, Icon }) => (
+                                <ConnectorStatusIcon
+                                  key={key}
+                                  name={name}
+                                  Icon={Icon}
+                                  connected={!!m.connectedApps?.[key]}
+                                />
+                              ))}
+                            </div>
+                            <RoleIndicator roleName={m.roleName} />
+                            <EmailSyncIndicator
+                              isEmailSynced={m.isEmailSynced}
+                              hasConsented={m.hasConsented}
                             />
-                            <Badge
-                              variant={
-                                !m.isEmailSynced ? 'outline' : m.hasConsented ? 'default' : 'secondary'
-                              }
-                              className="w-fit justify-self-start"
+                            <Popover
+                              open={memberMenuUserId === m.userId}
+                              onOpenChange={(open) => setMemberMenuUserId(open ? m.userId : null)}
                             >
-                              {!m.isEmailSynced ? 'Not required' : m.hasConsented ? 'Consented' : 'Pending'}
-                            </Badge>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
+                              <PopoverTrigger asChild>
                                 <Button
                                   type="button"
                                   size="icon"
                                   variant="ghost"
-                                  aria-label={`Remove ${m.userName}`}
-                                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                                  aria-label={`Manage ${m.userName}`}
+                                  className="h-9 w-9 shrink-0 text-muted-foreground"
                                 >
-                                  <Minus className="h-4 w-4" />
+                                  <MoreVertical className="h-4 w-4" />
                                 </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Remove member</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to remove {m.userName} from{' '}
-                                    {selected?.name}? They will lose access to this
-                                    workspace immediately.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => removeMember(m.userId)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              </PopoverTrigger>
+                              <PopoverContent align="end" className="w-64 space-y-3">
+                                <div className="space-y-1.5">
+                                  <Label>Role</Label>
+                                  <Select
+                                    value={m.roleName}
+                                    onValueChange={(value) => updateMemberRole(m.userId, value)}
                                   >
-                                    Remove
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    <SelectTrigger className="capitalize" aria-label="Role">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {roles.map((role) => (
+                                        <SelectItem key={role.id} value={role.name} className="capitalize">
+                                          {role.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label>Email sync</Label>
+                                    <Badge
+                                      variant={
+                                        !m.isEmailSynced ? 'outline' : m.hasConsented ? 'default' : 'secondary'
+                                      }
+                                    >
+                                      {!m.isEmailSynced ? 'Not required' : m.hasConsented ? 'Consented' : 'Pending'}
+                                    </Badge>
+                                  </div>
+                                  <EmailSyncCombobox
+                                    value={m.isEmailSynced}
+                                    onChange={(next) => updateMemberEmailSync(m.userId, next)}
+                                  />
+                                </div>
+                                <div className="border-t pt-3">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => {
+                                      setMemberMenuUserId(null);
+                                      setMemberToRemove(m);
+                                    }}
+                                  >
+                                    <UserMinus className="h-4 w-4" />
+                                    Remove from workspace
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           </div>
                         );
                       })}
                       </div>
+                      {/* One confirm dialog for the list, outside the row menu — a dialog
+                          inside the popover would unmount as the popover closes. */}
+                      <AlertDialog
+                        open={!!memberToRemove}
+                        onOpenChange={(open) => {
+                          if (!open) setMemberToRemove(null);
+                        }}
+                      >
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove member</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to remove {memberToRemove?.userName} from{' '}
+                              {selected?.name}? They will lose access to this workspace
+                              immediately.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => {
+                                if (memberToRemove) removeMember(memberToRemove.userId);
+                              }}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Remove
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   )}
                   </TabsContent>
@@ -1551,6 +1658,85 @@ const EMAIL_SYNC_OPTIONS: { value: boolean; label: string; hint: string }[] = [
   { value: true, label: 'Sync', hint: 'Mailbox scanned for this workspace' },
   { value: false, label: "Don't sync", hint: 'Mailbox not scanned' },
 ];
+
+/** One connector's logo with a check / cross badge for whether this member connected it. */
+function ConnectorStatusIcon({
+  name,
+  Icon,
+  connected,
+}: {
+  name: string;
+  Icon: ComponentType<{ className?: string }>;
+  connected: boolean;
+}) {
+  const label = `${name}: ${connected ? 'connected' : 'not connected'}`;
+  const Status = connected ? CheckCircle2 : XCircle;
+  return (
+    <span className="flex w-9 justify-center" title={label} aria-label={label} role="img">
+      <span
+        className={cn(
+          'relative flex h-7 w-7 items-center justify-center rounded-md border',
+          connected
+            ? 'border-emerald-300 bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950'
+            : 'bg-muted',
+        )}
+      >
+        <Icon className={cn('h-4 w-4', !connected && 'opacity-40 grayscale')} />
+        <Status
+          className={cn(
+            'absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-background',
+            connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+          )}
+        />
+      </span>
+    </span>
+  );
+}
+
+/** A member's role as its initial (Admin → A, Editor → E, Viewer → V); full name on hover. */
+function RoleIndicator({ roleName }: { roleName: string }) {
+  return (
+    <span
+      className="mx-auto flex h-7 w-7 items-center justify-center rounded-md border bg-muted text-xs font-semibold"
+      title={`Role: ${roleName}`}
+      aria-label={`Role: ${roleName}`}
+    >
+      {roleName.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+/** Email sync as an icon: synced (green, amber while consent is pending) or not synced. */
+function EmailSyncIndicator({
+  isEmailSynced,
+  hasConsented,
+}: {
+  isEmailSynced: boolean;
+  hasConsented: boolean;
+}) {
+  const label = !isEmailSynced
+    ? "Email sync: don't sync"
+    : hasConsented
+      ? 'Email sync: on (consented)'
+      : 'Email sync: on (consent pending)';
+  const Status = isEmailSynced ? Mail : MailX;
+  return (
+    <span className="flex justify-center" title={label} aria-label={label} role="img">
+      <span
+        className={cn(
+          'flex h-7 w-7 items-center justify-center rounded-md border',
+          !isEmailSynced
+            ? 'bg-muted text-muted-foreground'
+            : hasConsented
+              ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300',
+        )}
+      >
+        <Status className="h-4 w-4" />
+      </span>
+    </span>
+  );
+}
 
 /** Per-member email-sync picker. Sets whether this member's mailbox is the
  *  scanned ("synced") custodian mailbox for the workspace — backed by

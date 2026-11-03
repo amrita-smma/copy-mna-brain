@@ -194,6 +194,8 @@ describe('UserWorkspaceRepository', () => {
         roleName: 'editor',
         isEmailSynced: false,
         consentedAt: '2026-08-27T10:00:00.000Z',
+        meetingIntelligenceConnectionId: 'mi1',
+        gmailConnectionId: null,
       },
       {
         userId: 'u2',
@@ -203,6 +205,8 @@ describe('UserWorkspaceRepository', () => {
         roleName: 'editor',
         isEmailSynced: true,
         consentedAt: null,
+        meetingIntelligenceConnectionId: null,
+        gmailConnectionId: 'g1',
       },
     ];
     mockDb.orderBy.mockResolvedValueOnce(rows);
@@ -211,13 +215,21 @@ describe('UserWorkspaceRepository', () => {
 
     // `consentedAt` is collapsed into `hasConsented`, not exposed raw — a
     // member who hasn't accepted the consent screen still appears (via the
-    // left join) but with `hasConsented: false`.
+    // left join) but with `hasConsented: false`. Connection ids are collapsed
+    // into `connectedApps` the same way.
     expect(result).toEqual([
-      { userId: 'u1', userName: 'Alice', userEmail: 'alice@x', roleId: 'r1', roleName: 'editor', isEmailSynced: false, hasConsented: true },
-      { userId: 'u2', userName: 'Bob', userEmail: 'bob@x', roleId: 'r1', roleName: 'editor', isEmailSynced: true, hasConsented: false },
+      {
+        userId: 'u1', userName: 'Alice', userEmail: 'alice@x', roleId: 'r1', roleName: 'editor', isEmailSynced: false, hasConsented: true,
+        connectedApps: { meetingIntelligence: true, gmail: false },
+      },
+      {
+        userId: 'u2', userName: 'Bob', userEmail: 'bob@x', roleId: 'r1', roleName: 'editor', isEmailSynced: true, hasConsented: false,
+        connectedApps: { meetingIntelligence: false, gmail: true },
+      },
     ]);
     expect(mockDb.innerJoin).toHaveBeenCalledTimes(2);
-    expect(mockDb.leftJoin).toHaveBeenCalledTimes(1);
+    // user_consents, meeting_intelligence_connections, gmail_connections.
+    expect(mockDb.leftJoin).toHaveBeenCalledTimes(3);
     expect(mockDb.orderBy).toHaveBeenCalledTimes(1);
   });
 
