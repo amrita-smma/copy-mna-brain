@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "0f941215c1f3dd1fabc5770e5bc012f079cee026",
+    "date": "2026-11-03",
+    "subject": "Admins can now see which apps each member has connected",
+    "category": "improvement"
+  },
+  {
+    "hash": "8cd6ad0c9e8191769bbcae5ef8f5dca3a338b6d6",
+    "date": "2026-11-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c301ec71824c116b9e27162446d8cdef1995f287",
     "date": "2026-11-02",
     "subject": "Fixed a 404 error when opening Gmail drafts from deal contacts",
