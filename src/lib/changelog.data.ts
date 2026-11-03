@@ -42,6 +42,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "skipReason": "noise"
   },
   {
+    "hash": "42925bd5c9ba54beda841a99da29877971130552",
+    "date": "2026-11-03",
+    "subject": "Edit and publish a single insight section without republishing the whole document",
+    "category": "improvement"
+  },
+  {
+    "hash": "804eaca46258c624c0aada056c5556aa179d938b",
+    "date": "2026-11-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "c301ec71824c116b9e27162446d8cdef1995f287",
     "date": "2026-11-02",
     "subject": "Fixed a 404 error when opening Gmail drafts from deal contacts",
