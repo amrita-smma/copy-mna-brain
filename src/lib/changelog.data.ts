@@ -12,6 +12,20 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
     "category": "improvement"
   },
   {
+    "hash": "fe8cd52c28829ca3343c7d3cfb15374b6ddf359f",
+    "date": "2026-11-04",
+    "subject": "Chat responses now appear faster and smoother as they stream in",
+    "category": "improvement"
+  },
+  {
+    "hash": "d6a4c57cf355359223f3113fd0c671f73c702e98",
+    "date": "2026-11-04",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
     "hash": "1911b4ea64e6ff6a5dde5bf9ddc780239770b50a",
     "date": "2026-11-03",
     "subject": "AI workforce run",
