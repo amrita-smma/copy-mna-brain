@@ -6,6 +6,12 @@ import type { ChangelogEntry } from './changelog';
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
+    "hash": "0e5af1dfd7b21b7e35c99c2bfaebda1d2269739f",
+    "date": "2026-11-04",
+    "subject": "Chat's \"email me\" option now sends responses from Investment Brain",
+    "category": "improvement"
+  },
+  {
     "hash": "1911b4ea64e6ff6a5dde5bf9ddc780239770b50a",
     "date": "2026-11-03",
     "subject": "AI workforce run",
@@ -69,6 +75,14 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   },
   {
     "hash": "a9939ff85d99d5cc5c546b49f60743aa4b89605b",
+    "date": "2026-11-03",
+    "subject": "[skip deploy] chore: update changelog",
+    "category": "improvement",
+    "skipped": true,
+    "skipReason": "noise"
+  },
+  {
+    "hash": "c32aae45886785724feb640b51494ae3e9b4d57d",
     "date": "2026-11-03",
     "subject": "[skip deploy] chore: update changelog",
     "category": "improvement",
