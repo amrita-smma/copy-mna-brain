@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   useChatActions,
   useChatComposer,
-  useChatContext,
+  useChatMessages,
   useChatStatus,
   useChatThread,
 } from '@/components/chat/ChatProvider';
@@ -782,10 +782,10 @@ function LoadEarlierMessages() {
 function MobileChatTitle({ onBack }: { onBack: () => void }) {
   const { activeBot } = useChatThread();
   const { refreshBots } = useChatActions();
-  const { status, messages } = useChatContext();
+  const { status, activity } = useChatStatus();
   // The avatar in the title is live, with the same thought cloud the strip
   // shows on desktop: this tab's own turn, or a turn the bot runs elsewhere.
-  const avatarState = useBotAvatarState(status, messages);
+  const avatarState = useBotAvatarState(status, activity);
   const responding = isRespondingState(avatarState) || (!!activeBot?.busy && status === 'ready');
   // Tapping the name opens the bot's dialog (settings, memory, routines, task
   // log, archive) — the mobile stand-in for the Bots page's Edit.
@@ -868,14 +868,15 @@ function ChatContent({
   /** The floating header's measured height. */
   topInset?: number;
 }) {
-  const { messages, status, activeBot } = useChatContext();
-  const { livePhase, chatId, isLoadingMessages, messagesChatId } = useChatThread();
+  const { messages } = useChatMessages();
+  const { status, activity } = useChatStatus();
+  const { activeBot, livePhase, chatId, isLoadingMessages, messagesChatId } = useChatThread();
   const isStreaming = status === 'streaming';
   // The starting points ride above the composer in every thread, empty or
   // not — they are shortcuts, not a landing — once its history is in (not
   // while it loads, or the carousel would flash in before the messages).
   const showSuggestions = chatId !== null && !isLoadingMessages && messagesChatId === chatId;
-  const liveAvatarState = useBotAvatarState(status, messages);
+  const liveAvatarState = useBotAvatarState(status, activity);
   // Other bots' messages (replies back, hand-offs) fold into one collapsed
   // row per run, since the bot relays what matters from them itself.
   const items = useMemo(() => groupRelayMessages(messages), [messages]);

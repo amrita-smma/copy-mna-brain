@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveAvatarState } from './avatarState';
+import { deriveAvatarState, streamActivity } from './avatarState';
 
 describe('deriveAvatarState', () => {
   it('is idle when ready with nothing typed', () => {
@@ -54,5 +54,35 @@ describe('deriveAvatarState', () => {
 
   it('droops on an error', () => {
     expect(deriveAvatarState({ status: 'error', justFinished: true })).toBe('error');
+  });
+});
+
+describe('streamActivity', () => {
+  it('is thinking with no parts yet', () => {
+    expect(streamActivity(null)).toBe('thinking');
+    expect(streamActivity([])).toBe('thinking');
+  });
+
+  it('is working while any tool part has no output', () => {
+    expect(
+      streamActivity([
+        { type: 'text' },
+        { type: 'dynamic-tool', state: 'input-available' },
+      ]),
+    ).toBe('working');
+  });
+
+  it('is talking once the last part is text and every tool has answered', () => {
+    expect(
+      streamActivity([{ type: 'tool-search', state: 'output-available' }, { type: 'text' }]),
+    ).toBe('talking');
+  });
+
+  it('is what deriveAvatarState reads when given, instead of the parts', () => {
+    expect(
+      deriveAvatarState({ status: 'streaming', activity: 'working', lastAssistantParts: [{ type: 'text' }] }),
+    ).toBe('working');
+    // Only a streaming turn has an activity; other statuses ignore it.
+    expect(deriveAvatarState({ status: 'ready', activity: 'talking' })).toBe('idle');
   });
 });

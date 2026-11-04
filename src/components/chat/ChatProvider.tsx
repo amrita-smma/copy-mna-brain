@@ -16,6 +16,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { sortBots } from "@/lib/bots/order";
+import { streamActivity, type StreamActivity } from "@/lib/bots/avatarState";
 import { findBotMentions } from "@/lib/bots/mentions";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, buildWorkspaceHeaders } from "@/lib/api/client";
@@ -91,6 +92,13 @@ const TURN_STOP_POLL_ATTEMPTS = 30;
 const EARLIER_PAGE_TURNS = 10;
 
 const isLive = (status: string) => status === "streaming" || status === "submitted";
+
+/**
+ * How often, at most, the transcript takes the stream's new tokens. Fewer
+ * commits of the pane than tokens, and still well inside a frame of
+ * perceived delay.
+ */
+const STREAM_THROTTLE_MS = 50;
 
 /** `bots` with exactly `pinnedIds` pinned, in the server's list order. */
 function applyPins(bots: readonly BotDto[], pinnedIds: readonly string[]): BotDto[] {
@@ -238,112 +246,29 @@ export interface ChatAttachment {
   previewUrl?: string;
 }
 
-interface ChatContextValue extends ReturnType<typeof useChat> {
-  /** The active bot's permanent thread, or null while it is being opened. */
-  chatId: string | null;
-  isLoadingMessages: boolean;
-  /**
-   * Which chat the current `messages` array belongs to; `undefined` while a
-   * history load is in flight. Consumers that must distinguish "this chat's
-   * persisted history" from "something that just streamed in" have to key off
-   * this rather than `chatId`, which changes a commit earlier.
-   */
-  messagesChatId: string | null | undefined;
-  /**
-   * Entry point for every "Analyze using AI" trigger. Sends the prompt to the
-   * copilot immediately when idle; when a response is already streaming it
-   * opens a confirmation dialog offering to stop the current response and
-   * replace it with this analysis.
-   *
-   * `insightSelection` attaches the elements picked in an open insight: the
-   * bubble shows them as a chip and `text` stays the user's own words.
-   */
-  analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
-  /**
-   * Put text in the composer ready to edit, without sending it. Unlike
-   * `analyzeWithAI` (which sends immediately), this hands the user a
-   * half-written sentence to finish and submit themselves.
-   */
-  prefillComposer: (text: string) => void;
-  /** The pending prefill, consumed by the composer. */
-  composerDraft: { text: string; nonce: number } | null;
-  /**
-   * Send what the user typed (plus composer attachments) to the active bot.
-   * A queued message passes `withAttachments: false`: it was typed earlier, so
-   * whatever files sit in the composer when it goes out are not its own.
-   */
-  sendText: (text: string, insightTemplate?: InsightTemplateAttachment, options?: SendTextOptions) => void;
-  /** Ref the active chat input registers so we can focus it programmatically. */
-  chatInputRef: RefObject<HTMLTextAreaElement | null>;
-  /**
-   * Put the caret in the composer, ready to type. Tolerates the composer not
-   * being mounted yet (see the implementation), so callers can fire it in the
-   * same tick as the state change that reveals it.
-   */
-  focusComposer: () => void;
-  /** Files attached to the composer for the current chat (persist across turns). */
-  attachments: ChatAttachment[];
-  /** Upload files to S3 and attach them to the composer. */
-  addFiles: (files: File[]) => void;
-  /** Remove an attachment (deletes its S3 object) by its local id. */
-  removeAttachment: (localId: string) => void;
-  /** Which effort tier the chat will use. 'auto' lets the server route the thread. */
-  effortChoice: ChatEffortChoice;
-  setEffortChoice: (m: ChatEffortChoice) => void;
-  /** Holds attachments for optimistically rendered user messages before server reload. */
-  optimisticAttachments: Record<string, ChatAttachment[]>;
-  /** The insight template selected via the `/insight-template` chip, if any. */
-  insightTemplate: { id: string; name: string } | null;
-  /** Select (or clear, with `null`) the insight-template chip. */
-  setInsightTemplate: (tpl: { id: string; name: string } | null) => void;
-  /** Copilot bots (RFC 02): the user's visible bots, `[]` until loaded. */
-  bots: BotDto[];
-  activeBot: BotDto | null;
-  /** Switch to a bot and open its permanent thread. */
-  selectBot: (id: string) => void;
-  /** Reload the bot list (after the Bots page creates or edits one). */
-  refreshBots: () => Promise<void>;
-  /**
-   * Pin exactly these bots, in this order, and save. Pinned bots lead every
-   * list; the rest follow by newest activity.
-   */
-  setPinnedBots: (ids: string[]) => void;
-  /** Mark a bot's thread read or unread (the mobile swipe). */
-  setBotUnread: (id: string, unread: boolean) => void;
-  /**
-   * Mobile bot home: false while the picker is on screen so a poll does not
-   * auto-read the last opened bot. Desktop leaves this true (default).
-   */
-  setActiveBotThreadOnScreen: (onScreen: boolean) => void;
-  hasEarlierMessages: boolean;
-  isLoadingEarlier: boolean;
-  loadEarlierMessages: () => Promise<boolean>;
-}
-
-const ChatContext = createContext<ChatContextValue | null>(null);
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Narrow contexts
+ * Contexts
  *
- * `ChatContextValue` spreads `useChat()`, so it carries `messages` and gets a
- * new object identity on EVERY streamed chunk. Anything subscribed to it
- * re-renders dozens of times a second while the copilot answers — which used
- * to include Dashboard, Pipeline, SmartFiles, MasterData, CompanyDetailDialog
- * and AppShell, all of which only ever wanted one stable callback.
+ * `useChat()` hands out a new handle on every streamed batch. Publishing it
+ * whole through one context used to re-render every subscriber — Dashboard,
+ * Pipeline, SmartFiles, MasterData, CompanyDetailDialog, AppShell, the bot
+ * strip — dozens of times a second while the copilot answered, when each of
+ * them wanted one stable callback or one slowly changing value.
  *
- * So the value is also published through four narrow contexts, split by how
- * often each slice actually changes:
+ * So there is no catch-all. The value is split by how often each slice
+ * changes, and a component subscribes to the narrowest one that covers it:
  *
  *   useChatActions()  — callbacks only. Never changes after mount.
  *   useChatThread()   — the active bot, its thread and the bot list. Changes
  *                       on bot switches and list refreshes.
  *   useChatComposer() — composer state (attachments, effort, draft). Changes
  *                       on user input.
- *   useChatStatus()   — just `status`. Changes on turn boundaries.
- *
- * Use the narrowest one that covers what you need. `useChatContext()` is for
- * components that genuinely render the transcript (`messages`) — reach for it
- * only there, because it is the one that re-renders per token.
+ *   useChatStatus()   — `status` and the turn's activity (thinking, working,
+ *                       talking). Changes on turn boundaries and phase moves.
+ *   useChatMessages() — the transcript. Changes on every streamed batch
+ *                       (`STREAM_THROTTLE_MS`); only the transcript and the
+ *                       navigation handler read it.
  * ────────────────────────────────────────────────────────────────────────── */
 
 type ChatHandle = ReturnType<typeof useChat>;
@@ -361,35 +286,88 @@ function stampSent<M extends { metadata?: unknown } | undefined>(message: M): M 
  * streaming.
  */
 export interface ChatActions {
+  /**
+   * Entry point for every "Analyze using AI" trigger. Sends the prompt to the
+   * copilot immediately when idle; when a response is already streaming it
+   * opens a confirmation dialog offering to stop the current response and
+   * replace it with this analysis.
+   *
+   * `insightSelection` attaches the elements picked in an open insight: the
+   * bubble shows them as a chip and `text` stays the user's own words.
+   */
   analyzeWithAI: (text: string, options?: AnalyzeOptions) => void;
+  /**
+   * Put text in the composer ready to edit, without sending it. Unlike
+   * `analyzeWithAI` (which sends immediately), this hands the user a
+   * half-written sentence to finish and submit themselves.
+   */
   prefillComposer: (text: string) => void;
+  /**
+   * Send what the user typed (plus composer attachments) to the active bot.
+   * A queued message passes `withAttachments: false`: it was typed earlier, so
+   * whatever files sit in the composer when it goes out are not its own.
+   */
   sendText: (text: string, insightTemplate?: InsightTemplateAttachment, options?: SendTextOptions) => void;
+  /**
+   * Put the caret in the composer, ready to type. Tolerates the composer not
+   * being mounted yet (see the implementation), so callers can fire it in the
+   * same tick as the state change that reveals it.
+   */
   focusComposer: () => void;
+  /** Upload files to S3 and attach them to the composer. */
   addFiles: (files: File[]) => void;
+  /** Remove an attachment (deletes its S3 object) by its local id. */
   removeAttachment: (localId: string) => void;
   setEffortChoice: (m: ChatEffortChoice) => void;
+  /** Select (or clear, with `null`) the insight-template chip. */
   setInsightTemplate: (tpl: { id: string; name: string } | null) => void;
+  /** Ref the active chat input registers so we can focus it programmatically. */
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
   /** Stable wrapper around the AI SDK's `sendMessage`. */
   sendMessage: ChatHandle['sendMessage'];
   /** Stable wrapper around the AI SDK's `stop`. */
   stop: ChatHandle['stop'];
+  /** Switch to a bot and open its permanent thread. */
   selectBot: (id: string) => void;
+  /** Reload the bot list (after the Bots page creates or edits one). */
   refreshBots: () => Promise<void>;
+  /**
+   * Pin exactly these bots, in this order, and save. Pinned bots lead every
+   * list; the rest follow by newest activity.
+   */
   setPinnedBots: (ids: string[]) => void;
+  /** Mark a bot's thread read or unread (the mobile swipe). */
   setBotUnread: (id: string, unread: boolean) => void;
+  /**
+   * Mobile bot home: false while the picker is on screen so a poll does not
+   * auto-read the last opened bot. Desktop leaves this true (default).
+   */
   setActiveBotThreadOnScreen: (onScreen: boolean) => void;
   /** Prepend the previous page of the thread's history. Resolves false on no-op or error. */
   loadEarlierMessages: () => Promise<boolean>;
+  /**
+   * Hear each turn this tab streamed as it ends, with the assistant message
+   * as the SDK finished it — the whole message, unthrottled, before the
+   * transcript's last batch reaches React. Also fires for a stopped or
+   * failed turn, with what was written. Returns the unsubscribe.
+   */
+  onTurnFinished: (listener: (message: UIMessage) => void) => () => void;
 }
 
 /** The active bot, its thread, and the bot list. */
 export interface ChatThreadState {
+  /** The active bot's permanent thread, or null while it is being opened. */
   chatId: string | null;
   isLoadingMessages: boolean;
   /** Whether older history exists before the oldest message on screen. */
   hasEarlierMessages: boolean;
   isLoadingEarlier: boolean;
+  /**
+   * Which chat the current `messages` array belongs to; `undefined` while a
+   * history load is in flight. Consumers that must distinguish "this chat's
+   * persisted history" from "something that just streamed in" have to key off
+   * this rather than `chatId`, which changes a commit earlier.
+   */
   messagesChatId: string | null | undefined;
   /** Visible bots, `[]` until loaded. `busy` is the bot's live state (Redis), not the DB lock. */
   bots: BotDto[];
@@ -400,21 +378,38 @@ export interface ChatThreadState {
 
 /** Everything the composer owns, plus the optimistic attachment map. */
 export interface ChatComposerState {
+  /** Files attached to the composer for the current chat (persist across turns). */
   attachments: ChatAttachment[];
+  /** Which effort tier the chat will use. 'auto' lets the server route the thread. */
   effortChoice: ChatEffortChoice;
+  /** The insight template selected via the `/insight-template` chip, if any. */
   insightTemplate: { id: string; name: string } | null;
+  /** The pending prefill, consumed by the composer. */
   composerDraft: { text: string; nonce: number } | null;
+  /** Holds attachments for optimistically rendered user messages before server reload. */
   optimisticAttachments: Record<string, ChatAttachment[]>;
 }
 
 export interface ChatStatusState {
   status: ChatHandle['status'];
+  /**
+   * What the streaming turn is doing, from the last assistant message's
+   * parts. Derived here so an avatar follows the turn's phases without
+   * subscribing to the transcript. 'thinking' whenever no turn streams.
+   */
+  activity: StreamActivity;
+}
+
+/** The transcript. Re-renders on every streamed batch. */
+export interface ChatMessagesState {
+  messages: UIMessage[];
 }
 
 const ChatActionsContext = createContext<ChatActions | null>(null);
 const ChatThreadContext = createContext<ChatThreadState | null>(null);
 const ChatComposerContext = createContext<ChatComposerState | null>(null);
 const ChatStatusContext = createContext<ChatStatusState | null>(null);
+const ChatMessagesContext = createContext<ChatMessagesState | null>(null);
 
 function useNarrowChatContext<T>(ctx: Context<T | null>, hook: string): T {
   const value = useContext(ctx);
@@ -445,9 +440,17 @@ export function useChatComposer(): ChatComposerState {
   return useNarrowChatContext(ChatComposerContext, 'useChatComposer');
 }
 
-/** Just the turn status. Re-renders on turn boundaries, not on tokens. */
+/** The turn status and its activity. Re-renders on phase changes, not on tokens. */
 export function useChatStatus(): ChatStatusState {
   return useNarrowChatContext(ChatStatusContext, 'useChatStatus');
+}
+
+/**
+ * The transcript. This is the one slice that re-renders on every streamed
+ * batch — reach for it only in a component that renders the messages.
+ */
+export function useChatMessages(): ChatMessagesState {
+  return useNarrowChatContext(ChatMessagesContext, 'useChatMessages');
 }
 
 interface ServerUIMessage {
@@ -664,17 +667,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Who wants the finished message of each turn (`onTurnFinished`).
+  const turnFinishedListenersRef = useRef(new Set<(message: UIMessage) => void>());
+
   const chat = useChat({
     transport,
-    // NOTE: `experimental_throttle` would coalesce stream chunks into far
-    // fewer commits, but it is unsafe here as the code stands. The AI SDK
-    // throttles only the messages subscription — `status` stays unthrottled —
-    // so at the end of a turn `status` can flip to `ready` while `messages` is
-    // still up to one throttle window behind. `NavigationActionHandler` gates
-    // on `status`, and `resolveNavigationAction` *absorbs* a pending
-    // `navigate_page` when the turn is not live, so a nav marker landing in
-    // that last batch would be silently swallowed. Make navigation robust to a
-    // lagging transcript before turning this on.
+    // Stream chunks reach React in batches rather than one commit per token.
+    // The SDK throttles only the messages subscription — `status` flips to
+    // `ready` at once — so the transcript's last batch can land after the
+    // turn reads as over. Nothing may act on a marker *only* through the
+    // transcript: `NavigationActionHandler` also hears the finished message
+    // through `onTurnFinished` below, which the SDK calls with the whole
+    // message before that batch is delivered.
+    experimental_throttle: STREAM_THROTTLE_MS,
     onError: (e: Error) => {
       console.error(e);
       const { title, description } = parseChatError(e);
@@ -683,10 +688,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // The turn's own bot moved to the top of the list (newest activity) and
     // may have created or changed a bot: one re-read. Everything else — the
     // bots it @mentioned starting, their replies — arrives on the stream.
-    onFinish: () => {
+    onFinish: ({ message }) => {
       void refreshBotsRef.current();
+      for (const listener of turnFinishedListenersRef.current) listener(message);
     },
   });
+
+  const onTurnFinished = useCallback((listener: (message: UIMessage) => void) => {
+    turnFinishedListenersRef.current.add(listener);
+    return () => {
+      turnFinishedListenersRef.current.delete(listener);
+    };
+  }, []);
 
   const { setMessages } = chat;
   // Keep a ref to the latest chat handle so effects can call stop()/read
@@ -1446,8 +1459,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setBotUnread,
       setActiveBotThreadOnScreen,
       loadEarlierMessages,
+      onTurnFinished,
     }),
     [
+      onTurnFinished,
       selectBot,
       refreshBots,
       setPinnedBots,
@@ -1490,76 +1505,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [attachments, effortChoice, insightTemplate, composerDraft, optimisticAttachments],
   );
 
-  const statusValue = useMemo<ChatStatusState>(() => ({ status: chat.status }), [chat.status]);
-
-  const value = useMemo<ChatContextValue>(
-    () => ({
-      ...chat,
-      stop: stopStream,
-      chatId,
-      isLoadingMessages,
-      messagesChatId,
-      analyzeWithAI,
-      prefillComposer,
-      composerDraft,
-      sendText,
-      chatInputRef,
-      focusComposer,
-      attachments,
-      addFiles,
-      removeAttachment,
-      effortChoice,
-      setEffortChoice,
-      optimisticAttachments,
-      insightTemplate,
-      setInsightTemplate,
-      bots: liveBots,
-      activeBot,
-      selectBot,
-      refreshBots,
-      setPinnedBots,
-      setBotUnread,
-      setActiveBotThreadOnScreen,
-      hasEarlierMessages: historyCursor !== null,
-      isLoadingEarlier,
-      loadEarlierMessages,
-    }),
-    [
-      liveBots,
-      activeBot,
-      selectBot,
-      refreshBots,
-      setPinnedBots,
-      setBotUnread,
-      setActiveBotThreadOnScreen,
-      historyCursor,
-      isLoadingEarlier,
-      loadEarlierMessages,
-      chat,
-      stopStream,
-      chatId,
-      isLoadingMessages,
-      messagesChatId,
-      analyzeWithAI,
-      prefillComposer,
-      composerDraft,
-      sendText,
-      focusComposer,
-      attachments,
-      addFiles,
-      removeAttachment,
-      effortChoice,
-      optimisticAttachments,
-      insightTemplate,
-    ],
+  // A string, so the status slice changes when the turn's phase does and
+  // not on each batch of tokens.
+  const lastMessage = chat.messages[chat.messages.length - 1];
+  const activity =
+    chat.status === 'streaming'
+      ? streamActivity(lastMessage?.role === 'assistant' ? lastMessage.parts : null)
+      : 'thinking';
+  const statusValue = useMemo<ChatStatusState>(
+    () => ({ status: chat.status, activity }),
+    [chat.status, activity],
   );
+
+  const messagesValue = useMemo<ChatMessagesState>(() => ({ messages: chat.messages }), [chat.messages]);
 
   return (
     <ChatActionsContext.Provider value={actions}>
     <ChatThreadContext.Provider value={thread}>
     <ChatComposerContext.Provider value={composer}>
     <ChatStatusContext.Provider value={statusValue}>
-    <ChatContext.Provider value={value}>
+    <ChatMessagesContext.Provider value={messagesValue}>
       {children}
       <AlertDialog
         open={pendingAnalysis !== null}
@@ -1583,18 +1548,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </ChatContext.Provider>
+    </ChatMessagesContext.Provider>
     </ChatStatusContext.Provider>
     </ChatComposerContext.Provider>
     </ChatThreadContext.Provider>
     </ChatActionsContext.Provider>
   );
-}
-
-export function useChatContext(): ChatContextValue {
-  const ctx = useContext(ChatContext);
-  if (!ctx) {
-    throw new Error("useChatContext must be used within ChatProvider");
-  }
-  return ctx;
 }

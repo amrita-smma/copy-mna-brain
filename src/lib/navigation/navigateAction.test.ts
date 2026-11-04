@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   NAVIGATE_PAGE_MARKER,
+  collectNavigations,
   parseNavigatePayloads,
   resolveNavigationAction,
   stripNavigateMarkers,
@@ -194,5 +195,36 @@ describe('stripNavigateMarkers', () => {
 
   it('leaves unrelated content untouched', () => {
     expect(stripNavigateMarkers('No markers here.')).toBe('No markers here.');
+  });
+});
+
+describe('collectNavigations', () => {
+  const toolPart = (content: string) => ({
+    type: 'dynamic-tool',
+    output: { kwargs: { content } },
+  });
+
+  it('finds payloads in string and ToolMessage-shaped outputs, in transcript order', () => {
+    const second = { ...payload, nav_id: 'nav-2' };
+    const found = collectNavigations([
+      { parts: [{ type: 'text', text: 'hello' }, { type: 'dynamic-tool', output: marker(payload) }] },
+      { parts: undefined },
+      { parts: [toolPart(`Opened.\n${marker(second)}`)] },
+    ]);
+    expect(found.map((p) => p.nav_id)).toEqual(['nav-1', 'nav-2']);
+  });
+
+  it('answers an unchanged message from the cache and rescans a replaced one', () => {
+    const cache = new WeakMap();
+    const first = { parts: [toolPart(marker(payload))] };
+    const streaming = { parts: [toolPart('')] };
+    expect(collectNavigations([first, streaming], cache).map((p) => p.nav_id)).toEqual(['nav-1']);
+
+    // The stream mutates the parts of the message it writes but hands the
+    // transcript a new object for it; the untouched first message keeps its
+    // cached answer even if its parts were (wrongly) edited in place.
+    first.parts[0] = toolPart('');
+    const replaced = { parts: [toolPart(marker({ ...payload, nav_id: 'nav-2' }))] };
+    expect(collectNavigations([first, replaced], cache).map((p) => p.nav_id)).toEqual(['nav-1', 'nav-2']);
   });
 });

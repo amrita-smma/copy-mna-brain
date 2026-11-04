@@ -1071,34 +1071,6 @@ scope table) joined by every view, managed from the admin portal.
 
 ---
 
-## Chat: every stream chunk re-renders every `ChatContext` consumer
-
-**Area:** `src/components/chat/ChatProvider.tsx` (the `ChatContext` value,
-`experimental_throttle` off), `src/components/layout/AICopilotPane.tsx`,
-`src/components/bots/BotStrip.tsx`,
-`src/components/chat/NavigationActionHandler.tsx`.
-
-**What it is:** `useChat` runs unthrottled and `messages` lives in the one
-context value rebuilt on every render, so each token commits a render of the
-pane (which regroups relay messages and recomputes day separators), the bot
-strip and the navigation handler (which walks every part of every message).
-The cost per token grows with thread length, so a long answer on a long
-thread is CPU and garbage-collection churn — not retention.
-
-**Why we took it:** the navigation handler acts on markers as they arrive and
-could not yet tolerate a lagging transcript, so throttling stayed off; the
-split contexts were added later without moving `messages` out of the shared
-value.
-
-**Trigger to revisit:** typing lag or dropped frames while a long reply
-streams, or a React profile showing the pane re-rendering per token.
-
-**Intended fix:** move `messages` into the transcript's own context so only
-it re-renders per chunk, have the navigation handler read markers from the
-finished message (or a ref), then turn on `experimental_throttle` (~50 ms).
-
----
-
 ## Chat transcript is not virtualized
 
 **Area:** `src/components/layout/AICopilotPane.tsx` (the transcript),

@@ -113,6 +113,19 @@ two-tab toggle. Pages open in a center console beside the Copilot.
   back, and the fold is remembered per browser (`copilot.suggestionsCollapsed`).
   It stays through the conversation (the chips are shortcuts, not a landing)
   and appears once the thread's history has loaded.
+- **Streaming reaches React in batches, and only the transcript takes them.**
+  `useChat` runs with `experimental_throttle` (50 ms), so a reply commits a
+  few renders a second rather than one per token. `ChatProvider` publishes
+  no catch-all value: `useChatMessages()` carries the transcript and is read
+  by the transcript and the navigation handler only; `useChatStatus()`
+  carries `status` and the turn's `activity` (thinking, working, talking,
+  derived once in the provider from the last assistant message), which is
+  what the bot avatars and thought clouds follow; `useChatThread()`,
+  `useChatComposer()` and `useChatActions()` change on bot switches, user
+  input and never. Anything that must act on the whole finished turn — not
+  on whatever batch the transcript has shown so far — subscribes with
+  `useChatActions().onTurnFinished`, which the SDK calls with the complete
+  message before the last batch is delivered.
 
 ## Mobile shell (PWA) and the profile page
 
@@ -180,6 +193,12 @@ in `chatOnlyTools` — a Workforce run has no browser, so neither reaches it.
   `nav_id`s already in its transcript and only acts on ids appearing after it,
   so re-opening an old chat from history replays nothing. `ChatMessageBubble`
   renders the record as an "Opened X" link — clickable, never auto-firing.
+  The handler hears a live marker twice: from the transcript as it streams
+  (so the console moves when the tool answers) and from the turn's finished
+  message (`useChatActions().onTurnFinished`), because the transcript is
+  throttled and its last batch can land after `status` reads `ready` — read
+  from the transcript alone, a marker in that batch would be absorbed as
+  history. The handled `nav_id` set keeps the two from navigating twice.
 - **`read_page_context`** reports what's on screen, so "summarize this" or "this
   deal" resolves without the user restating it. `PageContextProvider` derives
   the tab and path from the route; a view can enrich it with the record or

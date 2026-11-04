@@ -9,7 +9,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useWorkspaceHref } from "@/hooks/useWorkspaceHref";
 
 interface AskAIButtonProps {
-  /** Click handler — the consumer wires this to `sendMessage(...)` from `useChatContext`. */
+  /** Click handler — the consumer wires this to `sendMessage(...)` from `useChatActions`. */
   onClick: () => void;
   /** Accessible label / tooltip text. */
   label: string;
@@ -24,7 +24,7 @@ interface AskAIButtonProps {
 
 /**
  * Shared "Analyze using AI" trigger. Presentational only — each consumer owns the
- * message it sends to the AI copilot via `useChatContext().sendMessage`.
+ * message it sends to the AI copilot via `useChatActions().sendMessage`.
  */
 export function AskAIButton({
   onClick,

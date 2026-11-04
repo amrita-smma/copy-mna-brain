@@ -4,7 +4,7 @@ import { memo, useCallback, useLayoutEffect, useRef, useState, type KeyboardEven
 import Link from 'next/link';
 import { AnimatePresence, motion, Reorder } from 'framer-motion';
 import { LayoutGrid, Plus, Settings2 } from 'lucide-react';
-import { useChatActions, useChatContext, useChatThread } from '@/components/chat/ChatProvider';
+import { useChatActions, useChatStatus, useChatThread } from '@/components/chat/ChatProvider';
 import { useWorkspaceHref } from '@/hooks/useWorkspaceHref';
 import { mergeVisibleOrder, moveId, pickVisibleBots } from '@/lib/bots/order';
 import type { BotDto } from '@/lib/bots/types';
@@ -384,8 +384,8 @@ const CLOUD_POSITION = 'right-0 top-0';
  * busy and this tab is not streaming).
  */
 function ActiveThoughtCloud({ bot }: { bot: BotDto }) {
-  const { status, messages } = useChatContext();
-  const state = useBotAvatarState(status, messages);
+  const { status, activity } = useChatStatus();
+  const state = useBotAvatarState(status, activity);
   const responding = isRespondingState(state) || (bot.busy && status === 'ready');
   return (
     <AnimatePresence>
@@ -396,7 +396,7 @@ function ActiveThoughtCloud({ bot }: { bot: BotDto }) {
 
 /** The active bot reacts to the chat: thinking, working, talking, happy. */
 function LiveAvatar({ bot, size }: { bot: BotDto; size: BotAvatarSize }) {
-  const { status, messages } = useChatContext();
-  const state = useBotAvatarState(status, messages);
+  const { status, activity } = useChatStatus();
+  const state = useBotAvatarState(status, activity);
   return <BotAvatar avatar={bot.avatar} state={state} size={size} label={bot.name} />;
 }

@@ -11,7 +11,12 @@ import { Bot, Send, X, Maximize2, Minimize2, Sparkles, GripVertical } from 'luci
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
-import { useChatContext } from '@/components/chat/ChatProvider';
+import {
+  useChatActions,
+  useChatComposer,
+  useChatMessages,
+  useChatStatus,
+} from '@/components/chat/ChatProvider';
 import { EffortSelector } from '@/components/chat/EffortSelector';
 import { joinTextParts } from '@/lib/chat/textParts';
 
@@ -113,7 +118,10 @@ export function ChatbotWidget({ defaultOpen = false }: { defaultOpen?: boolean }
   const [isMinimized, setIsMinimized] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { messages, sendMessage, status, effortChoice, setEffortChoice } = useChatContext();
+  const { messages } = useChatMessages();
+  const { status } = useChatStatus();
+  const { sendMessage, setEffortChoice } = useChatActions();
+  const { effortChoice } = useChatComposer();
 
   const fabDrag = useDraggable({ x: 0, y: 0 });
   const widgetDrag = useDraggable({ x: 0, y: 0 });

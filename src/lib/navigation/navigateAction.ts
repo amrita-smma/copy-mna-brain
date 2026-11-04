@@ -60,6 +60,40 @@ export function parseNavigatePayloads(content: string): NavigatePagePayload[] {
   return found;
 }
 
+/** Reads the text a tool part carries, whichever shape the SDK gave it. */
+function toolOutputText(part: unknown): string {
+  const output = (part as { output?: unknown }).output;
+  if (typeof output === 'string') return output;
+  const content = (output as { kwargs?: { content?: unknown } })?.kwargs?.content;
+  return typeof content === 'string' ? content : '';
+}
+
+/** The least a transcript message has to be for `collectNavigations`. */
+export interface NavigationSource {
+  parts?: unknown[];
+}
+
+/**
+ * Every navigate_page payload present in the transcript, in order.
+ *
+ * With `cache`, a message is scanned once per object: the stream replaces
+ * only the message it is writing, so on every chunk the rest of the
+ * transcript is answered from the cache instead of walked again. Pass a
+ * `WeakMap` that lives as long as the caller does.
+ */
+export function collectNavigations(
+  messages: readonly NavigationSource[],
+  cache?: WeakMap<NavigationSource, NavigatePagePayload[]>,
+): NavigatePagePayload[] {
+  return messages.flatMap((message) => {
+    const cached = cache?.get(message);
+    if (cached) return cached;
+    const found = (message.parts ?? []).flatMap((part) => parseNavigatePayloads(toolOutputText(part)));
+    cache?.set(message, found);
+    return found;
+  });
+}
+
 /**
  * Decides what to do with the navigations visible in a transcript.
  *

@@ -1,33 +1,28 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useChatContext } from './ChatProvider';
+import { useChatActions, useChatMessages, useChatStatus, useChatThread } from './ChatProvider';
 import {
-  parseNavigatePayloads,
+  collectNavigations,
   resolveNavigationAction,
+  type NavigationSource,
   type NavigatePagePayload,
 } from '@/lib/navigation/navigateAction';
-
-/** Reads the text a tool part carries, whichever shape the SDK gave it. */
-function toolOutputText(part: unknown): string {
-  const output = (part as { output?: unknown }).output;
-  if (typeof output === 'string') return output;
-  const content = (output as { kwargs?: { content?: unknown } })?.kwargs?.content;
-  return typeof content === 'string' ? content : '';
-}
-
-/** Every navigate_page payload present in the transcript, in order. */
-function collectNavigations(messages: { parts?: unknown[] }[]): NavigatePagePayload[] {
-  return messages.flatMap((message) =>
-    (message.parts ?? []).flatMap((part) => parseNavigatePayloads(toolOutputText(part))),
-  );
-}
 
 /**
  * Performs the navigation the copilot asked for with `navigate_page`.
  *
  * The rule itself lives in `resolveNavigationAction` (pure, and tested there);
  * this component only feeds it and acts on the answer.
+ *
+ * It hears a marker two ways. The transcript, on every streamed batch, so
+ * the console moves the moment the tool answers rather than when the turn
+ * ends; and the finished message of each turn (`onTurnFinished`), because
+ * the transcript is throttled while `status` is not: the turn can read as
+ * over before its last batch lands, and that batch would then be absorbed
+ * as history. The finished message is read first, whole, so a marker in it
+ * is acted on before the batch arrives, and `handled` keeps the two from
+ * navigating twice.
  *
  * The one subtlety worth stating here is why it keys off `messagesChatId` and
  * not `chatId`. Those change in separate commits: selecting a chat sets `chatId`
@@ -44,8 +39,14 @@ export function NavigationActionHandler({
   /** Called with the workspace-relative path the agent chose. */
   onNavigate: (path: string) => void;
 }) {
-  const { messages, messagesChatId, status } = useChatContext();
+  const { messages } = useChatMessages();
+  const { messagesChatId } = useChatThread();
+  const { status } = useChatStatus();
+  const { onTurnFinished } = useChatActions();
   const handledRef = useRef<Set<string>>(new Set());
+  // Each message's markers, found once per message object: the stream hands
+  // out a new object only for the message it is writing.
+  const navCacheRef = useRef(new WeakMap<NavigationSource, NavigatePagePayload[]>());
   // `undefined` is also ChatProvider's "load in flight" value, so seed with a
   // sentinel that can never equal it — otherwise a mid-load first render would
   // count as having already seen this chat.
@@ -62,7 +63,7 @@ export function NavigationActionHandler({
     seenChatRef.current = messagesChatId;
 
     const { absorb, navigateTo } = resolveNavigationAction({
-      navigations: collectNavigations(messages as { parts?: unknown[] }[]),
+      navigations: collectNavigations(messages as NavigationSource[], navCacheRef.current),
       handled: handledRef.current,
       isFirstViewOfChat,
       isLiveTurn: status === 'submitted' || status === 'streaming',
@@ -71,6 +72,23 @@ export function NavigationActionHandler({
     for (const navId of absorb) handledRef.current.add(navId);
     if (navigateTo) onNavigateRef.current(navigateTo.path);
   }, [messages, messagesChatId, status]);
+
+  // The turn this tab streamed just ended: whatever it asked for is live,
+  // whether or not the transcript has caught up.
+  useEffect(
+    () =>
+      onTurnFinished((message) => {
+        const { absorb, navigateTo } = resolveNavigationAction({
+          navigations: collectNavigations([message as NavigationSource]),
+          handled: handledRef.current,
+          isFirstViewOfChat: false,
+          isLiveTurn: true,
+        });
+        for (const navId of absorb) handledRef.current.add(navId);
+        if (navigateTo) onNavigateRef.current(navigateTo.path);
+      }),
+    [onTurnFinished],
+  );
 
   return null;
 }

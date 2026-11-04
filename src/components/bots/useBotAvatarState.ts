@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { UIMessage } from '@ai-sdk/react';
-import { deriveAvatarState, type AvatarState, type ChatStatus } from '@/lib/bots/avatarState';
+import {
+  deriveAvatarState,
+  type AvatarState,
+  type ChatStatus,
+  type StreamActivity,
+} from '@/lib/bots/avatarState';
 
 /*
  * Whether the composer holds unsent text — the avatar's "listening" cue. A
@@ -26,8 +30,12 @@ function subscribe(listener: () => void): () => void {
 /** How long the avatar stays "happy" after a turn finishes. */
 const HAPPY_MS = 1600;
 
-/** The live avatar state for the transcript's last turn. */
-export function useBotAvatarState(status: ChatStatus, messages: readonly UIMessage[]): AvatarState {
+/**
+ * The live avatar state for the transcript's last turn. `status` and
+ * `activity` are what `useChatStatus()` publishes, so an avatar re-renders
+ * when the turn changes phase, not on every streamed token.
+ */
+export function useBotAvatarState(status: ChatStatus, activity: StreamActivity): AvatarState {
   const hasText = useSyncExternalStore(subscribe, () => composerHasText, () => false);
   const [justFinished, setJustFinished] = useState(false);
   const prevStatus = useRef(status);
@@ -44,11 +52,5 @@ export function useBotAvatarState(status: ChatStatus, messages: readonly UIMessa
     return undefined;
   }, [status]);
 
-  const last = messages[messages.length - 1];
-  return deriveAvatarState({
-    status,
-    lastAssistantParts: last?.role === 'assistant' ? (last.parts as { type: string; state?: string }[]) : null,
-    composerHasText: hasText,
-    justFinished,
-  });
+  return deriveAvatarState({ status, activity, composerHasText: hasText, justFinished });
 }
