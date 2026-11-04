@@ -141,6 +141,7 @@ with a link. The user reviews, edits and presses Send themselves.
 |---|---|
 | Gmail connected, drafts permitted | Saves a draft. Any address may be on it (no platform-user whitelist: a person reads it before it goes out). Body is plain text + escaped HTML in the user's voice — no Investment Brain shell, footer or signature. Attachments (Excel, PDF, PPTX, uploaded-HTML body) ride on the draft. Up to 25 recipients, each a plain address. |
 | User explicitly asked to send **on behalf of Investment Brain** (`send_as_brain: true`) | Really sends through the platform mailer, as before: platform users only. |
+| User asked to email **themselves** ("email me", no other recipient) | The prompt has the model set `send_as_brain: true` and omit `to`, so Brain really sends it to the user's inbox rather than drafting an email to themselves. |
 | Gmail not connected, off for the workspace, or not set up on the deployment | Platform send, as before. |
 | Connected but **without draft permission**, or the connection expired | Nothing is sent *or* saved; the tool says to reconnect. It does **not** quietly fall back to a real send. The model may only use `send_as_brain` if the user asks for it. |
 | Workforce run | Platform send, as before: its config carries no chatting user (and `agentRole: 'workforce'` is refused outright), so there is no mailbox to draft in. |

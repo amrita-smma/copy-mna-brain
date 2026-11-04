@@ -90,7 +90,7 @@ const argsSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      'Set true ONLY when the user explicitly asks to send on behalf of Investment Brain / the platform. Otherwise leave it unset: a user with Gmail connected gets a draft in their own Gmail instead of a sent email.',
+      'Set true when the user asks you to email THEM ("email me", "send me", "mail it to me") with no other recipient, or explicitly asks to send on behalf of Investment Brain / the platform. Otherwise leave it unset: a user with Gmail connected gets a draft in their own Gmail instead of a sent email.',
     ),
   subject: z.string().min(1).max(200).describe('Email subject line.'),
   body: z.string().min(1).max(5000).describe('Plain-text email body (newlines preserved).'),
@@ -428,7 +428,8 @@ export const sendEmailTool = tool(
 ## Where the email goes — read this first
 
 - **If the user has connected their Gmail, this tool does NOT send. It saves the email as a DRAFT in their own Gmail** (Drafts folder) for them to review, edit and send themselves. The draft can be addressed to ANY email address — customers, bankers, external parties — because a person reads it before it goes out. When the result says a draft was saved, tell the user it is waiting in their Gmail Drafts (include the link it gives) and NEVER say the email was sent.
-- Set \`send_as_brain: true\` ONLY when the user explicitly asks to send on behalf of Investment Brain / the platform ("send it from Brain", "have Brain email it"). Then it is really sent via the platform, under the rules in "Platform send" below. Never set it on your own to get around a Gmail error or a reconnect request — relay that to the user instead.
+- **"Email me" goes from Brain.** When the user asks you to email THEM ("email me", "send me", "mail it to me") and names no other recipient, set \`send_as_brain: true\` and omit \`to\`: Investment Brain really sends it to the signed-in user's inbox. A draft addressed to themselves in their own Gmail is not what they asked for.
+- Also set \`send_as_brain: true\` when the user explicitly asks to send on behalf of Investment Brain / the platform ("send it from Brain", "have Brain email it"). Then it is really sent via the platform, under the rules in "Platform send" below. Never set it on your own to get around a Gmail error or a reconnect request — relay that to the user instead. If the email is for anyone other than the user (even alongside them), it is a Gmail draft unless they asked for Brain to send it.
 - If the user has not connected Gmail (or Gmail is off for the workspace), it sends via the platform as described in "Platform send".
 
 **Platform send** (\`send_as_brain: true\`, or no Gmail connected): recipients are restricted to a whitelist — only addresses that belong to a registered platform user (the users table) can be emailed. Omit \`to\` to send to the signed-in user (resolved by the runtime — you do NOT need their address). Any \`to\` address that is not a known platform user is silently skipped and reported back; the email is never delivered to non-platform addresses. Do NOT use the platform send to email customers, bankers, or external parties — draft those in Gmail instead.
@@ -487,12 +488,12 @@ Rules:
 ## Usage
 
 - Plain note to a colleague → just \`to\` + \`subject\` + \`body\`.
-- "Email me the pipeline as a spreadsheet" → \`body\` + \`company_excel\` with no filters (omit \`to\`).
-- "Email me these as a spreadsheet" after you listed a cohort → run \`query_companies\`, then \`body\` + \`company_excel\` with \`company_ids: [<ids from that table>]\`.
-- "Email me a summary and the L1 companies" → \`query_companies\` (stage="L1"), then \`body\` + \`research_summary\` + \`company_excel\` with those \`company_ids\` — ONE email, both attached.
-- "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`query_companies\` (name="X"), then \`body\` + \`company_card\` with \`company_ids: ["<X's id>"]\`. Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
-- "Email me a PowerPoint about X" (a NEW deck, free-form topic) → \`body\` + \`presentation\` (omit \`to\`).
-- "Send this HTML to X", "forward the attached page", "email me this file" (an .html file is attached) → \`lookup_user\` if a person is named, then \`body\` (a one-line note) + \`attached_html\` with \`file_name: "<the attached file>"\`.
+- "Email me the pipeline as a spreadsheet" → \`send_as_brain: true\` + \`body\` + \`company_excel\` with no filters (omit \`to\`).
+- "Email me these as a spreadsheet" after you listed a cohort → run \`query_companies\`, then \`send_as_brain: true\` + \`body\` + \`company_excel\` with \`company_ids: [<ids from that table>]\`.
+- "Email me a summary and the L1 companies" → \`query_companies\` (stage="L1"), then \`send_as_brain: true\` + \`body\` + \`research_summary\` + \`company_excel\` with those \`company_ids\` — ONE email, both attached.
+- "Send me the company detail / company card for X as a PPTX", "email X's card as slides" → \`query_companies\` (name="X"), then \`body\` + \`company_card\` with \`company_ids: ["<X's id>"]\` (plus \`send_as_brain: true\` when it is for the user themselves). Use \`company_card\`, NOT \`presentation\`, whenever the user wants the company's existing card/detail as slides — it reproduces the real card instead of writing a new deck.
+- "Email me a PowerPoint about X" (a NEW deck, free-form topic) → \`send_as_brain: true\` + \`body\` + \`presentation\` (omit \`to\`).
+- "Send this HTML to X", "forward the attached page", "email me this file" (an .html file is attached) → \`lookup_user\` if a person is named, then \`body\` (a one-line note) + \`attached_html\` with \`file_name: "<the attached file>"\` (plus \`send_as_brain: true\` for "email me this file").
 - Mix attachments in ONE call when asked (excel + pdf + pptx + company card).
 
 After the tool returns, write ONE short sentence confirming, or surface its **Error:** verbatim.

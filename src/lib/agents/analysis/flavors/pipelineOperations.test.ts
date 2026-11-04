@@ -14,12 +14,11 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
  * The guide used to be one template literal the prompts interpolated; the
  * topics the reader tool serves must join back into exactly the text the model
  * reads when it asks for the whole thing. If you change the guide ON PURPOSE,
- * update this hash in the same commit. Last change: the promotion procedure
- * moved the EBITDA assessment to the reply after the handoff card, banner
- * first — the model had been writing the assessment into its thinking and
- * skipping the banner.
+ * update this hash in the same commit. Last change: the `send_email` topic
+ * sets `send_as_brain: true` on "email me", so a self-addressed email is sent
+ * from Investment Brain instead of drafted in the user's own Gmail.
  */
-const EXPECTED_GUIDE_HASH = 'a66a2e9f2124e050967e969927e7444b5453c73e77826667a3099fc802925aa6';
+const EXPECTED_GUIDE_HASH = '5c5380f789d797e2f78b0a8f23a507056815fcf8962d359f8adb4d36d45ab50a';
 
 describe('MNA_PIPELINE_OPERATIONS_GUIDE', () => {
   it('is the topics joined in prompt order, pinned byte for byte', () => {

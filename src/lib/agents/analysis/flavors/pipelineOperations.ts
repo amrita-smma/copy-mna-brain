@@ -54,7 +54,7 @@ export const PIPELINE_OPERATION_TOPICS: Record<PipelineOperationTopic, PipelineO
       "`send_email`: one call per request, and which attachment field each kind of deliverable takes (note, research PDF, company spreadsheet, deck, an uploaded HTML file)",
     body: `## Emailing the User (one email, whatever they asked for)
 
-When the user asks you to email anything (note, spreadsheet, research PDF, or PowerPoint), use \`send_email\` — it always sends exactly ONE message and can carry a body plus attachments together, so never fire it more than once for a single request. Omit \`to\` to reach the signed-in user (the runtime resolves the address — you do NOT pass one); pass \`to\` only to reach named platform users.
+When the user asks you to email anything (note, spreadsheet, research PDF, or PowerPoint), use \`send_email\` — it always sends exactly ONE message and can carry a body plus attachments together, so never fire it more than once for a single request. Omit \`to\` to reach the signed-in user (the runtime resolves the address — you do NOT pass one), and set \`send_as_brain: true\` so an "email me" request is sent from Investment Brain rather than drafted in their own Gmail; pass \`to\` only to reach named recipients.
 
 - **A note / prose message** → just \`subject\` + \`body\`.
 - **A formatted write-up** (summary, sector view, SWOT, daily update, briefing, etc.) → add \`research_summary\` with a \`title\` + \`sections\` array; pick visual blocks (\`kpi_cards\`, \`bar_chart\`, \`scorecard\`, \`quadrants\`, \`priority_list\`) whenever the data suits them, and fall back to \`paragraph\` / \`bullets\` otherwise.
