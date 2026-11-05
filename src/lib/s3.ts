@@ -62,11 +62,11 @@ function createS3Client(kind: ClientKind = 'internal'): S3Client {
     region: env.region,
     ...(hasExplicitCredentials
       ? {
-          credentials: {
+          credentials: env.accessKeyId ? {
             accessKeyId: env.accessKeyId!,
             secretAccessKey: env.secretAccessKey!,
             ...(env.sessionToken ? { sessionToken: env.sessionToken } : {}),
-          },
+          } : undefined,
         }
       : {}),
     ...(endpoint && { endpoint }),
