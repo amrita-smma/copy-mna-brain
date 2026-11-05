@@ -1,7 +1,6 @@
 import { Signer } from '@aws-sdk/rds-signer';
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import { attachDatabasePool } from '@vercel/functions/db-connections';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/lib/db/schema';
@@ -145,7 +144,6 @@ export function createPgPoolFromEnv(): Pool {
   }
 
   // Prevents idle connections from keeping the Vercel function suspended and leaking connections
-  attachDatabasePool(pool);
   
   return pool;
 }
