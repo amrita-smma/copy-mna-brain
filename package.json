@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "launchpad:queue-worker": "node launchpad/queue-worker.mjs",
     "dev": "next dev",
     "build": "next build",
     "changelog:generate": "tsx scripts/generate-changelog.ts",
@@ -43,6 +44,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "pg-boss": "10.4.2",
     "@workflow/world-postgres": "4.3.1",
     "@ai-sdk/langchain": "^2.0.72",
     "@ai-sdk/react": "^3.0.64",
