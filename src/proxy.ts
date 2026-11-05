@@ -1,6 +1,5 @@
 import NextAuth from 'next-auth';
-import { NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
+import { NextResponse, after } from 'next/server';
 import { authConfig } from '@/auth.config';
 import { loginUrlWithCallback, consentUrlWithCallback } from '@/lib/callbackUrl';
 import { isIngestPath, stripCredentialHeaders } from '@/lib/posthog-proxy';
@@ -200,7 +199,7 @@ export function recordActivity(req: ActivityRequest): void {
       bucket,
     });
 
-    waitUntil(sendHeartbeat(url, payload, fetch));
+    after(() => sendHeartbeat(url, payload, fetch));
   } catch {
     // Telemetry must never break a request.
   }

@@ -1,5 +1,5 @@
+import { after } from "next/server";
 import { PostHog } from 'posthog-node';
-import { waitUntil } from '@vercel/functions';
 
 let posthogClient: PostHog | null = null;
 
@@ -48,7 +48,7 @@ export function flushPostHog(): Promise<void> {
  */
 function keepAlive(promise: Promise<unknown>): void {
   try {
-    waitUntil(promise);
+    after(() => promise);
   } catch {
     // Not running on Vercel — nothing to extend.
   }
