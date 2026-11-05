@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { enqueueSendEmail, TOPICS } from './queue';
 
-vi.mock('@vercel/queue', () => ({
+vi.mock('../../launchpad/queue', () => ({
   send: vi.fn().mockResolvedValue({ messageId: 'msg-1' }),
 }));
 
@@ -14,7 +14,7 @@ describe('enqueueSendEmail', () => {
       appUrl: 'https://app.example.com',
     });
 
-    const { send } = await import('@vercel/queue');
+    const { send } = await import('../../launchpad/queue');
     expect(send).toHaveBeenCalledWith('send-email', {
       kind: 'forgot_password',
       to: 'user@example.com',

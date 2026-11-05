@@ -1,4 +1,4 @@
-import { handleCallback } from '@vercel/queue';
+import { handleCallback } from '../../../../../launchpad/queue';
 import {
   runSendEmail,
   SEND_EMAIL_TIMEOUT_SECONDS,

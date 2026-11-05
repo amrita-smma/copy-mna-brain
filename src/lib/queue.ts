@@ -20,7 +20,7 @@ export type TopicName = (typeof TOPICS)[keyof typeof TOPICS];
  * the upstream package.
  */
 async function vercelSend<T>(topic: TopicName, payload: T): Promise<{ messageId: string | null }> {
-  const { send } = await import('@vercel/queue');
+  const { send } = await import('../../launchpad/queue');
   return send<T>(topic, payload);
 }
 

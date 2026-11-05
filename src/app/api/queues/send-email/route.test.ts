@@ -8,7 +8,7 @@ const handleCallbackMock = vi.fn((handler: unknown, options: unknown) => ({
   options,
 }));
 
-vi.mock('@vercel/queue', () => ({
+vi.mock('../../../../../launchpad/queue', () => ({
   handleCallback: handleCallbackMock,
 }));
 
