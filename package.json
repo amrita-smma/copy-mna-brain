@@ -43,6 +43,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@workflow/world-postgres": "4.3.1",
     "@ai-sdk/langchain": "^2.0.72",
     "@ai-sdk/react": "^3.0.64",
     "@anthropic-ai/sdk": "^0.74.0",
