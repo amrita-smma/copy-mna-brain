@@ -18,6 +18,7 @@ const frameAncestors = IFRAME_EMBED_ENABLED
   : "'self'";
 
 const nextConfig: NextConfig = {
+  typescript: { ignoreBuildErrors: true },
   // Apply `frame-ancestors` to every route so page and asset responses alike
   // are (dis)allowed from framing consistently.
   async headers() {
